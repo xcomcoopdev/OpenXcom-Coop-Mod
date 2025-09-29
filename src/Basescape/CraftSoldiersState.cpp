@@ -38,14 +38,22 @@
 #include "../Savegame/SavedGame.h"
 #include "SoldierInfoState.h"
 #include "../Mod/Armor.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Mod/RuleSoldier.h"
 #include "../Mod/RuleInterface.h"
 #include "../Engine/Unicode.h"
 #include "../Battlescape/BattlescapeGenerator.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "CraftInfoState.h"
+
+#include "../CoopMod/CoopMenu.h"
+#include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
 {
+
+std::vector<Soldier*> base__oldsoldiers2;
 
 /**
  * Initializes all the elements in the Craft Soldiers screen.
@@ -61,6 +69,12 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	if (c && !c->getRules()->isForNewBattle())
 	{
 		// no battlescape map available
+		hidePreview = true;
+	}
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
 		hidePreview = true;
 	}
 
@@ -174,6 +188,28 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	_lstSoldiers->onRightArrowClick((ActionHandler)&CraftSoldiersState::lstItemsRightArrowClick);
 	_lstSoldiers->onMouseClick((ActionHandler)&CraftSoldiersState::lstSoldiersClick, 0);
 	_lstSoldiers->onMousePress((ActionHandler)&CraftSoldiersState::lstSoldiersMousePress);
+
+	// Coop mode: if the game is in coop and this base is not a coop base
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+		std::vector<Soldier*> coopSoldiers;
+
+		base__oldsoldiers2 = *_base->getSoldiers();
+
+		for (auto* soldier : *_base->getSoldiers())
+		{
+			if (soldier->getCoopBase() == -1)
+			{
+				// Add all soldiers that do NOT belong to a coop base
+				coopSoldiers.push_back(soldier);
+			}
+		}
+
+		// Replace the contents of the original soldier list
+		*_base->getSoldiers() = coopSoldiers;
+	}
+
+
 }
 
 /**
@@ -284,6 +320,14 @@ void CraftSoldiersState::cbxSortByChange(Action *)
  */
 void CraftSoldiersState::btnOkClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+		// coop
+		*_base->getSoldiers() = base__oldsoldiers2;
+	}
+
 	_game->popState();
 }
 
@@ -335,8 +379,22 @@ void CraftSoldiersState::initList(size_t scrl)
 
 	Craft *c = _base->getCrafts()->at(_craft);
 	BaseSumDailyRecovery recovery = _base->getSumRecoveryPerDay();
-	for (const auto* soldier : *_base->getSoldiers())
+
+	// coop
+	for (auto* soldier : *_base->getSoldiers())
 	{
+
+		//  coop
+		if (soldier->getCoopBase() != -1 && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+			continue;
+		}
+
+		if (soldier->getCoopBase() == -1 && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+			continue;
+		}
+
 		if (_dynGetter != NULL)
 		{
 			// call corresponding getter
@@ -512,6 +570,7 @@ void CraftSoldiersState::lstSoldiersClick(Action *action)
 	{
 		Craft *c = _base->getCrafts()->at(_craft);
 		Soldier *s = _base->getSoldiers()->at(_lstSoldiers->getSelectedRow());
+
 		if (s->getCraft() == c)
 		{
 			s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);

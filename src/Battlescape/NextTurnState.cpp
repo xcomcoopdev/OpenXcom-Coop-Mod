@@ -60,6 +60,15 @@ namespace OpenXcom
  */
 NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *state) : _battleGame(battleGame), _state(state), _timer(0), _currentTurn(0), _showBriefing(false)
 {
+	
+	//coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		_game->getCoopMod()->_battleWindow = true;
+
+	}
+	
 	if (_battleGame->isPreview())
 	{
 		// skip everything, go straight to init()
@@ -310,6 +319,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
  */
 NextTurnState::~NextTurnState()
 {
+
 	delete _timer;
 }
 
@@ -512,6 +522,7 @@ void NextTurnState::think()
  */
 void NextTurnState::close()
 {
+
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
@@ -537,7 +548,9 @@ void NextTurnState::close()
 
 	// not "escort the VIPs" missions, not the final mission and all aliens dead.
 	bool killingAllAliensIsNotEnough = _battleGame->getObjectiveType() == MUST_DESTROY || (_battleGame->getVIPSurvivalPercentage() > 0 && _battleGame->getVIPEscapeType() != ESCAPE_NONE);
-	if ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0)
+
+	// coop
+	if ((!killingAllAliensIsNotEnough && (tally.liveAliens == 0 && connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)) || tally.liveSoldiers == 0)
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
 	}
@@ -548,6 +561,25 @@ void NextTurnState::close()
 		// Try to reactivate the touch buttons at the start of the player's turn
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
+
+			// coop resets
+			if (_game->getCoopMod()->getCoopStatic() == true)
+			{
+
+				_game->getCoopMod()->_battleInit = false;
+			}
+
+			// Auto save after (only HOST)
+			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+			{
+
+				SavedGame* newsave = new SavedGame(*_game->getSavedGame());
+
+				newsave->setName("coop_mission");
+
+				newsave->save("coop_mission.sav", _game->getMod());
+			}
+
 			_state->toggleTouchButtons(false, true);
 		}
 

@@ -42,6 +42,9 @@
 #include "../Mod/AlienRace.h"
 #include "../Mod/Mod.h"
 #include "../Mod/Texture.h"
+#include "../Basescape/CraftSoldiersState.h"
+
+#include "../CoopMod/CoopMenu.h"
 
 namespace OpenXcom
 {
@@ -237,6 +240,117 @@ std::string ConfirmLandingState::checkStartingCondition()
  */
 void ConfirmLandingState::btnYesClick(Action *)
 {
+
+	if (connectionTCP::getCoopStatic() == true)
+	{
+
+		if (_game->getCoopMod()->getHost() == true)
+		{
+			_game->getCoopMod()->setSelectedCraft(_craft);
+			_game->getCoopMod()->setConfirmLandingState(this);
+			CoopState *coopWindow = new CoopState(88);
+			_game->pushState(coopWindow);
+
+		}
+		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
+		else
+		{
+
+			Json::Value root;
+
+			root["state"] = "changeHost";
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+			_game->getCoopMod()->setHost(true);
+
+			_game->getCoopMod()->setSelectedCraft(_craft);
+			_game->getCoopMod()->setConfirmLandingState(this);
+
+			// fix
+			CoopState* coopWindow = new CoopState(88);
+			_game->pushState(coopWindow);
+		
+
+		}
+
+
+	}
+	else
+	{
+
+		std::string message = checkStartingCondition();
+		if (!message.empty())
+		{
+			_craft->returnToBase();
+			_game->popState();
+			_game->pushState(new CraftErrorState(0, message));
+			return;
+		}
+
+		_game->popState();
+		Ufo *u = dynamic_cast<Ufo *>(_craft->getDestination());
+		MissionSite *m = dynamic_cast<MissionSite *>(_craft->getDestination());
+		AlienBase *b = dynamic_cast<AlienBase *>(_craft->getDestination());
+
+		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+		_game->getSavedGame()->setBattleGame(bgame);
+		BattlescapeGenerator bgen(_game);
+		bgen.setWorldTexture(_missionTexture, _globeTexture);
+		bgen.setWorldShade(_shade);
+		bgen.setCraft(_craft);
+		if (u != 0)
+		{
+			if (u->getStatus() == Ufo::CRASHED)
+				bgame->setMissionType("STR_UFO_CRASH_RECOVERY");
+			else
+				bgame->setMissionType("STR_UFO_GROUND_ASSAULT");
+			bgen.setUfo(u);
+			const AlienDeployment *customWeaponDeploy = _game->getMod()->getDeployment(u->getCraftStats().craftCustomDeploy);
+			if (_missionTexture && _missionTexture->isFakeUnderwater())
+			{
+				const std::string ufoUnderwaterMissionName = u->getRules()->getType() + "_UNDERWATER";
+				const AlienDeployment *ufoUnderwaterMission = _game->getMod()->getDeployment(ufoUnderwaterMissionName, true);
+				bgen.setAlienCustomDeploy(customWeaponDeploy, ufoUnderwaterMission);
+			}
+			else
+			{
+				bgen.setAlienCustomDeploy(customWeaponDeploy);
+			}
+			bgen.setAlienRace(u->getAlienRace());
+		}
+		else if (m != 0)
+		{
+			bgame->setMissionType(m->getDeployment()->getType());
+			bgen.setMissionSite(m);
+			bgen.setAlienCustomDeploy(m->getMissionCustomDeploy());
+			bgen.setAlienRace(m->getAlienRace());
+		}
+		else if (b != 0)
+		{
+			AlienRace *race = _game->getMod()->getAlienRace(b->getAlienRace());
+			bgame->setMissionType(b->getDeployment()->getType());
+			bgen.setAlienBase(b);
+			bgen.setAlienRace(b->getAlienRace());
+			bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(race->getBaseCustomDeploy()), _game->getMod()->getDeployment(race->getBaseCustomMission()));
+			bgen.setWorldTexture(0, _globeTexture);
+		}
+		else
+		{
+			throw Exception("No mission available!");
+		}
+
+		bgen.run();
+		_game->pushState(new BriefingState(_craft));
+
+
+	}
+
+}
+
+void ConfirmLandingState::startCoopMission()
+{
+
 	std::string message = checkStartingCondition();
 	if (!message.empty())
 	{
@@ -246,7 +360,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 		return;
 	}
 
-	_game->popState();
+	//_game->popState();
 	Ufo* u = dynamic_cast<Ufo*>(_craft->getDestination());
 	MissionSite* m = dynamic_cast<MissionSite*>(_craft->getDestination());
 	AlienBase* b = dynamic_cast<AlienBase*>(_craft->getDestination());
@@ -298,7 +412,11 @@ void ConfirmLandingState::btnYesClick(Action *)
 		throw Exception("No mission available!");
 	}
 	bgen.run();
-	_game->pushState(new BriefingState(_craft));
+	//_game->pushState(new BriefingState(_craft));
+
+	BriefingState* bri = new BriefingState(_craft);
+	bri->setupCoop();
+
 }
 
 /**

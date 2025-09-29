@@ -1178,7 +1178,30 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				{
 					soldier->clearEquipmentLayout();
 				}
+
+
+				// if pve2
+				if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->getCoopStatic() == true)
+				{
+					// coop
+					int nextUnitId = 2000000;
+					soldier->setId(soldier->getId() + nextUnitId);
+
+					if (soldier->getGender() == GENDER_MALE)
+					{
+						soldier->_cooptype = "MALE_CIVILIAN";
+					}
+					else
+					{
+						soldier->_cooptype = "FEMALE_CIVILIAN";
+					}
+
+		
+
+				}
+
 				BattleUnit *unit = addXCOMUnit(new BattleUnit(_game->getMod(), soldier, _save->getDepth(), _save->getStartingCondition()));
+
 				if (unit && !_save->getSelectedUnit())
 					_save->setSelectedUnit(unit);
 			}
@@ -1419,10 +1442,27 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod *mod, s
  */
 BattleUnit *BattlescapeGenerator::addXCOMVehicle(Vehicle *v)
 {
+	
+	// coop
+	if (v->getCoopBase() != -1)
+	{
+		return 0;
+	}
+
 	const Unit *rule = v->getRules()->getVehicleUnit();
 	BattleUnit *unit = addXCOMUnit(_save->createTempUnit(rule, FACTION_PLAYER, _unitSequence++));
+
 	if (unit)
 	{
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true && v->getCoop() != 0)
+		{
+
+			// unit->setName("client#tank");
+			unit->setCoop(v->getCoop());
+		}
+
 		if (!_save->isPreview())
 		{
 			_save->createItemForUnit(v->getRules(), unit, true);

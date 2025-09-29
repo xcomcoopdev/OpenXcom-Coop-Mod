@@ -98,13 +98,16 @@ public:
 	int getHours() const;
 	/// Gets the quantity of the transfer.
 	int getQuantity() const;
+	// coop
+	int getEngineers();
+	int getScientists();
 	/// Gets the type of the transfer.
 	TransferType getType() const;
 	/// Advances the transfer.
 	void advance(Base *base);
 	/// Get a pointer to the soldier being transferred.
 	Soldier *getSoldier();
-
+	std::string coopSoldierID();
 };
 
 }

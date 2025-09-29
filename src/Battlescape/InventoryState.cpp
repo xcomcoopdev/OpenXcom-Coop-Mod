@@ -330,6 +330,18 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtStatLine2->setVisible(Options::showMoreStatsInInventoryView && !_tu);
 	_txtStatLine3->setVisible(Options::showMoreStatsInInventoryView && !_tu);
 	_txtStatLine4->setVisible(Options::showMoreStatsInInventoryView && !_tu);
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+	{
+
+		_btnCreateTemplate->setVisible(false);
+		_btnUnload->setVisible(false);
+		_btnApplyTemplate->setVisible(false);
+
+	}
+
+
 }
 
 static void _clearInventoryTemplate(std::vector<EquipmentLayoutItem*> &inventoryTemplate)
@@ -1051,7 +1063,7 @@ void InventoryState::btnGlobalEquipmentLayoutClick(Action *action)
 * Opens the InventoryLoad screen.
 * @param action Pointer to an action.
 */
-void InventoryState::btnInventoryLoadClick(Action *)
+void InventoryState::btnInventoryLoadClick(Action*)
 {
 	// cannot use this feature during the mission!
 	if (_tu)
@@ -1072,7 +1084,7 @@ void InventoryState::btnInventoryLoadClick(Action *)
 * Opens the InventorySave screen.
 * @param action Pointer to an action.
 */
-void InventoryState::btnInventorySaveClick(Action *)
+void InventoryState::btnInventorySaveClick(Action*)
 {
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
@@ -1087,7 +1099,7 @@ void InventoryState::btnInventorySaveClick(Action *)
  * Opens the Ufopaedia.
  * @param action Pointer to an action.
  */
-void InventoryState::btnUfopaediaClick(Action *)
+void InventoryState::btnUfopaediaClick(Action*)
 {
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
@@ -1102,8 +1114,9 @@ void InventoryState::btnUfopaediaClick(Action *)
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
-void InventoryState::btnOkClick(Action *)
+void InventoryState::btnOkClick(Action*)
 {
+
 	if (_inv->getSelectedItem() != 0)
 		return;
 	_game->popState();
@@ -1156,6 +1169,13 @@ void InventoryState::btnPrevClick(Action *)
 		_battleGame->selectPreviousPlayerUnit(false, false, true);
 	}
 	init();
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_inv->drawGrid();
+	}
+
 }
 
 /**
@@ -1177,6 +1197,14 @@ void InventoryState::btnNextClick(Action *)
 		_battleGame->selectNextPlayerUnit(false, false, true);
 	}
 	init();
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_inv->drawGrid();
+	}
+
+
 }
 
 /**

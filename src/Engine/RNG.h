@@ -35,7 +35,8 @@ namespace RNG
 	class RandomState
 	{
 		 uint64_t _seedState;
-
+		 // coop
+		 uint64_t _randomCoopSeed = 7795863650410510951;
 	public:
 		/// Default constructor initializing the seed by time and this type address.
 		RandomState();
@@ -43,7 +44,8 @@ namespace RNG
 		explicit RandomState(uint64_t seed);
 		/// Get current seed.
 		uint64_t getSeed() const;
-
+		// coop
+		void setCoopSeed(uint64_t n);
 		/// Get next random number.
 		uint64_t next();
 		/// Generates a random integer number, inclusive.
@@ -62,8 +64,12 @@ namespace RNG
 
 	/// Gets the seed in use.
 	uint64_t getSeed();
+	// coop
+	uint64_t getCoopRandom(uint64_t num);
 	/// Sets the seed in use.
 	void setSeed(uint64_t n);
+	// coop
+	void setCoopSeed(uint64_t n);
 	/// Get state.
 	RandomState& globalRandomState();
 	/// Generates a random integer number, inclusive.

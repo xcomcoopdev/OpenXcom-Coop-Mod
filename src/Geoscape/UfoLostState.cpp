@@ -71,7 +71,6 @@ UfoLostState::UfoLostState(const std::string &id) : _id(id)
  */
 UfoLostState::~UfoLostState()
 {
-
 }
 
 /**

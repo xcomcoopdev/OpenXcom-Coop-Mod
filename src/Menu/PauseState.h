@@ -26,6 +26,7 @@ namespace OpenXcom
 class TextButton;
 class Window;
 class Text;
+class GeoscapeState;
 
 /**
  * Options window shown for loading/saving/quitting the game.
@@ -36,7 +37,7 @@ class PauseState : public State
 {
 private:
 	OptionsOrigin _origin;
-	TextButton *_btnLoad, *_btnSave, *_btnAbandon, *_btnOptions, *_btnCancel;
+	TextButton *_btnLoad, *_btnSave, *_btnAbandon, *_btnOptions, *_btnCancel, *_btnCoop;
 	Window *_window;
 	Text *_txtTitle;
 public:
@@ -54,6 +55,9 @@ public:
 	void btnOptionsClick(Action *action);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
+	/// coop button
+	void btnCoopClick(Action *action);
+	void setGeo(GeoscapeState *geostate);
 };
 
 }

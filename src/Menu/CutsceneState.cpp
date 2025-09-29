@@ -38,6 +38,24 @@ CutsceneState::CutsceneState(const std::string &cutsceneId)
 	: _cutsceneId(cutsceneId)
 {
 	// empty
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->allow_cutscene == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "cutscene";
+		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
+		root["cutsceneId"] = cutsceneId;
+		root["ending"] = (int)_game->getSavedGame()->getEnding();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
+	_game->getCoopMod()->allow_cutscene = true;
+
 }
 
 CutsceneState::~CutsceneState()

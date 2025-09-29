@@ -19,6 +19,9 @@
 #include "InteractiveSurface.h"
 #include "Action.h"
 
+// coop
+#include "../CoopMod/connectionTCP.h"
+
 namespace OpenXcom
 {
 
@@ -360,6 +363,13 @@ void InteractiveSurface::mouseOut(Action *action, State *state)
  */
 void InteractiveSurface::keyboardPress(Action *action, State *state)
 {
+
+	// coop
+	if (connectionTCP::_isChatActiveStatic == true)
+	{
+		return;
+	}
+
 	auto allHandler = _keyPress.find(SDLK_ANY);
 	auto oneHandler = _keyPress.find(action->getDetails()->key.keysym.sym);
 	if (allHandler != _keyPress.end())
@@ -385,6 +395,13 @@ void InteractiveSurface::keyboardPress(Action *action, State *state)
  */
 void InteractiveSurface::keyboardRelease(Action *action, State *state)
 {
+
+	// coop
+	if (connectionTCP::_isChatActiveStatic == true)
+	{
+		return;
+	}
+
 	auto allHandler = _keyRelease.find(SDLK_ANY);
 	auto oneHandler = _keyRelease.find(action->getDetails()->key.keysym.sym);
 	if (allHandler != _keyRelease.end())

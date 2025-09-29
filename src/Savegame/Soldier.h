@@ -70,6 +70,7 @@ private:
 	Craft *_craft;
 	SoldierGender _gender;
 	SoldierLook _look;
+	int _coop = 0;
 	int _lookVariant;
 	int _missions, _kills, _stuns;
 	int _healthMissing = 0; // amount of health missing until full health recovery, this is less serious than wound recovery.
@@ -89,7 +90,25 @@ private:
 	std::map<std::string, int> _previousTransformations, _transformationBonuses;
 	std::vector<const RuleSoldierBonus*> _bonusCache;
 	ScriptValues<Soldier> _scriptValues;
-public:
+	// coop
+	int _coopbase = -1;
+	int _coopcraft = -1;
+	std::string _coopname;
+	std::string _coopcraft_type;
+  public:
+	void setCoopCraft(int craft);
+	int getCoopCraft() const;
+	void setCoopCraftType(std::string type);
+	std::string getCoopCraftType() const;
+	std::string _cooptype = "none";
+	void setCoopBase(int coopbase);
+	int getCoopBase() const;
+	void setCoop(int coop);
+	int getCoop() const;
+	std::string getCoopName();
+	void setCoopName(std::string name);
+	void setCoopRank(SoldierRank rank) { _rank = rank; };
+	std::string coopSoldierID();
 	/// Creates a new soldier.
 	Soldier(RuleSoldier *rules, Armor *armor, int nationality, int id = 0);
 	/// Cleans up the soldier.
@@ -233,6 +252,10 @@ public:
 	/// Gets the soldier's equipment-layout.
 	std::vector<EquipmentLayoutItem*> *getEquipmentLayout();
 	std::vector<EquipmentLayoutItem*> *getPersonalEquipmentLayout() { return &_personalEquipmentLayout; }
+
+	// coop
+	void setEquipmentLayout(std::vector<EquipmentLayoutItem*>* newLayout) { _equipmentLayout = *newLayout; }
+
 	/// Gets the soldier's personal equipment armor.
 	const Armor* getPersonalEquipmentArmor() const { return _personalEquipmentArmor; }
 	/// Sets the soldier's personal equipment armor.
@@ -300,7 +323,10 @@ public:
 	/// Resets the daily dogfight experience cache.
 	void resetDailyDogfightExperienceCache();
 
-private:
+	// sets id
+	void setId(int _id);
+	Soldier* deepCopy(const Mod* mod, SavedGame* save) const;
+  private:
 	std::string generateCallsign(const std::vector<SoldierNamePool*> &names);
 	/// Automatically move equipment between the craft and the base when assigning/deassigning/reassigning soldiers.
 	void autoMoveEquipment(Craft* craft, Base* base, int toBase);

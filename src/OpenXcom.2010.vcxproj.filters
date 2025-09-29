@@ -1151,6 +1151,21 @@
     <ClCompile Include="Battlescape\ExperienceOverviewState.cpp">
       <Filter>Battlescape</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\ChatMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\connectionTCP.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\CoopMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\CoopState.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\Profile.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2366,6 +2381,21 @@
     <ClInclude Include="Battlescape\ExperienceOverviewState.h">
       <Filter>Battlescape</Filter>
     </ClInclude>
+    <ClInclude Include="CoopMod\ChatMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\connectionTCP.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CoopMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CoopState.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\Profile.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Geoscape">
@@ -2400,6 +2430,9 @@
     </Filter>
     <Filter Include="Mod">
       <UniqueIdentifier>{ea5b1e9f-9ff1-457d-9a15-5af8773ccb50}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="CoopMod">
+      <UniqueIdentifier>{ff0288e4-c5f0-4710-b546-48350f28abe3}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

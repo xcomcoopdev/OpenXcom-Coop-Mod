@@ -31,6 +31,7 @@ namespace OpenXcom
  */
 Target::Target() : _lon(0.0), _lat(0.0), _id(0)
 {
+
 }
 
 /**
@@ -38,6 +39,7 @@ Target::Target() : _lon(0.0), _lat(0.0), _id(0)
  */
 Target::~Target()
 {
+
 	for (auto* follower : getCraftFollowers())
 	{
 		follower->returnToBase();

@@ -138,7 +138,8 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 	for (auto* soldier : *_baseFrom->getSoldiers())
 	{
 		if (_debriefingState) break;
-		if (soldier->getCraft() == 0)
+		// coop
+		if (soldier->getCraft() == 0 && soldier->getCoopBase() == -1)
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), (int)(5 * _distance), 1, 0, 0, -4, 0, 0, (int)(5 * _distance) };
 			_items.push_back(row);
@@ -483,7 +484,8 @@ void TransferItemsState::updateList()
  */
 void TransferItemsState::btnOkClick(Action *)
 {
-	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0))
+	// COOP
+	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0) && _baseTo->_coopBase == false)
 	{
 		// check again (because of items with negative size)
 		// But only check the base whose available space is decreasing.
@@ -496,6 +498,9 @@ void TransferItemsState::btnOkClick(Action *)
 			return;
 		}
 	}
+
+	// coop
+	_baseTo->old_bases = _baseFrom->old_bases;
 
 	_game->pushState(new TransferConfirmState(_baseTo, this));
 }
@@ -517,23 +522,34 @@ void TransferItemsState::completeTransfer()
 			switch (transferRow.type)
 			{
 			case TRANSFER_SOLDIER:
+
 				for (auto soldierIt = _baseFrom->getSoldiers()->begin(); soldierIt != _baseFrom->getSoldiers()->end(); ++soldierIt)
 				{
-					soldier = (*soldierIt);
-					if (soldier == transferRow.rule)
-					{
-						soldier->setPsiTraining(false);
-						if (soldier->isInTraining())
+						soldier = (*soldierIt);
+						if (soldier == transferRow.rule)
 						{
-							soldier->setReturnToTrainingWhenHealed(true);
+							soldier->setPsiTraining(false);
+							if (soldier->isInTraining())
+							{
+								soldier->setReturnToTrainingWhenHealed(true);
+							}
+							soldier->setTraining(false);
+							t = new Transfer(time);
+							t->setSoldier(soldier);
+
+							_baseTo->getTransfers()->push_back(t);
+
+							// coop
+							if (_baseTo->_coopIcon == false)
+							{
+								_baseFrom->getSoldiers()->erase(soldierIt);
+							}
+
+							break;
+
 						}
-						soldier->setTraining(false);
-						t = new Transfer(time);
-						t->setSoldier(soldier);
-						_baseTo->getTransfers()->push_back(t);
-						_baseFrom->getSoldiers()->erase(soldierIt);
-						break;
-					}
+						
+		
 				}
 				break;
 			case TRANSFER_CRAFT:
@@ -625,6 +641,111 @@ void TransferItemsState::completeTransfer()
 	{
 		_debriefingState->hideSellTransferButtons();
 	}
+
+	// COOP
+	// COOP (Transportation of goods for export)
+	if (_baseTo->_coopBase == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "transfer";
+		root["base"] = _baseTo->getName();
+
+
+		int index = 0;
+
+		// fix
+		if (!_baseTo->getTransfers())
+		{
+			return;
+		}
+
+		// Iterating through transfers
+		for (auto trade : *_baseTo->getTransfers())
+		{
+
+			if (!trade) // check if not NULL
+				continue;
+
+			for (int i = 0; i < trade->getQuantity(); i++)
+			{
+				// rajaus
+				if (trade->getType() == TRANSFER_SOLDIER)
+				{
+					_baseTo->coop_soldiers--;
+					_baseTo->coop_quarters--;
+				}
+				else if (trade->getType() == TRANSFER_CRAFT)
+				{
+					_baseTo->coop_hangar--;
+				}
+				else if (trade->getType() == TRANSFER_ITEM)
+				{
+					_baseTo->coop_stores--;
+				}
+				else if (trade->getType() == TRANSFER_ENGINEER)
+				{
+					_baseTo->coop_quarters--;
+				}
+				else if (trade->getType() == TRANSFER_SCIENTIST)
+				{
+					_baseTo->coop_quarters--;
+				}
+			}
+
+		
+
+			// sending
+			std::string item_name = "";
+
+			int item_amount = trade->getQuantity();
+			int hour = trade->getHours();
+
+			if (trade->getType() == TRANSFER_SOLDIER)
+			{
+				// Let's make a co-op soldier
+				trade->getSoldier()->setCoopBase(_baseTo->_coop_base_id);
+			}
+			else if (trade->getType() == TRANSFER_CRAFT)
+			{
+				root["items"][index]["craft_rule"] = trade->getCraft()->getRules()->getType();
+			}
+			else if (trade->getType() == TRANSFER_SCIENTIST)
+			{
+				item_amount = trade->getScientists();
+			}
+			else if (trade->getType() == TRANSFER_ENGINEER)
+			{
+				item_amount = trade->getEngineers();
+			}
+			// TRANSFER_ITEM
+			else
+			{
+				item_name = trade->getItems()->getName();
+				trade->getQuantity();
+			}
+
+			root["items"][index]["amount"] = item_amount;
+			root["items"][index]["hour"] = hour;
+			root["items"][index]["type"] = (int)trade->getType();
+			root["items"][index]["craft_rule"] = "";
+			root["items"][index]["name"] = item_name;
+
+
+
+			index++;
+		}
+
+
+		// Send to the other player
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		_baseTo->getTransfers()->clear();
+
+	}
+
+
 }
 
 /**
@@ -896,7 +1017,8 @@ void TransferItemsState::increaseByValue(int change)
 		break;
 	}
 
-	if (errorMessage.empty())
+	// COOP 
+	if (errorMessage.empty() || _baseTo->_coopBase == true)
 	{
 		int freeQuarters = _baseTo->getAvailableQuarters() - _baseTo->getUsedQuarters() - _pQty;
 		switch (getRow().type)

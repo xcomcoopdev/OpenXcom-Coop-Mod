@@ -35,8 +35,13 @@
 #include "SavedGame.h"
 #include "Waypoint.h"
 
+#include "../Engine/Game.h"
+
 namespace OpenXcom
 {
+
+// coop
+bool once = false;
 
 const char *Ufo::ALTITUDE_STRING[] = {
 	"STR_GROUND",
@@ -82,8 +87,22 @@ Ufo::Ufo(const RuleUfo *rules, int uniqueId, int hunterKillerPercentage, int hun
  */
 Ufo::~Ufo()
 {
+
 	if (_mission)
 	{
+
+		// coop
+		if (connectionTCP::getCoopStatic() == true && _mission->getRules().getObjective() != OBJECTIVE_SITE)
+		{
+
+			Json::Value root;
+			root["state"] = "remove_target";
+			root["lan"] = _lat;
+			root["lon"] = _lon;
+
+			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+		}
+
 		_mission->decreaseLiveUfos();
 	}
 
@@ -595,7 +614,27 @@ void Ufo::setAltitude(const std::string &altitude)
 	else
 	{
 		_status = isCrashed() ? CRASHED : LANDED;
+
+		// COOP
+		if (_detected == true)
+		{
+
+			Json::Value root;
+
+			root["state"] = "mission";
+			root["rules"] = _mission->getRules().getType();
+			root["deployment"] = _mission->getRules().getSiteType();
+			root["race"] = _mission->getRace();
+			root["city"] = "";
+			root["time"] = 5000;
+			root["lon"] = _lon;
+			root["lat"] = _lat;
+
+			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+		}
+
 	}
+
 }
 
 /**
@@ -714,9 +753,25 @@ void Ufo::calculateSpeed()
  */
 void Ufo::think()
 {
+
 	switch (_status)
 	{
 	case FLYING:
+
+		// coop
+		if (connectionTCP::getCoopStatic() == true && once == false && _detected == true)
+		{
+
+			once = true;
+
+			Json::Value root;
+			root["state"] = "remove_target";
+			root["lan"] = _lat;
+			root["lon"] = _lon;
+
+			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+		}
+
 		move();
 		if (reachedDestination() && !isHunting() && !isEscorting())
 		{
@@ -725,10 +780,15 @@ void Ufo::think()
 		}
 		break;
 	case LANDED:
+		// coop
+		once = false;
+
 		assert(_secondsRemaining >= 5 && "Wrong time management.");
 		_secondsRemaining -= 5;
 		break;
 	case CRASHED:
+		// coop
+		once = false;
 		if (!_detected)
 		{
 			_detected = true;

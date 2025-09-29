@@ -227,6 +227,19 @@ void DismantleFacilityState::btnOkClick(Action *)
 		{
 			if (*xbaseIt == _base)
 			{
+
+				// coop
+				if (_game->getCoopMod()->getCoopStatic() == true)
+				{
+
+					Json::Value root;
+					root["state"] = "delete_base";
+					root["base_id"] = _base->_coop_base_id;
+
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+					
+				}
+
 				_game->getSavedGame()->getBases()->erase(xbaseIt);
 				delete _base;
 				break;

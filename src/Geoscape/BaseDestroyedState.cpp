@@ -42,6 +42,28 @@ namespace OpenXcom
 BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles, bool partialDestruction) :
 	_base(base), _missiles(missiles), _partialDestruction(partialDestruction)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		if (base->_coopBase == true || base->_coopIcon == true)
+		{
+			_game->popState();
+			return;
+		}
+		else
+		{
+
+			Json::Value root;
+			root["state"] = "delete_base";
+			root["base_id"] = base->_coop_base_id;
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
+
+	}
+
 	_screen = false;
 
 	int soundId = ufo->getRules()->getHitSound();

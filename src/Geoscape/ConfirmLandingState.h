@@ -41,7 +41,7 @@ private:
 	Texture *_missionTexture, *_globeTexture;
 	int _shade;
 	Text *_txtMessage, *_txtBegin;
-	TextButton *_btnYes, *_btnNo;
+	TextButton *_btnYes, *_btnNo, *_btnStartCoop;
 	Surface *_sprite;
 	// Checks the starting condition
 	std::string checkStartingCondition();
@@ -56,8 +56,10 @@ public:
 	void btnYesClick(Action *action);
 	/// Handler for clicking the No button.
 	void btnNoClick(Action *action);
+	void btnStartCoop(Action *action);
 	/// Handler for pressing/releasing CTRL.
 	void togglePatrolButton(Action *action);
+	void startCoopMission();
 };
 
 }

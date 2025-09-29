@@ -34,7 +34,11 @@ class Vehicle
 private:
 	const RuleItem *_rules;
 	int _ammo, _size;
-public:
+	bool _coop = false;
+	int _coopbase = -1;
+	int _coopcraft = -1;
+	std::string _coopcraft_type;
+  public:
 	/// Creates a vehicle of the specified type.
 	Vehicle(const RuleItem *rules, int ammo, int size);
 	/// Cleans up the vehicle.
@@ -51,6 +55,16 @@ public:
 	void setAmmo(int ammo);
 	/// Gets the vehicle's size.
 	int getTotalSize() const;
+	// coop
+	void setCoop(int coop);
+	int getCoop() const;
+	void setCoopBase(int base);
+	int getCoopBase() const;
+	void setCoopCraft(int craft);
+	int getCoopCraft() const;
+	void setCoopCraftType(std::string type);
+	std::string getCoopCraftType() const;
+	Vehicle* clone() const;
 };
 
 }

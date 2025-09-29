@@ -44,6 +44,15 @@ namespace OpenXcom
  */
 TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingState) : _base(base), _debriefingState(debriefingState)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		*_game->getSavedGame()->getBases() = _base->old_bases;
+
+	}
+
 	// Create objects
 	_window = new Window(this, 280, 140, 20, 30);
 	_btnCancel = new TextButton(264, 16, 28, 146);
@@ -128,6 +137,25 @@ TransferBaseState::~TransferBaseState()
  */
 void TransferBaseState::btnCancelClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// coop
+		std::vector<Base*> filteredBases;
+
+		for (auto* base : *_game->getSavedGame()->getBases())
+		{
+			if (base->_coopIcon == false)
+			{
+				filteredBases.push_back(base);
+			}
+		}
+
+		*_game->getSavedGame()->getBases() = filteredBases;
+	}
+
 	_game->popState();
 }
 

@@ -95,6 +95,16 @@ CannotReequipState::CannotReequipState(std::vector<ReequipStat> &missingItems, B
 	_lstItems->setSelectable(true);
 	_lstItems->setBackground(_window);
 	_lstItems->setMargin(2);
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		_btnPurchase->setVisible(false);
+		_btnManufacture->setVisible(false);
+
+	}
+
 }
 
 /**

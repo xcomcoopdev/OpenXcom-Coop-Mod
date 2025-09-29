@@ -1702,7 +1702,17 @@ void Map::drawTerrain(Surface *surface)
 		}
 		if (this->getCursorType() != CT_NONE)
 		{
-			_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
+
+			// coop
+			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
+			{
+				// do nothing
+			}
+			else
+			{
+				_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
+			}
+	
 		}
 	}
 
@@ -1771,11 +1781,23 @@ void Map::drawTerrain(Surface *surface)
 				_camera->convertMapToScreen(pos, &screenPosition);
 				screenPosition += _camera->getMapOffset();
 				screenPosition.y += 2; // based on vanilla soldier standHeight
-				_arrow->blitNShade(
-					surface,
-					screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
-					screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
-					0);
+
+				// coop
+				if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
+				{
+					// do nothing
+				}
+				else
+				{
+
+					_arrow->blitNShade(
+						surface,
+						screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
+						screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
+						0);
+
+				}
+
 			}
 		}
 	}
@@ -2406,10 +2428,20 @@ void Map::scrollKey()
  */
 void Map::fadeShade()
 {
+
+	// coop
+	if (_game->getCoopMod()->getChatMenu())
+	{
+		if (_game->getCoopMod()->getChatMenu()->isActive() == true)
+		{
+			return;
+		}
+	}
+
 	bool hold = SDL_GetKeyState(NULL)[Options::keyNightVisionHold];
 	if ((_nightVisionOn && !hold) || (!_nightVisionOn && hold))
 	{
-		_nvColor = Options::oxceNightVisionColor;
+ 		_nvColor = Options::oxceNightVisionColor;
 		_save->setToggleNightVisionTemp(true);
 		_save->setToggleNightVisionColorTemp(_nvColor);
 		if (_fadeShade > NIGHT_VISION_SHADE) // 0 = max brightness

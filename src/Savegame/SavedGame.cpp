@@ -68,6 +68,8 @@
 #include "../Mod/AlienRace.h"
 #include "RankCount.h"
 
+#include "../CoopMod/CoopMenu.h"
+
 namespace OpenXcom
 {
 
@@ -101,6 +103,15 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 	return find != vec.end();
 }
 
+}
+void SavedGame::setCoop(CoopMenu *coopstate)
+{
+	_coopSave = coopstate;
+}
+
+CoopMenu *SavedGame::getCoop()
+{
+	return _coopSave;
 }
 
 /**
@@ -376,6 +387,62 @@ SaveInfo SavedGame::getSaveInfo(const std::string &file, Language *lang)
 	return save;
 }
 
+// coop
+void SavedGame::setMonthsPassed(int months)
+{
+	_monthsPassed = months;
+}
+
+std::string SavedGame::sendResearch()
+{
+
+	Json::Value root;
+
+	root["state"] = "research";
+
+	int index = 0;
+
+
+	for (auto research : _discovered)
+	{
+
+		root["research"][index] = research->getName();
+
+		index++;
+
+	}
+
+	Json::FastWriter fastWriter;
+	std::string jsonString = fastWriter.write(root);
+
+	return jsonString;
+
+}
+
+void SavedGame::syncResearch(std::string research_str)
+{
+
+	Json::Value root_research;
+	Json::Reader reader;
+
+	reader.parse(research_str, root_research);
+
+	for (Json::Value research_name : root_research["research"])
+	{
+
+		std::string str_research_name = research_name.asString();
+
+		RuleResearch *research = new RuleResearch(str_research_name, 0);
+		addFinishedResearchSimple(research);
+
+	}
+
+
+
+
+
+}
+
 /**
  * Loads a saved game's contents from a YAML file.
  * @note Assumes the saved game is blank.
@@ -406,6 +473,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	_end = (GameEnding)doc["end"].as<int>(_end);
 	if (doc["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(doc["rng"].as<uint64_t>());
+	// coop
+	connectionTCP::_coopGamemode = doc["coop_gamemode"].as<int>(connectionTCP::_coopGamemode);
 	_monthsPassed = doc["monthsPassed"].as<int>(_monthsPassed);
 	_daysPassed = doc["daysPassed"].as<int>(_daysPassed);
 	_vehiclesLost = doc["vehiclesLost"].as<int>(_vehiclesLost);
@@ -822,6 +891,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// Saves the full game data to the save
 	out << YAML::BeginDoc;
 	YAML::Node node;
+	// coop
+	node["coop_gamemode"] = (int)connectionTCP::_coopGamemode;
 	node["difficulty"] = (int)_difficulty;
 	node["end"] = (int)_end;
 	node["monthsPassed"] = _monthsPassed;
@@ -869,7 +940,10 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	}
 	for (const auto* xbase : _bases)
 	{
-		node["bases"].push_back(xbase->save());
+		if (xbase->_coopIcon == false)
+		{
+			node["bases"].push_back(xbase->save());
+		}
 	}
 	for (const auto* wp : _waypoints)
 	{

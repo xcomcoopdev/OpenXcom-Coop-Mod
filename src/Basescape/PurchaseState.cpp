@@ -711,7 +711,12 @@ void PurchaseState::btnOkClick(Action *)
 		}
 	}
 
-	_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _total);
+	// coop
+	if (_base->_coopBase == false)
+	{
+		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _total);
+	}
+
 	for (const auto& transferRow : _items)
 	{
 		if (transferRow.amount > 0)
@@ -788,6 +793,70 @@ void PurchaseState::btnOkClick(Action *)
 			}
 		}
 	}
+
+	// COOP (Trade)
+	if (_base->_coopBase == true)
+	{
+
+		_game->getCoopMod()->coopFunds = _game->getCoopMod()->coopFunds - _total;
+
+		Json::Value root;
+
+		root["state"] = "trade";
+		root["base"] = _base->getName();
+
+		int index = 0;
+
+		for (auto trade : *_base->getTransfers())
+		{
+
+
+			std::string item_name = "";
+			int item_amount = 0;
+
+			if (trade->getType() == TRANSFER_SOLDIER)
+			{
+				root["items"][index]["soldier_rule"] = trade->coopSoldierID();
+			}
+			else if (trade->getType() == TRANSFER_CRAFT)
+			{
+				root["items"][index]["craft_rule"] = trade->getCraft()->getRules()->getType();
+			}
+			else if (trade->getType() == TRANSFER_SCIENTIST)
+			{
+				item_amount = trade->getScientists();
+			}
+			else if (trade->getType() == TRANSFER_ENGINEER)
+			{
+				item_amount = trade->getEngineers();
+			}
+			// TRANSFER_ITEM
+			else
+			{
+				item_name = trade->getItems()->getName();
+				trade->getQuantity();
+			}
+
+			int hour = trade->getHours();
+
+			root["items"][index]["name"] = item_name;
+			root["items"][index]["amount"] = item_amount;
+			root["items"][index]["hour"] = hour;
+			root["items"][index]["type"] = (int)trade->getType();
+			root["items"][index]["craft_rule"] = "";
+
+			index++;
+
+		}
+
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		_base->getTransfers()->clear();
+
+	}
+
+
 	_game->popState();
 }
 

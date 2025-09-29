@@ -46,6 +46,8 @@
 #include "SerializationHelper.h"
 #include "../Engine/Logger.h"
 
+#include "../Engine/Game.h"
+
 namespace YAML
 {
 	template<>
@@ -77,6 +79,19 @@ namespace YAML
 
 namespace OpenXcom
 {
+
+// coop
+void Craft::makeCoopVehicle(Vehicle* vehicle)
+{
+
+	// ERIKOISTILANNE KOSKA VEHICLE EI TARVITSE KOKEMUSTA !!!
+	vehicle->setCoop(1);
+
+	// kaytetty (fix)
+	vehicle->setCoopBase(-1);
+
+	this->getVehicles()->push_back(vehicle);
+}
 
 /**
  * Initializes a craft of the specified type and
@@ -1469,6 +1484,15 @@ bool Craft::isDestroyed() const
  */
 int Craft::getSpaceAvailable() const
 {
+
+	// coop
+	// check if not pvp
+	if (connectionTCP::getCoopGamemode() != 2 && connectionTCP::getCoopGamemode() != 3 && connectionTCP::getCoopStatic() == true && getMaxUnitsClamped() > 2)
+	{
+		return (getMaxUnitsClamped() / 2) - getSpaceUsed();
+	}
+
+
 	return getMaxUnitsClamped() - getSpaceUsed();
 }
 
@@ -1486,8 +1510,9 @@ int Craft::getSpaceUsed() const
 	}
 	for (auto* soldier : *_base->getSoldiers())
 	{
+
 		if (soldier->getCraft() == this)
-		{
+		{	
 			vehicleSpaceUsed += soldier->getArmor()->getTotalSize();
 		}
 	}
@@ -1761,6 +1786,7 @@ int Craft::getVehicleCount(const std::string &vehicle) const
 	int total = 0;
 	for (const auto* v : _vehicles)
 	{
+
 		if (v->getRules()->getType() == vehicle)
 		{
 			total++;
@@ -2312,6 +2338,7 @@ std::string debugDisplayScript(const Craft* c)
 }
 
 } // namespace
+
 
 
 /**

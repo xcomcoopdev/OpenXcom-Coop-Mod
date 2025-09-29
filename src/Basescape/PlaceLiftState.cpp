@@ -151,6 +151,38 @@ void PlaceLiftState::viewClick(Action *)
 	{
 		_game->pushState(new SelectStartFacilityState(_base, bState, _globe));
 	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		// BASE
+		Json::Value markers;
+
+		markers["state"] = "new_base";
+
+		markers["markers"]["coopbaseid"] = _base->_coop_base_id;
+
+		markers["markers"]["base"] = _base->getName().c_str();
+		markers["markers"]["lon"] = _base->getLongitude();
+		markers["markers"]["lan"] = _base->getLatitude();
+
+		markers["markers"]["getAvailableEngineers"] = _base->getAvailableEngineers();
+		markers["markers"]["getAvailableHangars"] = _base->getAvailableHangars();
+		markers["markers"]["getAvailableLaboratories"] = _base->getAvailableLaboratories();
+		markers["markers"]["getAvailableQuarters"] = _base->getAvailableQuarters();
+		markers["markers"]["getAvailableScientists"] = _base->getAvailableScientists();
+		markers["markers"]["getAvailableSoldiers"] = _base->getAvailableSoldiers();
+		markers["markers"]["getAvailableStores"] = _base->getAvailableStores();
+		markers["markers"]["getAvailableTraining"] = _base->getAvailableTraining();
+		markers["markers"]["getAvailableWorkshops"] = _base->getAvailableWorkshops();
+
+
+		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+
+	}
+
+
 }
 
 /**

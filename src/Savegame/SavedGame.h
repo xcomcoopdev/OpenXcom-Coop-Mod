@@ -36,6 +36,7 @@ namespace OpenXcom
 {
 
 class Mod;
+class CoopMenu;
 class GameTime;
 class Country;
 class Base;
@@ -103,6 +104,7 @@ struct SaveInfo
 class SavedGame
 {
 public:
+	CoopMenu *_coopSave;
 	Country *debugCountry = nullptr;
 	Region *debugRegion = nullptr;
 	int debugType = 0;
@@ -178,11 +180,17 @@ private:
 
 	static SaveInfo getSaveInfo(const std::string &file, Language *lang);
 public:
+	// coop
+	void setMonthsPassed(int months);
+	std::string sendResearch();
+	void syncResearch(std::string research);
 	static const std::string AUTOSAVE_GEOSCAPE, AUTOSAVE_BATTLESCAPE, QUICKSAVE;
 	/// Creates a new saved game.
 	SavedGame();
 	/// Cleans up the saved game.
 	~SavedGame();
+	CoopMenu *getCoop();
+	void setCoop(CoopMenu *_coopSave);
 	/// Sanitizes a mod name in a save.
 	static std::string sanitizeModName(const std::string &name);
 	/// Gets list of saves in the user directory.

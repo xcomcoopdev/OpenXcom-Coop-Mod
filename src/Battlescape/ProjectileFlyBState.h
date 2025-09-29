@@ -50,6 +50,7 @@ public:
 	~ProjectileFlyBState();
 	/// Initializes the state.
 	void init() override;
+	void deinit() override;
 	/// Handles a cancel request.
 	void cancel() override;
 	/// Runs state functionality every cycle.

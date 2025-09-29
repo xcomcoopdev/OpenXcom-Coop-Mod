@@ -112,6 +112,7 @@ private:
 	using MovingTarget::save;
 
 public:
+	void makeCoopVehicle(Vehicle *vehicle);
 	/// Creates a craft of the specified type.
 	Craft(const RuleCraft *rules, Base *base, int id = 0);
 	/// Cleans up the craft.

@@ -57,7 +57,6 @@
 
 namespace OpenXcom
 {
-
 /**
  * Initializes a brand new battlescape saved game.
  */
@@ -299,8 +298,10 @@ void SavedBattleGame::load(const YAML::Node &node, Mod *mod, SavedGame* savedGam
 		{
 			std::string type = (*i)["genUnitType"].as<std::string>();
 			std::string armor = (*i)["genUnitArmor"].as<std::string>();
+
 			// create a new Unit.
-			if(!mod->getUnit(type) || !mod->getArmor(armor)) continue;
+			if (!mod->getUnit(type) || !mod->getArmor(armor)) continue;
+
 			unit = new BattleUnit(mod, mod->getUnit(type), originalFaction, id, nullptr, mod->getArmor(armor), mod->getStatAdjustment(savedGame->getDifficulty()), _depth, nullptr);
 		}
 		unit->load(*i, this->getMod(), this->getMod()->getScriptGlobal());
@@ -417,7 +418,13 @@ void SavedBattleGame::load(const YAML::Node &node, Mod *mod, SavedGame* savedGam
 
 		assert((*i)["id"].as<int>() == unit->getId());
 
-		unit->setPreviousOwner(findUnitById((*i)["previousOwner"]));
+		// coop fix
+		BattleUnit* owner = findUnitById((*i)["previousOwner"]);
+
+		if (owner != nullptr)
+		{
+			unit->setPreviousOwner(owner);
+		}
 	}
 
 	// tie ammo items to their weapons, running through the items again
@@ -1282,6 +1289,7 @@ void SavedBattleGame::startFirstTurn()
 	// initialize xcom units for battle
 	for (auto* bu : *getUnits())
 	{
+
 		if (bu->getOriginalFaction() != FACTION_PLAYER || bu->isOut())
 		{
 			continue;
@@ -1758,7 +1766,12 @@ const BattlescapeState *SavedBattleGame::getBattleState() const
  */
 BattlescapeGame *SavedBattleGame::getBattleGame()
 {
-	return _battleState->getBattleGame();
+	// coop fix
+	if (_battleState)
+	{
+		return _battleState->getBattleGame();
+	}
+	return nullptr;
 }
 
 /**
@@ -1767,7 +1780,12 @@ BattlescapeGame *SavedBattleGame::getBattleGame()
  */
 const BattlescapeGame *SavedBattleGame::getBattleGame() const
 {
-	return _battleState->getBattleGame();
+	// coop fix
+	if (_battleState)
+	{
+		return _battleState->getBattleGame();
+	}
+	return nullptr;
 }
 
 /**

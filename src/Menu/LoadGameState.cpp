@@ -48,6 +48,10 @@ namespace OpenXcom
  */
 LoadGameState::LoadGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette) : _firstRun(0), _origin(origin), _filename(filename)
 {
+
+	// coop
+	connectionTCP::_coopGamemode = 0;
+
 	buildUi(palette);
 }
 
@@ -60,6 +64,10 @@ LoadGameState::LoadGameState(OptionsOrigin origin, const std::string &filename, 
  */
 LoadGameState::LoadGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette) : _firstRun(0), _origin(origin)
 {
+
+	// coop
+	connectionTCP::_coopGamemode = 0;
+
 	switch (type)
 	{
 	case SAVE_QUICK:
@@ -105,9 +113,13 @@ void LoadGameState::buildUi(SDL_Color *palette)
 	{
 		add(_txtStatus, "textLoad", "battlescape");
 		_txtStatus->setHighContrast(true);
-		if (_game->getSavedGame()->getSavedBattle()->getAmbientSound() != Mod::NO_SOUND)
+		// coop fix
+		if (_game->getSavedGame()->getSavedBattle())
 		{
-			_game->getMod()->getSoundByDepth(0, _game->getSavedGame()->getSavedBattle()->getAmbientSound())->stopLoop();
+			if (_game->getSavedGame()->getSavedBattle()->getAmbientSound() != Mod::NO_SOUND)
+			{
+				_game->getMod()->getSoundByDepth(0, _game->getSavedGame()->getSavedBattle()->getAmbientSound())->stopLoop();
+			}
 		}
 	}
 	else
@@ -193,7 +205,30 @@ void LoadGameState::think()
 					Options::baseYResolution = Options::baseYBattlescape;
 					_game->getScreen()->resetDisplay(false);
 					BattlescapeState *bs = new BattlescapeState;
-					_game->pushState(bs);
+
+					// COOP
+					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->inventory_battle_window == true))
+					{
+		
+						Base *selected_base = _game->getSavedGame()->getSelectedBase();
+
+						if (!selected_base)
+						{
+							selected_base = _game->getSavedGame()->getBases()->front();
+						}
+						BriefingState *bri = new BriefingState(0, selected_base);
+
+						bri->loadCoop();
+
+						_game->pushState(bri);
+			
+					}
+					else
+					{
+						_game->pushState(bs);
+
+					}
+
 					_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
 				}
 			}

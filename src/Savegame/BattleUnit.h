@@ -26,6 +26,9 @@
 #include "Soldier.h"
 #include "BattleItem.h"
 
+#include "../Engine/Game.h"
+#include "../Battlescape/BattlescapeGame.h"
+
 namespace OpenXcom
 {
 
@@ -78,6 +81,7 @@ private:
 	UnitFaction _faction, _originalFaction;
 	UnitFaction _killedBy;
 	UnitFaction _spawnUnitFaction = FACTION_HOSTILE;
+	int _coop = 0;
 	int _id;
 	Position _pos;
 	Tile *_tile;
@@ -196,10 +200,22 @@ private:
 	/// Applies percentual and/or flat adjustments to the use costs.
 	void applyPercentages(RuleItemUseCost &cost, const RuleItemUseCost &flat) const;
 public:
+	void stopCoopWalk();
+	bool _coop_mindcontrolled = false;
+	void setOriginalFaction(UnitFaction faction);
+	void setCoop(int coop);
+	int getCoop() const;
+	void setCoopMana(int mana);
+	void setCoopMorale(int morale);
+	void setCoopEnergy(int energy);
+	void setHealth(int health);
+	int _coopDamage = 0;
+	int _coopHealth = 0;
+	bool _origHiding = false;
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;
-
+	std::string getCoopName();
 	/// Name of class used in script.
 	static constexpr const char *ScriptName = "BattleUnit";
 	/// Register all useful function used by script.
@@ -525,6 +541,8 @@ public:
 	void stimulant (int energy, int stun, int mana);
 	/// Get motion points for the motion scanner.
 	int getMotionPoints() const;
+	// coop
+	void setMotionPointsCoop(int points);
 	/// Get turn when unit was scanned by the motion scanner.
 	int getScannedTurn() const { return _scannedTurn; }
 	/// Set turn when unit was scanned by the motion scanner.
@@ -638,6 +656,7 @@ public:
 	/// Gets a unit's random aggro sound.
 	int getRandomAggroSound() const;
 	/// Sets the unit's time units.
+	void setCoopTimeUnits(int tu);
 	void setTimeUnits(int tu);
 	/// Get the faction that killed this unit.
 	UnitFaction killedBy() const;

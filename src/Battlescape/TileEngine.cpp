@@ -1550,6 +1550,25 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 	{
 		direction = unit->getDirection();
 	}
+
+	// coop (pvp)
+	if (_save->getBattleGame()->isCoop() == false && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3))
+	{
+		return;
+	}
+
+	// coop (pvp)
+	if (_save->getBattleGame()->isCoop() == true && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3) && _save->getBattleGame()->getHost() == true && unit->getCoop() == 1)
+	{
+		return;
+	}
+
+	// coop (pvp)
+	if (_save->getBattleGame()->isCoop() == true && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3) && _save->getBattleGame()->getHost() == false && unit->getCoop() != 1)
+	{
+		return;
+	}
+
 	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
 	{
 		//The event wasn't meant for us and/or visible for us.
@@ -2494,6 +2513,10 @@ bool TileEngine::checkReactionFire(BattleUnit *unit, const BattleAction &origina
 		return false;
 	}
 
+	// COOP FIX
+	if (!unit)
+		return false;
+	
 	// reaction fire only triggered when the actioning unit is of the currently playing side, and is still on the map (alive)
 	if (unit->getFaction() != _save->getSide() || unit->getTile() == 0)
 	{

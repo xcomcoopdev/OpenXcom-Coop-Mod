@@ -103,6 +103,14 @@ AbandonGameState::~AbandonGameState()
  */
 void AbandonGameState::btnYesClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->disconnectTCP();
+	}
+
+
 	// Reset touch flags
 	_game->resetTouchButtonFlags();
 

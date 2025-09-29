@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2010-2016 OpenXcom Developers.
  *
  * This file is part of OpenXcom.
@@ -60,6 +60,12 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
 {
 	Options::reload = false;
 	Options::mute = false;
+
+	// start a host on another thread
+	// coop
+	_tcpConnection = new connectionTCP(this);
+
+	_tcpConnection->createLoopdataThread();
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
@@ -151,6 +157,15 @@ void Game::run()
 
 	while (!_quit)
 	{
+
+		// coop tasks
+		if (_tcpConnection)
+		{
+
+			_tcpConnection->updateCoopTask();
+
+		}
+
 		// Clean up states
 		while (!_deleted.empty())
 		{
@@ -272,50 +287,85 @@ void Game::run()
 					// Go on, feed the event to others
 					FALLTHROUGH;
 				default:
+
 					Action action = Action(&_event, _screen->getXScale(), _screen->getYScale(), _screen->getCursorTopBlackBand(), _screen->getCursorLeftBlackBand());
 					_screen->handle(&action);
 					_cursor->handle(&action);
 					_fpsCounter->handle(&action);
-					if (action.getDetails()->type == SDL_KEYDOWN)
+					// coop
+					if (_tcpConnection->getChatMenu() && _tcpConnection->getChatMenu()->isActive())
 					{
-						// "ctrl-g" grab input
-						if (action.getDetails()->key.keysym.sym == SDLK_g && isCtrlPressed())
+						if (_event.type == SDL_KEYDOWN)
 						{
-							Options::captureMouse = (SDL_GrabMode)(!Options::captureMouse);
-							SDL_WM_GrabInput(Options::captureMouse);
-						}
-						// "ctrl-n" notes UI
-						else if (action.getDetails()->key.keysym.sym == SDLK_n && isCtrlPressed() && !isAltPressed())
-						{
-							if (_save && !containsNotesState())
+							// Close chat with SDLK_c
+							if (_event.key.keysym.sym == SDLK_c)
 							{
-								if (_save->getSavedBattle())
+								_tcpConnection->getChatMenu()->setActive(false);
+							}
+							else
+							{
+								// All chat key inputs are handled in handleEvent
+								_tcpConnection->getChatMenu()->handleEvent(_event);
+							}
+						}
+
+
+					}
+					else
+					{
+
+
+						if (action.getDetails()->type == SDL_KEYDOWN)
+						{
+
+							// coop
+							// Activate chat with SDLK_c
+							if (_event.key.keysym.sym == SDLK_c && (_tcpConnection->getCoopStatic() == true || _tcpConnection->getServerOwner() == true) && _tcpConnection->getChatMenu())
+							{
+								_tcpConnection->getChatMenu()->setActive(true);
+							}
+
+							// "ctrl-g" grab input
+							if (action.getDetails()->key.keysym.sym == SDLK_g && isCtrlPressed())
+							{
+								Options::captureMouse = (SDL_GrabMode)(!Options::captureMouse);
+								SDL_WM_GrabInput(Options::captureMouse);
+							}
+							// "ctrl-n" notes UI
+							else if (action.getDetails()->key.keysym.sym == SDLK_n && isCtrlPressed() && !isAltPressed())
+							{
+								if (_save && !containsNotesState())
 								{
-									if (!_save->getSavedBattle()->isBattlescapeStateBusy())
+									if (_save->getSavedBattle())
 									{
-										pushState(new NotesState(OPT_BATTLESCAPE));
+										if (!_save->getSavedBattle()->isBattlescapeStateBusy())
+										{
+											pushState(new NotesState(OPT_BATTLESCAPE));
+										}
+									}
+									else
+									{
+										pushState(new NotesState(OPT_GEOSCAPE));
 									}
 								}
-								else
+							}
+							else if (Options::debug)
+							{
+								if (action.getDetails()->key.keysym.sym == SDLK_t && isCtrlPressed())
 								{
-									pushState(new NotesState(OPT_GEOSCAPE));
+									pushState(new TestState);
+								}
+								// "ctrl-u" debug UI
+								else if (action.getDetails()->key.keysym.sym == SDLK_u && isCtrlPressed())
+								{
+									Options::debugUi = !Options::debugUi;
+									_states.back()->redrawText();
 								}
 							}
 						}
-						else if (Options::debug)
-						{
-							if (action.getDetails()->key.keysym.sym == SDLK_t && isCtrlPressed())
-							{
-								pushState(new TestState);
-							}
-							// "ctrl-u" debug UI
-							else if (action.getDetails()->key.keysym.sym == SDLK_u && isCtrlPressed())
-							{
-								Options::debugUi = !Options::debugUi;
-								_states.back()->redrawText();
-							}
-						}
+
 					}
+
 					_states.back()->handle(&action);
 					break;
 			}
@@ -364,6 +414,18 @@ void Game::run()
 				}
 				_fpsCounter->blit(_screen->getSurface());
 				_cursor->blit(_screen->getSurface());
+
+				// coop
+				// chat menu draw
+				if (_tcpConnection->getChatMenu())
+				{
+					_tcpConnection->getChatMenu()->draw(_screen->getSurface());
+					_tcpConnection->getChatMenu()->update();
+					_tcpConnection->getChatMenu()->updateMiniChat();
+					_tcpConnection->getChatMenu()->drawMiniChat(_screen->getSurface());
+
+				}
+
 				_screen->flip();
 			}
 		}
@@ -788,6 +850,11 @@ void Game::resetTouchButtonFlags()
 	_shift = false;
 	_rmb = false;
 	_mmb = false;
+}
+
+connectionTCP* Game::getCoopMod()
+{
+	return _tcpConnection;
 }
 
 }

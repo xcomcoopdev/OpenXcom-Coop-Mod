@@ -59,8 +59,14 @@
 #include "../Geoscape/Globe.h"
 #include "../Mod/RuleGlobe.h"
 
+#include "../Menu/LoadGameState.h"
+#include "CraftSoldiersState.h"
+#include "../Savegame/Vehicle.h"
+
 namespace OpenXcom
 {
+
+bool _coop_base_init = false;
 
 /**
  * Initializes all the elements in the Basescape screen.
@@ -70,6 +76,28 @@ namespace OpenXcom
  */
 BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(globe)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// coop
+		std::vector<Base*> filteredBases;
+
+		base->old_bases = *_game->getSavedGame()->getBases();
+
+		for (auto* base : *_game->getSavedGame()->getBases())
+		{
+			if (base->_coopIcon == false)
+			{
+				filteredBases.push_back(base);
+			}
+		}
+
+		*_game->getSavedGame()->getBases() = filteredBases;
+
+	}
+	
 	// Create objects
 	_txtFacility = new Text(192, 9, 0, 0);
 	_view = new BaseView(192, 192, 0, 8);
@@ -127,6 +155,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 
 	_mini->setTexture(_game->getMod()->getSurfaceSet("BASEBITS.PCK"));
 	_mini->setBases(_game->getSavedGame()->getBases());
+
 	_mini->onMouseClick((ActionHandler)&BasescapeState::miniLeftClick, SDL_BUTTON_LEFT);
 	_mini->onMouseClick((ActionHandler)&BasescapeState::miniRightClick, SDL_BUTTON_RIGHT);
 	_mini->onKeyboardPress((ActionHandler)&BasescapeState::handleKeyPress);
@@ -177,6 +206,25 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	_btnGeoscape->setText(tr("STR_GEOSCAPE_UC"));
 	_btnGeoscape->onMouseClick((ActionHandler)&BasescapeState::btnGeoscapeClick);
 	_btnGeoscape->onKeyboardPress((ActionHandler)&BasescapeState::btnGeoscapeClick, Options::keyCancel);
+
+
+	// COOP
+	if (_base->_coopBase == true)
+	{
+		//_edtBase->setVisible(false);
+		_btnNewBase->setVisible(false);
+		//_btnBaseInfo->setVisible(false);
+		//_btnSoldiers->setVisible(false);
+
+		//_btnCrafts->setVisible(false);
+		_btnFacilities->setVisible(false);
+		_btnResearch->setVisible(false);
+		_btnManufacture->setVisible(false);
+		_btnTransfer->setVisible(false);
+		_btnPurchase->setVisible(true);
+		_btnSell->setVisible(false);
+	}
+
 }
 
 /**
@@ -208,6 +256,40 @@ void BasescapeState::init()
 {
 	State::init();
 
+	// coop fix
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _coop_base_init == false)
+	{
+
+		_coop_base_init = true;
+
+		for (auto* soldier : *_base->getSoldiers())
+		{
+
+			if (soldier->getCoopBase() != -1 && _base->_coopBase == false)
+			{
+
+				soldier->setCraft(nullptr);
+			}
+			else if (_base->_coopBase == true)
+			{
+
+				// Try to assign the correct craft based on CoopCraft and CoopCraftType
+				for (auto* craft : *_base->getCrafts())
+				{
+					if (soldier->getCoopCraft() == craft->getId() &&
+						soldier->getCoopCraftType() == craft->getRules()->getType() &&
+						soldier->getCoopBase() == _base->_coop_base_id)
+					{
+						soldier->setCraftAndMoveEquipment(craft, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+						break;
+					}
+				}
+			}
+		}
+	}
+
+
+
 	setBase(_base);
 	_view->setBase(_base);
 	_mini->draw();
@@ -235,6 +317,20 @@ void BasescapeState::init()
 			_btnNewBase->setVisible(false);
 		}
 	}
+
+
+
+	// if own coop base
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+	{
+
+		_game->getCoopMod()->playerInsideCoopBase = true;
+
+	}
+
+
+
+
 }
 
 /**
@@ -249,7 +345,7 @@ void BasescapeState::setBase(Base *base)
 		bool exists = false;
 		for (size_t i = 0; i < _game->getSavedGame()->getBases()->size(); ++i)
 		{
-			if (_game->getSavedGame()->getBases()->at(i) == base)
+			if (_game->getSavedGame()->getBases()->at(i) == base && base->_coopIcon == false) // && base->_coopIcon == false
 			{
 				_base = base;
 				_mini->setSelectedBase(i);
@@ -281,6 +377,13 @@ void BasescapeState::setBase(Base *base)
  */
 void BasescapeState::btnNewBaseClick(Action *)
 {
+
+	// coop
+	if (_base->_coopBase == true)
+	{
+		return;
+	}
+
 	Base *base = new Base(_game->getMod());
 	_game->popState();
 	_game->pushState(new BuildNewBaseState(base, _globe, false));
@@ -373,7 +476,39 @@ void BasescapeState::btnTransferClick(Action *)
  */
 void BasescapeState::btnGeoscapeClick(Action *)
 {
-	_game->popState();
+
+	// coop
+	_coop_base_init = false;
+	_game->getCoopMod()->playerInsideCoopBase = false;
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
+	{
+		// coop
+		*_game->getSavedGame()->getBases() = _base->old_bases;
+
+		_base->old_bases.clear();
+	}
+
+	if (_base->_coopBase == true)
+	{
+		_game->popState();
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "host/basehost.data", _palette));
+		}
+		else
+		{
+
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "client/basehost.data", _palette));
+		}
+	}
+	else
+	{
+		_game->popState();
+	}
+
 }
 
 /**
@@ -387,6 +522,13 @@ void BasescapeState::viewLeftClick(Action *)
 	{
 		if (_game->isCtrlPressed() && Options::isPasswordCorrect())
 		{
+
+			// coop
+			if (_base->_coopBase == true)
+			{
+				return;
+			}
+
 			// Ctrl + left click on a base facility allows moving it
 			_game->pushState(new PlaceFacilityState(_base, fac->getRules(), fac));
 		}
@@ -460,6 +602,13 @@ void BasescapeState::viewLeftClick(Action *)
 			}
 			else
 			{
+
+				// coop
+				if (_base->_coopBase == true)
+				{
+					return;
+				}
+
 				_game->pushState(new DismantleFacilityState(_base, _view, fac));
 			}
 		}
@@ -472,6 +621,13 @@ void BasescapeState::viewLeftClick(Action *)
  */
 void BasescapeState::viewRightClick(Action *)
 {
+
+	// coop
+	if (_base->_coopBase == true)
+	{
+		return;
+	}
+
 	BaseFacility *f = _view->getSelectedFacility();
 	if (f == 0)
 	{
@@ -671,6 +827,26 @@ void BasescapeState::handleKeyPress(Action *action)
  */
 void BasescapeState::edtBaseChange(Action *)
 {
+
+	// coop
+	if (_base->_coopBase == true)
+	{
+		return;
+	}
+	else if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "changeBaseName";
+
+		root["oldName"] = _base->getName();
+		root["newName"] = _edtBase->getText();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	_base->setName(_edtBase->getText());
 }
 

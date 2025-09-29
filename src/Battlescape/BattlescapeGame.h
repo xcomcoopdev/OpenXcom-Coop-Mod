@@ -146,7 +146,6 @@ private:
 
 	helper::SingleRun _endTurnProcessed;
 	helper::SingleRun _triggerProcessed;
-
 	/// Ends the turn.
 	void endTurn();
 	/// Picks the first soldier that is panicking.
@@ -161,7 +160,21 @@ private:
 public:
 	/// is debug mode enabled in the battlescape?
 	static bool _debugPlay;
-
+	static int isYourTurn;
+	// coop
+	void setPauseOn();
+	void setPauseOff();
+	void setCoopTaskCompleted(bool task);
+	int getCoopActorID();
+	int getCoopGamemode();
+	std::string getCoopWeaponHand();
+	void movePlayerTarget(std::string obj);
+	void turnPlayerTarget(std::string str_obj);
+	bool getHost();
+	bool isCoop();
+	void abortCoopPath(int x, int y, int z);
+	// coop
+	void teleport(int x, int y, int z, BattleUnit* unit);
 	/// Creates the BattlescapeGame state.
 	BattlescapeGame(SavedBattleGame *save, BattlescapeState *parentState);
 	/// Cleans up the BattlescapeGame state.
@@ -182,6 +195,8 @@ public:
 	void statePushBack(BattleState *bs);
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
+	// coop
+	void endTurnCoop();
 	/// Removes current state.
 	void popState();
 	/// Sets state think interval.

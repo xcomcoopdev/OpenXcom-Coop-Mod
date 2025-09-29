@@ -60,6 +60,10 @@ UnitWalkBState::~UnitWalkBState()
  */
 void UnitWalkBState::init()
 {
+
+	// coop
+	_parent->setCoopTaskCompleted(false);
+
 	_unit = _action.actor;
 	_numUnitsSpotted = _unit->getUnitsSpottedThisTurn().size();
 	setNormalWalkSpeed();
@@ -80,7 +84,20 @@ void UnitWalkBState::init()
  */
 void UnitWalkBState::deinit()
 {
+
 	_terrain->removeMovingUnit(_unit);
+
+	// coop
+	_parent->setCoopTaskCompleted(true);
+
+	if (coop_hiding == true)
+	{
+		coop_hiding = false;
+
+		_unit->setHiding(_unit->_origHiding);
+
+	}
+
 }
 
 /**
@@ -88,6 +105,7 @@ void UnitWalkBState::deinit()
  */
 void UnitWalkBState::think()
 {
+
 	if (!_unit->getArmor()->allowsMoving())
 	{
 		_pf->abortPath();
@@ -98,6 +116,7 @@ void UnitWalkBState::think()
 	bool unitSpotted = false;
 	int size = _unit->getArmor()->getSize() - 1;
 	bool onScreen = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false));
+
 	if (_unit->isKneeled())
 	{
 		if (_parent->kneel(_unit))
@@ -442,8 +461,34 @@ void UnitWalkBState::think()
  */
 void UnitWalkBState::cancel()
 {
+
 	if (_parent->getSave()->getSide() == FACTION_PLAYER && _parent->getPanicHandled())
-	_pf->abortPath();
+	{
+	
+		// coop
+		if (_parent->getSave()->getBattleState())
+		{
+			if (_parent->getSave()->getBattleState()->getGame()->getCoopMod()->getCoopStatic() == true && _parent->getSave()->getSide() == FACTION_PLAYER && _parent->getSave()->getBattleState()->getGame()->getCoopMod()->getCurrentTurn() == 2)
+			{
+
+				Json::Value root;
+
+				root["state"] = "abortPath";
+
+				root["unit_id"] = _unit->getId();
+
+				root["x"] = _unit->getPosition().x;
+				root["y"] = _unit->getPosition().y;
+				root["z"] = _unit->getPosition().z;
+
+				_parent->getSave()->getBattleState()->getGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			}
+		}
+
+		_pf->abortPath();
+	}
+
+
 }
 
 /**

@@ -33,6 +33,7 @@
 #include "TargetInfoState.h"
 #include "../Engine/Options.h"
 #include "../Engine/Action.h"
+#include "../CoopMod/CoopState.h"
 
 namespace OpenXcom
 {
@@ -122,7 +123,20 @@ void MultipleTargetsState::popupTarget(Target *target)
 		Ufo* u = dynamic_cast<Ufo*>(target);
 		if (b != 0)
 		{
-			_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
+			// coop
+			if (_game->getCoopMod()->getCoopStatic() == true && b->_coopBase == true)
+			{
+
+				CoopState *coopWindow = new CoopState(50);
+				_game->getCoopMod()->current_base_name = b->getName();
+				coopWindow->setGlobe(_state->getGlobe());
+				_game->pushState(coopWindow);
+			}
+			else
+			{
+				_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
+			}
+
 		}
 		else if (c != 0)
 		{

@@ -111,6 +111,26 @@ private:
 	/// Shows the unit kneel state.
 	void toggleKneelButton(BattleUnit* unit);
 public:
+	// coop
+	void setSelectedCoopUnit(int actor_id);
+	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time);
+	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
+	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
+	std::string _hand = "right";
+	void coopPsiButtonAction();
+	void coopLaunchPress();
+	void coopCancelAction();
+	int getCurrentTurn();
+	void setCurrentTurn(int turn);
+	void moveCoopInventory(std::string sel_item_name, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int slot_ammo, int sel_item_id);
+	void toggeCoopKneel(int id);
+	void endTurnCoop();
+	void movePlayerTarget(std::string obj);
+	void turnPlayerTarget(std::string str_obj);
+	void shootPlayerTarget(int actor_id, Position targetPos, int type, std::string hand, bool targeting, bool fuse, int fusetimer, int shoot_type, std::string weapon_type, int actor_tu, Position startPos);
+	void showCoopWarning(const std::string &message);
+	void showCoopLongWarning(const std::string &message);
+	void doAbortPath();
 	/// Selects the next soldier.
 	void selectNextPlayerUnit(bool checkReselect = false, bool setReselect = false, bool checkInventory = false, bool checkFOV = true);
 	/// Selects the previous soldier.

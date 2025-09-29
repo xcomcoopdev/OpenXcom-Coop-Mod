@@ -48,10 +48,23 @@ UnitTurnBState::~UnitTurnBState()
 }
 
 /**
+ * Deinitalize the state.
+ */
+void UnitTurnBState::deinit()
+{
+	// coop
+	_parent->setCoopTaskCompleted(true);
+}
+
+/**
  * Initializes the state.
  */
 void UnitTurnBState::init()
 {
+
+	// coop
+	_parent->setCoopTaskCompleted(false);
+
 	_unit = _action.actor;
 	if (_unit->isOut())
 	{

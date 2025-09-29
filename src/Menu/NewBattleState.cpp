@@ -57,6 +57,10 @@
 #include "../Mod/AlienRace.h"
 #include "../Mod/RuleGlobe.h"
 
+#include "../CoopMod/CoopMenu.h"
+#include "../Savegame/Waypoint.h"
+#include "../CoopMod/CoopState.h"
+
 namespace OpenXcom
 {
 
@@ -112,9 +116,11 @@ NewBattleState::NewBattleState() :
 	_txtAlienTech = new Text(120, 9, 178, 143);
 	_slrAlienTech = new Slider(120, 16, 178, 153);
 
-	_btnOk = new TextButton(100, 16, 8, 176);
-	_btnCancel = new TextButton(100, 16, 110, 176);
-	_btnRandom = new TextButton(100, 16, 212, 176);
+	// coop
+	_btnCoop = new TextButton(76, 16, 8, 176);    
+	_btnOk = new TextButton(76, 16, 84, 176);     
+	_btnCancel = new TextButton(76, 16, 160, 176); 
+	_btnRandom = new TextButton(76, 16, 236, 176); 
 
 	_lstSelect = new TextList(288, 144, 8, 28);
 
@@ -148,6 +154,8 @@ NewBattleState::NewBattleState() :
 	add(_txtAlienTech, "text", "newBattleMenu");
 	add(_slrAlienTech, "button1", "newBattleMenu");
 
+	// coop
+	add(_btnCoop, "button2", "newBattleMenu");
 	add(_btnOk, "button2", "newBattleMenu");
 	add(_btnCancel, "button2", "newBattleMenu");
 	add(_btnRandom, "button2", "newBattleMenu");
@@ -292,6 +300,11 @@ NewBattleState::NewBattleState() :
 	_btnOk->onMouseClick((ActionHandler)&NewBattleState::btnOkClick);
 	_btnOk->onKeyboardPress((ActionHandler)&NewBattleState::btnOkClick, Options::keyOk);
 
+	// coop
+	_btnCoop->setText("COOP");
+	_btnCoop->onMouseClick((ActionHandler)&NewBattleState::btnCoopClick);
+	_btnCoop->onKeyboardPress((ActionHandler)&NewBattleState::btnCoopClick, Options::keyOk);
+
 	_btnCancel->setText(tr("STR_CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&NewBattleState::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&NewBattleState::btnCancelClick, Options::keyCancel);
@@ -337,6 +350,10 @@ NewBattleState::NewBattleState() :
 	_btnQuickSearch->setVisible(false);
 
 	_btnCancel->onKeyboardRelease((ActionHandler)&NewBattleState::btnQuickSearchToggle, Options::keyToggleQuickSearch);
+
+	// coop
+	connectionTCP::_coopCampaign = false;
+
 }
 
 /**
@@ -378,6 +395,28 @@ void NewBattleState::init()
 	{
 		load();
 	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		if (_game->getCoopMod()->getHost() == true)
+		{
+
+			Json::Value root;
+
+			root["state"] = "craft_list";
+			root["selected_craft_id"] = _cbxCraft->getSelected();
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+
+		}
+
+	}
+
+	save();
+
 }
 
 /**
@@ -387,6 +426,7 @@ void NewBattleState::init()
 void NewBattleState::load(const std::string &filename)
 {
 	std::string s = Options::getMasterUserFolder() + filename + ".cfg";
+
 	if (!CrossPlatform::fileExists(s))
 	{
 		initSave();
@@ -474,6 +514,78 @@ void NewBattleState::load(const std::string &filename)
 
 }
 
+SavedGame* NewBattleState::loadCoop(const std::string& filename)
+{
+	std::string s = Options::getMasterUserFolder() + filename;
+
+
+	try
+		{
+			YAML::Node doc = YAML::Load(*CrossPlatform::readFile(s));
+
+			if (doc["base"])
+			{
+				const Mod* mod = _game->getMod();
+				SavedGame* save = new SavedGame();
+
+				Base* base = new Base(mod);
+				base->load(doc["base"], save, false);
+				save->getBases()->push_back(base);
+
+				// Add research
+				for (auto& pair : mod->getResearchMap())
+				{
+					save->addFinishedResearchSimple(pair.second);
+				}
+
+				// Generate items
+				base->getStorageItems()->clear();
+				for (auto& itemType : mod->getItemsList())
+				{
+					RuleItem* rule = _game->getMod()->getItem(itemType);
+					if (rule->getBattleType() != BT_CORPSE && rule->isRecoverable())
+					{
+						base->getStorageItems()->addItem(rule, 1);
+					}
+				}
+
+				// Fix invalid contents
+				if (base->getCrafts()->empty())
+				{
+					std::string craftType = _crafts[_cbxCraft->getSelected()];
+					_craft = new Craft(_game->getMod()->getCraft(craftType), base, save->getId(craftType));
+					base->getCrafts()->push_back(_craft);
+				}
+				else
+				{
+					_craft = base->getCrafts()->front();
+				}
+
+				return save;
+
+			}
+			return nullptr;
+		}
+		catch (YAML::Exception& e)
+		{
+			Log(LOG_WARNING) << e.what();
+			return nullptr;
+		}
+	
+
+	const YAML::Node& starter = _game->getMod()->getDefaultStartingBase();
+	if (const YAML::Node& globalTemplates = starter["globalTemplates"])
+	{
+		_game->getSavedGame()->loadTemplates(globalTemplates, _game->getMod());
+	}
+	if (const YAML::Node& ufopediaRuleStatus = starter["ufopediaRuleStatus"])
+	{
+		_game->getSavedGame()->loadUfopediaRuleStatus(ufopediaRuleStatus);
+	}
+
+
+}
+
 /**
  * Saves new battle data to a YAML file.
  * @param filename YAML filename.
@@ -494,6 +606,7 @@ void NewBattleState::save(const std::string &filename)
 	out << node;
 
 	std::string filepath = Options::getMasterUserFolder() + filename + ".cfg";
+
 	if (!CrossPlatform::writeFile(filepath, out.c_str()))
 	{
 		Log(LOG_WARNING) << "Failed to save " << filepath;
@@ -605,12 +718,80 @@ void NewBattleState::initSave()
  */
 void NewBattleState::btnOkClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getChatMenu())
+	{
+
+		if (_game->getCoopMod()->getChatMenu()->isActive() == true)
+		{
+			return;
+		}
+
+	}
+
+	// coop
+	// if not pvp
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
+	{
+
+		if (_game->getCoopMod()->getHost() == true)
+		{
+			_game->getCoopMod()->setSelectedCraft(_craft);
+			_game->getCoopMod()->setNewBattleState(this);
+			CoopState* coopWindow = new CoopState(88);
+			_game->pushState(coopWindow);
+		}
+		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
+		else
+		{
+
+			_game->getCoopMod()->setHost(true);
+
+			_game->getCoopMod()->setSelectedCraft(_craft);
+
+			_game->getCoopMod()->setNewBattleState(this);
+
+			CoopState* coopWindow = new CoopState(88);
+			_game->pushState(coopWindow);
+
+		}
+
+		save();
+
+		return;
+
+	}
+	// coop
+	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		// cahnge host
+		_game->getCoopMod()->setHost(true);
+
+		Json::Value root;
+
+		root["state"] = "changeHost4";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
 	if (_craft)
 	{
 		// just in case somebody manually edited battle.cfg
 		_craft->resetCustomDeployment();
 	}
 	save();
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		_game->getCoopMod()->setSelectedCraft(_craft);
+		_game->getCoopMod()->setNewBattleState(this);
+
+	}
+
 	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
 	{
 		return;
@@ -697,10 +878,35 @@ void NewBattleState::btnOkClick(Action *)
 
 	bgen.run();
 
-	_game->popState();
-	_game->popState();
-	_game->pushState(new BriefingState(_craft, base));
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == false)
+	{
+		_game->popState();
+		_game->popState();
+		_game->pushState(new BriefingState(_craft, base));
+	}
+	else
+	{
+
+		// please wait message
+		CoopState* coopWindow = new CoopState(4);
+		_game->pushState(coopWindow);
+
+		// start  coop mission
+		BriefingState* b = new BriefingState(_craft, base);
+		b->setupCoop();
+
+	}
+
 	_craft = 0;
+
+}
+
+void NewBattleState::btnCoopClick(Action *action)
+{
+
+	_game->getCoopMod()->createCoopMenu();
+
 }
 
 /**
@@ -746,6 +952,54 @@ void NewBattleState::btnRandomClick(Action *)
  */
 void NewBattleState::btnEquipClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		RuleCraft* temp_craft = _game->getMod()->getCraft(_crafts[_game->getCoopMod()->_coop_selected_craft_id]);
+
+		_craft->changeRules(temp_craft);
+
+		_cbxCraft->setSelected(_game->getCoopMod()->_coop_selected_craft_id);
+
+		int count = 0;
+		Craft* tmpCraft = new Craft(_craft->getRules(), _craft->getBase(), 0);
+
+		// temporarily re-assign all soldiers to a dummy craft
+		for (auto* soldier : *_craft->getBase()->getSoldiers())
+		{
+			if (soldier->getCraft() == _craft)
+			{
+				soldier->setCraft(tmpCraft);
+				count++;
+			}
+		}
+		// try assigning all soldiers back while validating constraints
+		for (auto* soldier : *_craft->getBase()->getSoldiers())
+		{
+			if (count <= 0)
+			{
+				break;
+			}
+			if (soldier->getCraft() == tmpCraft)
+			{
+				count--;
+				int space = _craft->getSpaceAvailable();
+				if (_craft->validateAddingSoldier(space, soldier) == CPE_None)
+				{
+					soldier->setCraft(_craft);
+				}
+				else
+				{
+					soldier->setCraft(0);
+				}
+			}
+		}
+		delete tmpCraft;
+
+	}
+
 	_game->pushState(new CraftInfoState(_game->getSavedGame()->getBases()->front(), 0));
 }
 
@@ -803,6 +1057,22 @@ void NewBattleState::cbxMissionChange(Action *)
  */
 void NewBattleState::cbxCraftChange(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "craft_list";
+		root["selected_craft_id"] = _cbxCraft->getSelected();
+
+		_game->getCoopMod()->_coop_selected_craft_id = _cbxCraft->getSelected();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	_craft->changeRules(_game->getMod()->getCraft(_crafts[_cbxCraft->getSelected()]));
 
 	int count = 0;
@@ -1136,6 +1406,127 @@ void NewBattleState::btnQuickSearchToggle(Action *action)
 void NewBattleState::btnQuickSearchApply(Action *)
 {
 	fillList(_selectType, _isRightClick);
+}
+
+// coop pve
+void NewBattleState::startCoopMission()
+{
+
+	// coop
+	Base* base = 0;
+
+	// fix
+	if (_game->getSavedGame()->getSelectedBase())
+	{
+
+		base = _game->getSavedGame()->getSelectedBase();
+	}
+	else
+	{
+
+		base = _game->getCoopMod()->getSelectedCraft()->getBase();
+	}
+
+	if (_game->getCoopMod()->getSelectedCraft())
+	{
+		_craft = _game->getCoopMod()->getSelectedCraft();
+	}
+
+	// orig
+	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
+	{
+		return;
+	}
+
+	SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+	_game->getSavedGame()->setBattleGame(bgame);
+	bgame->setMissionType(_missionTypes[_cbxMission->getSelected()]);
+	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+
+	bgen.setTerrain(_game->getMod()->getTerrain(_terrainTypes[_cbxTerrain->getSelected()]));
+
+	if (_globeTextureVisible)
+	{
+		int textureId = _globeTextureIDs[_selectedGlobeTexture];
+		auto* globeTexture = _game->getMod()->getGlobe()->getTexture(textureId);
+		bgen.setWorldTexture(nullptr, globeTexture);
+	}
+
+	// base defense
+	if (_missionTypes[_cbxMission->getSelected()] == "STR_BASE_DEFENSE")
+	{
+		base = _craft->getBase();
+		bgen.setBase(base);
+		_craft = 0;
+	}
+	// alien base
+	else if (_game->getMod()->getDeployment(bgame->getMissionType())->isAlienBase())
+	{
+		AlienBase* b = new AlienBase(_game->getMod()->getDeployment(bgame->getMissionType()), -1);
+		b->setId(1);
+		b->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
+		_craft->setDestination(b);
+		bgen.setAlienBase(b);
+		_game->getSavedGame()->getAlienBases()->push_back(b);
+	}
+	// ufo assault
+	else if (_craft && _game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]))
+	{
+		Ufo* u = new Ufo(_game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]), 1);
+		u->setId(1);
+		_craft->setDestination(u);
+		bgen.setUfo(u);
+		// either ground assault or ufo crash
+		bool ufoLanded = _btnUfoLanded->getVisible() ? _btnUfoLanded->getPressed() : RNG::generate(0, 1) == 1;
+		if (ufoLanded)
+		{
+			u->setStatus(Ufo::LANDED);
+			bgame->setMissionType("STR_UFO_GROUND_ASSAULT");
+		}
+		else
+		{
+			u->setStatus(Ufo::CRASHED);
+			bgame->setMissionType("STR_UFO_CRASH_RECOVERY");
+		}
+		_game->getSavedGame()->getUfos()->push_back(u);
+	}
+	// mission site
+	else
+	{
+		const AlienDeployment* deployment = _game->getMod()->getDeployment(bgame->getMissionType());
+		const RuleAlienMission* mission = _game->getMod()->getAlienMission(_game->getMod()->getAlienMissionList().front()); // doesn't matter
+		MissionSite* m = new MissionSite(mission, deployment, nullptr);
+		m->setId(1);
+		m->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
+		_craft->setDestination(m);
+		bgen.setMissionSite(m);
+		_game->getSavedGame()->getMissionSites()->push_back(m);
+	}
+
+	if (_craft)
+	{
+		_craft->setSpeed(0);
+		bgen.setCraft(_craft);
+	}
+
+	_game->getSavedGame()->setDifficulty((GameDifficulty)_cbxDifficulty->getSelected());
+
+	bgen.setWorldShade(_slrDarkness->getValue());
+	bgen.setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
+	bgen.setAlienItemlevel(_slrAlienTech->getValue());
+	bgame->setDepth(_slrDepth->getValue());
+
+	bgen.run();
+
+	BriefingState* b = new BriefingState(_craft, base);
+
+	b->setupCoop();
+
+	_craft = 0;
+
+
+
+
 }
 
 }

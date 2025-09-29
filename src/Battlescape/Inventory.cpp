@@ -111,6 +111,17 @@ Inventory::Inventory(Game *game, int width, int height, int x, int y, bool base)
 	_groundSlotsY = (Screen::ORIGINAL_HEIGHT - _inventorySlotGround->getY()) / RuleInventory::SLOT_H;
 	_xMax = 0;
 	_occupiedSlotsCache.resize(_groundSlotsY, std::vector<char>(_groundSlotsX * 2, false));
+
+
+	// coop
+	if (battleSave && _game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->coopInventory = true;
+
+		_game->getCoopMod()->syncCoopInventory();
+	}
+
+
 }
 
 /**
@@ -234,23 +245,39 @@ void Inventory::drawGrid()
 		}
 		else if (ruleInv->getType() == INV_GROUND)
 		{
-			for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
+
+			// coop
+			if (_game->getSavedGame()->getSavedBattle()->getSelectedUnit())
 			{
-				for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
+
+				// coop
+				if (((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1)) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->playerInsideCoopBase == true)
 				{
-					SDL_Rect r;
-					r.x = x;
-					r.y = y;
-					r.w = RuleInventory::SLOT_W + 1;
-					r.h = RuleInventory::SLOT_H + 1;
-					_grid->drawRect(&r, color);
-					r.x++;
-					r.y++;
-					r.w -= 2;
-					r.h -= 2;
-					_grid->drawRect(&r, 0);
+
+					for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
+					{
+						for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
+						{
+							SDL_Rect r;
+							r.x = x;
+							r.y = y;
+							r.w = RuleInventory::SLOT_W + 1;
+							r.h = RuleInventory::SLOT_H + 1;
+							_grid->drawRect(&r, color);
+							r.x++;
+							r.y++;
+							r.w -= 2;
+							r.h -= 2;
+							_grid->drawRect(&r, 0);
+						}
+					}
+
 				}
+				
+			
+
 			}
+			
 		}
 	}
 	drawGridLabels();
@@ -376,6 +403,11 @@ void Inventory::drawItems()
 		auto& occupiedSlots = *clearOccupiedSlotsCache();
 		for (auto* groundItem : *_selUnit->getTile()->getInventory())
 		{
+
+			// coop
+			if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getHost() == true && _selUnit->getCoop() == 1 || _game->getCoopMod()->getHost() == false && _selUnit->getCoop() == 0) && _game->getCoopMod()->playerInsideCoopBase == false)
+				continue;
+
 			const Surface *frame = groundItem->getBigSprite(texture, save, _animFrame);
 			// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
 			if (groundItem == _selItem || groundItem->getRules()->getInventoryHeight() == 0 || groundItem->getRules()->getInventoryWidth() == 0 || !frame)
@@ -505,6 +537,63 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
  */
 void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
 {
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleState() && _game->getCoopMod()->playerInsideCoopBase == false)
+	{
+
+		// check coop unit
+		if ((_selUnit->getCoop() != 0 && _game->getCoopMod()->getHost() == true) || (_selUnit->getCoop() == 0 && _game->getCoopMod()->getHost() == false))
+		{
+			return;
+		}
+
+		// coop fix
+		if (!_selUnit->getTile())
+		{
+			return;
+		}
+
+		Json::Value obj;
+		obj["state"] = "Inventory";
+		obj["item_name"] = item->getRules()->getName();
+		obj["inv_id"] = slot->getId();
+		obj["inv_x"] = x;
+		obj["inv_y"] = y;
+		obj["slot_x"] = item->getSlotX();
+		obj["slot_y"] = item->getSlotY();
+		obj["unit_id"] = _selUnit->getId();
+		obj["item_id"] = item->getId();
+		obj["move_cost"] = item->getMoveToCost(slot);
+
+		obj["getHealQuantity"] = item->getHealQuantity();
+		obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
+		obj["getStimulantQuantity"] = item->getStimulantQuantity();
+		obj["getFuseTimer"] = item->getFuseTimer();
+		obj["getXCOMProperty"] = item->getXCOMProperty();
+		obj["isAmmo"] = item->isAmmo();
+		obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
+		obj["isFuseEnabled"] = item->isFuseEnabled();
+		obj["getAmmoQuantity"] = item->getAmmoQuantity();
+
+		obj["slot_ammo"] = 0;
+
+		// fix
+		if (_selItem)
+		{
+			obj["sel_item_name"] = _selItem->getRules()->getName();
+			obj["sel_item_id"] = _selItem->getId();
+		}
+		else
+		{
+			obj["sel_item_name"] = "";
+			obj["sel_item_id"] = -1;
+		}
+
+		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+	}
+
+
 	_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(_selUnit->getTile(), _selUnit, item, slot, x, y);
 }
 
@@ -632,6 +721,39 @@ void Inventory::think()
 {
 	_warning->think();
 	_animTimer->think(0,this);
+
+	// coop
+	if ((_game->getCoopMod()->getCoopStatic() == true && getSelectedItem() == nullptr))
+	{
+
+		for (size_t x = 0; x < _stackLevel.size(); ++x)
+		{
+			for (size_t y = 0; y < _stackLevel[x].size(); ++y)
+			{
+				int itemCount = 0;
+				int item_id = 0;
+
+				for (auto &item : *(_selUnit->getTile()->getInventory()))
+				{
+
+					if (item->getSlotX() == x && item->getSlotY() == y && item->getSlot()->getType() == INV_GROUND && item->getId() != item_id)
+					{
+						itemCount++;
+						item_id = item->getId();
+					}
+
+				}
+
+				_stackLevel[x][y] = itemCount;
+				
+
+			}
+		}
+
+
+	}
+	
+
 }
 
 /**
@@ -692,6 +814,11 @@ void Inventory::mouseClick(Action *action, State *state)
 {
 	if (_game->isLeftClick(action))
 	{
+
+		// coop
+		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+			return;
+
 		if (_selUnit == 0)
 			return;
 		// Pickup item
@@ -1040,6 +1167,56 @@ void Inventory::mouseClick(Action *action, State *state)
 										arrangeFloor = true;
 									}
 								}
+								else
+								{
+									// coop
+									// reload
+									if (_game->getCoopMod()->getCoopStatic() == true)
+									{
+										
+										Json::Value obj;
+										obj["state"] = "Inventory";
+										obj["inv_id"] = slot->getId();
+										obj["item_name"] = item->getRules()->getName();
+					
+										obj["inv_x"] = x;
+										obj["inv_y"] = y;
+										obj["slot_x"] = item->getSlotX();
+										obj["slot_y"] = item->getSlotY();
+										obj["unit_id"] = _selUnit->getId();
+										obj["item_id"] = item->getId();
+										obj["move_cost"] = tuCost;
+
+										obj["getHealQuantity"] = item->getHealQuantity();
+										obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
+										obj["getStimulantQuantity"] = item->getStimulantQuantity();
+										obj["getFuseTimer"] = item->getFuseTimer();
+										obj["getXCOMProperty"] = item->getXCOMProperty();
+										obj["isAmmo"] = item->isAmmo();
+										obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
+										obj["isFuseEnabled"] = item->isFuseEnabled();
+										obj["getAmmoQuantity"] = item->getAmmoQuantity();
+
+										obj["slot_ammo"] = slotAmmo;
+
+										// fix
+										if (_selItem)
+										{
+											obj["sel_item_name"] = _selItem->getRules()->getName();
+											obj["sel_item_id"] = _selItem->getId();
+										}
+										else
+										{
+											obj["sel_item_name"] = "";
+											obj["sel_item_id"] = -1;
+										}
+
+
+										_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+
+									}
+								}
 
 								int sound = _selItem->getRules()->getReloadSound();
 								if (sound == Mod::NO_SOUND)
@@ -1097,6 +1274,11 @@ void Inventory::mouseClick(Action *action, State *state)
 	}
 	else if (_game->isRightClick(action))
 	{
+
+		// coop
+		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+			return;
+
 		if (_selItem == 0)
 		{
 			if (!_base || Options::includePrimeStateInSavedLayout)

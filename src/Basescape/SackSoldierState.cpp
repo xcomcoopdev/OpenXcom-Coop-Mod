@@ -29,6 +29,9 @@
 #include "../Savegame/Soldier.h"
 #include "../Mod/Armor.h"
 
+#include "../Menu/LoadGameState.h"
+#include "../Menu/SaveGameState.h"
+
 namespace OpenXcom
 {
 
@@ -74,6 +77,12 @@ SackSoldierState::SackSoldierState(Base *base, size_t soldierId) : _base(base), 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setText(tr("STR_SACK"));
 
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+	{
+		_txtTitle->setText("MOVE");
+	}
+
 	std::ostringstream ss;
 	ss << _base->getSoldiers()->at(_soldierId)->getName(true) << "?";
 
@@ -96,14 +105,87 @@ SackSoldierState::~SackSoldierState()
  */
 void SackSoldierState::btnOkClick(Action *)
 {
-	Soldier *soldier = _base->getSoldiers()->at(_soldierId);
+
+	Soldier* soldier = _base->getSoldiers()->at(_soldierId);
+
+	// coop campaign
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// tallentetaan toisen pelaaja base (vain CLIENT) esim. sotilaat jne
+		std::string filename = "";
+		std::string filepath = Options::getMasterUserFolder() + filename;
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+
+			filename = "host/basehost.data";
+		}
+		else
+		{
+
+			filename = "client/basehost.data";
+		}
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			SavedGame* basehost_save = new SavedGame();
+
+			basehost_save->load(filename, _game->getMod(), _game->getLanguage());
+
+			// if save found
+			if (basehost_save)
+			{
+
+				for (auto& saved_base : *basehost_save->getBases())
+				{
+					auto& soldiers = *saved_base->getSoldiers(); // Reference to the vector of soldiers
+
+					for (auto it = soldiers.begin(); it != soldiers.end(); /* no ++it here */)
+					{
+						// Check if the soldier belongs to this coop base and has the matching ID
+						if ((*it)->getCoopBase() == _base->getId() && (*it)->getId() == soldier->getId())
+						{
+							delete *it;              // Free memory
+							it = soldiers.erase(it); // Remove pointer from vector and update iterator
+						}
+						else
+						{
+							++it; // Only move to next if not erased
+						}
+					}
+				}
+
+
+				// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
+				auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
+
+				soldier->setCoopCraft(-1);
+				soldier->setCoopCraftType("");
+
+				soldier->setCoopBase(-1);
+
+				soldier->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+
+				target_soldiers.push_back(soldier);
+
+				// save changes
+				basehost_save->save(filename, _game->getMod());
+
+			}
+		}
+	}
+
 	if (soldier->getArmor()->getStoreItem())
 	{
 		_base->getStorageItems()->addItem(soldier->getArmor()->getStoreItem());
 	}
 	_base->getSoldiers()->erase(_base->getSoldiers()->begin() + _soldierId);
 	delete soldier;
+
 	_game->popState();
+
 }
 
 /**

@@ -35,6 +35,10 @@ namespace OpenXcom
  */
 InfoboxState::InfoboxState(const std::string &msg)
 {
+
+	// coop
+	_game->getCoopMod()->setPauseOn();
+
 	_screen = false;
 
 	// Create objects
@@ -77,6 +81,10 @@ InfoboxState::InfoboxState(const std::string &msg)
  */
 InfoboxState::~InfoboxState()
 {
+
+	// coop
+	_game->getCoopMod()->setPauseOff();
+
 	delete _timer;
 }
 

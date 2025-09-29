@@ -175,6 +175,47 @@ void PrimeGrenadeState::btnClick(Action *action)
 
 	if (btnID != -1)
 	{
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() != 1)
+		{
+
+			Json::Value root;
+			root["state"] = "active_grenade";
+
+			uint64_t c_seed = RNG::getSeed();
+			RNG::setCoopSeed(c_seed);
+
+			root["seed"] = c_seed;
+
+			root["fusetimer"] = btnID;
+			root["hand"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopWeaponHand();
+
+			if (_action)
+			{
+				root["type"] = _action->type;
+			}
+			else
+			{
+				root["type"] = 4;
+			}
+
+	
+			root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopActorID();
+
+			if (_grenadeInInventory)
+			{
+				root["item_id"] = _grenadeInInventory->getId();
+			}
+			else
+			{
+				root["item_id"] = 0;
+			}
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString().c_str());
+
+		}
+
 		if (_inInventoryView)
 		{
 			_grenadeInInventory->setFuseTimer(0 + btnID);

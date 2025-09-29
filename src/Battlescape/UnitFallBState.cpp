@@ -39,6 +39,9 @@ namespace OpenXcom
 UnitFallBState::UnitFallBState(BattlescapeGame *parent) : BattleState(parent), _terrain(0)
 {
 
+	// coop
+	_parent->setPauseOn();
+
 }
 
 /**
@@ -46,6 +49,9 @@ UnitFallBState::UnitFallBState(BattlescapeGame *parent) : BattleState(parent), _
  */
 UnitFallBState::~UnitFallBState()
 {
+
+	// coop
+	_parent->setPauseOff();
 
 }
 

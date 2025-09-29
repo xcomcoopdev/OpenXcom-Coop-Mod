@@ -40,9 +40,31 @@
 #include "Base.h"
 #include "ItemContainer.h"
 
+#include <fstream>
+#include <string>
+
 namespace OpenXcom
 {
-
+void Soldier::setCoop(int coop)
+{
+	_coop = coop;
+}
+int Soldier::getCoop() const
+{
+	return _coop;
+}
+std::string Soldier::getCoopName()
+{
+	return _coopname;
+}
+void Soldier::setCoopName(std::string name)
+{
+	_coopname = name;
+}
+std::string Soldier::coopSoldierID()
+{
+	return getRules()->getType();
+}
 /**
  * Initializes a new soldier, either blank or randomly generated.
  * @param rules Soldier ruleset.
@@ -145,6 +167,14 @@ Soldier::~Soldier()
  */
 void Soldier::load(const YAML::Node& node, const Mod *mod, SavedGame *save, const ScriptGlobal *shared, bool soldierTemplate)
 {
+
+	// coop
+	_coopbase = node["coopbase"].as<int>(_coopbase);
+	_coop = node["coop"].as<int>(_coop);
+	_coopcraft = node["coopcraft"].as<int>(_coopcraft);
+	_coopcraft_type = node["coopcrafttype"].as<std::string>(_coopcraft_type);
+	_coopname = node["coopname"].as<std::string>(_coopname);
+
 	if (!soldierTemplate)
 	{
 		_id = node["id"].as<int>(_id);
@@ -294,6 +324,14 @@ void Soldier::load(const YAML::Node& node, const Mod *mod, SavedGame *save, cons
 YAML::Node Soldier::save(const ScriptGlobal *shared) const
 {
 	YAML::Node node;
+
+	// coop
+	node["coopbase"] = _coopbase;
+	node["coop"] = _coop;
+	node["coopcraft"] = _coopcraft;
+	node["coopcrafttype"] = _coopcraft_type;
+	node["coopname"] = _coopname;
+
 	node["type"] = _rules->getType();
 	node["id"] = _id;
 	node["name"] = _name;
@@ -309,7 +347,8 @@ YAML::Node Soldier::save(const ScriptGlobal *shared) const
 		node["dailyDogfightExperienceCache"] = _dailyDogfightExperienceCache;
 	}
 	node["rank"] = (int)_rank;
-	if (_craft != 0)
+	// coop
+	if (_craft != 0 && _coopbase == -1)
 	{
 		node["craft"] = _craft->saveId();
 	}
@@ -589,6 +628,7 @@ void Soldier::setCraft(Craft *craft, bool resetCustomDeployment)
  */
 void Soldier::setCraftAndMoveEquipment(Craft* craft, Base* base, bool isNewBattle, bool resetCustomDeployment)
 {
+
 	bool notTheSameCraft = (_craft != craft);
 
 	if (Options::oxceAlternateCraftEquipmentManagement && !isNewBattle && notTheSameCraft && base)
@@ -885,6 +925,36 @@ RuleSoldier *Soldier::getRules() const
 	return _rules;
 }
 
+void Soldier::setCoopCraft(int craft)
+{
+	_coopcraft = craft;
+}
+
+int Soldier::getCoopCraft() const
+{
+	return _coopcraft;
+}
+
+void Soldier::setCoopCraftType(std::string type)
+{
+	_coopcraft_type = type;
+}
+
+std::string Soldier::getCoopCraftType() const
+{
+	return _coopcraft_type;
+}
+
+void Soldier::setCoopBase(int coopbase)
+{
+	_coopbase = coopbase;
+}
+
+int Soldier::getCoopBase() const
+{
+	return _coopbase;
+}
+
 /**
  * Returns the soldier's unique ID. Each soldier
  * can be identified by its ID. (not it's name)
@@ -893,6 +963,25 @@ RuleSoldier *Soldier::getRules() const
 int Soldier::getId() const
 {
 	return _id;
+}
+
+void Soldier::setId(int id)
+{
+	_id = id;
+}
+
+Soldier* Soldier::deepCopy(const Mod* mod, SavedGame* save) const
+{
+	// Create a new soldier with the same soldier type and nationality
+	Soldier* copy = new Soldier(mod->getSoldier(_rules->getType()), nullptr, _nationality);
+
+	// Save this soldier to YAML and load into the new one
+	YAML::Node tmp = this->save(mod->getScriptGlobal());
+	copy->load(tmp, mod, save, mod->getScriptGlobal(), false);
+
+	copy->setCoopName(_coopname);
+
+	return copy;
 }
 
 /**

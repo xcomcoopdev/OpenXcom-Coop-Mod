@@ -62,12 +62,25 @@ ProjectileFlyBState::~ProjectileFlyBState()
 }
 
 /**
+ * Deinitalize the state.
+ */
+void ProjectileFlyBState::deinit()
+{
+	// coop
+	_parent->setCoopTaskCompleted(true);
+}
+
+/**
  * Initializes the sequence:
  * - checks if the shot is valid,
  * - calculates the base accuracy.
  */
 void ProjectileFlyBState::init()
 {
+
+	// coop
+	_parent->setCoopTaskCompleted(false);
+
 	if (_initialized) return;
 	_initialized = true;
 

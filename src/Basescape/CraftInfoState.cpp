@@ -301,6 +301,13 @@ void CraftInfoState::init()
 		x = 0;
 		for (const auto* vehicle : *_craft->getVehicles())
 		{
+
+			// coop
+			if (vehicle->getCoopBase() != 1 && _base->_coopBase == false)
+			{
+				continue;
+			}
+
 			for (int index : vehicle->getRules()->getCustomItemPreviewIndex())
 			{
 				Surface *customFrame2 = customItemPreviews->getFrame(index);
@@ -473,6 +480,140 @@ std::string CraftInfoState::formatTime(int total)
  */
 void CraftInfoState::btnOkClick(Action *)
 {
+
+	// coop campaign
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// save the other player's base (CLIENT only), e.g., soldiers, etc.
+		std::string filename = "";
+		std::string filepath = Options::getMasterUserFolder() + filename;
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+
+			filename = "host/basehost.data";
+		}
+		else
+		{
+
+			filename = "client/basehost.data";
+		}
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			SavedGame* basehost_save = new SavedGame();
+
+			basehost_save->load(filename, _game->getMod(), _game->getLanguage());
+
+			// if save found
+			if (basehost_save)
+			{
+
+				for (auto& saved_base : *basehost_save->getBases())
+				{
+
+					// First, remove everything that isn't from base -1!
+					auto& soldiers = *saved_base->getSoldiers(); 
+
+					// Free any soldiers in memory whose coopBase != -1.
+					for (auto it = soldiers.begin(); it != soldiers.end(); )
+					{
+						if ((*it)->getCoopBase() == _base->_coop_base_id) // Check coopBase
+						{
+							delete *it;              // Free the soldier from memory
+							it = soldiers.erase(it); // Remove the pointer from the vector and update the iterator
+						}
+						else
+						{
+							++it; // Advance to the next only if nothing was removed
+						}
+					}
+
+					// Also vehicles
+					auto& crafts = *saved_base->getCrafts(); // Refer to the vector that contains Craft* objects
+
+					for (auto& craft : crafts)
+					{
+						auto& vehicles = *craft->getVehicles();
+
+						for (auto it = vehicles.begin(); it != vehicles.end();)
+						{
+							if ((*it)->getCoopBase() == _base->_coop_base_id)  // Check coopBase
+							{
+								delete *it;              // Free the vehicle from memory
+								it = vehicles.erase(it); // Remove the pointer from the vector and update the iterator
+							}
+							else
+							{
+								++it; // Move to the next only if not removed
+							}
+						}
+					}
+				}
+
+				// Add the new soldiers to the first base's soldier list
+				auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
+
+				for (auto* soldier : *_base->getSoldiers())
+				{
+					if (soldier->getCraft())
+					{
+
+						soldier->setCoopCraft(soldier->getCraft()->getId());
+						soldier->setCoopCraftType(soldier->getCraft()->getType());
+
+					}
+
+					soldier->setCoopBase(_base->_coop_base_id);
+					soldier->setCoopName(soldier->getName());
+
+					target_soldiers.push_back(soldier);
+
+				}
+
+				auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
+
+				// add the new vehicles
+				for (auto* craft : *_base->getCrafts())
+				{
+
+					for (auto* vehicle : *craft->getVehicles())
+					{
+
+						vehicle->setCoopBase(_base->_coop_base_id);
+						vehicle->setCoopCraft(craft->getId());
+						vehicle->setCoopCraftType(craft->getType());
+
+						target_vehicles.push_back(vehicle);
+					}
+				}
+
+				// save changes
+				basehost_save->save(filename, _game->getMod());
+
+				// prevent duplication after saving...
+				auto& soldiers = *_base->getSoldiers();
+				for (auto it = soldiers.begin(); it != soldiers.end();)
+				{
+
+					if ((*it)->getCoopBase() == -1)
+					{
+						delete *it;             // Free the memory
+						it = soldiers.erase(it); // Remove from the list and update the iterator
+					}
+					else
+					{
+						++it; // Advance to the next element only if not removed
+					}
+				}
+			}
+		}
+	}
+
+
+
 	_game->popState();
 }
 
@@ -682,6 +823,13 @@ void CraftInfoState::btnPilotsClick(Action *)
  */
 void CraftInfoState::edtCraftChange(Action *action)
 {
+
+	// coop
+	if (_base->_coopBase == true)
+	{
+		return;
+	}
+
 	if (_edtCraft->getText() == _craft->getDefaultName(_game->getLanguage()))
 	{
 		_craft->setName("");

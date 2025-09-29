@@ -22,6 +22,9 @@
 #include "../Mod/RuleAlienMission.h"
 #include "../Mod/AlienDeployment.h"
 
+#include <json/json.h>
+#include "../Engine/Game.h"
+
 namespace OpenXcom
 {
 
@@ -39,6 +42,17 @@ MissionSite::MissionSite(const RuleAlienMission *rules, const AlienDeployment *d
  */
 MissionSite::~MissionSite()
 {
+	// coop
+	if (connectionTCP::getCoopStatic() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "remove_target";
+		root["lan"] = _lat;
+		root["lon"] = _lon;
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+	}
 }
 
 /**

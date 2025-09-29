@@ -23,6 +23,8 @@
 #include "../Engine/Timer.h"
 #include "../fmath.h"
 
+#include "../Engine/Game.h"
+
 namespace OpenXcom
 {
 
@@ -564,6 +566,12 @@ bool Camera::getShowAllLayers() const
  */
 bool Camera::isOnScreen(Position mapPos, const bool unitWalking, const int unitSize, const bool boundary) const
 {
+	// coop
+	if (connectionTCP::getCoopStatic() == true)
+	{
+		return true;
+	}
+
 	Position screenPos;
 	convertMapToScreen(mapPos, &screenPos);
 	int posx = _spriteWidth/2, posy = _spriteHeight - _spriteWidth/4;

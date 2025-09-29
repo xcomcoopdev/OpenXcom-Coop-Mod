@@ -19,6 +19,9 @@
 #include "Waypoint.h"
 #include "../Engine/Language.h"
 
+#include <iostream>
+#include <Windows.h> // DebugBreak varten (vain Windows)
+
 namespace OpenXcom
 {
 

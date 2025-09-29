@@ -18,6 +18,7 @@
  */
 #include "RNG.h"
 #include <time.h>
+#include "../CoopMod/connectionTCP.h"
 #ifndef UINT64_MAX
 #define UINT64_MAX 0xffffffffffffffffULL
 #endif
@@ -47,23 +48,23 @@ static uint64_t nextImpl(uint64_t& state)
 	return state * 2685821657736338717ULL;
 }
 
-
-
-
 /**
  * Default constructor initializing the seed by time and this type address.
  */
 RandomState::RandomState()
 {
-	_seedState = time(0) ^ (~(uint64_t)&_seedState);
+	// coop
+	_seedState = _randomCoopSeed;
 }
+
 
 /**
  * Constructor from predefined seed.
  */
 RandomState::RandomState(uint64_t seed) : _seedState(seed)
 {
-
+	// coop
+	_seedState = _randomCoopSeed;
 }
 
 /**
@@ -73,6 +74,12 @@ RandomState::RandomState(uint64_t seed) : _seedState(seed)
 uint64_t RandomState::getSeed() const
 {
 	return _seedState;
+}
+
+void RandomState::setCoopSeed(uint64_t n)
+{
+	_seedState = n;
+	_randomCoopSeed = n;
 }
 
 /**
@@ -104,9 +111,6 @@ RandomState x;
  */
 RandomState x_seedless;
 
-
-
-
 /**
  * Returns the current seed in use by the generator.
  * @return Current seed.
@@ -116,13 +120,23 @@ uint64_t getSeed()
 	return x.getSeed();
 }
 
+uint64_t getCoopRandom(uint64_t num)
+{
+	return nextImpl(num);
+}
+
 /**
  * Changes the current seed in use by the generator.
  * @param n New seed.
  */
 void setSeed(uint64_t n)
 {
-	x = RandomState(n);
+}
+
+// coop
+void setCoopSeed(uint64_t n)
+{
+	x.setCoopSeed(n);
 }
 
 /**

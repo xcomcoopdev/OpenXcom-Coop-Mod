@@ -77,6 +77,8 @@ MainMenuState::MainMenuState(bool updateCheck)
 	_btnUpdate = new TextButton(72, 16, 209, 27);
 	_txtUpdateInfo = new Text(320, 17, 0, 11);
 	_txtTitle = new Text(256, 30, 32, 45);
+	// coop
+	_textCoopVersion = new Text(256, 30, 32, 70);
 
 	// Set palette
 	setInterface("mainMenu");
@@ -91,6 +93,7 @@ MainMenuState::MainMenuState(bool updateCheck)
 	add(_btnUpdate, "button", "mainMenu");
 	add(_txtUpdateInfo, "text", "mainMenu");
 	add(_txtTitle, "text", "mainMenu");
+	add(_textCoopVersion, "text", "mainMenu");
 
 	centerAllSurfaces();
 
@@ -233,6 +236,12 @@ MainMenuState::MainMenuState(bool updateCheck)
 	title << tr("STR_OPENXCOM") << Unicode::TOK_NL_SMALL;
 	title << "OpenXcom " << OPENXCOM_VERSION_SHORT << OPENXCOM_VERSION_GIT;
 	_txtTitle->setText(title.str());
+
+	// coop version
+	_textCoopVersion->setAlign(ALIGN_CENTER);
+	_textCoopVersion->setSmall();
+	_textCoopVersion->setText("Coop Mod 1.26.0 [v2025-09-27]");
+
 }
 
 void MainMenuState::init()
@@ -248,6 +257,12 @@ void MainMenuState::init()
 		Log(LOG_INFO) << "Loading last saved game";
 		btnLoadClick(NULL);
 	}
+
+	// coop
+	_game->getCoopMod()->disconnectTCP();
+	connectionTCP::_coopGamemode = 0;
+	_game->getCoopMod()->coopMissionEnd = false;
+	
 }
 
 /**

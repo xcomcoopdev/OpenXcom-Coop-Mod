@@ -24,6 +24,8 @@
 #include <yaml-cpp/yaml.h>
 #include "../Mod/RuleBaseFacilityFunctions.h"
 
+#include <json/json.h>
+
 #ifndef BASEFACILITIESITERATOR
 #define BASEFACILITIESITERATOR std::vector<BaseFacility*>::iterator
 #endif
@@ -130,6 +132,18 @@ private:
 
 	using Target::load;
 public:
+	std::vector<Base*> old_bases;
+	int coop_hangar = 0;
+	int coop_laboratory = 0;
+	int coop_quarters = 0;
+	int coop_soldiers = 0;
+	int coop_stores = 0;
+	int coop_training = 0;
+	int coop_workshop = 0;
+	void syncTrade(std::string items, SavedGame *save, Mod *mod);
+	bool _coopBase  = false;
+	bool _coopIcon = false;
+	int _coop_base_id = 0;
 	/// Creates a new base.
 	Base(const Mod *mod);
 	/// Cleans up the base.
@@ -171,6 +185,7 @@ public:
 	int getScientists() const;
 	/// Sets the base's scientists.
 	void setScientists(int scientists);
+	void isCoopBase(bool coopBase);
 	/// Gets the base's engineers.
 	int getEngineers() const;
 	/// Sets the base's engineers.

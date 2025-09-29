@@ -41,9 +41,36 @@
 #include "../Menu/CutsceneState.h"
 #include "../Savegame/AlienMission.h"
 #include "../Mod/RuleAlienMission.h"
+#include "../Menu/SaveGameState.h"
+
+// TEST
+#include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/Profile.h"
+#include "../Savegame/Waypoint.h"
+#include "../Mod/RuleInventory.h"
 
 namespace OpenXcom
 {
+
+bool isReadablePointer(void* ptr)
+{
+	if (!ptr)
+		return false;
+
+	MEMORY_BASIC_INFORMATION mbi;
+	if (VirtualQuery(ptr, &mbi, sizeof(mbi)))
+	{
+		DWORD protect = mbi.Protect;
+		bool readable =
+			(protect & PAGE_READONLY) ||
+			(protect & PAGE_READWRITE) ||
+			(protect & PAGE_EXECUTE_READ) ||
+			(protect & PAGE_EXECUTE_READWRITE);
+
+		return readable && mbi.State == MEM_COMMIT;
+	}
+	return false;
+}
 
 /**
  * Initializes all the elements in the Briefing screen.
@@ -55,6 +82,7 @@ namespace OpenXcom
  */
 BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingData *customBriefing) : _infoOnly(infoOnly), _disableCutsceneAndMusic(false)
 {
+
 	Options::baseXResolution = Options::baseXGeoscape;
 	Options::baseYResolution = Options::baseYGeoscape;
 	_game->getScreen()->resetDisplay(false);
@@ -232,6 +260,7 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 			am->setMultiUfoRetaliationInProgress(true);
 		}
 	}
+
 }
 
 /**
@@ -260,6 +289,274 @@ void BriefingState::init()
 	}
 }
 
+void BriefingState::loadCoop()
+{
+
+	
+	// coop client inventoy fix
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		BattleUnit* selected_unit = 0;
+
+		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		{
+
+			// fix
+			if (unit->getTile())
+			{
+
+				if (!unit->getTile()->getInventory()->empty() && unit->getFaction() == FACTION_PLAYER)
+				{
+
+					selected_unit = unit;
+
+					break;
+				}
+
+			}
+
+	
+		}
+
+		if (!selected_unit)
+		{
+
+			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (unit->getFaction() == FACTION_PLAYER)
+				{
+
+					selected_unit = unit;
+
+					break;
+				}
+			}
+
+			if (selected_unit)
+			{
+
+				Base *selected_base = _game->getSavedGame()->getSelectedBase();
+
+				if (!selected_base)
+				{
+					selected_base = _game->getSavedGame()->getBases()->front();
+				}
+
+				Craft* temp_craft = selected_base->getCrafts()->at(0);
+
+				if (!temp_craft)
+				{
+					temp_craft = _game->getCoopMod()->getSelectedCraft();
+				}
+
+				auto contents = temp_craft->getExtraItems()->getContents();
+				if (contents->empty())
+					contents = temp_craft->getItems()->getContents();
+
+				if (!contents->empty())
+				{
+
+					for (auto& pair : *contents)
+					{
+						const OpenXcom::RuleItem* ruleItem = pair.first;
+
+						for (auto* item : *_game->getSavedGame()->getSavedBattle()->getItems())
+						{
+							if (item->getRules() == ruleItem && item->getSlot() && item->getSlot()->getType() == INV_GROUND)
+							{
+
+								// Check if the item already exists in the tile (to avoid duplicates)
+								bool itemExists = false;
+								for (auto* existingItem : *selected_unit->getTile()->getInventory())
+								{
+									if (existingItem->getRules() == item->getRules() && existingItem->getId() == item->getId())
+									{
+										itemExists = true;
+										break;
+									}
+								}
+
+								// Add the item only if it doesn't already exist in the tile
+								if (!itemExists)
+								{
+
+									selected_unit->getTile()->addItem(item, item->getSlot());
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (selected_unit)
+		{
+
+			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				// Check if the unit has a tile before adding the item
+				if (unit->getTile())
+				{
+
+					if (unit->getFaction() == FACTION_PLAYER && unit != selected_unit && unit->getTile()->getInventory()->empty())
+					{
+
+						unit->setInventoryTile(selected_unit->getTile());
+					}
+				}
+			}
+		}
+	}
+
+}
+
+void BriefingState::setupCoop()
+{
+
+	// COOP
+	if (_game->getSavedGame()->getCoop() != 0 && _game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->isPreview() == false)
+	{
+
+		// check if campaign mission
+		if (!_game->getSavedGame()->getCountries()->empty())
+		{
+
+			_game->getCoopMod()->setCoopCampaign(true);
+		}
+		else
+		{
+
+			_game->getCoopMod()->setCoopCampaign(false);
+		}
+
+		// if not coop campaign
+		if (_game->getCoopMod()->getCoopCampaign() == false)
+		{
+
+			// if pve2 gamemode
+			if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
+			{
+
+				_game->getSavedGame()->getSelectedBase()->getSoldiers()->clear();
+
+				Waypoint* wp = new Waypoint();
+				wp->setLongitude(0);
+				wp->setLatitude(0);
+				wp->setId(0);
+
+				_game->getSavedGame()->getSavedBattle()->setMissionCraftOrBase("BASE> ");
+
+				for (auto& ufo : *_game->getSavedGame()->getUfos())
+				{
+
+					ufo->setDestination(wp);
+				}
+
+				// swapper
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getFaction() == FACTION_HOSTILE)
+					{
+
+						unit->convertToFaction(FACTION_PLAYER);
+						unit->setOriginalFaction(FACTION_PLAYER);
+						_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+						unit->setAIModule(0);
+					}
+					else if (unit->getFaction() == FACTION_PLAYER)
+					{
+
+						unit->convertToFaction(FACTION_HOSTILE);
+						unit->setOriginalFaction(FACTION_HOSTILE);
+					}
+				}
+
+				// Split the soldiers in half
+				if (_game->getSavedGame()->getSavedBattle())
+				{
+
+					int soldier_total_count = 0;
+
+					// check soldiers count
+					for (auto& entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						if (entity->getFaction() == FACTION_PLAYER)
+						{
+							soldier_total_count++;
+						}
+					}
+
+					int soldier_used = (soldier_total_count / 2);
+
+					// make coop soldiers
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						if (unit->getFaction() == FACTION_PLAYER)
+						{
+
+							unit->setCoop(1);
+
+							if (soldier_used <= 0)
+							{
+								break;
+							}
+
+							soldier_used--;
+						}
+					}
+				}
+			}
+			// if pvp gamemode
+			else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
+			{
+
+				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getFaction() == FACTION_HOSTILE)
+					{
+
+						unit->setCoop(1);
+						unit->convertToFaction(FACTION_PLAYER);
+						unit->setOriginalFaction(FACTION_PLAYER);
+					}
+				}
+			}
+			// pvp2
+			else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
+			{
+
+				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getFaction() == FACTION_HOSTILE)
+					{
+
+						unit->setCoop(0);
+						unit->convertToFaction(FACTION_PLAYER);
+						unit->setOriginalFaction(FACTION_PLAYER);
+					}
+					else if (unit->getFaction() == FACTION_PLAYER)
+					{
+
+						unit->setCoop(1);
+					}
+				}
+			}
+		}
+
+		OutputDebugStringA("BriefingState");
+
+		_game->getCoopMod()->sendMissionFile();
+	}
+}
+
 /**
  * Closes the window.
  * @param action Pointer to an action.
@@ -276,7 +573,8 @@ void BriefingState::btnOkClick(Action *)
 	bs->getBattleGame()->spawnFromPrimedItems();
 	BattlescapeTally tally = bs->getBattleGame()->tallyUnits();
 	bool isPreview = _game->getSavedGame()->getSavedBattle()->isPreview();
-	if (tally.liveAliens > 0 || isPreview)
+	// coop
+	if ((tally.liveAliens > 0 || isPreview) || connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || connectionTCP::_coopGamemode == 4)
 	{
 		_game->pushState(bs);
 		_game->getSavedGame()->getSavedBattle()->setBattleState(bs);

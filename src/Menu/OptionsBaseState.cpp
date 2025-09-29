@@ -137,6 +137,22 @@ OptionsBaseState::~OptionsBaseState()
 
 void OptionsBaseState::restart(OptionsOrigin origin)
 {
+
+	// coop
+	if (_game->getSavedGame())
+	{
+
+		if (_game->getCoopMod()->getCoopStatic() == true)
+		{
+
+			_game->getCoopMod()->setPauseOff();
+
+			_game->getCoopMod()->_waitBC = true;
+			_game->getCoopMod()->_waitBH = true;
+
+		}
+	}
+
 	// Reset touch flags
 	_game->resetTouchButtonFlags();
 
@@ -202,6 +218,23 @@ void OptionsBaseState::setCategory(TextButton *button)
  */
 void OptionsBaseState::btnOkClick(Action *)
 {
+
+	// coop
+	if (_game->getSavedGame())
+	{
+
+		if (_game->getCoopMod()->getCoopStatic() == true)
+		{
+
+			_game->getCoopMod()->setPauseOff();
+
+			_game->getCoopMod()->_waitBC = true;
+			_game->getCoopMod()->_waitBH = true;
+
+		}
+
+	}
+
 	Options::switchDisplay();
 	int dX = Options::baseXResolution;
 	int dY = Options::baseYResolution;

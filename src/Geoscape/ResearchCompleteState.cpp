@@ -86,6 +86,17 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch *newResearch, co
 	{
 		_txtResearch->setText(tr(research->getName()));
 	}
+
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->sendResearch();
+	}
+
+
+
+
 }
 
 /**

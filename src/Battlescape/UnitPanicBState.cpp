@@ -36,8 +36,10 @@ namespace OpenXcom
  */
 UnitPanicBState::UnitPanicBState(BattlescapeGame *parent, BattleUnit *unit) : BattleState(parent), _unit(unit), _shotsFired(0)
 {
+
 	_berserking = _unit->getStatus() == STATUS_BERSERK;
 	unit->abortTurn(); //makes the unit go to status STANDING :p
+
 }
 
 /**
