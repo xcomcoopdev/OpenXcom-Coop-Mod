@@ -66,7 +66,6 @@ struct SPSCQueue
 		return true;
 	}
 
-	// <<< TÄHÄN LISÄTÄÄN >>>
 	bool empty() const
 	{
 		return tail.load(std::memory_order_acquire) ==
@@ -107,6 +106,7 @@ class connectionTCP
 	void generateCraftSoldiers();
 	bool _onTCP = false;
   public:
+	bool teleport = false;
 	bool _isMainCampaignBaseDefense = false;
 	bool coop_end_turn = false;
 	bool allow_cutscene = true;
@@ -131,6 +131,7 @@ class connectionTCP
 	void hostTCPServer(std::string playername, std::string port);
 	void connectTCPServer(std::string playername, std::string ipaddress);
 	void onTCPMessage(std::string data, Json::Value obj);
+	void sendBaseFile();
 	void sendMissionFile();
 	int gamePaused = 0; // 0 = no set, 1 = team, 2 = your
 	bool cancel_connect = false;

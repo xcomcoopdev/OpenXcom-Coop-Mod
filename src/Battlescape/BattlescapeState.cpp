@@ -774,6 +774,9 @@ BattlescapeState::BattlescapeState() :
 
 	}
 
+	// coop
+	_game->getCoopMod()->teleport = false;
+
 }
 
 /**
@@ -1333,6 +1336,7 @@ void BattlescapeState::think()
 				}
 				else
 				{
+
 					_game->getCoopMod()->setPlayerTurn(1);
 
 					uint64_t seed = RNG::getCoopRandom(RNG::getSeed());
@@ -1343,39 +1347,47 @@ void BattlescapeState::think()
 					root["state"] = "current_seed";
 					root["seed"] = seed;
 
-					int index = 0;	
+					int index = 0;
 
-					for (auto& unit : *_save->getUnits())
+					if (_game->getCoopMod()->teleport == true)
 					{
 
-						root["units"][index]["unit_id"] = unit->getId();
-						root["units"][index]["pos_x"] = unit->getPosition().x;
-						root["units"][index]["pos_y"] = unit->getPosition().y;
-						root["units"][index]["pos_z"] = unit->getPosition().z;
+						for (auto& unit : *_save->getUnits())
+						{
 
-						root["units"][index]["time"] = unit->getTimeUnits();
-						root["units"][index]["health"] = unit->getHealth();
-						root["units"][index]["energy"] = unit->getEnergy();
-						root["units"][index]["morale"] = unit->getMorale();
-						root["units"][index]["mana"] = unit->getMana();
-						root["units"][index]["stun"] = unit->getStunlevel();
+							root["units"][index]["unit_id"] = unit->getId();
+							root["units"][index]["pos_x"] = unit->getPosition().x;
+							root["units"][index]["pos_y"] = unit->getPosition().y;
+							root["units"][index]["pos_z"] = unit->getPosition().z;
 
-						root["units"][index]["setDirection"] = unit->getDirection();
-						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
+							root["units"][index]["time"] = unit->getTimeUnits();
+							root["units"][index]["health"] = unit->getHealth();
+							root["units"][index]["energy"] = unit->getEnergy();
+							root["units"][index]["morale"] = unit->getMorale();
+							root["units"][index]["mana"] = unit->getMana();
+							root["units"][index]["stun"] = unit->getStunlevel();
 
-						// motions points (fix)
-						root["units"][index]["motionpoints"] = unit->getMotionPoints();
+							root["units"][index]["setDirection"] = unit->getDirection();
+							root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
 
-						root["units"][index]["is_out"] = unit->isOut();
+							// motions points (fix)
+							root["units"][index]["motionpoints"] = unit->getMotionPoints();
 
-						index++;
+							root["units"][index]["is_out"] = unit->isOut();
+
+							index++;
+						}
 
 					}
+
+
 
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 
 				}
+
+				_game->getCoopMod()->teleport = true;
 			
 
 			}
@@ -2475,7 +2487,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	}
 	
 	// coop
-	if (allowButtons() && is_return == false)
+	if (allowButtons() && (is_return == false || _save->isPreview() == true))
 	{
 
 		// Temporarily deactivate the touch buttons at the end of the player's turn

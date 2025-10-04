@@ -190,6 +190,13 @@ bool AlienMission::isOver() const
 
 void AlienMission::think(Game &engine, const Globe &globe)
 {
+
+	// coop
+	if (coop == true)
+	{
+		return;
+	}
+
 	// if interrupted, don't generate any more UFOs or anything else
 	if (_interrupted || (_multiUfoRetaliationInProgress && !_rule.isMultiUfoRetaliationExtra()))
 	{

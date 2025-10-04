@@ -50,6 +50,7 @@ MissionSite::~MissionSite()
 		root["state"] = "remove_target";
 		root["lan"] = _lat;
 		root["lon"] = _lon;
+		root["isUFO"] = false;
 
 		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 	}

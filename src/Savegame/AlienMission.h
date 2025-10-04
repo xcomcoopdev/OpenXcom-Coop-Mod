@@ -117,7 +117,9 @@ public:
 	void addScore(double lon, double lat, SavedGame &game) const;
 	/// Keep track of the city/whatever that we're going to target.
 	void setMissionSiteZoneArea(int area);
-private:
+	// coop
+	bool coop = false;
+  private:
 	/// Selects an xcom base in a given region.
 	Base* selectXcomBase(SavedGame& game, const RuleRegion& regionRules);
 	/// Spawns a UFO, based on mission rules.
@@ -136,7 +138,6 @@ private:
 	MissionSite *spawnMissionSite(SavedGame &game, const Mod &mod, const MissionArea &area, const Ufo *ufo = 0, AlienDeployment *missionOveride = 0);
 	/// Provides some error information for bad mission definitions
 	void logMissionError(int zone, const RuleRegion &region);
-
 };
 
 }

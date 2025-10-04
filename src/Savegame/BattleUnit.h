@@ -211,7 +211,6 @@ public:
 	void setHealth(int health);
 	int _coopDamage = 0;
 	int _coopHealth = 0;
-	bool _origHiding = false;
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;

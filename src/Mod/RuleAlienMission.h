@@ -181,9 +181,10 @@ public:
 	bool hasRegionWeights() const;
 	/// Gets a region based on the game time and the region distribution. Works only for "gen missions" spawned by an alien base.
 	std::string generateRegion(const size_t monthsPassed) const;
-private:
 	/// The mission's type ID.
 	std::string _type;
+  private:
+
 	/// The UFO to use for spawning.
 	std::string _spawnUfo;
 	/// Should the scouting phase of the retaliation mission be skipped?

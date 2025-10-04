@@ -107,7 +107,8 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 		root["lon"] = mission->getLongitude();
 		root["lat"] = mission->getLatitude();
 
-		OutputDebugStringA(root.toStyledString().c_str());
+		root["isUFO"] = false;
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}

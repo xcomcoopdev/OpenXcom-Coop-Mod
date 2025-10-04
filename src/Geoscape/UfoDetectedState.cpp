@@ -51,6 +51,7 @@ namespace OpenXcom
  */
 UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave) : _ufo(ufo), _state(state)
 {
+
 	// Generate UFO ID
 	if (_ufo->getId() == 0)
 	{
@@ -68,20 +69,32 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 		_ufo->setLandId(_game->getSavedGame()->getId("STR_LANDING_SITE"));
 
 		// COOP
-		if ((_ufo->getStatus() == Ufo::LANDED || ufo->getStatus() == Ufo::CRASHED) && _ufo->getDetected() == true)
+		if ((_ufo->getStatus() == Ufo::LANDED || ufo->getStatus() == Ufo::CRASHED) && _ufo->getDetected() == true && ufo->coop == false)
 		{
 
 			Json::Value root;
 
 			root["state"] = "mission";
 			root["rules"] = _ufo->getMission()->getRules().getType();
-			//root["deployment"] = _ufo->getMission()->getRules().getSiteType();
 			root["deployment"] = _game->getMod()->getDeployment(_ufo->getMission()->getRules().getWave(_ufo->getMissionWaveNumber()).ufoType)->getType(); 
 			root["race"] = _ufo->getMission()->getRace();
 			root["city"] = "";
 			root["time"] = 5000;
 			root["lon"] = _ufo->getLongitude();
 			root["lat"] = _ufo->getLatitude();
+			root["wave"] = _ufo->getMissionWaveNumber();
+
+			root["region"] = _ufo->getMission()->getRegion();
+			root["isUFO"] = true;
+
+			if (_ufo->isCrashed())
+			{
+				root["crashed"] = true;
+			}
+			else
+			{
+				root["crashed"] = false;
+			}
 
 			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 

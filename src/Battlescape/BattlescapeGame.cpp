@@ -399,38 +399,25 @@ void BattlescapeGame::abortCoopPath(int x, int y, int z)
 void BattlescapeGame::teleport(int x, int y, int z, BattleUnit* unit)
 {
 
-	if (unit->getFaction() == FACTION_PLAYER)
+	if (unit)
 	{
-		unit->_origHiding = unit->isHiding();
+		Position newPos = Position(x, y, z);
 
-		unit->setHiding(true);
+		if (_save->getTileEngine()->isPositionValidForUnit(newPos, unit))
+		{
+
+			_save->getPathfinding()->abortPath();
+
+			unit->setTile(_save->getTile(newPos), _save);
+			unit->setPosition(newPos);
+
+			// free refresh as bonus
+			unit->updateUnitStats(true, false);
+			_save->getTileEngine()->calculateLighting(LL_UNITS);
+			handleState();
+			_parentState->updateSoldierInfo(true);
+		}
 	}
-
-	getPathfinding()->abortPath();
-
-	Tile* tile = _save->getTile(unit->getPosition());
-
-	if (tile && unit->getTimeUnits() < 1)
-	{
-		unit->setPosition(Position(x, y, z + 1));
-	}
-
-	BattleAction action;
-
-	action.actor = unit;
-
-	action.target = Position(x, y, z);
-
-	getPathfinding()->calculate(action.actor, action.target, BAM_NORMAL);
-
-	UnitWalkBState* walk = new UnitWalkBState(this, action);
-
-	if (unit->getFaction() == FACTION_PLAYER)
-	{
-		walk->coop_hiding = true;
-	}
-
-	statePushBack(walk);
 
 }
 
@@ -544,28 +531,7 @@ int BattlescapeGame::think()
 				_save->getBattleState()->updateSoldierInfo();
 
 			}
-			// coop
-			else
-			{
 
-				if (_save->_endturnCoop == true && isBusy() == false)
-				{
-
-					static Uint32 lastUpdate = 0;
-					Uint32 now = SDL_GetTicks();
-
-					if (now - lastUpdate >= 5000)
-					{
-						_save->_endturnCoop = false;
-						_save->getBattleState()->endTurnCoop();
-
-						lastUpdate = now;
-
-					}
-
-				}
-
-			}
 		}
 	}
 

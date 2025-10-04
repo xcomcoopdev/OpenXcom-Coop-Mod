@@ -26,6 +26,9 @@
 #include "../Mod/AlienDeployment.h"
 #include "../Menu/CutsceneState.h"
 
+#include "../Savegame/AlienMission.h"
+#include "../Mod/UfoTrajectory.h"
+
 namespace OpenXcom
 {
 
@@ -390,36 +393,48 @@ void connectionTCP::updateCoopTask()
 
 					double d_lon = pendingRemoveTargets[i]["lon"].asDouble();
 					double d_lan = pendingRemoveTargets[i]["lan"].asDouble();
+					bool isUFO = pendingRemoveTargets[i]["isUFO"].asBool();
 
-					// mission sites
-					auto& missionSites = *_game->getSavedGame()->getMissionSites();
-
-					for (auto it = missionSites.begin(); it != missionSites.end();)
+					if (isUFO == false)
 					{
-						if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
+
+						// mission sites
+						auto& missionSites = *_game->getSavedGame()->getMissionSites();
+
+						for (auto it = missionSites.begin(); it != missionSites.end();)
 						{
-							it = missionSites.erase(it); // Removes and returns the next iterator
+							if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
+							{
+								it = missionSites.erase(it); // Removes and returns the next iterator
+							}
+							else
+							{
+								++it;
+							}
 						}
-						else
+
+					}
+					else
+					{
+
+						// UFOS
+						auto& ufos = *_game->getSavedGame()->getUfos();
+
+						for (auto it = ufos.begin(); it != ufos.end();)
 						{
-							++it;
+							if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
+							{
+								it = ufos.erase(it);
+							}
+							else
+							{
+								++it;
+							}
 						}
+
 					}
 
-					// UFOS
-					auto& ufos = *_game->getSavedGame()->getUfos();
-
-					for (auto it = ufos.begin(); it != ufos.end();)
-					{
-						if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
-						{
-							it = ufos.erase(it);
-						}
-						else
-						{
-							++it;
-						}
-					}
+		
 				}
 
 				pendingRemoveTargets.clear();
@@ -445,6 +460,8 @@ void connectionTCP::updateCoopTask()
 					size_t int_time = pendingMissions[i]["time"].asUInt64();
 					double d_lon = pendingMissions[i]["lon"].asDouble();
 					double d_lat = pendingMissions[i]["lat"].asDouble();
+
+					bool isUFO = pendingMissions[i]["isUFO"].asBool();
 
 					bool isDuplicate = false;
 
@@ -479,19 +496,127 @@ void connectionTCP::updateCoopTask()
 
 						}
 
-						AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
+						if (isUFO == false)
+						{
 
-						MissionSite* missionSite = new MissionSite(_game->getMod()->getAlienMission(str_rules, true), deployment, nullptr);
+							bool found_mission = false;
 
-						missionSite->setLongitude(d_lon);
-						missionSite->setLatitude(d_lat);
-						missionSite->setId(_game->getSavedGame()->getId(deployment->getMarkerName()));
-						missionSite->setSecondsRemaining(100000000);
-						missionSite->setAlienRace(str_race);
-						missionSite->setDetected(true);
-						missionSite->setCity(str_city);
+							for (auto* i_mission : *_game->getSavedGame()->getMissionSites())
+							{
 
-						_game->getSavedGame()->getMissionSites()->push_back(missionSite);
+								if (i_mission->getLatitude() == d_lat && i_mission->getLongitude() == d_lon)
+								{
+									found_mission = true;
+									break;
+								}
+
+							}
+
+							if (found_mission == false)
+							{
+
+								// MISSION SITE
+								AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
+
+								MissionSite* missionSite = new MissionSite(_game->getMod()->getAlienMission(str_rules, true), deployment, nullptr);
+
+								missionSite->setLongitude(d_lon);
+								missionSite->setLatitude(d_lat);
+								missionSite->setId(_game->getSavedGame()->getId(deployment->getMarkerName()));
+								missionSite->setSecondsRemaining(100000000);
+								missionSite->setAlienRace(str_race);
+								missionSite->setDetected(true);
+								missionSite->setCity(str_city);
+
+								_game->getSavedGame()->getMissionSites()->push_back(missionSite);
+
+							}
+
+
+
+						}
+						else
+						{
+
+							bool found_ufo = false;
+
+							for (auto* i_ufo : *_game->getSavedGame()->getUfos())
+							{
+
+								if (i_ufo->getLatitude() == d_lat && i_ufo->getLongitude() == d_lon)
+								{
+									found_ufo = true;
+									break;
+								}
+
+							}
+
+							if (found_ufo == false)
+							{
+
+								// UFO
+								int waveNumber = pendingMissions[i]["wave"].asInt();
+
+								std::string region = pendingMissions[i]["region"].asString();
+
+								bool crashed = pendingMissions[i]["crashed"].asBool();
+
+								int current_id = _game->getSavedGame()->getId("ALIEN_MISSIONS");
+
+								const RuleAlienMission* alien_mission_rule = _game->getMod()->getAlienMission(str_rules, true);
+
+								AlienMission* alien_mission = new AlienMission(*alien_mission_rule);
+
+								alien_mission->coop = true;
+								alien_mission->setRace(str_race);
+								alien_mission->setId(current_id);
+
+								alien_mission->setRegion(region, *_game->getMod());
+
+								_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
+
+								const MissionWave& wave = alien_mission->getRules().getWave(waveNumber);
+								RuleUfo* ufoRule = _game->getMod()->getUfo(wave.ufoType);
+
+								const UfoTrajectory& assaultTrajectory = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
+
+								Ufo* ufo = new Ufo(ufoRule, _game->getSavedGame()->getId("STR_UFO_UNIQUE"));
+
+								if (ufo)
+								{
+
+									ufo->coop = true;
+
+									ufo->setMissionInfo(alien_mission, &assaultTrajectory);
+
+									ufo->setLatitude(d_lat);
+									ufo->setLongitude(d_lon);
+									ufo->setSecondsRemaining(100000000);
+									ufo->setDetected(true);
+
+									ufo->getMission()->setId(current_id);
+
+									ufo->setAltitude("STR_GROUND");
+
+									if (crashed)
+									{
+										ufo->setStatus(Ufo::CRASHED);
+									}
+									else
+									{
+										ufo->setStatus(Ufo::LANDED);
+									}
+
+									_game->getSavedGame()->getUfos()->push_back(ufo);
+								}
+
+							}
+
+
+
+						}
+
+						
 					}
 				}
 
@@ -1769,8 +1894,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		// set random seed
-		//uint64_t current_seed = obj["seed"].asUInt64();
-		//RNG::setCoopSeed(current_seed);
+		uint64_t current_seed = obj["seed"].asUInt64();
+		RNG::setCoopSeed(current_seed);
 
 		int actor_id = obj["actor_id"].asInt();
 		int type = obj["type"].asInt();
@@ -1872,17 +1997,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
 
-							if (is_out == true)
-							{
-
-								if (!unit->isOut())
-								{
-									unit->kill();
-								}
-
-								continue;
-							}
-
 							int pos_x = obj["units"][i]["pos_x"].asInt();
 							int pos_y = obj["units"][i]["pos_y"].asInt();
 							int pos_z = obj["units"][i]["pos_z"].asInt();
@@ -1895,7 +2009,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							}
 
-			
+							if (is_out == true)
+							{
+
+								if (!unit->isOut())
+								{
+									unit->kill();
+								}
+							}
 
 						}
 					}
@@ -1920,8 +2041,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		bool battle_over = obj["battle"].asBool();
-
-		bool error = false;
 
 		//  selected unit
 		int actor_id = obj["actor_id"].asInt();
@@ -1978,17 +2097,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
 
-							if (is_out == true)
-							{
-
-								if (!unit->isOut())
-								{
-									unit->kill();
-								}
-
-								continue;
-							}
-
 							int pos_x = obj["units"][i]["pos_x"].asInt();
 							int pos_y = obj["units"][i]["pos_y"].asInt();
 							int pos_z = obj["units"][i]["pos_z"].asInt();
@@ -1997,37 +2105,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
 							{
 
-								error = true;
-
 								_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
 
-								if (getHost() == false)
-								{
-
-									_game->getSavedGame()->getSavedBattle()->_endturnCoop = true;
-								}
-
 							}
 
-							/*
-							if (getHost() == true)
+
+							if (is_out == true)
 							{
 
-								// Check if positions do not match
-								if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
+								if (!unit->isOut())
 								{
-
-									error = true;
-									OutputDebugStringA("Out of sync!!!");
+									unit->kill();
 								}
 							}
-							else
-							{
-
-						
-
-							}
-							*/
 
 							break;
 						}
@@ -2046,14 +2136,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					unit->kill();
 				}
-
-				if (error == false)
-				{
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-				}
-
-
+		
+				BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+				battlestate->endTurnCoop();
+				
 				return;
 			}
 
@@ -2063,12 +2149,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// if not pvp
 				if (connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)
 				{
-					if (error == false)
-					{
-						BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-						battlestate->endTurnCoop();
-					}
 
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
+					
 					setPlayerTurn(1);
 
 				}
@@ -2100,11 +2184,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					setPlayerTurn(2);
 
-					if (error == false)
-					{
-						BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-						battlestate->endTurnCoop();
-					}
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
+					
 				}
 			}
 			else if (battle_over == false)
@@ -3058,7 +3140,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
-		_game->getSavedGame()->getCoop()->sendFileBase(1);
+		sendBaseFile();
 
 		OutputDebugStringA("SEND_FILE_HOST_BASE");
 		sendFileHost = true;
@@ -3074,7 +3156,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
-		_game->getSavedGame()->getCoop()->sendFileBase(1);
+		sendBaseFile();
 
 		OutputDebugStringA("SEND_FILE_CLIENT_BASE");
 		sendFileClient = true;
@@ -3126,7 +3208,44 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 }
 
+void connectionTCP::sendBaseFile()
+{
 
+	if (_game->getCoopMod()->getHost() == false)
+	{
+		// saving is not allowed if in battle and inside another player's base!
+		if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
+		{
+
+			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
+			{
+				_game->getSavedGame()->save("host/basehost.data", _game->getMod());
+			}
+			else if (_game->getCoopMod()->coopMissionEnd == false)
+			{
+				_game->getSavedGame()->save("client/basehost.data", _game->getMod());
+			}
+		}
+	}
+	else
+	{
+
+		// do not allow saving if in battle and inside another player's base!
+		if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
+		{
+
+			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
+			{
+				_game->getSavedGame()->save("host/basehost.data", _game->getMod());
+			}
+			else if (_game->getCoopMod()->coopMissionEnd == false)
+			{
+				_game->getSavedGame()->save("client/basehost.data", _game->getMod());
+			}
+		}
+	}
+
+}
 
 void connectionTCP::setPauseOn()
 {
@@ -3272,7 +3391,64 @@ void connectionTCP::loadHostMap()
 
 void connectionTCP::sendMissionFile()
 {
-	_game->getSavedGame()->getCoop()->sendFile();
+
+	// Client sends the file to the host
+	if (_game->getCoopMod()->getHost() == false)
+	{
+
+		if ((_game->getCoopMod()->playerInsideCoopBase == true || _game->getCoopMod()->coopMissionEnd == true) && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+
+			// Go to Geoscape to begin the co-op mission.
+			_game->getCoopMod()->playerInsideCoopBase = false;
+
+			_game->getCoopMod()->ready_coop_battle = true;
+
+			_game->popState();
+
+			CoopState* coopWindow = new CoopState(66);
+			_game->pushState(coopWindow);
+		}
+		else
+		{
+
+			// saving files
+			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
+			{
+
+				_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
+			}
+			else if (_game->getCoopMod()->coopMissionEnd == false)
+			{
+
+				_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
+			}
+
+			Json::Value obj;
+			obj["state"] = "SEND_FILE_HOST_TRUE";
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+		}
+	}
+	// Host sends the file to the client
+	else
+	{
+
+		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
+		{
+			_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
+		}
+		else if (_game->getCoopMod()->coopMissionEnd == false)
+		{
+			_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
+		}
+
+		Json::Value obj;
+		obj["state"] = "SEND_FILE_CLIENT_TRUE";
+
+		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
 }
 
 int connectionTCP::getCurrentTurn()
@@ -3648,6 +3824,7 @@ void connectionTCP::disconnectTCP()
 		}
 
 		// both
+		teleport = false;
 		connectionTCP::_coopGamemode = 0;
 		gamePaused = 0;
 		playerInsideCoopBase = false;

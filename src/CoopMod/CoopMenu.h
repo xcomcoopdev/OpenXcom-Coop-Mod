@@ -115,8 +115,6 @@ class CoopMenu : public State
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
 	void hostTCPGame(Action *action);
-	void sendFile();
-	void sendFileBase(int state);
 	void btnPVEClick(Action *action);
 	void btnPVE2Click(Action* action);
 	void btnPVPClick(Action *action);

@@ -66,9 +66,6 @@ public:
 	void cancel() override;
 	/// Runs state functionality every cycle.
 	void think() override;
-	// coop
-	bool coop_hiding = false;
-	bool end_turn = false;
 };
 
 }

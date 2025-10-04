@@ -506,7 +506,7 @@ void GeoscapeState::startCoopMission()
 {
 
 	// coop
-	if (temp_ufo && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
+	if (temp_ufo && temp_ufo->coop == false && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
 	{
 
 		// Get the shade and texture for the globe at the location of the base, using the ufo position
@@ -1313,6 +1313,7 @@ void GeoscapeState::time5Seconds()
 							root["state"] = "remove_target";
 							root["lan"] = ufo->getLatitude();
 							root["lon"] = ufo->getLongitude();
+							root["isUFO"] = true;
 
 							connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 						}
@@ -1329,6 +1330,10 @@ void GeoscapeState::time5Seconds()
 				}
 				// If UFO was destroyed, don't spawn missions
 				if (ufo->getStatus() == Ufo::DESTROYED)
+					return;
+
+				// coop
+				if (ufo->coop == true)
 					return;
 
 				if (Base *base = dynamic_cast<Base*>(ufo->getDestination()))
@@ -1390,6 +1395,7 @@ void GeoscapeState::time5Seconds()
 						root["state"] = "remove_target";
 						root["lan"] = ufo->getLatitude();
 						root["lon"] = ufo->getLongitude();
+						root["isUFO"] = true;
 
 						connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 					}
@@ -2084,6 +2090,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 					root["state"] = "remove_target";
 					root["lan"] = site->getLatitude();
 					root["lon"] = site->getLongitude();
+					root["isUFO"] = false;
 
 					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 				}
@@ -2412,6 +2419,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 					root["state"] = "remove_target";
 					root["lan"] = ufo->getLatitude();
 					root["lon"] = ufo->getLongitude();
+					root["isUFO"] = true;
 
 					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 				}
@@ -3793,7 +3801,8 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 		if (connectionTCP::getCoopStatic() == true)
 		{
 
-			if (_game->getSavedGame())
+			// fix
+			if (_game->getSavedGame() && ufo->coop == false)
 			{
 
 				std::vector<Base*>* bases = _game->getSavedGame()->getBases();

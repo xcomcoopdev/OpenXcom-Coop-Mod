@@ -92,13 +92,14 @@ Ufo::~Ufo()
 	{
 
 		// coop
-		if (connectionTCP::getCoopStatic() == true && _mission->getRules().getObjective() != OBJECTIVE_SITE)
+		if (connectionTCP::getCoopStatic() == true && (_landId != 0 || _crashId != 0))
 		{
 
 			Json::Value root;
 			root["state"] = "remove_target";
 			root["lan"] = _lat;
 			root["lon"] = _lon;
+			root["isUFO"] = true;
 
 			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 		}
@@ -153,7 +154,11 @@ void Ufo::load(const YAML::Node &node, const ScriptGlobal *shared, const Mod &mo
 	_dest->setLatitude(lat);
 	if (const YAML::Node &status = node["status"])
 	{
-		_status = (UfoStatus)status.as<int>();
+		// coop
+		if (coop == false)
+		{
+			_status = (UfoStatus)status.as<int>();
+		}
 	}
 	if (game.getMonthsPassed() != -1)
 	{
@@ -541,7 +546,17 @@ bool Ufo::getDetected() const
  */
 void Ufo::setDetected(bool detected)
 {
-	_detected = detected;
+
+	// coop
+	if (coop == true)
+	{
+		_detected = true;
+	}
+	else
+	{
+		_detected = detected;
+	}
+
 }
 
 /**
@@ -616,7 +631,7 @@ void Ufo::setAltitude(const std::string &altitude)
 		_status = isCrashed() ? CRASHED : LANDED;
 
 		// COOP
-		if (_detected == true)
+		if (_detected == true && coop == false)
 		{
 
 			Json::Value root;
@@ -629,10 +644,38 @@ void Ufo::setAltitude(const std::string &altitude)
 			root["time"] = 5000;
 			root["lon"] = _lon;
 			root["lat"] = _lat;
+			root["wave"] = getMissionWaveNumber();
+
+			root["region"] = _mission->getRegion();
+			root["isUFO"] = true;
+	
+			if (isCrashed())
+			{
+				root["crashed"] = true;
+			}
+			else
+			{
+				root["crashed"] = false;
+			}
 
 			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 		}
 
+	}
+
+}
+
+void Ufo::setStatus(UfoStatus status)
+{
+
+	// coop
+	if (coop == true && getStatus() == Ufo::DESTROYED)
+	{
+		// do nothing
+	}
+	else
+	{
+		_status = status;
 	}
 
 }
@@ -664,7 +707,19 @@ bool Ufo::isCrashed() const
  */
 bool Ufo::isDestroyed() const
 {
-	return (_damage >= _stats.damageMax);
+
+	// coop
+	if (coop == true)
+	{
+		// do nothing
+		return false;
+	}
+	else
+	{
+		return (_damage >= _stats.damageMax);
+	}
+
+
 }
 
 /**
@@ -759,15 +814,13 @@ void Ufo::think()
 	case FLYING:
 
 		// coop
-		if (connectionTCP::getCoopStatic() == true && once == false && _detected == true)
+		if (connectionTCP::getCoopStatic() == true && (_landId != 0 || _crashId != 0))
 		{
-
-			once = true;
-
 			Json::Value root;
 			root["state"] = "remove_target";
 			root["lan"] = _lat;
 			root["lon"] = _lon;
+			root["isUFO"] = true;
 
 			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 		}
@@ -780,15 +833,10 @@ void Ufo::think()
 		}
 		break;
 	case LANDED:
-		// coop
-		once = false;
-
 		assert(_secondsRemaining >= 5 && "Wrong time management.");
 		_secondsRemaining -= 5;
 		break;
 	case CRASHED:
-		// coop
-		once = false;
 		if (!_detected)
 		{
 			_detected = true;

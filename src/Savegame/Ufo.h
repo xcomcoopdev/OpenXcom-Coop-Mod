@@ -148,7 +148,7 @@ public:
 	/// Gets the UFO status
 	enum UfoStatus getStatus() const { return _status; }
 	/// Set the UFO's status.
-	void setStatus(enum UfoStatus status) {_status = status; }
+	void setStatus(enum UfoStatus status);
 	/// Gets if the UFO has crashed.
 	bool isCrashed() const;
 	/// Gets if the UFO has been destroyed.
@@ -254,6 +254,9 @@ public:
 	void increaseSoftlockShotCounter() { _softlockShotCounter++; }
 	/// Checks if a target is inside the UFO's radar range.
 	bool insideRadarRange(Target *target) const;
+	// coop
+	// Is the UFO the other player’s?
+	bool coop = false;
 };
 
 }

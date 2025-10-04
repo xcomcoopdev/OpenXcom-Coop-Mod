@@ -90,14 +90,6 @@ void UnitWalkBState::deinit()
 	// coop
 	_parent->setCoopTaskCompleted(true);
 
-	if (coop_hiding == true)
-	{
-		coop_hiding = false;
-
-		_unit->setHiding(_unit->_origHiding);
-
-	}
-
 }
 
 /**
