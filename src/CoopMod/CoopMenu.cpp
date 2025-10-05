@@ -270,7 +270,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_btnPVE2->setVisible(false);
 
 
-		if (_game->getCoopMod()->getCoopCampaign() == false && _game->getCoopMod()->getServerOwner() == false)
+		if (_game->getCoopMod()->getServerOwner() == false)
 		{
 
 			if (_game->getCoopMod()->getCoopGamemode() == 4)
@@ -401,7 +401,7 @@ void CoopMenu::init()
 		_btnPVE->setVisible(false);
 		_btnPVE2->setVisible(false);
 
-		if (_game->getCoopMod()->getCoopCampaign() == false && _game->getCoopMod()->getServerOwner() == false)
+		if (_game->getCoopMod()->getServerOwner() == false)
 		{
 
 			if (_game->getCoopMod()->getCoopGamemode() == 4)
@@ -870,10 +870,7 @@ void CoopMenu::disconnect(Action *action)
 	_ipAddress->setVisible(true);
 	_playerName->setVisible(true);
 
-	if (_game->getCoopMod()->getCoopCampaign() == false)
-	{
-		_btnPVE->setVisible(true);
-	}
+	_btnPVE->setVisible(true);
 
 	_btnPVP->setVisible(false);
 	_btnPVP2->setVisible(false);

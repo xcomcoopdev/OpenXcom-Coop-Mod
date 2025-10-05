@@ -2229,6 +2229,11 @@ void BattleUnit::applyPercentages(RuleItemUseCost &cost, const RuleItemUseCost &
 	}
 }
 
+void BattleUnit::setCoopStatus(UnitStatus status)
+{
+	_status = status;
+}
+
 void BattleUnit::stopCoopWalk()
 {
 	_status = STATUS_STANDING;

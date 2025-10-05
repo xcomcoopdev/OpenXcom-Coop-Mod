@@ -1036,6 +1036,8 @@ static inline bool maybeHandlePongOnClient(const Json::Value& obj)
 // ===== Client thread =====
 extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 {
+
+	Sleep(1000);
 	OutputDebugStringA("startTCPClient\n");
 	resetCoopState(false); // client
 
@@ -1476,8 +1478,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		setHost(false);
 
-		connectionTCP::_coopGamemode = 1;
-
 		CoopState* coopWindow = new CoopState(4);
 		_game->pushState(coopWindow);
 
@@ -1676,7 +1676,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		setHost(false);
 
-		connectionTCP::_coopGamemode = 1;
 	}
 
 	if (stateString == "changeHost3")
@@ -1684,7 +1683,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		setPlayerTurn(1);
 		setHost(true);
-		connectionTCP::_coopGamemode = 1;
 	}
 
 	if (stateString == "changeHost4")
@@ -1876,8 +1874,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		// set random seed
-		//uint64_t current_seed = obj["seed"].asUInt64();
-		//RNG::setCoopSeed(current_seed);
+		uint64_t current_seed = obj["seed"].asUInt64();
+		RNG::setCoopSeed(current_seed);
 
 		int actor_id = obj["actor_id"].asInt();
 		int type = obj["type"].asInt();
@@ -1946,6 +1944,80 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
 		battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
+	}
+
+	// DEATH
+	if (stateString == "death")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+	
+					int unit_id = obj["unit_id"].asInt();
+
+
+					// Check if the same unit
+					if (unit->getId() == unit_id && unit->getStatus() != STATUS_UNCONSCIOUS && unit->getStatus() != STATUS_DEAD)
+					{
+
+							int time = obj["time"].asInt();
+							int health = obj["health"].asInt();
+							int energy = obj["energy"].asInt();
+							int morale = obj["morale"].asInt();
+							int mana = obj["mana"].asInt();
+							int stun = obj["stun"].asInt();
+							int motionpoints = obj["motionpoints"].asInt();
+							int status_str = obj["status"].asInt();
+
+							int setDirection = obj["setDirection"].asInt();
+							int setFaceDirection = obj["setFaceDirection"].asInt();
+
+							unit->setDirection(setDirection);
+							unit->setFaceDirection(setFaceDirection);
+
+							unit->setMotionPointsCoop(motionpoints);
+							unit->setTimeUnits(time);
+							unit->setHealth(health);
+							unit->setCoopMorale(morale);
+							unit->setCoopEnergy(energy);
+							unit->setCoopMana(mana);
+
+				
+							unit->setCoopStatus((UnitStatus)status_str);
+
+							int pos_x = obj["pos_x"].asInt();
+							int pos_y = obj["pos_y"].asInt();
+							int pos_z = obj["pos_z"].asInt();
+
+							// Check if positions do not match
+							if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
+							{
+
+								_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
+							}
+
+							int damageType_str = obj["damageType"].asInt();
+							bool noSound = obj["noSound"].asBool();
+
+							const RuleDamageType* damageType = _game->getMod()->getDamageType((ItemDamageType)damageType_str);
+
+							_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, noSound);
+
+
+						
+
+					}
+
+
+				}
+			}
+		}
 	}
 
 	// RANDOM SEED
@@ -2387,12 +2459,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		tcpPlayerName = playername;
 
-		// CHECK GAMEMODE
-		if (getCoopCampaign() == true)
-		{
-			connectionTCP::_coopGamemode = 1;
-		}
-
 		Json::Value root;
 		root["state"] = "COOP_READY_HOST";
 		root["playername"] = sendTcpPlayer;
@@ -2473,12 +2539,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// set current gamemode
 		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
-
-		// CHECK GAMEMODE
-		if (getCoopCampaign() == true)
-		{
-			connectionTCP::_coopGamemode = 1;
-		}
 
 		// Define the file path and values to write
 		std::string filename = Options::getMasterUserFolder() + "/ip_address.json";

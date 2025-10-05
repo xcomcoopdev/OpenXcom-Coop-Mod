@@ -53,6 +53,8 @@ public:
 	void convertUnitToCorpse();
 	/// Plays the death sound.
 	void playDeathSound();
+	// coop
+	bool coop = false;
 };
 
 }

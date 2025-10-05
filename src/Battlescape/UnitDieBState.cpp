@@ -115,6 +115,43 @@ UnitDieBState::~UnitDieBState()
 
 void UnitDieBState::init()
 {
+
+	// coop
+	if (_parent->isCoop() == true && coop == false)
+	{
+
+		// coop
+		Json::Value root;
+
+		root["state"] = "death";
+
+		root["status"] = (int)_unit->getStatus();
+
+		root["unit_id"] = _unit->getId();
+		root["pos_x"] = _unit->getPosition().x;
+		root["pos_y"] = _unit->getPosition().y;
+		root["pos_z"] = _unit->getPosition().z;
+
+		root["time"] = _unit->getTimeUnits();
+		root["health"] = _unit->getHealth();
+		root["energy"] = _unit->getEnergy();
+		root["morale"] = _unit->getMorale();
+		root["mana"] = _unit->getMana();
+		root["stun"] = _unit->getStunlevel();
+
+		root["setDirection"] = _unit->getDirection();
+		root["setFaceDirection"] = _unit->getFaceDirection();
+
+		// motions points (fix)
+		root["motionpoints"] = _unit->getMotionPoints();
+
+		root["damageType"] = (int)_damageType->ResistType;
+		root["noSound"] = _noSound;
+
+		_parent->sendPacketData(root.toStyledString());
+
+	}
+
 #if 0
 	// check for presence of battlestate to ensure that we're not pre-battle
 	// check for the unit's tile to make sure we're not trying to kill a dead guy

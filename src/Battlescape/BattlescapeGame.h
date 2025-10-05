@@ -173,6 +173,8 @@ public:
 	bool getHost();
 	bool isCoop();
 	void abortCoopPath(int x, int y, int z);
+	void sendPacketData(std::string data);
+	void coopDeath(BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
 	// coop
 	void teleport(int x, int y, int z, BattleUnit* unit);
 	/// Creates the BattlescapeGame state.

@@ -396,6 +396,21 @@ void BattlescapeGame::abortCoopPath(int x, int y, int z)
 
 }
 
+void BattlescapeGame::sendPacketData(std::string data)
+{
+	_parentState->getGame()->getCoopMod()->sendTCPPacketData(data);
+}
+
+void BattlescapeGame::coopDeath(BattleUnit* unit, const RuleDamageType *damageType, bool noSound)
+{
+
+	UnitDieBState* death = new UnitDieBState(this, unit, damageType, noSound);
+	death->coop = true;
+
+	statePushNext(death);
+
+}
+
 void BattlescapeGame::teleport(int x, int y, int z, BattleUnit* unit)
 {
 

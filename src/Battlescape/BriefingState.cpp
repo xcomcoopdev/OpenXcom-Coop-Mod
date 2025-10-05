@@ -432,13 +432,9 @@ void BriefingState::setupCoop()
 			_game->getCoopMod()->setCoopCampaign(false);
 		}
 
-		// if not coop campaign
-		if (_game->getCoopMod()->getCoopCampaign() == false)
+		// if pve2 gamemode
+		if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
 		{
-
-			// if pve2 gamemode
-			if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
-			{
 
 				_game->getSavedGame()->getSelectedBase()->getSoldiers()->clear();
 
@@ -511,10 +507,10 @@ void BriefingState::setupCoop()
 						}
 					}
 				}
-			}
-			// if pvp gamemode
-			else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
-			{
+		}
+		// if pvp gamemode
+		else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
+		{
 
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -527,10 +523,10 @@ void BriefingState::setupCoop()
 						unit->setOriginalFaction(FACTION_PLAYER);
 					}
 				}
-			}
-			// pvp2
-			else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
-			{
+		}
+		// pvp2
+		else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
+		{
 
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -548,11 +544,8 @@ void BriefingState::setupCoop()
 						unit->setCoop(1);
 					}
 				}
-			}
 		}
-
-		OutputDebugStringA("BriefingState");
-
+		
 		_game->getCoopMod()->sendMissionFile();
 	}
 }

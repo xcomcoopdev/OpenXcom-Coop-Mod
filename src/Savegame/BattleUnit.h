@@ -200,6 +200,8 @@ private:
 	/// Applies percentual and/or flat adjustments to the use costs.
 	void applyPercentages(RuleItemUseCost &cost, const RuleItemUseCost &flat) const;
 public:
+	// coop
+	void setCoopStatus(UnitStatus status);
 	void stopCoopWalk();
 	bool _coop_mindcontrolled = false;
 	void setOriginalFaction(UnitFaction faction);
