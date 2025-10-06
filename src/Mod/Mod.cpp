@@ -3488,7 +3488,7 @@ void Mod::loadFile(const FileMap::FileRecord &filerec, ModScript &parsers)
 
 	if (reader["globe"])
 	{
-		_globe->load(reader["globe"]);
+		_globe->load(reader["globe"], this);
 	}
 	if (reader["converter"])
 	{
