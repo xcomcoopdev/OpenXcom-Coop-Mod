@@ -1254,7 +1254,7 @@ void BattlescapeState::think()
 								root["actor_id"] = _save->getSelectedUnit()->getId();
 								_battleGame->getCurrentAction()->actor = _save->getSelectedUnit();
 
-								uint64_t c_seed = RNG::getSeed();
+								uint64_t c_seed = RNG::getCoopRandom(RNG::getSeed());
 								RNG::setCoopSeed(c_seed);
 
 								root["seed"] = c_seed;
@@ -1308,7 +1308,7 @@ void BattlescapeState::think()
 								root["actor_id"] = _save->getSelectedUnit()->getId();
 								_battleGame->getCurrentAction()->actor = _save->getSelectedUnit();
 
-								uint64_t c_seed = RNG::getSeed();
+								uint64_t c_seed = RNG::getCoopRandom(RNG::getSeed());
 
 								RNG::setCoopSeed(c_seed);
 
@@ -1328,6 +1328,8 @@ void BattlescapeState::think()
 
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
+
+				_game->getCoopMod()->_isDeathAllowed = true;
 
 				// Client's turn and host is waiting
 				if (_game->getCoopMod()->getHost() == false)
@@ -1927,7 +1929,6 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 		if (!_battleGame->getCurrentAction()->haveTU(&_battleGame->getCurrentAction()->result))
 		{
 			// nothing
-			OutputDebugStringA("nothing1");
 		}
 		else if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validMeleeRange(
 					 _battleGame->getCurrentAction()->actor->getPosition(),
@@ -1938,7 +1939,6 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 			if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validTerrainMeleeRange(_battleGame->getCurrentAction()))
 			{
 				_battleGame->getCurrentAction()->result = "STR_THERE_IS_NO_ONE_THERE";
-				OutputDebugStringA("STR_THERE_IS_NO_ONE_THERE2");
 			}
 		}
 

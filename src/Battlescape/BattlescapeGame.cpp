@@ -60,6 +60,8 @@
 #include "ConfirmEndMissionState.h"
 #include "../fmath.h"
 
+#include "../CoopMod/connectionTCP.h"
+
 namespace OpenXcom
 {
 
@@ -308,6 +310,11 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 
 		secondaryAction(*endpos);
 
+}
+
+connectionTCP* BattlescapeGame::getCoopMod()
+{
+	return _parentState->getGame()->getCoopMod();
 }
 
 void BattlescapeGame::setPauseOn()
@@ -2321,12 +2328,6 @@ void BattlescapeGame::primaryAction(Position pos)
 			// fix!
 			obj["weapon_type"] = _currentAction.weapon->getRules()->getType();
 
-			// fix
-			//uint64_t c_seed = RNG::getSeed();
-			//RNG::setCoopSeed(c_seed);
-
-			//obj["seed"] = c_seed;
-
 			_parentState->getGame()->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 		}
 	}
@@ -2451,7 +2452,7 @@ void BattlescapeGame::primaryAction(Position pos)
 					Json::Value obj;
 					obj["state"] = "BattleScapeMove";
 
-					uint64_t c_seed = RNG::getSeed();
+					uint64_t c_seed = RNG::getCoopRandom(RNG::getSeed());
 
 					RNG::setCoopSeed(c_seed);
 
@@ -2512,12 +2513,6 @@ void BattlescapeGame::secondaryAction(Position pos)
 	{
 		Json::Value obj;
 		obj["state"] = "BattleScapeTurn";
-
-		uint64_t c_seed = RNG::getSeed();
-
-		RNG::setCoopSeed(c_seed);
-
-		obj["seed"] = c_seed;
 
 		int index = 0;
 

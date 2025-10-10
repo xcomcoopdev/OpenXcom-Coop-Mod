@@ -722,6 +722,20 @@ void Inventory::think()
 	_warning->think();
 	_animTimer->think(0,this);
 
+	// coop inv reset
+	if (_game->getCoopMod()->getCoopStatic())
+	{
+
+		if (_game->getCoopMod()->resetCoopInventory == true)
+		{
+			_game->getCoopMod()->resetCoopInventory = false;
+
+			//arrangeGround(1);
+
+		}
+
+	}
+
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && getSelectedItem() == nullptr))
 	{

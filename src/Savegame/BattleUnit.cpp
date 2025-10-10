@@ -4968,6 +4968,9 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut())
 	{
 
+		if (getHealth() <= 0)
+			return false;
+
 		if (getCoop() != 0 && connectionTCP::getHost() == false)
 			return true;
 
@@ -5603,7 +5606,6 @@ void BattleUnit::disableIndicators()
 {
 	_disableIndicators = true;
 }
-
 
 ////////////////////////////////////////////////////////////
 //					Script binding

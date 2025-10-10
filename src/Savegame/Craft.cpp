@@ -553,6 +553,16 @@ std::string Craft::getStatus() const
  */
 void Craft::setStatus(const std::string &status)
 {
+	// coop
+	if (coop == false)
+	{
+		_status = status;
+	}
+
+}
+
+void Craft::setCoopStatus(const std::string& status)
+{
 	_status = status;
 }
 
@@ -860,6 +870,11 @@ int Craft::getFuel() const
  */
 void Craft::setFuel(int fuel)
 {
+
+	// coop
+	if (coop == true)
+		return;
+
 	_fuel = fuel;
 	if (_fuel > _stats.fuelMax)
 	{
@@ -986,6 +1001,13 @@ bool Craft::isIgnoredByHK() const
  */
 bool Craft::getLowFuel() const
 {
+
+	// coop
+	if (coop == true)
+	{
+		return true;
+	}
+
 	return _lowFuel;
 }
 
@@ -1154,6 +1176,13 @@ void Craft::evacuateCrew(const Mod *mod)
  */
 bool Craft::think()
 {
+
+	// coop
+	if (coop == true)
+	{
+		return false;
+	}
+
 	if (_takeoff == 0)
 	{
 		move();

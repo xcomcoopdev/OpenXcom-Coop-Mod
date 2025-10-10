@@ -83,10 +83,8 @@ private:
 	int _softlockShotCounter;
 	Waypoint *_origWaypoint;
 	ScriptValues<Ufo> _scriptValues;
-
 	using MovingTarget::load;
 	using MovingTarget::save;
-
 	void backupOriginalDestination();
 public:
 	/// Creates a UFO of the specified type.
@@ -133,6 +131,7 @@ public:
 	bool getDetected() const;
 	/// Sets the UFO's detection status.
 	void setDetected(bool detected);
+	void setDetectedCoop(bool detected);
 	/// Gets the UFO's seconds left on the ground.
 	size_t getSecondsRemaining() const;
 	/// Sets the UFO's seconds left on the ground.
@@ -145,10 +144,12 @@ public:
 	int getAltitudeInt() const;
 	/// Sets the UFO's altitude.
 	void setAltitude(const std::string &altitude);
+	void setAltitudeCoop(const std::string& altitude);
 	/// Gets the UFO status
 	enum UfoStatus getStatus() const { return _status; }
 	/// Set the UFO's status.
 	void setStatus(enum UfoStatus status);
+	void setStatusCoop(enum UfoStatus status);
 	/// Gets if the UFO has crashed.
 	bool isCrashed() const;
 	/// Gets if the UFO has been destroyed.
@@ -255,8 +256,15 @@ public:
 	/// Checks if a target is inside the UFO's radar range.
 	bool insideRadarRange(Target *target) const;
 	// coop
+	bool _coop = false;
+	// coop
 	// Is the UFO the other player’s?
-	bool coop = false;
+	bool getCoop();
+	void setCoop(bool state);
+	int _coop_ufo_id = 0;
+	bool _playerShotDownUfo = false;
+	int lastPlayerUfoDamage = 0;
+	int originalCoopSpeed = 0;
 };
 
 }

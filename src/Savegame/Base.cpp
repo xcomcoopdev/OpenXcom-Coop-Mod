@@ -473,7 +473,11 @@ YAML::Node Base::save() const
 	}
 	for (const auto* xcraft : _crafts)
 	{
-		node["crafts"].push_back(xcraft->save(_mod->getScriptGlobal()));
+		// coop
+		if (xcraft->coop == false)
+		{
+			node["crafts"].push_back(xcraft->save(_mod->getScriptGlobal()));
+		}
 	}
 	node["items"] = _items->save();
 	node["scientists"] = _scientists;

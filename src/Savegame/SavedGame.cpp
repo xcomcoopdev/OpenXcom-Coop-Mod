@@ -961,12 +961,19 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// Missions must be saved before UFOs, but after alien bases.
 	for (const auto* am : _activeMissions)
 	{
-		node["alienMissions"].push_back(am->save());
+		if (am->_coop == false)
+		{
+			node["alienMissions"].push_back(am->save());
+		}
 	}
 	// UFOs must be after missions
 	for (const auto* ufo : _ufos)
 	{
-		node["ufos"].push_back(ufo->save(mod->getScriptGlobal(), getMonthsPassed() == -1));
+		// coop
+		if (ufo->_coop == false)
+		{
+			node["ufos"].push_back(ufo->save(mod->getScriptGlobal(), getMonthsPassed() == -1));
+		}
 	}
 	for (const auto* ge : _geoscapeEvents)
 	{

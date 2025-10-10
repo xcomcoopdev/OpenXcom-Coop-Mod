@@ -506,7 +506,7 @@ void GeoscapeState::startCoopMission()
 {
 
 	// coop
-	if (temp_ufo && temp_ufo->coop == false && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
+	if (temp_ufo && temp_ufo->getCoop() == false && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
 	{
 
 		// Get the shade and texture for the globe at the location of the base, using the ufo position
@@ -903,6 +903,9 @@ void GeoscapeState::init()
 	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
 
+		// Delete all co-op UFOs and missions
+
+
 		_game->getCoopMod()->inventory_battle_window = true;
 
 		_game->getCoopMod()->gamePaused = 0;
@@ -987,6 +990,90 @@ void GeoscapeState::think()
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			Json::Value root;
+
+			root["state"] = "target_positions";
+
+			int craft_index = 0;
+
+			// crafts
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coopBase == false)
+				{
+
+					for (auto* craft : *base->getCrafts())
+					{
+
+						root["crafts"][craft_index]["craft_id"] = craft->getId();
+						root["crafts"][craft_index]["rule"] = craft->getRules()->getType();
+						root["crafts"][craft_index]["coopbase_id"] = base->_coop_base_id;
+						root["crafts"][craft_index]["lat"] = craft->getLatitude();
+						root["crafts"][craft_index]["lon"] = craft->getLongitude();
+						root["crafts"][craft_index]["status"] = craft->getStatus();
+
+						root["crafts"][craft_index]["fuel"] = craft->getFuel();
+						root["crafts"][craft_index]["damage"] = craft->getDamage();
+						root["crafts"][craft_index]["speed"] = craft->getSpeed();
+
+						craft_index++;
+
+					}
+
+				}
+
+			}
+
+			int ufo_index = 0;
+
+			// ufos
+			for (auto* ufo : *_game->getSavedGame()->getUfos())
+			{
+
+				if (ufo->getMission() && ufo->_coop == false)
+				{
+
+					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;
+					root["ufos"][ufo_index]["mission_id"] = ufo->getMission()->getId();
+					root["ufos"][ufo_index]["mission_rule"] = ufo->getMission()->getRules().getType();
+					root["ufos"][ufo_index]["ufo_rule"] = ufo->getRules()->getType();
+					root["ufos"][ufo_index]["race"] = ufo->getMission()->getRace();
+					root["ufos"][ufo_index]["lon"] = ufo->getLongitude();
+					root["ufos"][ufo_index]["lat"] = ufo->getLatitude();
+					root["ufos"][ufo_index]["wave"] = ufo->getMissionWaveNumber();
+					root["ufos"][ufo_index]["region"] = ufo->getMission()->getRegion();
+					root["ufos"][ufo_index]["status"] = _game->getCoopMod()->ufostatusToInt(ufo->getStatus());
+					root["ufos"][ufo_index]["detected"] = ufo->getDetected();
+					root["ufos"][ufo_index]["altitude"] = ufo->getAltitude();
+					root["ufos"][ufo_index]["crash_id"] = ufo->getCrashId();
+					root["ufos"][ufo_index]["land_id"] = ufo->getLandId();
+					root["ufos"][ufo_index]["speed"] = ufo->getSpeed();
+				
+					ufo_index++;
+
+				}
+
+
+
+			}
+
+
+			// send
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+
+
+	}
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
@@ -1302,22 +1389,9 @@ void GeoscapeState::time5Seconds()
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
-					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED))
+					// coop
+					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
 					{
-
-						// coop
-						if (connectionTCP::getCoopStatic() == true)
-						{
-
-							Json::Value root;
-							root["state"] = "remove_target";
-							root["lan"] = ufo->getLatitude();
-							root["lon"] = ufo->getLongitude();
-							root["isUFO"] = true;
-
-							connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-						}
-
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
 					}
 				
@@ -1333,7 +1407,7 @@ void GeoscapeState::time5Seconds()
 					return;
 
 				// coop
-				if (ufo->coop == true)
+				if (ufo->getCoop() == true)
 					return;
 
 				if (Base *base = dynamic_cast<Base*>(ufo->getDestination()))
@@ -1384,22 +1458,9 @@ void GeoscapeState::time5Seconds()
 				AlienMission *mission = ufo->getMission();
 				bool detected = ufo->getDetected();
 				mission->ufoLifting(*ufo, *_game->getSavedGame());
-				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
+				// coop
+				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
-
-					// coop
-					if (connectionTCP::getCoopStatic() == true)
-					{
-
-						Json::Value root;
-						root["state"] = "remove_target";
-						root["lan"] = ufo->getLatitude();
-						root["lon"] = ufo->getLongitude();
-						root["isUFO"] = true;
-
-						connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-					}
-
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
 				}
 			}
@@ -2081,20 +2142,6 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			}
 			if (!noFollowers)
 			{
-
-				// coop
-				if (connectionTCP::getCoopStatic() == true)
-				{
-
-					Json::Value root;
-					root["state"] = "remove_target";
-					root["lan"] = site->getLatitude();
-					root["lon"] = site->getLongitude();
-					root["isUFO"] = false;
-
-					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-				}
-
 				popup(new UfoLostState(site->getName(_game->getLanguage())));
 			}
 		}
@@ -2391,7 +2438,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			}
 			ufo->setDetected(true);
 			// don't show if player said he doesn't want to see this UFO anymore
-			if (!_game->getSavedGame()->isUfoOnIgnoreList(ufo->getId()))
+			if (!_game->getSavedGame()->isUfoOnIgnoreList(ufo->getId()) && ufo->getCoop() == false)
 			{
 				popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected()));
 			}
@@ -2408,22 +2455,9 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 		{
 			ufo->setDetected(false);
 			ufo->setHyperDetected(false);
-			if (!ufo->getFollowers()->empty())
+			// coop
+			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
-
-				// coop
-				if (connectionTCP::getCoopStatic() == true)
-				{
-
-					Json::Value root;
-					root["state"] = "remove_target";
-					root["lan"] = ufo->getLatitude();
-					root["lon"] = ufo->getLongitude();
-					root["isUFO"] = true;
-
-					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-				}
-
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
 			}
 		}
@@ -3802,7 +3836,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 		{
 
 			// fix
-			if (_game->getSavedGame() && ufo->coop == false)
+			if (_game->getSavedGame() && ufo->getCoop() == false)
 			{
 
 				std::vector<Base*>* bases = _game->getSavedGame()->getBases();

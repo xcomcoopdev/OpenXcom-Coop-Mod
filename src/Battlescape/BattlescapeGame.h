@@ -39,6 +39,7 @@ class Mod;
 class InfoboxOKState;
 class SoldierDiary;
 class RuleSkill;
+class connectionTCP; 
 
 enum BattleActionMove : char { BAM_NORMAL = 0, BAM_RUN = 1, BAM_STRAFE = 2, BAM_SNEAK = 3, BAM_MISSILE = 4 };
 
@@ -162,6 +163,7 @@ public:
 	static bool _debugPlay;
 	static int isYourTurn;
 	// coop
+	connectionTCP* getCoopMod();
 	void setPauseOn();
 	void setPauseOff();
 	void setCoopTaskCompleted(bool task);

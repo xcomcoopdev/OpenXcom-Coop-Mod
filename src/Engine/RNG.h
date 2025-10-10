@@ -32,11 +32,12 @@ namespace OpenXcom
  */
 namespace RNG
 {
+
+	inline uint64_t g_randomCoopSeed = 7795863650410510951ULL;
+
 	class RandomState
 	{
 		 uint64_t _seedState;
-		 // coop
-		 uint64_t _randomCoopSeed = 7795863650410510951;
 	public:
 		/// Default constructor initializing the seed by time and this type address.
 		RandomState();

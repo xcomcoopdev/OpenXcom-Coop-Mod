@@ -18,7 +18,6 @@
  */
 #include "RNG.h"
 #include <time.h>
-#include "../CoopMod/connectionTCP.h"
 #ifndef UINT64_MAX
 #define UINT64_MAX 0xffffffffffffffffULL
 #endif
@@ -54,7 +53,7 @@ static uint64_t nextImpl(uint64_t& state)
 RandomState::RandomState()
 {
 	// coop
-	_seedState = _randomCoopSeed;
+	_seedState = g_randomCoopSeed;
 }
 
 
@@ -64,7 +63,7 @@ RandomState::RandomState()
 RandomState::RandomState(uint64_t seed) : _seedState(seed)
 {
 	// coop
-	_seedState = _randomCoopSeed;
+	_seedState = g_randomCoopSeed;
 }
 
 /**
@@ -79,7 +78,7 @@ uint64_t RandomState::getSeed() const
 void RandomState::setCoopSeed(uint64_t n)
 {
 	_seedState = n;
-	_randomCoopSeed = n;
+	g_randomCoopSeed = n;
 }
 
 /**

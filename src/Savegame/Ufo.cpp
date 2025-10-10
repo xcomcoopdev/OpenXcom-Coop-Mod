@@ -36,6 +36,7 @@
 #include "Waypoint.h"
 
 #include "../Engine/Game.h"
+#include <random>
 
 namespace OpenXcom
 {
@@ -79,6 +80,14 @@ Ufo::Ufo(const RuleUfo *rules, int uniqueId, int hunterKillerPercentage, int hun
 			_huntBehavior = huntBehavior > 1 ? RNG::generate(0, 1) : huntBehavior;
 		}
 	}
+
+	// coop id
+	std::random_device rd;                              // Seed
+	std::mt19937 gen(rd());                             // Mersenne Twister RNG
+	std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+	int random_number = distrib(gen);
+	_coop_ufo_id = random_number;
+
 }
 
 /**
@@ -90,20 +99,6 @@ Ufo::~Ufo()
 
 	if (_mission)
 	{
-
-		// coop
-		if (connectionTCP::getCoopStatic() == true && (_landId != 0 || _crashId != 0))
-		{
-
-			Json::Value root;
-			root["state"] = "remove_target";
-			root["lan"] = _lat;
-			root["lon"] = _lon;
-			root["isUFO"] = true;
-
-			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-		}
-
 		_mission->decreaseLiveUfos();
 	}
 
@@ -155,7 +150,7 @@ void Ufo::load(const YAML::Node &node, const ScriptGlobal *shared, const Mod &mo
 	if (const YAML::Node &status = node["status"])
 	{
 		// coop
-		if (coop == false)
+		if (_coop == false)
 		{
 			_status = (UfoStatus)status.as<int>();
 		}
@@ -548,7 +543,7 @@ void Ufo::setDetected(bool detected)
 {
 
 	// coop
-	if (coop == true)
+	if (_coop == true || _playerShotDownUfo == true)
 	{
 		_detected = true;
 	}
@@ -557,6 +552,11 @@ void Ufo::setDetected(bool detected)
 		_detected = detected;
 	}
 
+}
+
+void Ufo::setDetectedCoop(bool detected)
+{
+	_detected = detected;
 }
 
 /**
@@ -621,6 +621,13 @@ int Ufo::getAltitudeInt() const
  */
 void Ufo::setAltitude(const std::string &altitude)
 {
+
+	// coop
+	if (_coop == true || _playerShotDownUfo == true)
+	{
+		return;
+	}
+
 	_altitude = altitude;
 	if (_altitude != "STR_GROUND")
 	{
@@ -629,55 +636,29 @@ void Ufo::setAltitude(const std::string &altitude)
 	else
 	{
 		_status = isCrashed() ? CRASHED : LANDED;
-
-		// COOP
-		if (_detected == true && coop == false)
-		{
-
-			Json::Value root;
-
-			root["state"] = "mission";
-			root["rules"] = _mission->getRules().getType();
-			root["deployment"] = _mission->getRules().getSiteType();
-			root["race"] = _mission->getRace();
-			root["city"] = "";
-			root["time"] = 5000;
-			root["lon"] = _lon;
-			root["lat"] = _lat;
-			root["wave"] = getMissionWaveNumber();
-
-			root["region"] = _mission->getRegion();
-			root["isUFO"] = true;
-	
-			if (isCrashed())
-			{
-				root["crashed"] = true;
-			}
-			else
-			{
-				root["crashed"] = false;
-			}
-
-			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-		}
-
 	}
 
 }
 
+void Ufo::setAltitudeCoop(const std::string& altitude)
+{
+	_altitude = altitude;
+}
+
 void Ufo::setStatus(UfoStatus status)
 {
-
 	// coop
-	if (coop == true && getStatus() == Ufo::DESTROYED)
+	if (_coop == true || (_playerShotDownUfo == true && status != Ufo::DESTROYED))
 	{
-		// do nothing
-	}
-	else
-	{
-		_status = status;
+		return;
 	}
 
+	_status = status;
+}
+
+void Ufo::setStatusCoop(UfoStatus status)
+{
+	_status = status;
 }
 
 /**
@@ -707,9 +688,8 @@ bool Ufo::isCrashed() const
  */
 bool Ufo::isDestroyed() const
 {
-
 	// coop
-	if (coop == true)
+	if (_coop == true)
 	{
 		// do nothing
 		return false;
@@ -718,8 +698,6 @@ bool Ufo::isDestroyed() const
 	{
 		return (_damage >= _stats.damageMax);
 	}
-
-
 }
 
 /**
@@ -812,19 +790,6 @@ void Ufo::think()
 	switch (_status)
 	{
 	case FLYING:
-
-		// coop
-		if (connectionTCP::getCoopStatic() == true && (_landId != 0 || _crashId != 0))
-		{
-			Json::Value root;
-			root["state"] = "remove_target";
-			root["lan"] = _lat;
-			root["lon"] = _lon;
-			root["isUFO"] = true;
-
-			connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-		}
-
 		move();
 		if (reachedDestination() && !isHunting() && !isEscorting())
 		{
@@ -1370,6 +1335,16 @@ bool Ufo::insideRadarRange(Target *target) const
 
 	double range = Nautical(_stats.radarRange);
 	return (getDistance(target) <= range);
+}
+
+bool Ufo::getCoop()
+{
+	return _coop;
+}
+
+void Ufo::setCoop(bool state)
+{
+	_coop = state;
 }
 
 ////////////////////////////////////////////////////////////

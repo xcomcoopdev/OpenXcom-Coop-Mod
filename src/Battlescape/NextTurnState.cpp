@@ -67,6 +67,8 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 		_game->getCoopMod()->_battleWindow = true;
 
+		_game->getCoopMod()->_isDeathAllowed = false;
+
 	}
 	
 	if (_battleGame->isPreview())

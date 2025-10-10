@@ -225,7 +225,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	// check if campaign mission
 	if (!_game->getSavedGame()->getCountries()->empty())
 	{
-
+		current_gamemode = 1;
 		_game->getCoopMod()->setCoopCampaign(true);
 	}
 	else

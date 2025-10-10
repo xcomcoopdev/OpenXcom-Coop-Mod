@@ -851,6 +851,7 @@ public:
 	ArmorMoveCost getMoveCostBaseClimb() const { return _moveCostBaseClimb; }
 	/// Multiplier of normal move cost.
 	ArmorMoveCost getMoveCostBaseNormal() const { return _moveCostBaseNormal; }
+
 };
 
 } //namespace OpenXcom

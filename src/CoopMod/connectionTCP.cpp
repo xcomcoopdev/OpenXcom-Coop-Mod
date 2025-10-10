@@ -28,6 +28,7 @@
 
 #include "../Savegame/AlienMission.h"
 #include "../Mod/UfoTrajectory.h"
+#include "../Savegame/Ufo.h"
 
 namespace OpenXcom
 {
@@ -393,47 +394,21 @@ void connectionTCP::updateCoopTask()
 
 					double d_lon = pendingRemoveTargets[i]["lon"].asDouble();
 					double d_lan = pendingRemoveTargets[i]["lan"].asDouble();
-					bool isUFO = pendingRemoveTargets[i]["isUFO"].asBool();
 
-					if (isUFO == false)
+					// mission sites
+					auto& missionSites = *_game->getSavedGame()->getMissionSites();
+
+					for (auto it = missionSites.begin(); it != missionSites.end();)
 					{
-
-						// mission sites
-						auto& missionSites = *_game->getSavedGame()->getMissionSites();
-
-						for (auto it = missionSites.begin(); it != missionSites.end();)
+						if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
 						{
-							if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
-							{
-								it = missionSites.erase(it); // Removes and returns the next iterator
-							}
-							else
-							{
-								++it;
-							}
+							it = missionSites.erase(it); // Removes and returns the next iterator
 						}
-
-					}
-					else
-					{
-
-						// UFOS
-						auto& ufos = *_game->getSavedGame()->getUfos();
-
-						for (auto it = ufos.begin(); it != ufos.end();)
+						else
 						{
-							if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
-							{
-								it = ufos.erase(it);
-							}
-							else
-							{
-								++it;
-							}
+							++it;
 						}
-
 					}
-
 		
 				}
 
@@ -461,8 +436,6 @@ void connectionTCP::updateCoopTask()
 					double d_lon = pendingMissions[i]["lon"].asDouble();
 					double d_lat = pendingMissions[i]["lat"].asDouble();
 
-					bool isUFO = pendingMissions[i]["isUFO"].asBool();
-
 					bool isDuplicate = false;
 
 					// Check if the same coordinates already exist in the missionSite list
@@ -482,7 +455,6 @@ void connectionTCP::updateCoopTask()
 						if (str_deployment == "")
 						{
 
-			
 							std::vector<std::string> deployments = _game->getMod()->getDeploymentsList();
 
 							// Initialize the random number generator
@@ -496,13 +468,10 @@ void connectionTCP::updateCoopTask()
 
 						}
 
-						if (isUFO == false)
+						bool found_mission = false;
+
+						for (auto* i_mission : *_game->getSavedGame()->getMissionSites())
 						{
-
-							bool found_mission = false;
-
-							for (auto* i_mission : *_game->getSavedGame()->getMissionSites())
-							{
 
 								if (i_mission->getLatitude() == d_lat && i_mission->getLongitude() == d_lon)
 								{
@@ -510,10 +479,10 @@ void connectionTCP::updateCoopTask()
 									break;
 								}
 
-							}
+						}
 
-							if (found_mission == false)
-							{
+						if (found_mission == false)
+						{
 
 								// MISSION SITE
 								AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
@@ -530,92 +499,7 @@ void connectionTCP::updateCoopTask()
 
 								_game->getSavedGame()->getMissionSites()->push_back(missionSite);
 
-							}
-
-
-
 						}
-						else
-						{
-
-							bool found_ufo = false;
-
-							for (auto* i_ufo : *_game->getSavedGame()->getUfos())
-							{
-
-								if (i_ufo->getLatitude() == d_lat && i_ufo->getLongitude() == d_lon)
-								{
-									found_ufo = true;
-									break;
-								}
-
-							}
-
-							if (found_ufo == false)
-							{
-
-								// UFO
-								int waveNumber = pendingMissions[i]["wave"].asInt();
-
-								std::string region = pendingMissions[i]["region"].asString();
-
-								bool crashed = pendingMissions[i]["crashed"].asBool();
-
-								int current_id = _game->getSavedGame()->getId("ALIEN_MISSIONS");
-
-								const RuleAlienMission* alien_mission_rule = _game->getMod()->getAlienMission(str_rules, true);
-
-								AlienMission* alien_mission = new AlienMission(*alien_mission_rule);
-
-								alien_mission->coop = true;
-								alien_mission->setRace(str_race);
-								alien_mission->setId(current_id);
-
-								alien_mission->setRegion(region, *_game->getMod());
-
-								_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
-
-								const MissionWave& wave = alien_mission->getRules().getWave(waveNumber);
-								RuleUfo* ufoRule = _game->getMod()->getUfo(wave.ufoType);
-
-								const UfoTrajectory& assaultTrajectory = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
-
-								Ufo* ufo = new Ufo(ufoRule, _game->getSavedGame()->getId("STR_UFO_UNIQUE"));
-
-								if (ufo)
-								{
-
-									ufo->coop = true;
-
-									ufo->setMissionInfo(alien_mission, &assaultTrajectory);
-
-									ufo->setLatitude(d_lat);
-									ufo->setLongitude(d_lon);
-									ufo->setSecondsRemaining(100000000);
-									ufo->setDetected(true);
-
-									ufo->getMission()->setId(current_id);
-
-									ufo->setAltitude("STR_GROUND");
-
-									if (crashed)
-									{
-										ufo->setStatus(Ufo::CRASHED);
-									}
-									else
-									{
-										ufo->setStatus(Ufo::LANDED);
-									}
-
-									_game->getSavedGame()->getUfos()->push_back(ufo);
-								}
-
-							}
-
-
-
-						}
-
 						
 					}
 				}
@@ -837,6 +721,8 @@ void connectionTCP::syncCoopInventory()
 		std::string sel_item_name = _jsonInventory[i]["sel_item_name"].asString();
 
 		_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id);
+
+		resetCoopInventory = true;
 
 		_jsonInventory[i] = {};
 	}
@@ -1517,7 +1403,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	// Removes the target UFO or mission sites
+	// Removes the target mission sites
 	if (stateString == "remove_target")
 	{
 		// Check directly in the loop
@@ -1536,7 +1422,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
-	// Adds mission sites or UFOs
+	// Adds mission sites
 	if (stateString == "mission")
 	{
 
@@ -1729,6 +1615,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (coopInventory == true)
 		{
 			_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id);
+
+			resetCoopInventory = true;
+
 		}
 		else
 		{
@@ -1934,6 +1823,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "medkit")
 	{
 
+		// set random seed
+		uint64_t current_seed = obj["seed"].asUInt64();
+		RNG::setCoopSeed(current_seed);
+
 		int actor_id = obj["actor_id"].asInt();
 		int type = obj["type"].asInt();
 		int part = obj["part"].asInt();
@@ -1946,8 +1839,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
 	}
 
-	// DEATH
-	if (stateString == "death")
+	// unit_death
+	if (stateString == "unit_death")
 	{
 
 		if (_game->getSavedGame())
@@ -1963,7 +1856,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 
 					// Check if the same unit
-					if (unit->getId() == unit_id && unit->getStatus() != STATUS_UNCONSCIOUS && unit->getStatus() != STATUS_DEAD)
+					if (unit->getId() == unit_id && unit->getStatus() != STATUS_UNCONSCIOUS && unit->getStatus() != STATUS_DEAD && unit->getMurdererId() == 0)
 					{
 
 							int time = obj["time"].asInt();
@@ -1973,7 +1866,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int mana = obj["mana"].asInt();
 							int stun = obj["stun"].asInt();
 							int motionpoints = obj["motionpoints"].asInt();
-							int status_str = obj["status"].asInt();
+							int status_int = obj["status"].asInt();
 
 							int setDirection = obj["setDirection"].asInt();
 							int setFaceDirection = obj["setFaceDirection"].asInt();
@@ -1988,8 +1881,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
 
+							UnitStatus unitStatus = intToUnitstatus(status_int);
 				
-							unit->setCoopStatus((UnitStatus)status_str);
+							unit->setCoopStatus(unitStatus);
 
 							int pos_x = obj["pos_x"].asInt();
 							int pos_y = obj["pos_y"].asInt();
@@ -2002,10 +1896,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
 							}
 
-							int damageType_str = obj["damageType"].asInt();
+							int damageType_int = obj["damageType"].asInt();
 							bool noSound = obj["noSound"].asBool();
 
-							const RuleDamageType* damageType = _game->getMod()->getDamageType((ItemDamageType)damageType_str);
+							const RuleDamageType* damageType = _game->getMod()->getDamageType((ItemDamageType)damageType_int);
 
 							_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, noSound);
 
@@ -2086,7 +1980,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								if (!unit->isOut())
 								{
-									unit->kill();
+
+									const RuleDamageType* damageType = _game->getMod()->getDamageType(DT_NONE);
+
+									_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, true);
+
 								}
 							}
 
@@ -2096,6 +1994,384 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 
 			}
+
+		}
+
+
+
+	}
+
+	// ufo damage
+	if (stateString == "ufo_damage")
+	{
+
+		if (_game->getSavedGame() && playerInsideCoopBase == false)
+		{
+
+			int ufo_id = obj["ufo_id"].asInt();
+			int damage = obj["damage"].asInt();
+
+			int status_int = obj["status"].asInt();
+			Ufo::UfoStatus status = intToUfostatus(status_int);
+			std::string altitude = obj["altitude"].asString();
+			bool detected = obj["detected"].asBool();
+
+			int wave = obj["wave"].asInt();
+			int crash_id = obj["crash_id"].asInt();
+			int land_id = obj["land_id"].asInt();
+
+			std::string craft_rule = obj["craft_rule"].asString();
+			int craft_id = obj["craft_id"].asInt();
+
+			bool end = obj["end"].asBool();
+
+			for (auto& i_ufo : *_game->getSavedGame()->getUfos())
+			{
+
+				if (i_ufo->_coop_ufo_id == ufo_id && i_ufo->_coop == false)
+				{
+
+					// damage
+					if (damage > i_ufo->lastPlayerUfoDamage)
+					{
+
+						int current_damage = i_ufo->getDamage() + (damage - i_ufo->lastPlayerUfoDamage);
+
+						i_ufo->setDamage(current_damage, _game->getMod());
+
+						i_ufo->lastPlayerUfoDamage = damage;
+
+					}
+
+					i_ufo->setStatusCoop(status);
+					i_ufo->setAltitudeCoop(altitude);
+					i_ufo->setDetectedCoop(detected);
+					i_ufo->setDetected(detected);
+
+					i_ufo->setMissionWaveNumber(wave);
+					i_ufo->setCrashId(crash_id);
+					i_ufo->setLandId(land_id);
+
+					if (i_ufo->originalCoopSpeed == 0)
+					{
+						i_ufo->originalCoopSpeed = i_ufo->getSpeed();
+					}
+
+					if (i_ufo->getSecondsRemaining() <= 0)
+					{
+						i_ufo->setSecondsRemaining(86400);
+					}
+	
+					if (end == true)
+					{
+						i_ufo->_playerShotDownUfo = false;
+						i_ufo->setSpeed(i_ufo->originalCoopSpeed);
+						i_ufo->originalCoopSpeed = 0;
+					}
+					else
+					{
+						i_ufo->setSpeed(0);
+					}
+
+					if (i_ufo->isCrashed())
+					{
+						i_ufo->_playerShotDownUfo = true;
+						i_ufo->setStatusCoop(Ufo::CRASHED);
+						i_ufo->setShotDownByCraftId(std::make_pair(craft_rule, craft_id));
+					}
+
+					if (i_ufo->isDestroyed())
+					{
+						i_ufo->_playerShotDownUfo = true;
+						i_ufo->setStatusCoop(Ufo::DESTROYED);
+						i_ufo->setShotDownByCraftId(std::make_pair(craft_rule, craft_id));
+					}
+
+					break;
+
+				}
+
+			}
+
+
+		}
+
+
+	}
+
+	// target positions
+	if (stateString == "target_positions")
+	{
+
+		if (_game->getSavedGame() && playerInsideCoopBase == false)
+		{
+
+			// crafts
+			for (int i = 0; i < obj["crafts"].size(); i++)
+			{
+
+				int base_id = obj["crafts"][i]["coopbase_id"].asInt();
+				int craft_id = obj["crafts"][i]["craft_id"].asInt();
+				std::string rule_id = obj["crafts"][i]["rule"].asString();
+				std::string status = obj["crafts"][i]["status"].asString();
+				double lat = obj["crafts"][i]["lat"].asDouble();
+				double lon = obj["crafts"][i]["lon"].asDouble();
+
+				int fuel = obj["crafts"][i]["fuel"].asInt();
+				int damage = obj["crafts"][i]["damage"].asInt();
+
+				int speed = obj["crafts"][i]["speed"].asInt();
+
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+
+					if (base->_coopIcon == true && base->_coop_base_id == base_id)
+					{
+
+						Craft *craft = 0;
+
+						for (auto &i_craft : *base->getCrafts())
+						{
+
+							if (i_craft->getId() == craft_id && i_craft->getRules()->getType() == rule_id)
+							{
+								craft = i_craft;
+								break;
+							}
+
+						}
+
+						// If no craft is found, create a new one.
+						if (!craft)
+						{
+
+							RuleCraft* rule = _game->getMod()->getCraft(rule_id);
+
+							if (rule)
+							{
+								craft = new Craft(rule, base, craft_id);
+
+								base->getCrafts()->push_back(craft);
+							}
+							else
+							{
+								return;
+							}
+
+						}
+
+						craft->coop = true;
+
+						craft->setCoopStatus(status);
+
+						craft->setLongitude(lon);
+						craft->setLatitude(lat);
+
+						craft->setFuel(fuel);
+						craft->setDamage(damage);
+
+						craft->setSpeed(speed);
+
+						break;
+
+					}
+				
+				}
+			
+			}
+
+			// ufos
+			for (int i = 0; i < obj["ufos"].size(); i++)
+			{
+
+				int mission_id = obj["ufos"][i]["mission_id"].asInt();
+				std::string mission_rule_id = obj["ufos"][i]["mission_rule"].asString();
+				std::string race = obj["ufos"][i]["race"].asString();
+				std::string region = obj["ufos"][i]["region"].asString();
+
+				int ufo_id = obj["ufos"][i]["ufo_id"].asInt();
+				std::string ufo_rule_id = obj["ufos"][i]["ufo_rule"].asString();
+				int waveNumber = obj["ufos"][i]["wave"].asInt();
+				double d_lat = obj["ufos"][i]["lat"].asDouble();
+				double d_lon = obj["ufos"][i]["lon"].asDouble();
+				int status_int = obj["ufos"][i]["status"].asInt();
+				Ufo::UfoStatus status = intToUfostatus(status_int);
+				std::string altitude = obj["ufos"][i]["altitude"].asString();
+				bool detected = obj["ufos"][i]["detected"].asBool();
+
+				int crash_id = obj["ufos"][i]["crash_id"].asInt();
+				int land_id = obj["ufos"][i]["land_id"].asInt();
+
+				int speed = obj["ufos"][i]["speed"].asInt();
+
+				// alien mission
+				AlienMission *alien_mission = 0;
+
+				for (auto &i_alien_mission : _game->getSavedGame()->getAlienMissions())
+				{
+
+					if (i_alien_mission->getId() == mission_id && i_alien_mission->_coop == true)
+					{
+						alien_mission = i_alien_mission;
+						break;
+
+					}
+
+				}
+
+				if (!alien_mission)
+				{
+
+					const RuleAlienMission* alien_mission_rule = _game->getMod()->getAlienMission(mission_rule_id, true);
+
+					if (alien_mission_rule)
+					{
+
+						alien_mission = new AlienMission(*alien_mission_rule);
+
+						alien_mission->setCoop(true);
+						alien_mission->setRace(race);
+						alien_mission->setId(mission_id);
+
+						alien_mission->setRegion(region, *_game->getMod());
+
+						_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
+
+					}
+					else
+					{
+						return;
+					}
+
+				}
+
+				// ufo
+				Ufo *ufo = 0;
+
+				for (auto &i_ufo : *_game->getSavedGame()->getUfos())
+				{
+
+					if (i_ufo->_coop_ufo_id == ufo_id && i_ufo->_coop == true)
+					{
+
+						ufo = i_ufo;
+						break;
+
+					}
+
+
+				}
+
+
+				if (!ufo)
+				{
+
+					const MissionWave& wave = alien_mission->getRules().getWave(waveNumber);
+
+					RuleUfo* ufoRule = _game->getMod()->getUfo(wave.ufoType);
+
+					if (ufoRule)
+					{
+
+						const UfoTrajectory& assaultTrajectory = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
+
+						ufo = new Ufo(ufoRule, ufo_id);
+
+						ufo->setMissionInfo(alien_mission, &assaultTrajectory);
+						ufo->getMission()->setId(mission_id);
+						ufo->setCoop(true);
+						ufo->_coop_ufo_id = ufo_id;
+
+						_game->getSavedGame()->getUfos()->push_back(ufo);
+
+					}
+					else
+					{
+						return;
+					}
+
+				}
+
+				ufo->setCoop(true);
+
+				ufo->setLatitude(d_lat);
+				ufo->setLongitude(d_lon);
+
+				ufo->setDetectedCoop(detected);
+				ufo->setStatusCoop(status);
+				ufo->setAltitudeCoop(altitude);
+
+				ufo->setLandId(land_id);
+				ufo->setCrashId(crash_id);
+
+				ufo->setSpeed(speed);
+
+				ufo->setSecondsRemaining(100000000);
+
+			}
+
+			// remove crafts
+			std::unordered_set<std::string> keep_craft;
+			for (const auto& jc : obj["crafts"])
+			{
+				int id = jc["craft_id"].asInt();
+				// Use the correct JSON field for the rule/type (support two common names)
+				std::string rule = jc["rule"].asString();
+
+				keep_craft.insert(std::to_string(id) + "|" + rule);
+			}
+
+			// 2) Remove coop crafts whose (id, rule) pair is NOT in the keep set
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				if (!base->_coopIcon)
+					continue;
+
+				auto& v = *base->getCrafts(); // std::vector<Craft*>&
+				v.erase(std::remove_if(v.begin(), v.end(),
+									   [&](Craft* c)
+									   {
+										   if (!c->coop)
+											   return false;
+
+										   int id = c->getId();                         // c->_coop_craft_id
+										   std::string rule = c->getRules()->getType(); 
+
+										   bool remove = (keep_craft.find(std::to_string(id) + "|" + rule) == keep_craft.end());
+										   if (remove)
+											   delete c; // remove this line if you use smart pointers / different ownership
+										   return remove;
+									   }),
+						v.end());
+			}
+
+			// remove ufos
+			auto& ufos = *_game->getSavedGame()->getUfos();
+
+			// Collect the UFO IDs from JSON that should be KEPT
+			std::unordered_set<int> keep_ufo;
+			for (const auto& jufo : obj["ufos"])
+			{
+				keep_ufo.insert(jufo["ufo_id"].asInt());
+			}
+
+			// 2) Remove all coop UFOs whose id is NOT in the keep set
+			for (auto it = ufos.begin(); it != ufos.end();)
+			{
+				Ufo* u = *it;
+				if (u->_coop && keep_ufo.find(u->_coop_ufo_id) == keep_ufo.end())
+				{
+					// If SavedGame owns the UFOs, also free memory:
+					delete u; // <- omit if someone else owns them (e.g., smart pointers)
+					it = ufos.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+
+
 
 		}
 
@@ -2187,7 +2463,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								if (!unit->isOut())
 								{
-									unit->kill();
+									const RuleDamageType* damageType = _game->getMod()->getDamageType(DT_NONE);
+
+									_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, true);
 								}
 							}
 
@@ -3103,15 +3381,74 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		setHostSpaceAvailable(std::stoi(craftUsed));
 
-		OutputDebugStringA(std::to_string(getHostSpaceAvailable()).c_str());
-
 		generateCraftSoldiers();
 	}
 
 	if (stateString == "SEND_FILE_CLIENT_TRUE" && onTcpHost == false)
 	{
 
-		OutputDebugStringA("SEND_FILE_CLIENT_TRUE");
+		bool target = obj["target"].asBool();
+
+		if (target == true && _game->getSavedGame())
+		{
+
+			bool isUFO = obj["isUFO"].asBool();
+
+			double lat = obj["lat"].asDouble();
+			double lon = obj["lon"].asDouble();
+
+			// mission site
+			if (isUFO == false)
+			{
+
+				auto& missions = *_game->getSavedGame()->getMissionSites();
+
+				for (auto it = missions.begin(); it != missions.end();)
+				{
+					if (*it && (*it)->getLatitude() == lat && (*it)->getLongitude() == lon)
+					{
+						delete *it;
+						it = missions.erase(it);
+					}
+					else
+					{
+						++it;
+					}
+				}
+
+			}
+			// ufo
+			else
+			{
+
+				auto& ufos = *_game->getSavedGame()->getUfos();
+
+				for (auto it = ufos.begin(); it != ufos.end();)
+				{
+					if (*it && (*it)->getLatitude() == lat && (*it)->getLongitude() == lon)
+					{
+						delete *it;
+						it = ufos.erase(it);
+					}
+					else
+					{
+						++it;
+					}
+				}
+
+			}
+
+			sendBaseFile();
+
+			// Save the geospace file so the player can return to it later
+			if (_game->getCoopMod()->getCoopCampaign() == true)
+			{
+				_game->getSavedGame()->setName("coop_geoscape");
+				_game->getSavedGame()->save("coop_geoscape.sav", _game->getMod());
+			}
+
+
+		}
 
 		CoopState* coopWindow = new CoopState(1);
 		_game->pushState(coopWindow);
@@ -3127,7 +3464,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopState* coopWindow = new CoopState(666);
 		coopWindow->loadWorld();
 
-		OutputDebugStringA("SEND_FILE_CLIENT_SAVE");
 		sendFileClient = true;
 	}
 
@@ -3138,8 +3474,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		inventory_battle_window = false;
 
 		_game->pushState(new CoopState(1));
-
-		OutputDebugStringA("SEND_FILE_HOST_SAVE");
 
 		Json::Value root;
 
@@ -3156,8 +3490,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopState* coopWindow = new CoopState(666);
 		coopWindow->loadWorld();
 
-		OutputDebugStringA("SEND_FILE_CLIENT_SAVE_TRUE");
-
 		sendFileSave = true;
 		sendFileClient = true;
 
@@ -3166,15 +3498,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_CLIENT" && onTcpHost == true)
 	{
-		OutputDebugStringA("SEND_FILE_CLIENT");
 		sendFileClient = true;
 	}
 
 	// INFORMATION FROM HOST TO CLIENT ABOUT MAP LOADING!
 	if (stateString == "SEND_FILE_HOST_TRUE" && onTcpHost == true)
 	{
-
-		OutputDebugStringA("SEND_FILE_HOST_TRUE");
 
 		Json::Value root;
 
@@ -3186,7 +3515,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// INFORMATION FROM CLIENT TO HOST ABOUT MAP LOADING
 	if (stateString == "SEND_FILE_HOST" && onTcpHost == false)
 	{
-		OutputDebugStringA("SEND_FILE_HOST");
 		sendFileHost = true;
 	}
 
@@ -3202,7 +3530,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendBaseFile();
 
-		OutputDebugStringA("SEND_FILE_HOST_BASE");
 		sendFileHost = true;
 		sendFileBase = true;
 	}
@@ -3218,15 +3545,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendBaseFile();
 
-		OutputDebugStringA("SEND_FILE_CLIENT_BASE");
 		sendFileClient = true;
 		sendFileBase = true;
 	}
 
 	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false)
 	{
-
-		OutputDebugStringA("MAP_RESULT_CLIENT_BASE");
 
 		writeHostMapFile2();
 
@@ -3237,7 +3561,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (gettingData == 2)
 		{
 
-			OutputDebugStringA("SEND_FILE_HOST_BASE");
 			sendFileHost = true;
 			sendFileBase = true;
 		}
@@ -3248,8 +3571,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "MAP_RESULT_HOST_BASE" && onTcpHost == true)
 	{
 
-		OutputDebugStringA("MAP_RESULT_HOST_BASE");
-
 		writeHostMapFile2();
 
 		CoopState* coopWindow = new CoopState(55);
@@ -3259,7 +3580,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (gettingData == 2)
 		{
 
-			OutputDebugStringA("SEND_FILE_CLIENT_BASE");
 			sendFileClient = true;
 			sendFileBase = true;
 		}
@@ -3475,13 +3795,14 @@ void connectionTCP::sendMissionFile()
 			// saving files
 			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
 			{
-
 				_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
+
 			}
 			else if (_game->getCoopMod()->coopMissionEnd == false)
 			{
 
 				_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
+
 			}
 
 			Json::Value obj;
@@ -3505,6 +3826,34 @@ void connectionTCP::sendMissionFile()
 
 		Json::Value obj;
 		obj["state"] = "SEND_FILE_CLIENT_TRUE";
+		obj["target"] = false;
+
+		// Delete coop UFOs or missions
+		if (getSelectedCraft() && getCoopCampaign() == true)
+		{
+
+			Ufo* u = dynamic_cast<Ufo*>(getSelectedCraft()->getDestination());
+			MissionSite* m = dynamic_cast<MissionSite*>(getSelectedCraft()->getDestination());
+
+			if (u)
+			{
+				obj["target"] = true;
+				obj["lat"] = u->getLatitude();
+				obj["lon"] = u->getLongitude();
+				obj["isUFO"] = true;
+			}
+			else if (m)
+			{
+				obj["target"] = true;
+				obj["lat"] = m->getLatitude();
+				obj["lon"] = m->getLongitude();
+				obj["isUFO"] = false;
+			}
+
+
+		}
+
+
 
 		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
@@ -3533,6 +3882,90 @@ ChatMenu* connectionTCP::getChatMenu()
 void connectionTCP::setChatMenu(ChatMenu* menu)
 {
 	_chatMenu = menu;
+}
+
+int connectionTCP::unitstatusToInt(UnitStatus status)
+{
+	if (status == STATUS_STANDING)
+		return 0;
+	if (status == STATUS_WALKING)
+		return 1;
+	if (status == STATUS_FLYING)
+		return 2;
+	if (status == STATUS_TURNING)
+		return 3;
+	if (status == STATUS_AIMING)
+		return 4;
+	if (status == STATUS_COLLAPSING)
+		return 5;
+	if (status == STATUS_DEAD)
+		return 6;
+	if (status == STATUS_UNCONSCIOUS)
+		return 7;
+	if (status == STATUS_PANICKING)
+		return 8;
+	if (status == STATUS_BERSERK)
+		return 9;
+	if (status == STATUS_IGNORE_ME)
+		return 10;
+	return 10;
+}
+
+UnitStatus connectionTCP::intToUnitstatus(int status)
+{
+	if (status == 0)
+		return STATUS_STANDING;
+	if (status == 1)
+		return STATUS_WALKING;
+	if (status == 2)
+		return STATUS_FLYING;
+	if (status == 3)
+		return STATUS_TURNING;
+	if (status == 4)
+		return STATUS_AIMING;
+	if (status == 5)
+		return STATUS_COLLAPSING;
+	if (status == 6)
+		return STATUS_DEAD;
+	if (status == 7)
+		return STATUS_UNCONSCIOUS;
+	if (status == 8)
+		return STATUS_PANICKING;
+	if (status == 9)
+		return STATUS_BERSERK;
+	if (status == 10)
+		return STATUS_IGNORE_ME;
+	return STATUS_IGNORE_ME;
+}
+
+int connectionTCP::ufostatusToInt(Ufo::UfoStatus status)
+{
+	if (status == Ufo::FLYING)
+		return 0;
+	if (status == Ufo::LANDED)
+		return 1;
+	if (status == Ufo::CRASHED)
+		return 2;
+	if (status == Ufo::DESTROYED)
+		return 3;
+	if (status == Ufo::IGNORE_ME)
+		return 4;
+	return 4;
+}
+
+Ufo::UfoStatus connectionTCP::intToUfostatus(int status)
+{
+	if (status == 0)
+		return Ufo::FLYING;
+	if (status == 1)
+		return Ufo::LANDED;
+	if (status == 2)
+		return Ufo::CRASHED;
+	if (status == 4)
+		return Ufo::DESTROYED;
+	if (status == 4)
+		return Ufo::IGNORE_ME;
+	return Ufo::IGNORE_ME;
 }
 
 void connectionTCP::syncResearch(std::string research)
@@ -3957,6 +4390,9 @@ void connectionTCP::writeHostMapFile()
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 }
+
+
+
 
 }
 

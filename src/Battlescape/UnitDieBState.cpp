@@ -117,15 +117,15 @@ void UnitDieBState::init()
 {
 
 	// coop
-	if (_parent->isCoop() == true && coop == false)
+	if (_parent->isCoop() == true && coop == false && _parent->getCoopMod()->_isDeathAllowed == true)
 	{
 
 		// coop
 		Json::Value root;
 
-		root["state"] = "death";
+		root["state"] = "unit_death";
 
-		root["status"] = (int)_unit->getStatus();
+		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
 
 		root["unit_id"] = _unit->getId();
 		root["pos_x"] = _unit->getPosition().x;

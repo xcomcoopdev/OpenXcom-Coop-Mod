@@ -37,6 +37,7 @@
 #include "CoopState.h"
 #include "Profile.h"
 #include "ChatMenu.h"
+#include "../Savegame/Ufo.h" 
 
 template <size_t N>
 struct SPSCQueue
@@ -93,6 +94,7 @@ void sendTCPPacketStaticData(std::string data);
 bool enqueueTx(std::string&& s);
 
  class Game;
+ class Ufo;
 
 class connectionTCP
 {
@@ -177,6 +179,8 @@ class connectionTCP
 	bool _waitBH = false; // is the host ready in battle?
 	bool _battleWindow = false; // end turn screen
 	bool _battleInit = false; // when both have joined and are ready for battle, initialize
+	bool _isDeathAllowed = true;
+	bool resetCoopInventory = false;
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
 	void sendFile();
@@ -188,6 +192,10 @@ class connectionTCP
 	void sendResearch();
 	ChatMenu* getChatMenu();
 	void setChatMenu(ChatMenu* menu);
+	int unitstatusToInt(UnitStatus status);
+	UnitStatus intToUnitstatus(int status);
+	int ufostatusToInt(Ufo::UfoStatus status);
+	Ufo::UfoStatus intToUfostatus(int status);
 };
 
 }

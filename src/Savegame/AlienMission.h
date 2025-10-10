@@ -57,9 +57,8 @@ private:
 	bool _interrupted, _multiUfoRetaliationInProgress;
 	int _uniqueID, _missionSiteZoneArea;
 	const AlienBase *_base;
-public:
+  public:
 	// Data
-
 	/// Creates a mission of the specified type.
 	AlienMission(const RuleAlienMission &rule);
 	/// Cleans up the mission info.
@@ -118,7 +117,9 @@ public:
 	/// Keep track of the city/whatever that we're going to target.
 	void setMissionSiteZoneArea(int area);
 	// coop
-	bool coop = false;
+	bool _coop = false;
+	void setCoop(bool state);
+	bool getCoop();
   private:
 	/// Selects an xcom base in a given region.
 	Base* selectXcomBase(SavedGame& game, const RuleRegion& regionRules);

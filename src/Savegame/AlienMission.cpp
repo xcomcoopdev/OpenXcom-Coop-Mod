@@ -192,7 +192,7 @@ void AlienMission::think(Game &engine, const Globe &globe)
 {
 
 	// coop
-	if (coop == true)
+	if (_coop == true)
 	{
 		return;
 	}
@@ -1518,6 +1518,16 @@ MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, con
 void AlienMission::setMissionSiteZoneArea(int area)
 {
 	_missionSiteZoneArea = area;
+}
+
+void AlienMission::setCoop(bool state)
+{
+	_coop = state;
+}
+
+bool AlienMission::getCoop()
+{
+	return _coop;
 }
 
 void AlienMission::logMissionError(int zone, const RuleRegion &region)
