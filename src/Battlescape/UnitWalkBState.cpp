@@ -52,7 +52,6 @@ UnitWalkBState::UnitWalkBState(BattlescapeGame *parent, BattleAction action) : B
  */
 UnitWalkBState::~UnitWalkBState()
 {
-
 }
 
 /**

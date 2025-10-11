@@ -183,7 +183,13 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_btnMessage->setVisible(false);
 	_btnMessage->onMouseClick((ActionHandler)&CoopMenu::disconnect);
 
-	_btnChat->setText(tr("CHAT ('C')"));
+	std::string n = SDL_GetKeyName(Options::keyChat);
+	if (n.size() == 1)
+		n[0] = (char)std::toupper((unsigned char)n[0]);
+
+	std::string label = std::string(tr("CHAT").c_str()) + " [" + n + "]";
+	_btnChat->setText(label.c_str());
+
 	_btnChat->setVisible(false);
 	_btnChat->onMouseClick((ActionHandler)&CoopMenu::btnChatClick);
 	

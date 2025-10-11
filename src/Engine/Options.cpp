@@ -279,6 +279,9 @@ void createAdvancedOptionsOXC()
 
 void createControlsOXC()
 {
+
+	// coop
+	_info.push_back(OptionInfo(OPTION_OXC, "keyChat", &keyChat, SDLK_c, "Toggle Chat", "STR_GENERAL"));
 	// controls
 	_info.push_back(OptionInfo(OPTION_OXC, "keyOk", &keyOk, SDLK_RETURN, "STR_OK", "STR_GENERAL"));
 	_info.push_back(OptionInfo(OPTION_OXC, "keyCancel", &keyCancel, SDLK_ESCAPE, "STR_CANCEL", "STR_GENERAL"));

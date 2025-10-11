@@ -297,8 +297,8 @@ void Game::run()
 					{
 						if (_event.type == SDL_KEYDOWN)
 						{
-							// Close chat with SDLK_c
-							if (_event.key.keysym.sym == SDLK_c)
+							// Close chat with Options::keyChat
+							if (_event.key.keysym.sym == Options::keyChat)
 							{
 								_tcpConnection->getChatMenu()->setActive(false);
 							}
@@ -319,8 +319,8 @@ void Game::run()
 						{
 
 							// coop
-							// Activate chat with SDLK_c
-							if (_event.key.keysym.sym == SDLK_c && (_tcpConnection->getCoopStatic() == true || _tcpConnection->getServerOwner() == true) && _tcpConnection->getChatMenu())
+							// Activate chat with Options::keyChat
+							if (_event.key.keysym.sym == Options::keyChat && (_tcpConnection->getCoopStatic() == true || _tcpConnection->getServerOwner() == true) && _tcpConnection->getChatMenu())
 							{
 								_tcpConnection->getChatMenu()->setActive(true);
 							}

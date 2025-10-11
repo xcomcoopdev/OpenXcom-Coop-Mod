@@ -765,20 +765,28 @@ void GeoscapeState::init()
 	// HOST AFTER THE BATTLE
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->coopMissionEnd == true)
 	{
-		auto soldiers = _game->getSavedGame()->getSelectedBase()->getSoldiers();
-		for (auto it = soldiers->begin(); it != soldiers->end();)
-		{
-			Soldier *soldier = *it;
 
-			if (soldier->getCoop() != 0)
+
+		for (auto &base : *_game->getSavedGame()->getBases())
+		{
+
+			auto soldiers = base->getSoldiers();
+
+			for (auto it = soldiers->begin(); it != soldiers->end();)
 			{
-				delete soldier;           // Freeing the soldier object from memory
-				it = soldiers->erase(it); // Remove the pointer from the vector and move to the next one
+				Soldier* soldier = *it;
+
+				if (soldier->getCoop() != 0)
+				{
+					delete soldier;           // Freeing the soldier object from memory
+					it = soldiers->erase(it); // Remove the pointer from the vector and move to the next one
+				}
+				else
+				{
+					++it; // Remove the pointer from the vector if the soldier is deleted, otherwise move to the next one
+				}
 			}
-			else
-			{
-				++it; // Remove the pointer from the vector if the soldier is deleted, otherwise move to the next one
-			}
+
 		}
 
 		_game->getCoopMod()->coopMissionEnd = false;
@@ -990,6 +998,15 @@ void GeoscapeState::think()
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
+
+	// coop time1MonthCoop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == true)
+	{
+		time1Month();
+
+		_game->getCoopMod()->time1MonthCoop = false;
+
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true)
@@ -3163,6 +3180,20 @@ void GeoscapeState::time1Day()
  */
 void GeoscapeState::time1Month()
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == false)
+	{
+
+		Json::Value root;
+
+		root["state"] = "time1Month";
+		root["data"] = true;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	_game->getSavedGame()->addMonth();
 
 	// Determine alien mission for this month.

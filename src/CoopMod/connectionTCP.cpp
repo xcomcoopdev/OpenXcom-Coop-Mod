@@ -2099,6 +2099,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	// months
+	if (stateString == "time1Month")
+	{
+
+		time1MonthCoop = true;
+
+	}
+
 	// target positions
 	if (stateString == "target_positions")
 	{
@@ -2145,7 +2153,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						if (!craft)
 						{
 
-							RuleCraft* rule = _game->getMod()->getCraft(rule_id);
+							RuleCraft* rule = _game->getMod()->getCraft(rule_id, false);
 
 							if (rule)
 							{
@@ -2222,7 +2230,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (!alien_mission)
 				{
 
-					const RuleAlienMission* alien_mission_rule = _game->getMod()->getAlienMission(mission_rule_id, true);
+					const RuleAlienMission* alien_mission_rule = _game->getMod()->getAlienMission(mission_rule_id, false);
 
 					if (alien_mission_rule)
 					{
@@ -2266,9 +2274,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (!ufo)
 				{
 
-					const MissionWave& wave = alien_mission->getRules().getWave(waveNumber);
+					std::string str_ufo_id = "";
 
-					RuleUfo* ufoRule = _game->getMod()->getUfo(wave.ufoType);
+					if (waveNumber < 0)
+					{
+						str_ufo_id = ufo_rule_id;
+					}
+					else
+					{
+
+						const MissionWave& wave = alien_mission->getRules().getWave(waveNumber);
+						str_ufo_id = wave.ufoType;
+					}
+
+					RuleUfo* ufoRule = _game->getMod()->getUfo(str_ufo_id, false);
 
 					if (ufoRule)
 					{

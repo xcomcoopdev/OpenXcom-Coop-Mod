@@ -720,6 +720,14 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
+
+	// coop
+	if (_game->getCoopMod()->getCurrentTurn() == 1)
+	{
+		_isAltPressed = false;
+		_isCtrlPressed = false;
+	}
+
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
 }
 

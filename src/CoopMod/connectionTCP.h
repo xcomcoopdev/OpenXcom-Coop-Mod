@@ -196,6 +196,7 @@ class connectionTCP
 	UnitStatus intToUnitstatus(int status);
 	int ufostatusToInt(Ufo::UfoStatus status);
 	Ufo::UfoStatus intToUfostatus(int status);
+	bool time1MonthCoop = false;
 };
 
 }

@@ -315,15 +315,17 @@ void ActionMenuState::handleAction()
 		bool newHitLog = false;
 		std::string actionResult = "STR_UNKNOWN"; // needs a non-empty default/fall-back !
 
+		// coop
 		if (_action->type != BA_THROW &&
 			_action->actor->getOriginalFaction() == FACTION_PLAYER &&
-			!_game->getSavedGame()->isResearched(weapon->getRequirements()))
+			!_game->getSavedGame()->isResearched(weapon->getRequirements()) && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
 		{
 			_action->result = "STR_UNABLE_TO_USE_ALIEN_ARTIFACT_UNTIL_RESEARCHED";
 			_game->popState();
 		}
+		// coop
 		else if (_action->type != BA_THROW &&
-			!_game->getSavedGame()->getSavedBattle()->canUseWeapon(_action->weapon, _action->actor, false, _action->type, &actionResult))
+				 !_game->getSavedGame()->getSavedBattle()->canUseWeapon(_action->weapon, _action->actor, false, _action->type, &actionResult) && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
 		{
 			_action->result = actionResult;
 			_game->popState();

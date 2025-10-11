@@ -715,7 +715,7 @@ void CoopState::loadWorld()
 			for (auto& client_base : *client_save->getBases())
 			{
 
-				// ITEROIDAAN SOTILAAT
+				// Iterate soldiers
 				for (auto& soldier : *client_base->getSoldiers())
 				{
 
@@ -729,21 +729,30 @@ void CoopState::loadWorld()
 							// if the same craft
 							std::vector<Soldier*>* soldiers = hostBase->getSoldiers();
 
-							Soldier* lastSoldier = soldiers->back(); // Points to the last soldier
-							int lastId = lastSoldier->getId();       // Assuming Soldier class has getId()
+							int lastId = 0;
+							Soldier* lastSoldier = nullptr;
 
-							// Check if one with the same name already exists
-							auto it = std::find_if(soldiers->begin(), soldiers->end(), [&](Soldier* s)
-												   { return s->getName() == soldier->getName(); });
-
-							// If found, remove it
-							if (it != soldiers->end())
+							if (soldiers && !soldiers->empty())
 							{
-								delete *it; // Remove the old soldier if needed
-								soldiers->erase(it);
+								auto it = std::max_element(
+									soldiers->begin(), soldiers->end(),
+									[](const Soldier* a, const Soldier* b)
+									{
+										// Treat nullptr as smaller
+										if (!a)
+											return true;
+										if (!b)
+											return false;
+										return a->getId() < b->getId();
+									});
+
+								if (it != soldiers->end() && *it)
+								{
+									lastSoldier = *it;
+									lastId = (*it)->getId();
+								}
 							}
-
-
+		
 							if (selected_craft)
 							{
 
