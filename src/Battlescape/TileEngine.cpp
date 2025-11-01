@@ -2508,7 +2508,14 @@ void TileEngine::calculateFOV(Position position, int eventRadius, const bool upd
  */
 bool TileEngine::checkReactionFire(BattleUnit *unit, const BattleAction &originalAction)
 {
+
 	if (_save->isPreview())
+	{
+		return false;
+	}
+
+	// coop
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false && _save->getBattleGame()->getCoopMod()->_isActiveAISync == false)
 	{
 		return false;
 	}
@@ -3247,8 +3254,36 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 
 	voxelCheckFlush();
 	const VoxelType part = (terrainMeleeTilePart > 0) ? (VoxelType)terrainMeleeTilePart : voxelCheck(center, attack.attacker);
-	const int damage = type->getRandomDamage(power);
-	const int tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
+	int damage = type->getRandomDamage(power);
+
+	int tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
+
+	// coop
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true)
+	{
+
+		auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
+
+		if (!_coopTileDamage.empty())
+		{
+
+			Json::Value first;
+			bool found = _coopTileDamage.removeIndex(0, &first);
+			if (found)
+			{
+
+				uint64_t seed = first.get("seed", 0).asUInt64();
+
+				int current_damage = type->getRandomDamageForTileCoop(power, seed);
+
+				damage = current_damage;
+				tileFinalDamage = current_damage;
+
+			}
+		}
+
+	}
+
 	if (part >= V_FLOOR && part <= V_OBJECT)
 	{
 		bool nothing = true;
@@ -3306,6 +3341,7 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			}
 		}
 	}
+
 	//Recalculate relevant item/unit locations and visibility depending on what happened during the hit
 	if (terrainChanged || effectGenerated)
 	{
@@ -5187,6 +5223,46 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 		item->setTurnFlag(true);
 	}
 
+	// COOP
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->playerInsideCoopBase == false)
+	{
+
+		Json::Value obj;
+		obj["state"] = "Inventory";
+		obj["item_name"] = item->getRules()->getName();
+		obj["inv_id"] = "";
+		obj["inv_x"] = 0;
+		obj["inv_y"] = 0;
+		obj["slot_x"] = item->getSlotX();
+		obj["slot_y"] = item->getSlotY();
+		obj["unit_id"] = -1;
+		obj["item_id"] = item->getId();
+		obj["move_cost"] = -1;
+
+		obj["getHealQuantity"] = item->getHealQuantity();
+		obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
+		obj["getStimulantQuantity"] = item->getStimulantQuantity();
+		obj["getFuseTimer"] = item->getFuseTimer();
+		obj["getXCOMProperty"] = item->getXCOMProperty();
+		obj["isAmmo"] = item->isAmmo();
+		obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
+		obj["isFuseEnabled"] = item->isFuseEnabled();
+		obj["getAmmoQuantity"] = item->getAmmoQuantity();
+
+		obj["slot_ammo"] = 0;
+
+		// fix
+		obj["sel_item_name"] = "";
+		obj["sel_item_id"] = -1;
+
+		// new
+		obj["tile_x"] = p.x;
+		obj["tile_y"] = p.y;
+		obj["tile_z"] = p.z;
+
+		_save->getBattleGame()->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
 	itemMoveInventory(t, nullptr, item, _inventorySlotGround, 0, 0);
 
 	applyGravity(t);
@@ -6055,6 +6131,11 @@ void TileEngine::updateGameStateAfterScript(BattleActionAttack battleActionAttac
 		calculateLighting(LL_ITEMS, pos, 2, true);
 		calculateFOV(pos, 1, false);
 	}
+}
+
+const RuleInventory* TileEngine::getInventorySlotGround()
+{
+	return _inventorySlotGround;
 }
 
 }

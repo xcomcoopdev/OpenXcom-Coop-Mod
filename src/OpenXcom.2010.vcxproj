@@ -339,6 +339,7 @@
     <ClCompile Include="CoopMod\connectionTCP.cpp" />
     <ClCompile Include="CoopMod\CoopMenu.cpp" />
     <ClCompile Include="CoopMod\CoopState.cpp" />
+    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp" />
     <ClCompile Include="CoopMod\Profile.cpp" />
     <ClCompile Include="..\libs\miniz\miniz.c" />
     <ClCompile Include="Basescape\BaseInfoState.cpp" />
@@ -730,6 +731,7 @@
     <ClInclude Include="CoopMod\connectionTCP.h" />
     <ClInclude Include="CoopMod\CoopMenu.h" />
     <ClInclude Include="CoopMod\CoopState.h" />
+    <ClInclude Include="CoopMod\OptionsMultiplayer.h" />
     <ClInclude Include="CoopMod\Profile.h" />
     <ClInclude Include="..\libs\miniz\miniz.h" />
     <ClInclude Include="Basescape\BaseInfoState.h" />

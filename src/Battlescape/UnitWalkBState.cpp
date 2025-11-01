@@ -76,6 +76,48 @@ void UnitWalkBState::init()
 		_beforeFirstStep = true;
 	}
 	_terrain->addMovingUnit(_unit);
+	
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+		Json::Value obj;
+		obj["state"] = "BattleScapeMove";
+
+		int index = 0;
+
+		obj["id"] = _unit->getId();
+
+		int startx = _unit->getPosition().x;
+		int starty = _unit->getPosition().y;
+		int startz = _unit->getPosition().z;
+
+		obj["coords"]["start"]["x"] = startx;
+		obj["coords"]["start"]["y"] = starty;
+		obj["coords"]["start"]["z"] = startz;
+
+		obj["coords"]["end"]["x"] = _target.x;
+		obj["coords"]["end"]["y"] = _target.y;
+		obj["coords"]["end"]["z"] = _target.z;
+
+		obj["tu"] = _unit->getTimeUnits();
+		obj["energy"] = _unit->getEnergy();
+		obj["health"] = _unit->getHealth();
+		obj["morale"] = _unit->getMorale();
+		obj["stunlevel"] = _unit->getStunlevel();
+		obj["mana"] = _unit->getMana();
+
+		obj["strafe"] = _action.strafe;
+		obj["run"] = _action.run;
+		obj["sneak"] = _action.sneak;
+
+		// new
+		obj["visible"] = _unit->getVisible();
+		obj["hiding"] = _unit->isHiding();
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+	}
+
 }
 
 /**
@@ -84,10 +126,32 @@ void UnitWalkBState::init()
 void UnitWalkBState::deinit()
 {
 
-	_terrain->removeMovingUnit(_unit);
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "abortPath";
+
+		root["unit_id"] = _unit->getId();
+
+		root["x"] = _unit->getPosition().x;
+		root["y"] = _unit->getPosition().y;
+		root["z"] = _unit->getPosition().z;
+
+		root["setDirection"] = _unit->getDirection();
+		root["setFaceDirection"] = _unit->getFaceDirection();
+
+		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
 
 	// coop
 	_parent->setCoopTaskCompleted(true);
+
+	_terrain->removeMovingUnit(_unit);
+
 
 }
 
@@ -96,6 +160,20 @@ void UnitWalkBState::deinit()
  */
 void UnitWalkBState::think()
 {
+
+	// coop
+	if (_parent->getCoopMod()->AbortCoopWalk == true)
+	{
+
+		_parent->getCoopMod()->AbortCoopWalk = false;
+
+		_unit->setCoopStatus(STATUS_STANDING);
+
+		_pf->abortPath();
+		_parent->popState();
+		return;
+
+	}
 
 	if (!_unit->getArmor()->allowsMoving())
 	{
@@ -234,6 +312,12 @@ void UnitWalkBState::think()
 			_terrain->calculateFOV(_unit->getPosition(), 2, false); //update unit visibility for all units which can see last and current position.
 			//tile visibility for this unit is handled later.
 			unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
+
+			// coop
+			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_isActiveAISync == false)
+			{
+				unitSpotted = false;
+			}
 
 			if (change > 1)
 			{
@@ -432,6 +516,12 @@ void UnitWalkBState::think()
 		_terrain->calculateFOV(_unit);
 		unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
+		// coop
+		if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_isActiveAISync == false)
+		{
+			unitSpotted = false;
+		}
+
 		if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)
 		{
 			if (_beforeFirstStep)
@@ -445,6 +535,7 @@ void UnitWalkBState::think()
 			return cancelCurentMove();
 		}
 	}
+
 }
 
 /**
@@ -455,27 +546,6 @@ void UnitWalkBState::cancel()
 
 	if (_parent->getSave()->getSide() == FACTION_PLAYER && _parent->getPanicHandled())
 	{
-	
-		// coop
-		if (_parent->getSave()->getBattleState())
-		{
-			if (_parent->getSave()->getBattleState()->getGame()->getCoopMod()->getCoopStatic() == true && _parent->getSave()->getSide() == FACTION_PLAYER && _parent->getSave()->getBattleState()->getGame()->getCoopMod()->getCurrentTurn() == 2)
-			{
-
-				Json::Value root;
-
-				root["state"] = "abortPath";
-
-				root["unit_id"] = _unit->getId();
-
-				root["x"] = _unit->getPosition().x;
-				root["y"] = _unit->getPosition().y;
-				root["z"] = _unit->getPosition().z;
-
-				_parent->getSave()->getBattleState()->getGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
-			}
-		}
-
 		_pf->abortPath();
 	}
 
@@ -540,7 +610,10 @@ void UnitWalkBState::postPathProcedures()
 	_terrain->calculateLighting(LL_UNITS, _unit->getPosition());
 	_terrain->calculateFOV(_unit);
 	if (!_falling)
+	{
 		_parent->popState();
+	}
+
 }
 
 /**

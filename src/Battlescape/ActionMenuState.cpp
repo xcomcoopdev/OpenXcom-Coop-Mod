@@ -544,12 +544,6 @@ void ActionMenuState::handleAction()
 		obj["target_y"] = -1;
 		obj["target_z"] = -1;
 
-		uint64_t c_seed = RNG::getCoopRandom(RNG::getSeed());
-
-		RNG::setCoopSeed(c_seed);
-
-		obj["seed"] = c_seed;
-
 		if (&_action->target)
 		{
 

@@ -1166,6 +1166,9 @@
     <ClCompile Include="CoopMod\Profile.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2394,6 +2397,9 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\Profile.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\OptionsMultiplayer.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
   </ItemGroup>

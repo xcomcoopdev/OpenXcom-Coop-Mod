@@ -659,6 +659,9 @@ public:
 	const HitLog *getHitLog() const;
 	/// Reset all the unit hit state flags.
 	void resetUnitHitStates();
+
+	// coop
+	void abortPathCoop();
 };
 
 }

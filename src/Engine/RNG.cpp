@@ -52,18 +52,14 @@ static uint64_t nextImpl(uint64_t& state)
  */
 RandomState::RandomState()
 {
-	// coop
-	_seedState = g_randomCoopSeed;
+	_seedState = time(0) ^ (~(uint64_t)&_seedState);
 }
-
 
 /**
  * Constructor from predefined seed.
  */
 RandomState::RandomState(uint64_t seed) : _seedState(seed)
 {
-	// coop
-	_seedState = g_randomCoopSeed;
 }
 
 /**
@@ -73,12 +69,6 @@ RandomState::RandomState(uint64_t seed) : _seedState(seed)
 uint64_t RandomState::getSeed() const
 {
 	return _seedState;
-}
-
-void RandomState::setCoopSeed(uint64_t n)
-{
-	_seedState = n;
-	g_randomCoopSeed = n;
 }
 
 /**
@@ -97,8 +87,6 @@ int RandomState::generate(int min, int max)
 {
 	return (int)(next() % (max - min + 1) + min);
 }
-
-
 
 /**
  * State for game random number generator. Do not use during other variable static initialization because: https://isocpp.org/wiki/faq/ctors#static-init-order-on-first-use-members
@@ -119,23 +107,13 @@ uint64_t getSeed()
 	return x.getSeed();
 }
 
-uint64_t getCoopRandom(uint64_t num)
-{
-	return nextImpl(num);
-}
-
 /**
  * Changes the current seed in use by the generator.
  * @param n New seed.
  */
 void setSeed(uint64_t n)
 {
-}
-
-// coop
-void setCoopSeed(uint64_t n)
-{
-	x.setCoopSeed(n);
+	x = RandomState(n);
 }
 
 /**
@@ -155,6 +133,17 @@ RandomState& globalRandomState()
 int generate(int min, int max)
 {
 	return x.generate(min, max);
+}
+
+// coop
+int generateCoop(int min, int max, uint64_t seed)
+{
+	return (int)(seed % (max - min + 1) + min);
+}
+// coop
+uint64_t getSeedCoop()
+{
+	return x.next();
 }
 
 /**

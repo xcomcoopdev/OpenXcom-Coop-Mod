@@ -264,11 +264,6 @@ void MedikitState::onHealClick(Action *)
 			obj["action_result"] = &_action->result;
 			obj["time"] = _action->Time;
 
-			uint64_t c_seed = RNG::getSeed();
-			RNG::setCoopSeed(c_seed);
-
-			obj["seed"] = c_seed;
-
 			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 		}
 

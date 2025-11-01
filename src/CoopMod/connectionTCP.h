@@ -39,6 +39,10 @@
 #include "ChatMenu.h"
 #include "../Savegame/Ufo.h" 
 
+#include <algorithm> // clamp, minmax
+#include <cmath>     // round
+#include <optional>
+
 template <size_t N>
 struct SPSCQueue
 {
@@ -108,6 +112,7 @@ class connectionTCP
 	void generateCraftSoldiers();
 	bool _onTCP = false;
   public:
+	// coop
 	bool teleport = false;
 	bool _isMainCampaignBaseDefense = false;
 	bool coop_end_turn = false;
@@ -179,7 +184,6 @@ class connectionTCP
 	bool _waitBH = false; // is the host ready in battle?
 	bool _battleWindow = false; // end turn screen
 	bool _battleInit = false; // when both have joined and are ready for battle, initialize
-	bool _isDeathAllowed = true;
 	bool resetCoopInventory = false;
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
@@ -197,6 +201,38 @@ class connectionTCP
 	int ufostatusToInt(Ufo::UfoStatus status);
 	Ufo::UfoStatus intToUfostatus(int status);
 	bool time1MonthCoop = false;
+
+	// coop projectiles
+	Json::Value _coopProjectilesClient;
+	Json::Value _coopProjectilesHost;
+	Json::Value _coopTileDamage;
+
+	Json::Value _coopEndPath = Json::nullValue;;
+
+	bool _coopInit = false;
+	bool _coopAllow = true;
+
+	int _coopPVPwin = 0; // 0 = not set, 1 = xcom, 2 = ufo
+
+	bool _clientPanicHandle = false;
+
+	bool _isActiveAISync = false;
+
+	bool _isClosed = true;
+
+	bool _isActivePlayerSync = false;
+
+	bool _onClickClose = false;
+
+	int _currentAmmoID = -1;
+	std::string currentAmmoType = "";
+
+	bool _enable_research_sync = true;
+
+	int walk_end_unit_id = -1;
+
+	bool AbortCoopWalk = false;
+
 };
 
 }

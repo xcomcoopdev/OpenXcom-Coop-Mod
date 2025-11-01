@@ -201,6 +201,9 @@ private:
 	void applyPercentages(RuleItemUseCost &cost, const RuleItemUseCost &flat) const;
 public:
 	// coop
+	void setDestinationCoop(Position pos);
+	void setLastPosCoop(Position pos);
+	Position getLastPosCoop();
 	void setCoopStatus(UnitStatus status);
 	void stopCoopWalk();
 	bool _coop_mindcontrolled = false;
@@ -266,6 +269,8 @@ public:
 	int getTurretToDirection() const;
 	/// Gets the unit's vertical direction.
 	int getVerticalDirection() const;
+	// coop
+	void setVerticalDirectionCoop(int dir);
 	/// Gets the unit's status.
 	UnitStatus getStatus() const;
 	/// Does the unit want to surrender?
@@ -278,6 +283,8 @@ public:
 	void startWalking(int direction, Position destination, SavedBattleGame *savedBattleGame);
 	/// Increase the walkingPhase
 	void keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycle);
+	/// Increase the walkingPhase
+	void keepWalkingCoop(SavedBattleGame* savedBattleGame, bool fullWalkCycle);
 	/// Gets the walking phase for animation and sound
 	int getWalkingPhase() const;
 	/// Gets the walking phase for diagonal walking
@@ -329,6 +336,7 @@ public:
 	void healStun(int power);
 	/// Gets the unit's stun level.
 	int getStunlevel() const;
+	void setStunlevelCoop(int stunlevel);
 	/// Is the unit losing HP (due to negative health regeneration)?
 	bool hasNegativeHealthRegen() const;
 	/// Knocks the unit out instantly.
@@ -852,6 +860,15 @@ public:
 	/// Multiplier of normal move cost.
 	ArmorMoveCost getMoveCostBaseNormal() const { return _moveCostBaseNormal; }
 
+	// coop
+	int coop_tu = 0;
+	int coop_energy = 0;
+	int coop_morale = 0;
+	int coop_health = 0;
+	int coop_mana = 0;
+	int coop_stun = 0;
+	bool coop_no_line_fire = false;
+	bool coop_action = false;
 };
 
 } //namespace OpenXcom

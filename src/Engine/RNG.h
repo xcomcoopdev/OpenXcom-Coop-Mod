@@ -45,8 +45,6 @@ namespace RNG
 		explicit RandomState(uint64_t seed);
 		/// Get current seed.
 		uint64_t getSeed() const;
-		// coop
-		void setCoopSeed(uint64_t n);
 		/// Get next random number.
 		uint64_t next();
 		/// Generates a random integer number, inclusive.
@@ -65,16 +63,15 @@ namespace RNG
 
 	/// Gets the seed in use.
 	uint64_t getSeed();
-	// coop
-	uint64_t getCoopRandom(uint64_t num);
 	/// Sets the seed in use.
 	void setSeed(uint64_t n);
-	// coop
-	void setCoopSeed(uint64_t n);
 	/// Get state.
 	RandomState& globalRandomState();
 	/// Generates a random integer number, inclusive.
 	int generate(int min, int max);
+	// coop
+	int generateCoop(int min, int max, uint64_t seed);
+	uint64_t getSeedCoop();
 	/// Generates a random floating-point number.
 	double generate(double min, double max);
 	/// Generates a random integer number, inclusive (non-seed version).

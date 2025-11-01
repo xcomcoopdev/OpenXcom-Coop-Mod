@@ -67,8 +67,6 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 		_game->getCoopMod()->_battleWindow = true;
 
-		_game->getCoopMod()->_isDeathAllowed = false;
-
 	}
 	
 	if (_battleGame->isPreview())
@@ -513,6 +511,14 @@ void NextTurnState::handle(Action *action)
  */
 void NextTurnState::think()
 {
+
+	// coop
+	if (_game->getCoopMod()->_onClickClose == true)
+	{
+		close();
+		_game->getCoopMod()->_onClickClose = false;
+	}
+
 	if (_timer)
 	{
 		_timer->think(this, 0);
@@ -524,6 +530,26 @@ void NextTurnState::think()
  */
 void NextTurnState::close()
 {
+
+	// coop
+	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->_onClickClose == false)
+	{
+
+		Json::Value root;
+		root["state"] = "click_close";
+		root["data"] = false;
+
+		//_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}	
+
+	// coop
+	/*
+	if (_battleGame->getSide() == FACTION_PLAYER && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->_isClosed == false)
+	{
+		return;
+	}
+	*/
 
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
@@ -555,6 +581,20 @@ void NextTurnState::close()
 	if ((!killingAllAliensIsNotEnough && (tally.liveAliens == 0 && connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)) || tally.liveSoldiers == 0)
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true)
+		{
+
+			Json::Value root;
+			root["state"] = "win_pve";
+			root["exit_area"] = tally.liveSoldiers;
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+		
+
 	}
 	else
 	{
@@ -569,6 +609,9 @@ void NextTurnState::close()
 			{
 
 				_game->getCoopMod()->_battleInit = false;
+
+				_game->getCoopMod()->_isActiveAISync = false;
+
 			}
 
 			// Auto save after (only HOST)
@@ -580,6 +623,80 @@ void NextTurnState::close()
 				newsave->setName("coop_mission");
 
 				newsave->save("coop_mission.sav", _game->getMod());
+
+				Json::Value root;
+				root["state"] = "current_seed";
+				int index = 0;
+
+				if (_game->getCoopMod()->teleport == true)
+				{
+
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						root["units"][index]["unit_id"] = unit->getId();
+						root["units"][index]["pos_x"] = unit->getPosition().x;
+						root["units"][index]["pos_y"] = unit->getPosition().y;
+						root["units"][index]["pos_z"] = unit->getPosition().z;
+
+						root["units"][index]["time"] = unit->getTimeUnits();
+						root["units"][index]["health"] = unit->getHealth();
+						root["units"][index]["energy"] = unit->getEnergy();
+						root["units"][index]["morale"] = unit->getMorale();
+						root["units"][index]["mana"] = unit->getMana();
+						root["units"][index]["stun"] = unit->getStunlevel();
+
+						root["units"][index]["setDirection"] = unit->getDirection();
+						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
+
+						// motions points (fix)
+						root["units"][index]["motionpoints"] = unit->getMotionPoints();
+
+						// new
+						root["units"][index]["respawn"] = unit->getRespawn();
+
+						// coop fix
+						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+						{
+							unit->setCoopStatus(STATUS_DEAD);
+						}
+
+						if (unit->getTile() && (unit->getStatus() == STATUS_DEAD || unit->getStatus() == STATUS_UNCONSCIOUS))
+						{
+
+							unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
+						}
+
+						bool isTile = false;
+
+						if (unit->getTile())
+						{
+
+							isTile = true;
+						}
+
+						root["units"][index]["isTile"] = isTile;
+						root["units"][index]["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
+
+						index++;
+					}
+
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+				}
+
+			}
+
+			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+			{
+
+				_game->getCoopMod()->_clientPanicHandle = true;
+
+				Json::Value root;
+				root["state"] = "close_event";
+
+				//_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
 			}
 
 			_state->toggleTouchButtons(false, true);

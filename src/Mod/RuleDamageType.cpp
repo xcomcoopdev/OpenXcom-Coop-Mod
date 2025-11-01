@@ -21,6 +21,8 @@
 #include "../Engine/RNG.h"
 #include "Mod.h"
 
+#include "../CoopMod/connectionTCP.h"
+
 namespace OpenXcom
 {
 
@@ -139,6 +141,12 @@ int RuleDamageType::getRandomDamage(int power, FuncRef<int(int, int)> randFunc) 
 int RuleDamageType::getRandomDamageForTile(int power, int damage) const
 {
 	return TileDamageMethod == 1 ? RNG::generate(power / 2, 3 * power / 2) : damage;
+}
+
+// coop
+int RuleDamageType::getRandomDamageForTileCoop(int power, uint64_t seed) const
+{
+	return RNG::generateCoop(power / 2, 3 * power / 2, seed);
 }
 
 /**

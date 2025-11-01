@@ -183,11 +183,6 @@ void PrimeGrenadeState::btnClick(Action *action)
 			Json::Value root;
 			root["state"] = "active_grenade";
 
-			uint64_t c_seed = RNG::getSeed();
-			RNG::setCoopSeed(c_seed);
-
-			root["seed"] = c_seed;
-
 			root["fusetimer"] = btnID;
 			root["hand"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopWeaponHand();
 

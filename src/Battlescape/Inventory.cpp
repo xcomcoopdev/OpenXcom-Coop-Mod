@@ -589,6 +589,10 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 			obj["sel_item_id"] = -1;
 		}
 
+		obj["tile_x"] = -1;
+		obj["tile_y"] = -1;
+		obj["tile_z"] = -1;
+
 		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 
 	}

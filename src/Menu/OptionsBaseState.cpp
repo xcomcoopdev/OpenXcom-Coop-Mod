@@ -43,6 +43,9 @@
 #include "OptionsConfirmState.h"
 #include "StartState.h"
 
+// coop
+#include "../CoopMod/OptionsMultiplayer.h"
+
 namespace OpenXcom
 {
 
@@ -70,6 +73,9 @@ OptionsBaseState::OptionsBaseState(OptionsOrigin origin) : _origin(origin), _gro
 
 	_txtTooltip = new Text(305, 25, 8, 148);
 
+	// coop
+	_btnMultiplayer = new TextButton(80, 16, 8, 148);
+
 	// Set palette
 	setInterface("optionsMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
@@ -78,6 +84,8 @@ OptionsBaseState::OptionsBaseState(OptionsOrigin origin) : _origin(origin), _gro
 	add(_btnVideo, "button", "optionsMenu");
 	add(_btnAudio, "button", "optionsMenu");
 	add(_btnControls, "button", "optionsMenu");
+	// coop
+	add(_btnMultiplayer, "button", "optionsMenu");
 	add(_btnGeoscape, "button", "optionsMenu");
 	add(_btnBattlescape, "button", "optionsMenu");
 	add(_btnAdvanced, "button", "optionsMenu");
@@ -94,6 +102,10 @@ OptionsBaseState::OptionsBaseState(OptionsOrigin origin) : _origin(origin), _gro
 
 	_btnVideo->setText(tr("STR_VIDEO"));
 	_btnVideo->onMousePress((ActionHandler)&OptionsBaseState::btnGroupPress, SDL_BUTTON_LEFT);
+
+	// coop
+	_btnMultiplayer->setText("MULTIPLAYER");
+	_btnMultiplayer->onMousePress((ActionHandler)&OptionsBaseState::btnGroupPress, SDL_BUTTON_LEFT);
 
 	_btnAudio->setText(tr("STR_AUDIO"));
 	_btnAudio->onMousePress((ActionHandler)&OptionsBaseState::btnGroupPress, SDL_BUTTON_LEFT);
@@ -210,6 +222,8 @@ void OptionsBaseState::setCategory(TextButton *button)
 	_btnBattlescape->setGroup(&_group);
 	_btnAdvanced->setGroup(&_group);
 	_btnFolders->setGroup(&_group);
+	// coop
+	_btnMultiplayer->setGroup(&_group);
 }
 
 /**
@@ -335,6 +349,11 @@ void OptionsBaseState::btnGroupPress(Action *action)
 		else if (sender == _btnFolders)
 		{
 			_game->pushState(new OptionsFoldersState(_origin));
+		}
+		// coop
+		else if (sender == _btnMultiplayer)
+		{
+			_game->pushState(new OptionsMultiplayerState(_origin));
 		}
 	}
 }

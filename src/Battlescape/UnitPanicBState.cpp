@@ -51,6 +51,25 @@ UnitPanicBState::~UnitPanicBState()
 
 void UnitPanicBState::init()
 {
+
+	// coop
+	/*
+	if (_parent->getCoopMod()->getCoopStatic() == true && (_parent->isYourTurn == 2 || (_parent->getPanicHandled() == false && _parent->getCoopMod()->getHost() == true)) && _coop == false && _parent->getCoopMod()->_isActiveSync == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "unit_panic";
+
+		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+		root["unit_id"] = _unit->getId();
+
+		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+	*/
+
 }
 
 /**
@@ -59,6 +78,7 @@ void UnitPanicBState::init()
  */
 void UnitPanicBState::think()
 {
+
 	if (_unit)
 	{
 		// berserking requires handling here, as the target selection isn't completely random

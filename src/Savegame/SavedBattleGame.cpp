@@ -3503,6 +3503,11 @@ void SavedBattleGame::resetUnitHitStates()
 	}
 }
 
+void SavedBattleGame::abortPathCoop()
+{
+	getPathfinding()->abortPathCoop();
+}
+
 ////////////////////////////////////////////////////////////
 //					Script binding
 ////////////////////////////////////////////////////////////

@@ -103,6 +103,44 @@ void UnitTurnBState::init()
 		}
 		_parent->popState();
 	}
+
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+		Json::Value obj;
+		obj["state"] = "BattleScapeTurn";
+
+		int index = 0;
+
+		obj["id"] = _unit->getId();
+
+		int startx = _unit->getPosition().x;
+		int starty = _unit->getPosition().y;
+		int startz = _unit->getPosition().z;
+
+		obj["coords"]["start"]["x"] = startx;
+		obj["coords"]["start"]["y"] = starty;
+		obj["coords"]["start"]["z"] = startz;
+
+		int endx = _parent->getCurrentAction()->target.x;
+		int endy = _parent->getCurrentAction()->target.y;
+		int endz = _parent->getCurrentAction()->target.z;
+
+		obj["coords"]["end"]["x"] = endx;
+		obj["coords"]["end"]["y"] = endy;
+		obj["coords"]["end"]["z"] = endz;
+
+		obj["tu"] = _unit->getTimeUnits();
+		obj["energy"] = _unit->getEnergy();
+		obj["health"] = _unit->getHealth();
+		obj["morale"] = _unit->getMorale();
+		obj["stunlevel"] = _unit->getStunlevel();
+		obj["mana"] = _unit->getMana();
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
+
 }
 
 /**

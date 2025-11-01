@@ -921,6 +921,16 @@ void GeoscapeState::init()
 		_game->getCoopMod()->_battleWindow = false;
 		_game->getCoopMod()->_battleInit = false;
 
+		_game->getCoopMod()->_clientPanicHandle = false;
+
+		_game->getCoopMod()->_isActiveAISync = false;
+
+		_game->getCoopMod()->_isClosed = true;
+
+		_game->getCoopMod()->_isActivePlayerSync = false;
+
+		_game->getCoopMod()->_onClickClose = false;
+
 		_game->getCoopMod()->setPlayerTurn(0);
 
 		if (_game->getCoopMod()->coopFunds != 0)

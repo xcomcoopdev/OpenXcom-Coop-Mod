@@ -251,6 +251,7 @@ public:
 	PathfindingStep getTUCost(Position startPosition, int direction, const BattleUnit *unit, const BattleUnit *missileTarget, BattleActionMove bam) const;
 	/// Aborts the current path.
 	void abortPath();
+	void abortPathCoop();
 	/// Gets the strafe move setting.
 	bool getStrafeMove() const;
 	/// Checks, for the up/down button, if the movement is valid.

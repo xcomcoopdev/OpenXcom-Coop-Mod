@@ -298,6 +298,9 @@ public:
 	/// Update game state after script hook execution.
 	void updateGameStateAfterScript(BattleActionAttack battleActionAttack, Position pos);
 
+	// coop
+	const RuleInventory* getInventorySlotGround();
+
 };
 
 }

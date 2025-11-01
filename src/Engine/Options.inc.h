@@ -85,6 +85,8 @@ OPT bool oxceRememberDisabledCraftWeapons;
 OPT bool oxceGeoscapeEventsInstantDelivery;
 OPT bool oxceShowBaseNameInPopups;
 
+OPT bool EnableResearchSync;
+
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
 OPT int oxceResearchScrollSpeed;

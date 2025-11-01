@@ -1056,6 +1056,11 @@ int BattleUnit::getVerticalDirection() const
 	return _verticalDirection;
 }
 
+void BattleUnit::setVerticalDirectionCoop(int dir)
+{
+	_verticalDirection = dir;
+}
+
 /**
  * Gets the unit's status.
  * @return the unit's status
@@ -1214,6 +1219,7 @@ void BattleUnit::keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycl
 				_motionPoints += 3;
 		}
 	}
+
 }
 
 /**
@@ -1966,6 +1972,11 @@ int BattleUnit::getStunlevel() const
 	return _stunlevel;
 }
 
+void BattleUnit::setStunlevelCoop(int stunlevel)
+{
+	_stunlevel = stunlevel;
+}
+
 bool BattleUnit::hasNegativeHealthRegen() const
 {
 	if (_health > 0)
@@ -2227,6 +2238,21 @@ void BattleUnit::applyPercentages(RuleItemUseCost &cost, const RuleItemUseCost &
 			cost.Mana = std::max(1, (int)floor(getBaseStats()->mana * cost.Mana / 100.0f));
 		}
 	}
+}
+
+void BattleUnit::setDestinationCoop(Position pos)
+{
+	_destination = pos;
+}
+
+void BattleUnit::setLastPosCoop(Position pos)
+{
+	_lastPos = pos;
+}
+
+Position BattleUnit::getLastPosCoop()
+{
+	return _lastPos;
 }
 
 void BattleUnit::setCoopStatus(UnitStatus status)

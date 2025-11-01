@@ -96,7 +96,7 @@ Projectile::Projectile(Mod *mod, SavedBattleGame *save, BattleAction action, Pos
  */
 Projectile::~Projectile()
 {
-
+	
 }
 
 /**
@@ -194,6 +194,47 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			accuracy = 0.55;
 		}
 		extendLine = _action.waypoints.size() <= 1;
+	}
+
+	// only host!
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+	{
+
+		_save->getBattleGame()->getCoopMod()->_coopInit = true;
+		_save->getBattleGame()->getCoopMod()->_coopAllow = false;
+
+		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+		auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+		auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
+
+		auto* conf = _action.weapon->getActionConf(_action.type);
+
+		int max_shots = 1;
+
+		if (conf)
+		{
+			max_shots = conf->shots;
+		}
+
+		for (int i = 0; i < max_shots; ++i)
+		{
+
+			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine);
+
+			Json::Value projectile(Json::objectValue);
+
+			projectile["rng_x"] = _targetVoxel.x;
+			projectile["rng_y"] = _targetVoxel.y;
+			projectile["rng_z"] = _targetVoxel.z;
+			projectile["seed"] = RNG::getSeedCoop();
+
+			_coopProjectilesClient.append(projectile);
+			_coopProjectilesHost.append(projectile);
+			_coopTileDamage.append(projectile);
+		}
+
+		_save->getBattleGame()->getCoopMod()->_coopAllow = true;
+
 	}
 
 	// apply some accuracy modifiers.
@@ -303,6 +344,30 @@ int Projectile::calculateThrow(double accuracy)
 			deltas = Position(0,0,0);
 		}
 
+		// coop
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+		{
+
+			_save->getBattleGame()->getCoopMod()->_coopInit = true;
+			_save->getBattleGame()->getCoopMod()->_coopAllow = false;
+
+			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+			auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
+
+			Json::Value projectile(Json::objectValue);
+
+			projectile["rng_x"] = _targetVoxel.x;
+			projectile["rng_y"] = _targetVoxel.y;
+			projectile["rng_z"] = _targetVoxel.z;
+			projectile["seed"] = RNG::getSeedCoop();
+
+			_coopProjectilesClient.append(projectile);
+			_coopProjectilesHost.append(projectile);
+			_coopTileDamage.append(_coopTileDamage);
+			
+			_save->getBattleGame()->getCoopMod()->_coopAllow = true;
+		}
 
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
 		if (forced) return O_OBJECT; //fake hit
@@ -329,15 +394,69 @@ int Projectile::calculateThrow(double accuracy)
  * @param keepRange Whether range affects accuracy.
  * @param extendLine should this line get extended to maximum distance?
  */
-void Projectile::applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine)
+void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine)
 {
+
+	// coop
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_coopAllow == true)
+	{
+
+		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+
+		if (!_coopProjectilesHost.empty())
+		{
+
+			Json::Value first;
+			bool found = _coopProjectilesHost.removeIndex(0, &first);
+			if (found)
+			{
+
+				int rng_target_x = first.get("rng_x", 0).asInt();
+				int rng_target_y = first.get("rng_y", 0).asInt();
+				int rng_target_z = first.get("rng_z", 0).asInt();
+
+				target->x = rng_target_x;
+				target->y = rng_target_y;
+				target->z = rng_target_z;
+
+				return;
+
+			}
+		}
+		else
+		{
+
+			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+
+			if (!_coopProjectilesClient.empty())
+			{
+
+				Json::Value first;
+				bool found = _coopProjectilesClient.removeIndex(0, &first);
+				if (found)
+				{
+
+					int rng_target_x = first.get("rng_x", 0).asInt();
+					int rng_target_y = first.get("rng_y", 0).asInt();
+					int rng_target_z = first.get("rng_z", 0).asInt();
+
+					target->x = rng_target_x;
+					target->y = rng_target_y;
+					target->z = rng_target_z;
+
+					return;
+				}
+			}
+		}
+	}
+
 	int xdiff = origin.x - target->x;
 	int ydiff = origin.y - target->y;
-	double realDistance = sqrt((double)(xdiff*xdiff)+(double)(ydiff*ydiff));
+	double realDistance = sqrt((double)(xdiff * xdiff) + (double)(ydiff * ydiff));
 	// maxRange is the maximum range a projectile shall ever travel in voxel space
-	double maxRange = keepRange?realDistance:16*1000; // 1000 tiles
-	maxRange = _action.type == BA_HIT?46:maxRange; // up to 2 tiles diagonally (as in the case of reaper v reaper)
-	const RuleItem *weapon = _action.weapon->getRules();
+	double maxRange = keepRange ? realDistance : 16 * 1000; // 1000 tiles
+	maxRange = _action.type == BA_HIT ? 46 : maxRange;      // up to 2 tiles diagonally (as in the case of reaper v reaper)
+	const RuleItem* weapon = _action.weapon->getRules();
 
 	if (_action.type != BA_THROW && _action.type != BA_HIT)
 	{
@@ -371,12 +490,12 @@ void Projectile::applyAccuracy(Position origin, Position *target, double accurac
 	int zDist = abs(origin.z - target->z);
 	int xyShift, zShift;
 
-	if (xDist / 2 <= yDist)				//yes, we need to add some x/y non-uniformity
-		xyShift = xDist / 4 + yDist;	//and don't ask why, please. it's The Commandment
+	if (xDist / 2 <= yDist)          // yes, we need to add some x/y non-uniformity
+		xyShift = xDist / 4 + yDist; // and don't ask why, please. it's The Commandment
 	else
-		xyShift = (xDist + yDist) / 2;	//that's uniform part of spreading
+		xyShift = (xDist + yDist) / 2; // that's uniform part of spreading
 
-	if (xyShift <= zDist)				//slight z deviation
+	if (xyShift <= zDist) // slight z deviation
 		zShift = xyShift / 2 + zDist;
 	else
 		zShift = xyShift + zDist / 2;
@@ -385,12 +504,12 @@ void Projectile::applyAccuracy(Position origin, Position *target, double accurac
 	int noLOSAccuracyPenalty = _action.weapon->getRules()->getNoLOSAccuracyPenalty(_mod);
 	if (noLOSAccuracyPenalty != -1)
 	{
-		Tile *t = _save->getTile(target->toTile());
+		Tile* t = _save->getTile(target->toTile());
 		if (t)
 		{
 			bool hasLOS = false;
-			BattleUnit *bu = _action.actor;
-			BattleUnit *targetUnit = t->getUnit(); // we can call TileEngine::visible() only if the target unit is on the same tile
+			BattleUnit* bu = _action.actor;
+			BattleUnit* targetUnit = t->getUnit(); // we can call TileEngine::visible() only if the target unit is on the same tile
 
 			if (targetUnit)
 			{
@@ -411,11 +530,11 @@ void Projectile::applyAccuracy(Position origin, Position *target, double accurac
 	int deviation = RNG::generate(0, 100) - (accuracy * 100);
 
 	if (deviation >= 0)
-		deviation += 50;				// add extra spread to "miss" cloud
+		deviation += 50; // add extra spread to "miss" cloud
 	else
-		deviation += 10;				//accuracy of 109 or greater will become 1 (tightest spread)
+		deviation += 10; // accuracy of 109 or greater will become 1 (tightest spread)
 
-	deviation = std::max(1, zShift * deviation / 200);	//range ratio
+	deviation = std::max(1, zShift * deviation / 200); // range ratio
 
 	target->x += RNG::generate(0, deviation) - deviation / 2;
 	target->y += RNG::generate(0, deviation) - deviation / 2;
@@ -426,7 +545,8 @@ void Projectile::applyAccuracy(Position origin, Position *target, double accurac
 		double rotation, tilt;
 		rotation = atan2(double(target->y - origin.y), double(target->x - origin.x)) * 180 / M_PI;
 		tilt = atan2(double(target->z - origin.z),
-			sqrt(double(target->x - origin.x)*double(target->x - origin.x)+double(target->y - origin.y)*double(target->y - origin.y))) * 180 / M_PI;
+					 sqrt(double(target->x - origin.x) * double(target->x - origin.x) + double(target->y - origin.y) * double(target->y - origin.y))) *
+			   180 / M_PI;
 		// calculate new target
 		// this new target can be very far out of the map, but we don't care about that right now
 		double cos_fi = cos(Deg2Rad(tilt));
