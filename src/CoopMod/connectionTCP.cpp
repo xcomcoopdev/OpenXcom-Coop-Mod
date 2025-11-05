@@ -19,13 +19,10 @@
  */
 
 #include "connectionTCP.h"
-
 #include "../Engine/Game.h"
-
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Mod/AlienDeployment.h"
 #include "../Menu/CutsceneState.h"
-
 #include "../Savegame/AlienMission.h"
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
