@@ -50,7 +50,7 @@ void Vehicle::load(const YAML::YamlNodeReader& reader)
 	// coop
 	reader.tryRead("coopbase", _coopbase);
 	reader.tryRead("coopcraft", _coopcraft);
-	reader.tryRead("coopcrafttype", _coopcrafttype);
+	reader.tryRead("coopcrafttype", _coopcraft_type);
 }
 
 /**
@@ -66,7 +66,7 @@ void Vehicle::save(YAML::YamlNodeWriter writer) const
 	// coop
 	writer.write("coopbase", _coopbase);
 	writer.write("coopcraft", _coopcraft);
-	writer.write("coopcrafttype", _coopcrafttype);
+	writer.write("coopcrafttype", _coopcraft_type);
 }
 
 /**

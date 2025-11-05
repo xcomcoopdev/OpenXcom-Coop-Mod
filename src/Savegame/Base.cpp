@@ -460,8 +460,16 @@ void Base::save(YAML::YamlNodeWriter writer) const
 	writer.write("soldiers", _soldiers,
 		[&](YAML::YamlNodeWriter& vectorWriter, Soldier* s)
 		{ s->save(vectorWriter.write(), _mod->getScriptGlobal()); });
-	// COOP ERROR if (xcraft->coop == false)
-	COOP_ERROR
+
+	// coop
+	writer.write("crafts", _crafts,
+				 [&](YAML::YamlNodeWriter& v, const Craft* c)
+				 {
+					 if (c->coop)
+						 return;
+					 c->save(v.write(), _mod->getScriptGlobal());
+				 });
+
 	writer.write("crafts", _crafts,
 		[&](YAML::YamlNodeWriter& vectorWriter, Craft* c)
 		{ c->save(vectorWriter.write(), _mod->getScriptGlobal()); });

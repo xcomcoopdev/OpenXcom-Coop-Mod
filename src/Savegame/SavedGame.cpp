@@ -430,10 +430,16 @@ void SavedGame::syncResearch(std::string research_str)
 
 	}
 
+}
 
-
-
-
+/**
+ * Add a ResearchProject to the list of already discovered ResearchProject
+ * @param research The newly found ResearchProject
+ */
+void SavedGame::addFinishedResearchSimple(const RuleResearch* research)
+{
+	_discovered.push_back(research);
+	sortReserchVector(_discovered);
 }
 
 /**
@@ -810,6 +816,26 @@ void saveVector(YAML::YamlNodeWriter& writer, const std::vector<T*>& vector, con
 		item->save(sequenceWriter.write(), args...);
 }
 
+// coop
+template <typename T, typename Pred, typename... Args>
+void saveVectorIf(YAML::YamlNodeWriter& writer,
+				  const std::vector<T*>& vec,
+				  const ryml::csubstr& key,
+				  Pred&& keep,
+				  Args&&... args)
+{
+	if (vec.empty())
+		return;
+	auto seq = writer[key];
+	seq.setAsSeq();
+	for (const T* item : vec)
+	{
+		if (!keep(item))
+			continue; // suodatus tässä
+		item->save(seq.write(), std::forward<Args>(args)...);
+	}
+}
+
 /**
  * Saves a saved game's contents to a YAML file.
  * @param filename YAML filename.
@@ -846,12 +872,12 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("ironman", _ironman);
 
 	// Saves the full game data to the save
-	// COOP_ERROR
-	COOP_ERROR
 	YAML::YamlRootNodeWriter writer(1000000); //1MB starting buffer
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	// coop
+	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
@@ -885,15 +911,31 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 
 	saveVector(writer, _countries, "countries", mod->getScriptGlobal());
 	saveVector(writer, _regions, "regions");
-	saveVector(writer, _bases, "bases");
+
+	// coop
+	saveVectorIf(writer, _bases, "bases",
+				 [](const Base* b)
+				 { return !b->_coopIcon; });
+
 	saveVector(writer, _waypoints, "waypoints");
 	saveVector(writer, _missionSites, "missionSites");
 	// Alien bases must be saved before alien missions.
 	saveVector(writer, _alienBases, "alienBases");
 	// Missions must be saved before UFOs, but after alien bases.
-	saveVector(writer, _activeMissions, "alienMissions");
+	// coop
+	saveVectorIf(writer, _activeMissions, "alienMissions",
+				 [](const AlienMission* am)
+				 { return !am->_coop; });
 	// UFOs must be after missions
-	saveVector(writer, _ufos, "ufos", mod->getScriptGlobal(), getMonthsPassed() == -1);
+	// coop
+	const bool isNewGame = (getMonthsPassed() == -1);
+
+	saveVectorIf(
+		writer, _ufos, "ufos",
+		[](const Ufo* u)
+		{ return !u->_coop; },
+		mod->getScriptGlobal(), isNewGame);
+
 	saveVector(writer, _geoscapeEvents, "geoscapeEvents");
 	if (!_discovered.empty())
 	{

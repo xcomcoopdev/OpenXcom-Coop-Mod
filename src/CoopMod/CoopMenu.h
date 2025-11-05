@@ -22,7 +22,6 @@
 #include <map>
 #include <algorithm>
 #include <cmath>
-#include <yaml-cpp/yaml.h>
 #include "../Engine/Screen.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Battlescape/BattlescapeState.h"

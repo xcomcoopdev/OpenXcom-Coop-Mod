@@ -118,6 +118,8 @@ private:
 	void load(const YAML::YamlNodeReader& reader, const Mod *mod, SavedGame *save, const ScriptGlobal *shared, bool soldierTemplate = false);
 	/// Saves the soldier to YAML.
 	void save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const;
+	// coop
+	YAML::YamlNodeWriter saveCoop(YAML::YamlNodeWriter writer, const ScriptGlobal* shared);
 	/// Gets the soldier's name.
 	std::string getName(bool statstring = false, unsigned int maxLength = 20) const;
 	/// Sets the soldier's name.

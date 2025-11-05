@@ -31,6 +31,7 @@
 #include <deque>
 
 #include <json/json.h>
+
 #include <SDL_net.h>
 
 #include "CoopMenu.h"

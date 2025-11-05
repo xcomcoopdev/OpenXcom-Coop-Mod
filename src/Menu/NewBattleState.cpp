@@ -515,25 +515,40 @@ SavedGame* NewBattleState::loadCoop(const std::string& filename)
 {
 	std::string s = Options::getMasterUserFolder() + filename;
 
-
-	try
+	if (!CrossPlatform::fileExists(s))
+	{
+		initSave();
+	}
+	else
+	{
+		try
 		{
-			YAML::Node doc = YAML::Load(*CrossPlatform::readFile(s));
+			YAML::YamlRootNodeReader cfgReader(s);
+			_cbxMission->setSelected(std::min(cfgReader["mission"].readVal<size_t>(0), _missionTypes.size() - 1));
+			cbxMissionChange(0);
+			_cbxCraft->setSelected(std::min(cfgReader["craft"].readVal<size_t>(0), _crafts.size() - 1));
+			_slrDarkness->setValue(cfgReader["darkness"].readVal<size_t>(0));
+			_cbxTerrain->setSelected(std::min(cfgReader["terrain"].readVal<size_t>(0), _terrainTypes.size() - 1));
+			cbxTerrainChange(0);
+			{
+				_selectedGlobeTexture = std::min(cfgReader["globeTexture"].readVal<size_t>(0), _globeTextures.size() - 1);
+				_btnGlobeTexture->setText(tr(_globeTextures[_selectedGlobeTexture]));
+			}
+			_cbxAlienRace->setSelected(std::min(cfgReader["alienRace"].readVal<size_t>(0), _alienRaces.size() - 1));
+			_cbxDifficulty->setSelected(cfgReader["difficulty"].readVal<size_t>(0));
+			_slrAlienTech->setValue(cfgReader["alienTech"].readVal<size_t>(0));
 
-			if (doc["base"])
+			if (cfgReader["base"])
 			{
 				const Mod* mod = _game->getMod();
 				SavedGame* save = new SavedGame();
 
 				Base* base = new Base(mod);
-				base->load(doc["base"], save, false);
+				base->load(cfgReader["base"], save, false);
 				save->getBases()->push_back(base);
 
 				// Add research
-				for (auto& pair : mod->getResearchMap())
-				{
-					save->addFinishedResearchSimple(pair.second);
-				}
+				save->makeAllResearchDiscovered(mod);
 
 				// Generate items
 				base->getStorageItems()->clear();
@@ -558,28 +573,29 @@ SavedGame* NewBattleState::loadCoop(const std::string& filename)
 					_craft = base->getCrafts()->front();
 				}
 
-				return save;
-
+				_game->setSavedGame(save);
 			}
-			return nullptr;
+			else
+			{
+				initSave();
+			}
 		}
 		catch (YAML::Exception& e)
 		{
 			Log(LOG_WARNING) << e.what();
-			return nullptr;
+			initSave();
 		}
-	
+	}
 
-	const YAML::Node& starter = _game->getMod()->getDefaultStartingBase();
-	if (const YAML::Node& globalTemplates = starter["globalTemplates"])
+	YAML::YamlRootNodeReader starterBaseReader(_game->getMod()->getDefaultStartingBase(), "(starting base template)");
+	if (const auto& globalTemplates = starterBaseReader["globalTemplates"])
 	{
 		_game->getSavedGame()->loadTemplates(globalTemplates, _game->getMod());
 	}
-	if (const YAML::Node& ufopediaRuleStatus = starter["ufopediaRuleStatus"])
+	if (const auto& ufopediaRuleStatus = starterBaseReader["ufopediaRuleStatus"])
 	{
 		_game->getSavedGame()->loadUfopediaRuleStatus(ufopediaRuleStatus);
 	}
-
 
 }
 

@@ -62,16 +62,6 @@ ProjectileFlyBState::~ProjectileFlyBState()
 }
 
 /**
- * Deinitalize the state.
- */
-void ProjectileFlyBState::deinit()
-{
-	// coop
-	_parent->getCoopMod()->_coop_task_completed = true;
-
-}
-
-/**
  * Initializes the sequence:
  * - checks if the shot is valid,
  * - calculates the base accuracy.
@@ -764,6 +754,10 @@ bool ProjectileFlyBState::createNewProjectile()
  */
 void ProjectileFlyBState::deinit()
 {
+
+	// coop
+	_parent->getCoopMod()->_coop_task_completed = true;
+
 	_parent->getMap()->setFollowProjectile(true); // turn back on when done shooting
 }
 

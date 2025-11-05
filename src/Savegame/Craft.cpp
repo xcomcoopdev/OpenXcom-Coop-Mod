@@ -46,6 +46,8 @@
 #include "SerializationHelper.h"
 #include "../Engine/Logger.h"
 
+#include "../CoopMod/connectionTCP.h"
+
 namespace OpenXcom
 {
 

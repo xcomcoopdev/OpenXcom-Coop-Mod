@@ -184,14 +184,12 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 			}
 		}
 	}
-}
 
 	//  coop
 	if (origin == OPT_GEOSCAPE)
 	{
 
 		_btnSave->setVisible(true);
-
 	}
 
 	// coop
