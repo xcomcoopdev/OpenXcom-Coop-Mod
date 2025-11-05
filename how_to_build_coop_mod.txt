@@ -1,4 +1,4 @@
-OpenXcom Co-op Mod — Build (Visual Studio 2022)
+OpenXcom Co-op Mod (OXCE v8.4) — Build (Visual Studio 2022)
 
 1. Make sure you have the required libraries for OpenXcom Extended (OXCE) installed. 
 
