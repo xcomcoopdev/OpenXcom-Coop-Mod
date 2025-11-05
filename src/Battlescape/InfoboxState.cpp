@@ -35,6 +35,12 @@ namespace OpenXcom
  */
 InfoboxState::InfoboxState(const std::string &msg)
 {
+
+	_game->getCoopMod()->_coop_task_completed = false;
+
+	// coop
+	_game->getCoopMod()->setPauseOn();
+
 	_screen = false;
 
 	// Create objects
@@ -70,6 +76,21 @@ InfoboxState::InfoboxState(const std::string &msg)
 	_timer = new Timer(delay);
 	_timer->onTimer((StateHandler)&InfoboxState::close);
 	_timer->start();
+
+
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_isActivePlayerSync == true && _game->getCoopMod()->_isActiveAISync == false)
+	{
+
+		Json::Value root;
+
+		root["state"] = "info_box";
+
+		root["msg"] = msg;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 }
 
 /**
@@ -77,6 +98,11 @@ InfoboxState::InfoboxState(const std::string &msg)
  */
 InfoboxState::~InfoboxState()
 {
+
+	// coop
+	_game->getCoopMod()->setPauseOff();
+	_game->getCoopMod()->_coop_task_completed = true;
+
 	delete _timer;
 }
 

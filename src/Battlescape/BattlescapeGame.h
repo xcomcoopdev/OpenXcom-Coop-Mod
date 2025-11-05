@@ -39,6 +39,7 @@ class Mod;
 class InfoboxOKState;
 class SoldierDiary;
 class RuleSkill;
+class connectionTCP; 
 
 enum BattleActionMove : char { BAM_NORMAL = 0, BAM_RUN = 1, BAM_STRAFE = 2, BAM_SNEAK = 3, BAM_MISSILE = 4 };
 
@@ -146,7 +147,6 @@ private:
 
 	helper::SingleRun _endTurnProcessed;
 	helper::SingleRun _triggerProcessed;
-
 	/// Ends the turn.
 	void endTurn();
 	/// Picks the first soldier that is panicking.
@@ -161,7 +161,29 @@ private:
 public:
 	/// is debug mode enabled in the battlescape?
 	static bool _debugPlay;
-
+	static int isYourTurn;
+	// coop
+	connectionTCP* getCoopMod();
+	void handlePanickUnitCoop(BattleUnit* unit);
+	void infoboxCoop(std::string msg);
+	void setPauseOn();
+	void setPauseOff();
+	void setCoopTaskCompleted(bool task);
+	int getCoopActorID();
+	int getCoopGamemode();
+	std::string getCoopWeaponHand();
+	void movePlayerTarget(std::string obj);
+	void turnPlayerTarget(std::string str_obj);
+	void psi_attack(std::string str_obj);
+	bool getHost();
+	bool isCoop();
+	void abortCoopPath(int x, int y, int z, int unit_id, int setDirection, int setFaceDirection);
+	void abortCoopPath2();
+	void sendPacketData(std::string data);
+	void coopDeath(BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
+	// coop
+	void teleport(int x, int y, int z, BattleUnit* unit);
+	void setTileCoop(Position pos, BattleUnit &unit);
 	/// Creates the BattlescapeGame state.
 	BattlescapeGame(SavedBattleGame *save, BattlescapeState *parentState);
 	/// Cleans up the BattlescapeGame state.
@@ -182,6 +204,8 @@ public:
 	void statePushBack(BattleState *bs);
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
+	// coop
+	void endTurnCoop();
 	/// Removes current state.
 	void popState();
 	/// Sets state think interval.
@@ -212,6 +236,7 @@ public:
 	bool kneel(BattleUnit *bu);
 	/// Cancels the current action.
 	bool cancelCurrentAction(bool bForce = false);
+	bool cancelCurrentActionCoop(bool bForce = false);
 	/// Cancels all actions.
 	void cancelAllActions();
 	/// Gets a pointer to access action members directly.
@@ -290,6 +315,11 @@ public:
 	bool areAllEnemiesNeutralized() const { return _allEnemiesNeutralized; }
 	/// Resets the flag.
 	void resetAllEnemiesNeutralized() { _allEnemiesNeutralized = false; }
+
+	// coop
+	void setWaypointCoop(int x, int y, int z);
+	void clearWaypointsCoop();
+	void CoopShoot();
 };
 
 }

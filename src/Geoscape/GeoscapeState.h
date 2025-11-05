@@ -80,6 +80,8 @@ public:
 	GeoscapeState();
 	/// Cleans up the Geoscape state.
 	~GeoscapeState();
+	// coop
+	void startCoopMission();
 	/// Handle keypresses.
 	void handle(Action *action) override;
 	/// Updates the palette and timer.

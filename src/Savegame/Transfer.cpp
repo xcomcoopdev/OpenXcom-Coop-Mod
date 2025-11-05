@@ -264,6 +264,16 @@ int Transfer::getQuantity() const
 	return 1;
 }
 
+int Transfer::getEngineers()
+{
+	return _engineers;
+}
+
+int Transfer::getScientists()
+{
+	return _scientists;
+}
+
 /**
  * Returns the type of the contents of the transfer.
  * @return TransferType.
@@ -333,5 +343,11 @@ Soldier *Transfer::getSoldier()
 {
 	return _soldier;
 }
+
+std::string Transfer::coopSoldierID()
+{
+	return _soldier->coopSoldierID();
+}
+
 
 }

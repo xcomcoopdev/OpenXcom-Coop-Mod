@@ -225,6 +225,9 @@ void AbortMissionState::btnOkClick(Action *)
  */
 void AbortMissionState::btnCancelClick(Action *)
 {
+	// coop
+	_game->getCoopMod()->setPauseOff();
+
 	_game->popState();
 }
 

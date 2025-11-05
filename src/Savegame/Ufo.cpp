@@ -35,8 +35,14 @@
 #include "SavedGame.h"
 #include "Waypoint.h"
 
+#include "../Engine/Game.h"
+#include <random>
+
 namespace OpenXcom
 {
+
+// coop
+bool once = false;
 
 const char *Ufo::ALTITUDE_STRING[] = {
 	"STR_GROUND",
@@ -74,6 +80,14 @@ Ufo::Ufo(const RuleUfo *rules, int uniqueId, int hunterKillerPercentage, int hun
 			_huntBehavior = huntBehavior > 1 ? RNG::generate(0, 1) : huntBehavior;
 		}
 	}
+
+	// coop id
+	std::random_device rd;                              // Seed
+	std::mt19937 gen(rd());                             // Mersenne Twister RNG
+	std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+	int random_number = distrib(gen);
+	_coop_ufo_id = random_number;
+
 }
 
 /**
@@ -126,7 +140,9 @@ void Ufo::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, con
 	_dest = new Waypoint();
 	_dest->setLongitude(reader["dest"]["lon"].readVal(_lon));
 	_dest->setLatitude(reader["dest"]["lat"].readVal(_lat));
-	reader.tryRead("status", _status);
+	// coop
+	if (_coop == false)
+		reader.tryRead("status", _status);
 	if (game.getMonthsPassed() != -1)
 	{
 		int missionID = reader["mission"].readVal<int>();
@@ -506,6 +522,21 @@ bool Ufo::getDetected() const
  */
 void Ufo::setDetected(bool detected)
 {
+
+	// coop
+	if (_coop == true || _playerShotDownUfo == true)
+	{
+		_detected = true;
+	}
+	else
+	{
+		_detected = detected;
+	}
+
+}
+
+void Ufo::setDetectedCoop(bool detected)
+{
 	_detected = detected;
 }
 
@@ -571,6 +602,13 @@ int Ufo::getAltitudeInt() const
  */
 void Ufo::setAltitude(const std::string &altitude)
 {
+
+	// coop
+	if (_coop == true || _playerShotDownUfo == true)
+	{
+		return;
+	}
+
 	_altitude = altitude;
 	if (_altitude != "STR_GROUND")
 	{
@@ -580,6 +618,28 @@ void Ufo::setAltitude(const std::string &altitude)
 	{
 		_status = isCrashed() ? CRASHED : LANDED;
 	}
+
+}
+
+void Ufo::setAltitudeCoop(const std::string& altitude)
+{
+	_altitude = altitude;
+}
+
+void Ufo::setStatus(UfoStatus status)
+{
+	// coop
+	if (_coop == true || (_playerShotDownUfo == true && status != Ufo::DESTROYED))
+	{
+		return;
+	}
+
+	_status = status;
+}
+
+void Ufo::setStatusCoop(UfoStatus status)
+{
+	_status = status;
 }
 
 /**
@@ -609,7 +669,16 @@ bool Ufo::isCrashed() const
  */
 bool Ufo::isDestroyed() const
 {
-	return (_damage >= _stats.damageMax);
+	// coop
+	if (_coop == true)
+	{
+		// do nothing
+		return false;
+	}
+	else
+	{
+		return (_damage >= _stats.damageMax);
+	}
 }
 
 /**
@@ -1235,6 +1304,16 @@ bool Ufo::insideRadarRange(Target *target) const
 
 	double range = Nautical(_stats.radarRange);
 	return (getDistance(target) <= range);
+}
+
+bool Ufo::getCoop()
+{
+	return _coop;
+}
+
+void Ufo::setCoop(bool state)
+{
+	_coop = state;
 }
 
 ////////////////////////////////////////////////////////////

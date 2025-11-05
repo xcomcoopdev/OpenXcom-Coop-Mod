@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2010-2016 OpenXcom Developers.
  *
  * This file is part of OpenXcom.
@@ -151,6 +151,7 @@ void CraftsState::initList(size_t scrl)
  */
 void CraftsState::btnOkClick(Action *)
 {
+
 	_game->popState();
 
 	if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && _base->storesOverfull())

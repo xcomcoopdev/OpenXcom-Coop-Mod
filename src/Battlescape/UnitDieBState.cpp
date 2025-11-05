@@ -49,6 +49,13 @@ namespace OpenXcom
 UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const RuleDamageType* damageType, bool noSound) : BattleState(parent),
 	_unit(unit), _damageType(damageType), _noSound(noSound), _extraFrame(0), _overKill(unit->getOverKillDamage())
 {
+
+	// coop 
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	{
+		return;
+	}
+
 	// don't show the "fall to death" animation when a unit is blasted with explosives or he is already unconscious
 	if (!_damageType->isDirect() || _unit->getStatus() == STATUS_UNCONSCIOUS)
 	{
@@ -111,10 +118,89 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 UnitDieBState::~UnitDieBState()
 {
 
+	// coop
+	if ((_parent->isCoop() == true && coop == false && _parent->getCoopMod()->getHost() == true))
+	{
+
+		// coop
+		Json::Value root;
+
+		root["state"] = "after_unit_death";
+
+		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+		root["unit_id"] = _unit->getId();
+
+		root["time"] = _unit->getTimeUnits();
+		root["health"] = _unit->getHealth();
+		root["energy"] = _unit->getEnergy();
+		root["morale"] = _unit->getMorale();
+		root["mana"] = _unit->getMana();
+		root["stun"] = _unit->getStunlevel();
+
+		root["setDirection"] = _unit->getDirection();
+		root["setFaceDirection"] = _unit->getFaceDirection();
+
+		// motions point
+		root["motionpoints"] = _unit->getMotionPoints();
+
+		// new
+		root["units"]["respawn"] = _unit->getRespawn();
+
+		_parent->sendPacketData(root.toStyledString());
+	}
+
 }
 
 void UnitDieBState::init()
 {
+
+	// coop 
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	{
+		return;
+	}
+
+	// coop
+	if ((_parent->isCoop() == true && coop == false && _parent->getCoopMod()->getHost() == true))
+	{
+
+		// coop
+		Json::Value root;
+
+		root["state"] = "unit_death";
+
+		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+		root["unit_id"] = _unit->getId();
+		root["pos_x"] = _unit->getPosition().x;
+		root["pos_y"] = _unit->getPosition().y;
+		root["pos_z"] = _unit->getPosition().z;
+
+		root["time"] = _unit->getTimeUnits();
+		root["health"] = _unit->getHealth();
+		root["energy"] = _unit->getEnergy();
+		root["morale"] = _unit->getMorale();
+		root["mana"] = _unit->getMana();
+		root["stun"] = _unit->getStunlevel();
+
+		root["setDirection"] = _unit->getDirection();
+		root["setFaceDirection"] = _unit->getFaceDirection();
+
+		// motions points (fix)
+		root["motionpoints"] = _unit->getMotionPoints();
+
+		root["damageType"] = (int)_damageType->ResistType;
+		root["noSound"] = _noSound;
+
+		// new
+		root["units"]["respawn"] = _unit->getRespawn();
+
+		_parent->sendPacketData(root.toStyledString());
+
+	}
+
+#if 0
 	// check for presence of battlestate to ensure that we're not pre-battle
 	// check for the unit's tile to make sure we're not trying to kill a dead guy
 	if (_parent->getSave()->getBattleState() && !_unit->getTile())
@@ -145,6 +231,15 @@ void UnitDieBState::init()
  */
 void UnitDieBState::think()
 {
+
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	{
+		_unit->setCoopStatus(STATUS_STANDING);
+		_parent->popState();
+		return;
+	}
+
 	if (_extraFrame == 3)
 	{
 		_parent->popState();

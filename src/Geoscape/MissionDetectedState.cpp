@@ -89,6 +89,28 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 	_txtCity->setBig();
 	_txtCity->setAlign(ALIGN_CENTER);
 	_txtCity->setText(tr(mission->getCity()));
+
+
+	// COOP
+	// Synchronizing the mission for the other player.
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "mission";
+		root["deployment"] = mission->getDeployment()->getType();
+		root["rules"] = mission->getRules()->getType();
+		root["race"] = mission->getAlienRace();
+		root["city"] = mission->getCity();
+		root["time"] = mission->getSecondsRemaining();
+		root["lon"] = mission->getLongitude();
+		root["lat"] = mission->getLatitude();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 }
 
 /**

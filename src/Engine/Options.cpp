@@ -563,17 +563,25 @@ void createControlsOXCE()
 
 void createOptionsOTHER()
 {
-	// your fork's hidden options here
+
 }
 
 void createAdvancedOptionsOTHER()
 {
 	// your fork's advanced options here
+
+	// coop
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
+
 }
 
 void createControlsOTHER()
 {
 	// your fork's controls here
+
+	// coop
+	_info.push_back(OptionInfo(OPTION_OTHER, "keyChat", &keyChat, SDLK_c, "Toggle Chat", "STR_GENERAL"));
+
 }
 
 

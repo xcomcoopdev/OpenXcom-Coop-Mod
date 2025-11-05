@@ -139,6 +139,8 @@ struct RuleDamageType
 	int getRandomDamage(int power, FuncRef<int(int, int)> randFunc) const;
 	/// Calculate random value of damage for tile attack.
 	int getRandomDamageForTile(int power, int damage) const;
+	// coop
+	int getRandomDamageForTileCoop(int power, uint64_t seed) const;
 	/// Do this damage type affect only one target
 	bool isDirect() const;
 	/// Loads item data from YAML.

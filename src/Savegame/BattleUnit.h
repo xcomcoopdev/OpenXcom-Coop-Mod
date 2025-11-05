@@ -26,6 +26,9 @@
 #include "Soldier.h"
 #include "BattleItem.h"
 
+#include "../Engine/Game.h"
+#include "../Battlescape/BattlescapeGame.h"
+
 namespace OpenXcom
 {
 
@@ -78,6 +81,7 @@ private:
 	UnitFaction _faction, _originalFaction;
 	UnitFaction _killedBy;
 	UnitFaction _spawnUnitFaction = FACTION_HOSTILE;
+	int _coop = 0;
 	int _id;
 	Position _pos;
 	Tile *_tile;
@@ -204,10 +208,26 @@ private:
 	/// Applies percentual and/or flat adjustments to the use costs.
 	void applyPercentages(RuleItemUseCost &cost, const RuleItemUseFlat &flat) const;
 public:
+	// coop
+	void setDestinationCoop(Position pos);
+	void setLastPosCoop(Position pos);
+	Position getLastPosCoop();
+	void setCoopStatus(UnitStatus status);
+	void stopCoopWalk();
+	bool _coop_mindcontrolled = false;
+	void setOriginalFaction(UnitFaction faction);
+	void setCoop(int coop);
+	int getCoop() const;
+	void setCoopMana(int mana);
+	void setCoopMorale(int morale);
+	void setCoopEnergy(int energy);
+	void setHealth(int health);
+	int _coopDamage = 0;
+	int _coopHealth = 0;
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;
-
+	std::string getCoopName();
 	/// Name of class used in script.
 	static constexpr const char *ScriptName = "BattleUnit";
 	/// Register all useful function used by script.
@@ -257,6 +277,8 @@ public:
 	int getTurretToDirection() const;
 	/// Gets the unit's vertical direction.
 	int getVerticalDirection() const;
+	// coop
+	void setVerticalDirectionCoop(int dir);
 	/// Gets the unit's status.
 	UnitStatus getStatus() const;
 	/// Does the unit want to surrender?
@@ -269,6 +291,8 @@ public:
 	void startWalking(int direction, Position destination, SavedBattleGame *savedBattleGame);
 	/// Increase the walkingPhase
 	void keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycle);
+	/// Increase the walkingPhase
+	void keepWalkingCoop(SavedBattleGame* savedBattleGame, bool fullWalkCycle);
 	/// Gets the walking phase for animation and sound
 	int getWalkingPhase() const;
 	/// Gets the walking phase for diagonal walking
@@ -320,6 +344,7 @@ public:
 	void healStun(int power);
 	/// Gets the unit's stun level.
 	int getStunlevel() const;
+	void setStunlevelCoop(int stunlevel);
 	/// Is the unit losing HP (due to negative health regeneration)?
 	bool hasNegativeHealthRegen() const;
 	/// Knocks the unit out instantly.
@@ -544,6 +569,8 @@ public:
 	void stimulant (int energy, int stun, int mana);
 	/// Get motion points for the motion scanner.
 	int getMotionPoints() const;
+	// coop
+	void setMotionPointsCoop(int points);
 	/// Get turn when unit was scanned by the motion scanner.
 	int getScannedTurn() const { return _scannedTurn; }
 	/// Set turn when unit was scanned by the motion scanner.
@@ -659,6 +686,7 @@ public:
 	/// Gets a unit's random aggro sound.
 	int getRandomAggroSound() const;
 	/// Sets the unit's time units.
+	void setCoopTimeUnits(int tu);
 	void setTimeUnits(int tu);
 	/// Get the faction that killed this unit.
 	UnitFaction killedBy() const;
@@ -876,6 +904,16 @@ public:
 	ArmorMoveCost getMoveCostBaseClimb() const { return _moveCostBaseClimb; }
 	/// Multiplier of normal move cost.
 	ArmorMoveCost getMoveCostBaseNormal() const { return _moveCostBaseNormal; }
+
+	// coop
+	int coop_tu = 0;
+	int coop_energy = 0;
+	int coop_morale = 0;
+	int coop_health = 0;
+	int coop_mana = 0;
+	int coop_stun = 0;
+	bool coop_no_line_fire = false;
+	bool coop_action = false;
 };
 
 } //namespace OpenXcom

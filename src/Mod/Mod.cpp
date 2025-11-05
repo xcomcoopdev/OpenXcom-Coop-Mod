@@ -5019,6 +5019,22 @@ void Mod::sortLists()
 	sortIndex(_aliensIndex, _alienRaces, compareRule<AlienRace>(this));
 }
 
+// coop
+std::vector<std::string> Mod::getCoopModList()
+{
+
+	std::vector<std::string> mod_names;
+
+	for (auto mod  : _modData)
+	{
+
+		mod_names.push_back(mod.name);
+
+	}
+
+	return mod_names;
+}
+
 /**
  * Gets the research-requirements for Psi-Lab (it's a cache for psiStrengthEval)
  */

@@ -205,6 +205,26 @@ void MedikitState::handle(Action *action)
 	}
 }
 
+void MedikitState::coopHandle(std::string state, int part)
+{
+
+	if (_item->getHealQuantity() == 0)
+	{
+		return;
+	}
+
+	if (_action->spendTU(&_action->result))
+	{
+		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)part);
+
+		_medikitView->updateSelectedPart();
+		_medikitView->invalidate();
+		update();
+	
+	}
+
+}
+
 /**
  * Returns to the previous screen.
  * @param action Pointer to an action.
@@ -234,6 +254,22 @@ void MedikitState::onHealClick(Action *)
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)_medikitView->getSelectedPart());
+
+		// COOP healing
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
+		{
+			Json::Value obj;
+			obj["state"] = "medkit";
+			obj["actor_id"] = _targetUnit->getId();
+			obj["type"] = (int)_action->type;
+			obj["part"] = _medikitView->getSelectedPart();
+			obj["medkit_state"] = "heal";
+			obj["action_result"] = &_action->result;
+			obj["time"] = _action->Time;
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+		}
+
 		_medikitView->updateSelectedPart();
 		_medikitView->invalidate();
 		update();
@@ -267,6 +303,21 @@ void MedikitState::onStimulantClick(Action *)
 		{
 			onEndClick(0);
 		}
+
+		// COOP stimulant
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
+		{
+			Json::Value obj;
+			obj["state"] = "medkit";
+			obj["actor_id"] = _targetUnit->getId();
+			obj["type"] = (int)_action->type;
+			obj["part"] = _medikitView->getSelectedPart();
+			obj["medkit_state"] = "stimulant";
+			obj["action_result"] = &_action->result;
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+		}
+
 	}
 	else
 	{
@@ -293,6 +344,23 @@ void MedikitState::onPainKillerClick(Action *)
 		{
 			onEndClick(0);
 		}
+
+		
+		// COOP painkiller
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
+		{
+			Json::Value obj;
+			obj["state"] = "medkit";
+			obj["actor_id"] = _targetUnit->getId();
+			obj["type"] = (int)_action->type;
+			obj["part"] = _medikitView->getSelectedPart();
+			obj["medkit_state"] = "painkiller";
+			obj["action_result"] = &_action->result;
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+		}
+
 	}
 	else
 	{

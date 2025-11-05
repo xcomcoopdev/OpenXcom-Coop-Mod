@@ -75,6 +75,8 @@
 #include "../Savegame/BattleUnitStatistics.h"
 #include "../fallthrough.h"
 
+#include "../CoopMod/CoopMenu.h"
+
 namespace OpenXcom
 {
 
@@ -295,6 +297,22 @@ DebriefingState::DebriefingState() :
 	_lstRecoveredItems->setColumns(2, firstColumnWidth, 18);
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
+
+
+	// COOP
+	if (_game->getCoopMod()->isCoopSession() == true)
+	{
+		_game->getCoopMod()->coopMissionEnd = true;
+	}
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		_btnSell->setVisible(false);
+		_btnTransfer->setVisible(false);
+
+	}
+
 }
 
 /**
@@ -365,6 +383,15 @@ void DebriefingState::applyVisibility()
 	// Set text on toggle button accordingly
 	_btnSell->setVisible(showItems && _showSellButton);
 	_btnTransfer->setVisible(showItems && _showSellButton && _game->getSavedGame()->getBases()->size() > 1);
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		_btnSell->setVisible(false);
+		_btnTransfer->setVisible(false);
+	}
+
 	if (showScore)
 	{
 		_btnStats->setText(tr("STR_STATS"));
@@ -1702,7 +1729,8 @@ void DebriefingState::prepareDebriefing()
 		{
 			// craft was not even on the battlescape (e.g. paratroopers)
 		}
-		else if (ruleDeploy->keepCraftAfterFailedMission())
+		// coop fix
+		else if (ruleDeploy && ruleDeploy->keepCraftAfterFailedMission())
 		{
 			// craft didn't wait for you (e.g. escape/extraction missions)
 		}

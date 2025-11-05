@@ -46,8 +46,12 @@
 #include <algorithm>
 #include "../Engine/Unicode.h"
 
+#include "../Savegame/Vehicle.h"
+
 namespace OpenXcom
 {
+
+std::vector<Soldier*> base_oldsoldiers;
 
 /**
  * Initializes all the elements in the Soldiers screen.
@@ -241,6 +245,28 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 	_lstSoldiers->onMouseClick((ActionHandler)&SoldiersState::lstSoldiersClick);
 	_lstSoldiers->onMouseClick((ActionHandler)&SoldiersState::lstSoldiersClick, SDL_BUTTON_RIGHT);
 	_lstSoldiers->onMousePress((ActionHandler)&SoldiersState::lstSoldiersMousePress);
+
+
+	// Coop mode: if the game is in coop and this base is not a coop base
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+		std::vector<Soldier*> coopSoldiers;
+
+		base_oldsoldiers = *_base->getSoldiers();
+
+		for (auto* soldier : *_base->getSoldiers())
+		{
+			if (soldier->getCoopBase() == -1)
+			{
+				// Add all soldiers that do NOT belong to a coop base
+				coopSoldiers.push_back(soldier);
+			}
+		}
+
+		// Replace the contents of the original soldier list
+		*_base->getSoldiers() = coopSoldiers;
+	}
+
 }
 
 /**
@@ -391,7 +417,7 @@ void SoldiersState::initList(size_t scrl)
 		_lstSoldiers->setArrowColumn(-1, ARROW_VERTICAL);
 
 		// filtered list of soldiers eligible for transformation
-		RuleSoldierTransformation *transformationRule = _game->getMod()->getSoldierTransformation(selAction);
+		RuleSoldierTransformation* transformationRule = _game->getMod()->getSoldierTransformation(selAction);
 		if (transformationRule)
 		{
 			int idx = -1;
@@ -434,6 +460,18 @@ void SoldiersState::initList(size_t scrl)
 	unsigned int row = 0;
 	for (const auto* soldier : _filteredListOfSoldiers)
 	{
+
+		//  coop
+		if (soldier->getCoopBase() != -1 && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+			continue;
+		}
+
+		if (soldier->getCoopBase() == -1 && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+			continue;
+		}
+
 		std::string craftString = soldier->getCraftString(_game->getLanguage(), recovery);
 
 		if (_dynGetter != NULL)
@@ -576,6 +614,148 @@ void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
  */
 void SoldiersState::btnOkClick(Action *)
 {
+
+	// coop campaign
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// tallentetaan toisen pelaaja base (vain CLIENT) esim. sotilaat jne
+		std::string filename = "";
+		std::string filepath = Options::getMasterUserFolder() + filename;
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+
+			filename = "host/basehost.data";
+		}
+		else
+		{
+
+			filename = "client/basehost.data";
+		}
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			SavedGame* basehost_save = new SavedGame();
+
+			basehost_save->load(filename, _game->getMod(), _game->getLanguage());
+
+			// if save found
+			if (basehost_save)
+			{
+
+				for (auto& saved_base : *basehost_save->getBases())
+				{
+
+					// poista ensiksi kaikki jotka ei -1 tukikohdasta!
+					auto& soldiers = *saved_base->getSoldiers(); // Viitataan vektoriin
+
+					// Vapautetaan muistissa olevat sotilaat, joiden coopBase != -1
+					for (auto it = soldiers.begin(); it != soldiers.end(); /* ei ++it */)
+					{
+						if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
+						{
+							delete *it;              // Vapautetaan muistista sotilas
+							it = soldiers.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
+						}
+						else
+						{
+							++it; // Siirrytään seuraavaan vain jos ei poistettu
+						}
+					}
+
+					// Myös ajoneuvot
+					auto& crafts = *saved_base->getCrafts(); // Viitataan vektoriin, joka sisältää Craft*-olioita
+
+					for (auto& craft : crafts) // Jokainen craft on yksittäinen alus
+					{
+						auto& vehicles = *craft->getVehicles(); // Viitataan aluksen ajoneuvovektoriin
+
+						for (auto it = vehicles.begin(); it != vehicles.end(); /* ei ++it */)
+						{
+							if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
+							{
+								delete *it;              // Vapautetaan muistista ajoneuvo
+								it = vehicles.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
+							}
+							else
+							{
+								++it; // Siirrytään seuraavaan vain jos ei poistettu
+							}
+						}
+					}
+				}
+
+				// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
+				auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
+
+				for (auto* soldier : *_base->getSoldiers())
+				{
+					if (soldier->getCraft())
+					{
+
+						soldier->setCoopCraft(soldier->getCraft()->getId());
+						soldier->setCoopCraftType(soldier->getCraft()->getType());
+					}
+
+					soldier->setCoopBase(_base->_coop_base_id);
+					soldier->setCoopName(soldier->getName());
+
+					target_soldiers.push_back(soldier);
+				}
+
+				auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
+
+				// lisätään uudet ajoneuvot
+				for (auto* craft : *_base->getCrafts())
+				{
+
+					for (auto* vehicle : *craft->getVehicles())
+					{
+
+						vehicle->setCoopBase(_base->_coop_base_id);
+						vehicle->setCoopCraft(craft->getId());
+						vehicle->setCoopCraftType(craft->getType());
+
+						target_vehicles.push_back(vehicle);
+					}
+				}
+
+				// save changes
+				basehost_save->save(filename, _game->getMod());
+
+				// estetaan dublikaatio tallenuksen jalkeen...
+				auto& soldiers = *_base->getSoldiers();
+				for (auto it = soldiers.begin(); it != soldiers.end();)
+				{
+
+					if ((*it)->getCoopBase() == -1)
+					{
+						delete *it;              // Vapautetaan muisti
+						it = soldiers.erase(it); // Poistetaan listasta ja päivitetään iteraattori
+					}
+					else
+					{
+						++it; // Siirrytään seuraavaan elementtiin vain, jos ei poistettu
+					}
+				}
+			}
+		}
+	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
+	{
+		// coop
+		_filteredListOfSoldiers = base_oldsoldiers;
+		*_base->getSoldiers() = base_oldsoldiers;
+
+		base_oldsoldiers.clear();
+
+	}
+
+
 	_game->popState();
 }
 

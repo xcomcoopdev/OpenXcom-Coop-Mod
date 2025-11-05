@@ -29,6 +29,8 @@
 #include "../Savegame/Base.h"
 #include "TransferItemsState.h"
 
+#include "../Savegame/SavedGame.h"
+
 namespace OpenXcom
 {
 
@@ -109,6 +111,14 @@ void TransferConfirmState::btnCancelClick(Action *)
  */
 void TransferConfirmState::btnOkClick(Action *)
 {
+
+	// coop (to base)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		*_game->getSavedGame()->getBases() = _base->old_bases;
+	}
+
 	_state->completeTransfer();
 	_game->popState();
 	_game->popState();

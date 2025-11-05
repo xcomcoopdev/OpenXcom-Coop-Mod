@@ -177,6 +177,12 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	{
 		if (_base != 0 && xbase != _base)
 			continue;
+		// coop
+		if (xbase)
+		{
+			if (xbase->_coopIcon == true)
+				continue;
+		}
 		for (auto* xcraft : *xbase->getCrafts())
 		{
 			double xdistance = 0.0;
@@ -506,6 +512,12 @@ void InterceptState::lstCraftsRightClick(Action *)
 		{
 			if (_base != 0 && xbase != _base)
 				continue;
+			// coop
+			if (xbase)
+			{
+				if (xbase->_coopIcon == true)
+					continue;
+			}
 			for (size_t ci = 0; ci < xbase->getCrafts()->size(); ++ci)
 			{
 				if (c == xbase->getCrafts()->at(ci))

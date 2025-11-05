@@ -21,6 +21,17 @@
 #include <string>
 #include <SDL.h>
 
+#include <fstream>
+#include <streambuf>
+#include <iostream>     // std::cout
+#include <sstream>
+#include "../Savegame/Base.h"
+#include "../Battlescape/BriefingState.h"
+#include "../Geoscape/ConfirmLandingState.h"
+#include "../Menu/NewBattleState.h"
+
+#include "../CoopMod/connectionTCP.h"
+
 namespace OpenXcom
 {
 
@@ -34,6 +45,8 @@ class ModInfo;
 class FpsCounter;
 class Action;
 class GeoscapeState;
+class Base;
+class connectionTCP;
 
 /**
  * The core of the game engine, manages the game's entire contents and structure.
@@ -44,6 +57,8 @@ class GeoscapeState;
 class Game
 {
 private:
+	// coop connection
+	connectionTCP* _tcpConnection = nullptr;
 	SDL_Event _event;
 	Screen *_screen;
 	Cursor *_cursor;
@@ -59,10 +74,11 @@ private:
 	bool _ctrl, _alt, _shift, _rmb, _mmb;
 	int _scrollStep;
 	static const double VOLUME_GRADIENT;
-
-public:
+  public:
 	/// Creates a new game and initializes SDL.
 	Game(const std::string &title);
+	// coop
+	connectionTCP* getCoopMod();
 	/// Cleans up all the game's resources and shuts down SDL.
 	~Game();
 	/// Starts the game's state machine.
@@ -149,14 +165,12 @@ public:
 	bool getAltPressedFlag() const { return _alt; }
 	/// Gets the _shift flag.
 	bool getShiftPressedFlag() const { return _shift; }
-
 	/// Sets the _rmb flag.
 	void setRMBFlag(bool newValue) { _rmb = newValue; }
 	void toggleRMBFlag() { _rmb = !_rmb; }
 	/// Sets the _mmb flag.
 	void setMMBFlag(bool newValue) { _mmb = newValue; }
 	void toggleMMBFlag() { _mmb = !_mmb; }
-
 	/// Gets the _rmb flag.
 	bool getRMBFlag() const { return _rmb; }
 	/// Gets the _mmb flag.

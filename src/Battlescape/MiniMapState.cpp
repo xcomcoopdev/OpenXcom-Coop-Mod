@@ -128,6 +128,10 @@ void MiniMapState::btnOkClick(Action *)
 		_game->getScreen()->resetDisplay(false);
 	}
 	_game->popState();
+
+	// coop
+	_game->getCoopMod()->setPauseOff();
+
 }
 
 /**

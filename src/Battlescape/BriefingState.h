@@ -49,6 +49,8 @@ public:
 	~BriefingState();
 	/// Initialization
 	void init() override;
+	void loadCoop();
+	void setupCoop();
 	/// Handler for clicking the Ok button.
 	void btnOkClick(Action *action);
 };

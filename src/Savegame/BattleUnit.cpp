@@ -74,10 +74,19 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_capturable(true), _vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
+	// coop
+	_coop = soldier->getCoop();
 	_name = soldier->getName(true);
 	_id = soldier->getId();
 
 	_type = "SOLDIER";
+
+	// coop
+	if (soldier->_cooptype != "none")
+	{
+		_type = soldier->_cooptype;
+	}
+
 	_rank = soldier->getRankString();
 	_gender = soldier->getGender();
 	_intelligence = 2;
@@ -598,6 +607,7 @@ BattleUnit::~BattleUnit()
 void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const ScriptGlobal *shared)
 {
 	const auto& reader = node.useIndex();
+	reader.tryRead("coop", _coop);
 	reader.tryRead("id", _id);
 	reader.tryRead("faction", _faction);
 	reader.tryRead("status", _status);
@@ -702,6 +712,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 {
 	writer.setAsMap();
+	writer.write("coop", _coop);
 	writer.write("id", _id);
 	writer.write("genUnitType", _type);
 	writer.write("genUnitArmor", _armor->getType());
@@ -1044,6 +1055,11 @@ int BattleUnit::getTurretToDirection() const
 int BattleUnit::getVerticalDirection() const
 {
 	return _verticalDirection;
+}
+
+void BattleUnit::setVerticalDirectionCoop(int dir)
+{
+	_verticalDirection = dir;
 }
 
 /**
@@ -1510,6 +1526,11 @@ int BattleUnit::getHealth() const
 	return _health;
 }
 
+void BattleUnit::setHealth(int health)
+{
+	_health = health;
+}
+
 /**
  * Returns the soldier's amount of mana.
  * @return Mana.
@@ -1518,6 +1539,17 @@ int BattleUnit::getMana() const
 {
 	return _mana;
 }
+
+void BattleUnit::setCoopMana(int mana)
+{
+	_mana = mana;
+}
+
+void BattleUnit::setCoopMorale(int morale)
+{
+	_morale = morale;
+}
+
 
 /**
  * Returns the soldier's amount of morale.
@@ -1980,6 +2012,11 @@ int BattleUnit::getStunlevel() const
 	return _stunlevel;
 }
 
+void BattleUnit::setStunlevelCoop(int stunlevel)
+{
+	_stunlevel = stunlevel;
+}
+
 bool BattleUnit::hasNegativeHealthRegen() const
 {
 	if (_health > 0)
@@ -2241,6 +2278,47 @@ void BattleUnit::applyPercentages(RuleItemUseCost &cost, const RuleItemUseFlat &
 			cost.Mana = std::max(1, (int)floor(getBaseStats()->mana * cost.Mana / 100.0f));
 		}
 	}
+}
+
+void BattleUnit::setDestinationCoop(Position pos)
+{
+	_destination = pos;
+}
+
+void BattleUnit::setLastPosCoop(Position pos)
+{
+	_lastPos = pos;
+}
+
+Position BattleUnit::getLastPosCoop()
+{
+	return _lastPos;
+}
+
+void BattleUnit::setCoopStatus(UnitStatus status)
+{
+	_status = status;
+}
+
+void BattleUnit::stopCoopWalk()
+{
+	_status = STATUS_STANDING;
+	_walkPhase = 0;
+}
+
+void BattleUnit::setOriginalFaction(UnitFaction faction)
+{
+	_originalFaction = faction;
+}
+
+void BattleUnit::setCoop(int coop)
+{
+	_coop = coop;
+}
+
+int BattleUnit::getCoop() const
+{
+	return _coop;
 }
 
 /**
@@ -4152,6 +4230,11 @@ bool BattleUnit::postMissionProcedures(const Mod *mod, SavedGame *geoscape, Save
 	return hasImproved;
 }
 
+std::string BattleUnit::getCoopName()
+{
+	return _name;
+}
+
 /**
  * Converts the number of experience to the stat increase.
  * @param Experience counter.
@@ -4302,6 +4385,12 @@ void BattleUnit::stimulant(int energy, int stun, int mana)
 int BattleUnit::getMotionPoints() const
 {
 	return _motionPoints;
+}
+
+// coop
+void BattleUnit::setMotionPointsCoop(int points)
+{
+	_motionPoints = points;
 }
 
 /**
@@ -4713,10 +4802,20 @@ int BattleUnit::getRandomAggroSound() const
 	return -1;
 }
 
+// coop
+void BattleUnit::setCoopEnergy(int energy)
+{
+	_energy = energy;
+}
+
 /**
  * Set a specific amount of time units.
  * @param tu time units.
  */
+void BattleUnit::setCoopTimeUnits(int tu)
+{
+	_tu = tu;
+}
 void BattleUnit::setTimeUnits(int tu)
 {
 	_tu = Clamp(tu, 0, (int)_stats.tu);
@@ -5119,6 +5218,29 @@ void BattleUnit::toggleFireDamage()
  */
 bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool checkInventory) const
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut())
+	{
+
+		if (getHealth() <= 0)
+			return false;
+
+		if (getCoop() != 0 && connectionTCP::getHost() == false)
+			return true;
+
+		if (getCoop() == 0 && connectionTCP::getHost() == true)
+			return true;
+
+		return false;
+	}
+
+	// coop fix
+	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn != 2)
+	{
+		return false;
+	}
+			
 	return (_faction == faction && !isOut() && (!checkReselect || reselectAllowed()) && (!checkInventory || hasInventory()));
 }
 
@@ -5744,7 +5866,6 @@ void BattleUnit::disableIndicators()
 {
 	_disableIndicators = true;
 }
-
 
 ////////////////////////////////////////////////////////////
 //					Script binding

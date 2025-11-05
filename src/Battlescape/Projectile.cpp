@@ -196,6 +196,47 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 		extendLine = _action.waypoints.size() <= 1;
 	}
 
+	// only host!
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+	{
+
+		_save->getBattleGame()->getCoopMod()->_coopInit = true;
+		_save->getBattleGame()->getCoopMod()->_coopAllow = false;
+
+		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+		auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+		auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
+
+		auto* conf = _action.weapon->getActionConf(_action.type);
+
+		int max_shots = 1;
+
+		if (conf)
+		{
+			max_shots = conf->shots;
+		}
+
+		for (int i = 0; i < max_shots; ++i)
+		{
+
+			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine);
+
+			Json::Value projectile(Json::objectValue);
+
+			projectile["rng_x"] = _targetVoxel.x;
+			projectile["rng_y"] = _targetVoxel.y;
+			projectile["rng_z"] = _targetVoxel.z;
+			projectile["seed"] = RNG::getSeedCoop();
+
+			_coopProjectilesClient.append(projectile);
+			_coopProjectilesHost.append(projectile);
+			_coopTileDamage.append(projectile);
+		}
+
+		_save->getBattleGame()->getCoopMod()->_coopAllow = true;
+
+	}
+
 	// apply some accuracy modifiers.
 	// This will results in a new target voxel
 	applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine);
@@ -303,6 +344,30 @@ int Projectile::calculateThrow(double accuracy)
 			deltas = Position(0,0,0);
 		}
 
+		// coop
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+		{
+
+			_save->getBattleGame()->getCoopMod()->_coopInit = true;
+			_save->getBattleGame()->getCoopMod()->_coopAllow = false;
+
+			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+			auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
+
+			Json::Value projectile(Json::objectValue);
+
+			projectile["rng_x"] = _targetVoxel.x;
+			projectile["rng_y"] = _targetVoxel.y;
+			projectile["rng_z"] = _targetVoxel.z;
+			projectile["seed"] = RNG::getSeedCoop();
+
+			_coopProjectilesClient.append(projectile);
+			_coopProjectilesHost.append(projectile);
+			_coopTileDamage.append(_coopTileDamage);
+			
+			_save->getBattleGame()->getCoopMod()->_coopAllow = true;
+		}
 
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
 		if (forced) return O_OBJECT; //fake hit
@@ -329,8 +394,62 @@ int Projectile::calculateThrow(double accuracy)
  * @param keepRange Whether range affects accuracy.
  * @param extendLine should this line get extended to maximum distance?
  */
-void Projectile::applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine)
+void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine)
 {
+
+	// coop
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_coopAllow == true)
+	{
+
+		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
+
+		if (!_coopProjectilesHost.empty())
+		{
+
+			Json::Value first;
+			bool found = _coopProjectilesHost.removeIndex(0, &first);
+			if (found)
+			{
+
+				int rng_target_x = first.get("rng_x", 0).asInt();
+				int rng_target_y = first.get("rng_y", 0).asInt();
+				int rng_target_z = first.get("rng_z", 0).asInt();
+
+				target->x = rng_target_x;
+				target->y = rng_target_y;
+				target->z = rng_target_z;
+
+				return;
+
+			}
+		}
+		else
+		{
+
+			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
+
+			if (!_coopProjectilesClient.empty())
+			{
+
+				Json::Value first;
+				bool found = _coopProjectilesClient.removeIndex(0, &first);
+				if (found)
+				{
+
+					int rng_target_x = first.get("rng_x", 0).asInt();
+					int rng_target_y = first.get("rng_y", 0).asInt();
+					int rng_target_z = first.get("rng_z", 0).asInt();
+
+					target->x = rng_target_x;
+					target->y = rng_target_y;
+					target->z = rng_target_z;
+
+					return;
+				}
+			}
+		}
+	}
+
 	int xdiff = origin.x - target->x;
 	int ydiff = origin.y - target->y;
 	int zdiff = origin.z - target->z;

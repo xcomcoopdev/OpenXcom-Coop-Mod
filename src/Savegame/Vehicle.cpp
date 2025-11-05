@@ -47,6 +47,10 @@ void Vehicle::load(const YAML::YamlNodeReader& reader)
 {
 	reader.tryRead("ammo", _ammo);
 	reader.tryRead("size", _size);
+	// coop
+	reader.tryRead("coopbase", _coopbase);
+	reader.tryRead("coopcraft", _coopcraft);
+	reader.tryRead("coopcrafttype", _coopcrafttype);
 }
 
 /**
@@ -59,6 +63,10 @@ void Vehicle::save(YAML::YamlNodeWriter writer) const
 	writer.write("type", _rules->getType());
 	writer.write("ammo", _ammo);
 	writer.write("size", _size);
+	// coop
+	writer.write("coopbase", _coopbase);
+	writer.write("coopcraft", _coopcraft);
+	writer.write("coopcrafttype", _coopcrafttype);
 }
 
 /**
@@ -104,5 +112,56 @@ int Vehicle::getTotalSize() const
 {
 	return _size;
 }
+
+void Vehicle::setCoop(int coop)
+{
+	_coop = coop;
+}
+
+int Vehicle::getCoop() const
+{
+	return _coop;
+}
+
+void Vehicle::setCoopBase(int base)
+{
+	_coopbase = base;
+}
+
+int Vehicle::getCoopBase() const
+{
+	return _coopbase;
+}
+
+void Vehicle::setCoopCraft(int craft)
+{
+	_coopcraft = craft;
+}
+
+int Vehicle::getCoopCraft() const
+{
+	return _coopcraft;
+}
+
+void Vehicle::setCoopCraftType(std::string type)
+{
+	_coopcraft_type = type;
+}
+
+std::string Vehicle::getCoopCraftType() const
+{
+	return _coopcraft_type;
+}
+
+Vehicle* Vehicle::clone() const
+{
+	Vehicle* copy = new Vehicle(_rules, _ammo, _size);
+	copy->_coop = _coop;
+	copy->_coopbase = _coopbase;
+	copy->_coopcraft = _coopcraft;
+	copy->_coopcraft_type = _coopcraft_type;
+	return copy;
+}
+
 
 }

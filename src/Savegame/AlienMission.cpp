@@ -169,6 +169,13 @@ bool AlienMission::isOver() const
 
 void AlienMission::think(Game &engine, const Globe &globe)
 {
+
+	// coop
+	if (_coop == true)
+	{
+		return;
+	}
+
 	// if interrupted, don't generate any more UFOs or anything else
 	if (_interrupted || (_multiUfoRetaliationInProgress && !_rule.isMultiUfoRetaliationExtra()))
 	{
@@ -1498,6 +1505,16 @@ MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, con
 void AlienMission::setMissionSiteZoneArea(int area)
 {
 	_missionSiteZoneArea = area;
+}
+
+void AlienMission::setCoop(bool state)
+{
+	_coop = state;
+}
+
+bool AlienMission::getCoop()
+{
+	return _coop;
 }
 
 void AlienMission::logMissionError(int zone, const RuleRegion &region)

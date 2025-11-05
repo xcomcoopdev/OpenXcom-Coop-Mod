@@ -46,7 +46,8 @@ class MainMenuState : public State
 private:
 	TextButton *_btnNewGame, *_btnNewBattle, *_btnLoad, *_btnOptions, *_btnMods, *_btnQuit, *_btnUpdate;
 	Window *_window;
-	Text *_txtTitle, *_txtUpdateInfo;
+	// coop
+	Text *_txtTitle, *_txtUpdateInfo, *_textCoopVersion;
 #ifdef _WIN32
 	bool _debugInVisualStudio;
 	std::string _newVersion;

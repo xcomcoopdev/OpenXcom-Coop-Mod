@@ -34,8 +34,12 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../version.h"
 
+#include "../CoopMod/CoopMenu.h"
+
 namespace OpenXcom
 {
+
+GeoscapeState *_geostate;
 
 /**
  * Initializes all the elements in the Pause window.
@@ -65,6 +69,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	_btnCancel = new TextButton(180, 18, x+18, 150);
 	_txtTitle = new Text(206, 17, x+5, 32);
 	_txtVersion = new Text(216, 9, x, 11);
+	_btnCoop = new TextButton(180, 18, x + 18, 132);
 
 	// Set palette
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
@@ -74,6 +79,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	add(_btnSave, "button", "pauseMenu");
 	add(_btnAbandon, "button", "pauseMenu");
 	add(_btnOptions, "button", "pauseMenu");
+	add(_btnCoop, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_txtTitle, "text", "pauseMenu");
 	add(_txtVersion, "text", "pauseMenu");
@@ -94,6 +100,10 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 
 	_btnOptions->setText(tr("STR_GAME_OPTIONS"));
 	_btnOptions->onMouseClick((ActionHandler)&PauseState::btnOptionsClick);
+
+	// COOP
+	_btnCoop->setText("CO-OP");
+	_btnCoop->onMouseClick((ActionHandler)&PauseState::btnCoopClick);
 
 	_btnCancel->setText(tr("STR_CANCEL_UC"));
 	_btnCancel->onMouseClick((ActionHandler)&PauseState::btnCancelClick);
@@ -132,6 +142,31 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_btnAbandon->setText(tr("STR_SAVE_AND_ABANDON_GAME"));
 	}
 
+	// coop
+   // geoscape
+	if (_game->getCoopMod()->getCoopStatic() == true || _game->getCoopMod()->getServerOwner() == true)
+	{
+		_btnLoad->setVisible(false);
+	}
+
+	// battlescape
+	if (connectionTCP::_coopGamemode != 0 && _game->getCoopMod()->getHost() == false)
+	{
+
+		_btnLoad->setVisible(false);
+		_btnSave->setVisible(false);
+
+	}
+
+	// Client-side error
+	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
+	{
+
+		// Show the save button only for bugs that have occurred!
+		_btnSave->setVisible(true);
+
+	}
+
 	// ENOUGH! No save corruption when trying to save/exit mid-action (e.g. during alien turn)
 	if (origin == OPT_BATTLESCAPE)
 	{
@@ -149,6 +184,25 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 			}
 		}
 	}
+}
+
+	//  coop
+	if (origin == OPT_GEOSCAPE)
+	{
+
+		_btnSave->setVisible(true);
+
+	}
+
+	// coop
+	if (_game->getCoopMod()->isCoopSession() == false)
+	{
+		_btnLoad->setVisible(true);
+		_btnSave->setVisible(true);
+	}
+
+	_game->getCoopMod()->setPauseOn();
+
 }
 
 /**
@@ -174,7 +228,27 @@ void PauseState::btnLoadClick(Action *)
  */
 void PauseState::btnSaveClick(Action *)
 {
-	_game->pushState(new ListSaveState(_origin));
+
+	// Client-side error
+	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
+	{
+		_game->pushState(new CoopState(123));
+	}
+	else
+	{
+		_game->pushState(new ListSaveState(_origin));
+	}
+
+
+}
+
+// Opens COOP view
+void PauseState::btnCoopClick(Action *)
+{
+
+	CoopMenu *coop = new CoopMenu();
+	_game->pushState(coop);
+
 }
 
 /**
@@ -213,7 +287,17 @@ void PauseState::btnAbandonClick(Action *)
  */
 void PauseState::btnCancelClick(Action *)
 {
+
+	_game->getCoopMod()->setPauseOff();
+
 	_game->popState();
+}
+
+
+
+void PauseState::setGeo(GeoscapeState *geostate)
+{
+	_geostate = geostate;
 }
 
 }

@@ -47,9 +47,6 @@ static uint64_t nextImpl(uint64_t& state)
 	return state * 2685821657736338717ULL;
 }
 
-
-
-
 /**
  * Default constructor initializing the seed by time and this type address.
  */
@@ -63,7 +60,6 @@ RandomState::RandomState()
  */
 RandomState::RandomState(uint64_t seed) : _seedState(seed)
 {
-
 }
 
 /**
@@ -92,8 +88,6 @@ int RandomState::generate(int min, int max)
 	return (int)(next() % (max - min + 1) + min);
 }
 
-
-
 /**
  * State for game random number generator. Do not use during other variable static initialization because: https://isocpp.org/wiki/faq/ctors#static-init-order-on-first-use-members
  */
@@ -103,9 +97,6 @@ RandomState x;
  * Separate state for some auxiliary random numbers that do not affect game state. Do not use during other variable static initialization because: https://isocpp.org/wiki/faq/ctors#static-init-order-on-first-use-members
  */
 RandomState x_seedless;
-
-
-
 
 /**
  * Returns the current seed in use by the generator.
@@ -142,6 +133,17 @@ RandomState& globalRandomState()
 int generate(int min, int max)
 {
 	return x.generate(min, max);
+}
+
+// coop
+int generateCoop(int min, int max, uint64_t seed)
+{
+	return (int)(seed % (max - min + 1) + min);
+}
+// coop
+uint64_t getSeedCoop()
+{
+	return x.next();
 }
 
 /**

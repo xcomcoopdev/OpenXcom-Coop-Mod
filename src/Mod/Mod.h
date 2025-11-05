@@ -393,6 +393,8 @@ private:
 	/// Sorts all our lists according to their weight.
 	void sortLists();
 public:
+	// coop
+	std::vector<std::string> getCoopModList();
 	static int DOOR_OPEN;
 	static int SLIDING_DOOR_OPEN;
 	static int SLIDING_DOOR_CLOSE;

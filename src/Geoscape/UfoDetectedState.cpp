@@ -36,6 +36,8 @@
 #include "InterceptState.h"
 #include "../Mod/RuleCraft.h"
 
+#include "../Savegame/MissionSite.h"
+
 namespace OpenXcom
 {
 
@@ -49,6 +51,7 @@ namespace OpenXcom
  */
 UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave) : _ufo(ufo), _state(state)
 {
+
 	// Generate UFO ID
 	if (_ufo->getId() == 0)
 	{

@@ -1,0 +1,11 @@
+OpenXcom Co-op Mod — Build (Visual Studio 2022)
+
+1. Make sure you have the required libraries for OpenXcom Extended (OXCE) installed. 
+
+2. Additional dependencies: SDL_net 1.2 and jsoncpp.
+
+3. Build all third-party libraries as static libraries (not DLLs).
+
+4. If the solution won’t build, verify Platform = Win32 and Configuration = Debug or Release.
+
+5. If you need help, you can contact us by email, on Discord, or via the mod’s pages.

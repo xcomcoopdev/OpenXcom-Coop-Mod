@@ -57,7 +57,6 @@
 
 namespace OpenXcom
 {
-
 /**
  * Initializes a brand new battlescape saved game.
  */
@@ -1695,7 +1694,12 @@ const BattlescapeState *SavedBattleGame::getBattleState() const
  */
 BattlescapeGame *SavedBattleGame::getBattleGame()
 {
-	return _battleState->getBattleGame();
+	// coop fix
+	if (_battleState)
+	{
+		return _battleState->getBattleGame();
+	}
+	return nullptr;
 }
 
 /**
@@ -1704,7 +1708,12 @@ BattlescapeGame *SavedBattleGame::getBattleGame()
  */
 const BattlescapeGame *SavedBattleGame::getBattleGame() const
 {
-	return _battleState->getBattleGame();
+	// coop fix
+	if (_battleState)
+	{
+		return _battleState->getBattleGame();
+	}
+	return nullptr;
 }
 
 /**
@@ -3415,6 +3424,11 @@ void SavedBattleGame::resetUnitHitStates()
 	{
 		bu->resetHitState();
 	}
+}
+
+void SavedBattleGame::abortPathCoop()
+{
+	getPathfinding()->abortPathCoop();
 }
 
 ////////////////////////////////////////////////////////////

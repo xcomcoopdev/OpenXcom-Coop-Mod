@@ -119,20 +119,33 @@ void MiniMapView::draw()
 				// alive units
 				if (t->getUnit() && (t->getUnit()->getVisible() || _battleGame->getBughuntMode() || _battleGame->getDebugMode()))
 				{
-					int frame = t->getUnit()->getMiniMapSpriteIndex();
-					int size = t->getUnit()->getArmor()->getSize();
-					frame += (t->getPosition().y - t->getUnit()->getPosition().y) * size;
-					frame += t->getPosition().x - t->getUnit()->getPosition().x;
-					frame += _frame * size * size;
-					Surface * s = _set->getFrame(frame);
-					if (size > 1 && t->getUnit()->getFaction() == FACTION_NEUTRAL)
+					
+					// coop
+					if ((t->getUnit()->getCoop() == 0 && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->getHost() == false) || (t->getUnit()->getCoop() == 1 && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->getHost() == true))
 					{
-						s->blitNShade(this, x, y, 0, false, Pathfinding::red);
+						// do nothing
 					}
 					else
 					{
-						s->blitNShade(this, x, y, 0);
+					
+						int frame = t->getUnit()->getMiniMapSpriteIndex();
+						int size = t->getUnit()->getArmor()->getSize();
+						frame += (t->getPosition().y - t->getUnit()->getPosition().y) * size;
+						frame += t->getPosition().x - t->getUnit()->getPosition().x;
+						frame += _frame * size * size;
+						Surface * s = _set->getFrame(frame);
+						if (size > 1 && t->getUnit()->getFaction() == FACTION_NEUTRAL)
+						{
+							s->blitNShade(this, x, y, 0, false, Pathfinding::red);
+						}
+						else
+						{
+							s->blitNShade(this, x, y, 0);
+						}
+						
 					}
+					
+
 				}
 				// perhaps (at least one) item on this tile?
 				if (t->isDiscovered(O_FLOOR) && !t->getInventory()->empty())

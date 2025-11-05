@@ -64,8 +64,7 @@ public:
 	static void ScriptRegister(ScriptParserBase* parser);
 	/// Register useful function used by graphic scripts.
 	static void ScriptRegisterUnitAnimations(ScriptParserBase* parser);
-
-private:
+  private:
 	bool _isPreview;
 	SDL_Rect _craftPos;
 	int _craftZ;
@@ -666,6 +665,9 @@ public:
 	const HitLog *getHitLog() const;
 	/// Reset all the unit hit state flags.
 	void resetUnitHitStates();
+
+	// coop
+	void abortPathCoop();
 };
 
 }

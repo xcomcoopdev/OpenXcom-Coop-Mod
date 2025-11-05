@@ -2984,6 +2984,13 @@ AIAttackWeight AIModule::getTargetAttackWeight(BattleUnit* target) const
  */
 bool AIModule::validTarget(BattleUnit *target, bool assessDanger, bool includeCivs) const
 {
+
+	// coop fix
+	if (!target->getTile())
+	{
+		return false;
+	}
+
 	// ignore units that:
 	// 1. are dead/unconscious
 	// 2. are dangerous (they have been grenaded)

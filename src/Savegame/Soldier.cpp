@@ -41,9 +41,31 @@
 #include "ItemContainer.h"
 #include "../Mod/RuleSkill.h"
 
+#include <fstream>
+#include <string>
+
 namespace OpenXcom
 {
-
+void Soldier::setCoop(int coop)
+{
+	_coop = coop;
+}
+int Soldier::getCoop() const
+{
+	return _coop;
+}
+std::string Soldier::getCoopName()
+{
+	return _coopname;
+}
+void Soldier::setCoopName(std::string name)
+{
+	_coopname = name;
+}
+std::string Soldier::coopSoldierID()
+{
+	return getRules()->getType();
+}
 /**
  * Initializes a new soldier, either blank or randomly generated.
  * @param rules Soldier ruleset.
@@ -151,6 +173,14 @@ void Soldier::load(const YAML::YamlNodeReader& node, const Mod *mod, SavedGame *
 	if (!soldierTemplate)
 		reader.tryRead("id", _id);
 	reader.tryRead("name", _name);
+
+	// coop
+	reader.tryRead("coopbase", _coopbase);
+	reader.tryRead("coop", _coop);
+	reader.tryRead("coopcraft", _coopcraft);
+	reader.tryRead("coopcrafttype", _coopcrafttype);
+	reader.tryRead("coopname", _coopname);
+
 	reader.tryRead("callsign", _callsign);
 	reader.tryRead("nationality", _nationality);
 	if (soldierTemplate)
@@ -284,6 +314,14 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	writer.write("type", _rules->getType());
 	writer.write("id", _id);
 	writer.write("name", _name);
+
+	// coop
+	writer.write("coopbase", _coopbase);
+	writer.write("coop", _coop);
+	writer.write("coopcraft", _coopcraft);
+	writer.write("coopcrafttype", _coopcrafttype);
+	writer.write("coopname", _coopname);
+
 	if (!_callsign.empty())
 		writer.write("callsign", _callsign);
 	writer.write("nationality", _nationality);
@@ -292,7 +330,8 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	if (_dailyDogfightExperienceCache.firing > 0 || _dailyDogfightExperienceCache.reactions > 0 || _dailyDogfightExperienceCache.bravery > 0)
 		writer.write("dailyDogfightExperienceCache", _dailyDogfightExperienceCache);
 	writer.write("rank", _rank);
-	if (_craft)
+	// coop
+	if (_craft && _coopbase == -1)
 		_craft->saveId(writer["craft"]);
 	writer.write("gender", _gender);
 	writer.write("look", _look);
@@ -854,6 +893,36 @@ const RuleSoldier *Soldier::getRules() const
 	return _rules;
 }
 
+void Soldier::setCoopCraft(int craft)
+{
+	_coopcraft = craft;
+}
+
+int Soldier::getCoopCraft() const
+{
+	return _coopcraft;
+}
+
+void Soldier::setCoopCraftType(std::string type)
+{
+	_coopcraft_type = type;
+}
+
+std::string Soldier::getCoopCraftType() const
+{
+	return _coopcraft_type;
+}
+
+void Soldier::setCoopBase(int coopbase)
+{
+	_coopbase = coopbase;
+}
+
+int Soldier::getCoopBase() const
+{
+	return _coopbase;
+}
+
 /**
  * Returns the soldier's unique ID. Each soldier
  * can be identified by its ID. (not it's name)
@@ -862,6 +931,25 @@ const RuleSoldier *Soldier::getRules() const
 int Soldier::getId() const
 {
 	return _id;
+}
+
+void Soldier::setId(int id)
+{
+	_id = id;
+}
+
+Soldier* Soldier::deepCopy(const Mod* mod, SavedGame* save) const
+{
+	// Create a new soldier with the same soldier type and nationality
+	Soldier* copy = new Soldier(mod->getSoldier(_rules->getType()), nullptr, _nationality);
+
+	// Save this soldier to YAML and load into the new one
+	YAML::Node tmp = this->save(mod->getScriptGlobal());
+	copy->load(tmp, mod, save, mod->getScriptGlobal(), false);
+
+	copy->setCoopName(_coopname);
+
+	return copy;
 }
 
 /**

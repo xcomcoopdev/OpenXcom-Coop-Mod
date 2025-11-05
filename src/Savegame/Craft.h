@@ -113,6 +113,7 @@ private:
 	using MovingTarget::save;
 
 public:
+	void makeCoopVehicle(Vehicle *vehicle);
 	/// Creates a craft of the specified type.
 	Craft(const RuleCraft *rules, Base *base, int id = 0);
 	/// Cleans up the craft.
@@ -145,6 +146,7 @@ public:
 	std::string getStatus() const;
 	/// Sets the craft's status.
 	void setStatus(const std::string &status);
+	void setCoopStatus(const std::string& status);
 	/// Gets the craft's altitude.
 	std::string getAltitude() const;
 	/// Sets the craft's destination.
@@ -375,6 +377,8 @@ public:
 	CraftPlacementErrors validateAddingSoldier(int space, const Soldier* s) const;
 	/// Validates craft space and craft constraints on adding vehicles to a craft.
 	int validateAddingVehicles(int totalSize) const;
+	// coop
+	bool coop = false;
 };
 
 // helper overloads for (de)serialization

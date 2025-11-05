@@ -134,8 +134,13 @@
 #include "../fmath.h"
 #include "../fallthrough.h"
 
+#include "../CoopMod/CoopState.h"
+
 namespace OpenXcom
 {
+
+// coop
+Ufo* temp_ufo = 0;
 
 /**
  * Initializes all the elements in the Geoscape screen.
@@ -503,6 +508,50 @@ GeoscapeState::~GeoscapeState()
 	_dogfightsToBeStarted.clear();
 }
 
+void GeoscapeState::startCoopMission()
+{
+
+	// coop
+	if (temp_ufo && temp_ufo->getCoop() == false && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
+	{
+
+		// Get the shade and texture for the globe at the location of the base, using the ufo position
+		int texture, shade;
+		double baseLon = temp_ufo->getLongitude();
+		double baseLat = temp_ufo->getLatitude();
+		_globe->getPolygonTextureAndShade(baseLon, baseLat, &texture, &shade);
+
+		int ufoDamagePercentage = 0;
+		if (_game->getMod()->getLessAliensDuringBaseDefense())
+		{
+			ufoDamagePercentage = temp_ufo->getDamagePercentage();
+		}
+
+		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+		_game->getSavedGame()->setBattleGame(bgame);
+		bgame->setMissionType("STR_BASE_DEFENSE");
+		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+		bgen.setBase(_game->getSavedGame()->getSelectedBase());
+		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(temp_ufo->getCraftStats().missionCustomDeploy));
+		bgen.setAlienRace(temp_ufo->getAlienRace());
+		bgen.setWorldShade(shade);
+		Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
+		bgen.setWorldTexture(globeTexture, globeTexture);
+		bgen.setUfoDamagePercentage(ufoDamagePercentage);
+		bgen.run();
+		_pause = true;
+
+		//_game->pushState(new BriefingState(0, temp_base));
+
+		BriefingState* bri = new BriefingState(0, _game->getSavedGame()->getSelectedBase());
+		bri->setupCoop();
+
+	}
+
+
+
+}
+
 /**
  * Handle blitting of Geoscape and Dogfights.
  */
@@ -706,6 +755,211 @@ void GeoscapeState::handle(Action *action)
  */
 void GeoscapeState::init()
 {
+
+	// coop
+	_game->getCoopMod()->setCoopCampaign(true);
+
+	// IF A CLIENT PLAYER IS INSIDE ANOTHER PLAYER'S BASE EVEN THOUGH A COOP MISSION SHOULD START (SPECIAL CASE)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && _game->getCoopMod()->ready_coop_battle == true)
+	{
+
+		CoopState *coopWindow = new CoopState(4);
+		_game->pushState(coopWindow);
+
+		_game->getCoopMod()->sendMissionFile();
+
+		_game->getCoopMod()->ready_coop_battle = false;
+
+	}
+
+	// HOST AFTER THE BATTLE
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->coopMissionEnd == true)
+	{
+
+
+		for (auto &base : *_game->getSavedGame()->getBases())
+		{
+
+			auto soldiers = base->getSoldiers();
+
+			for (auto it = soldiers->begin(); it != soldiers->end();)
+			{
+				Soldier* soldier = *it;
+
+				if (soldier->getCoop() != 0)
+				{
+					delete soldier;           // Freeing the soldier object from memory
+					it = soldiers->erase(it); // Remove the pointer from the vector and move to the next one
+				}
+				else
+				{
+					++it; // Remove the pointer from the vector if the soldier is deleted, otherwise move to the next one
+				}
+			}
+
+		}
+
+		_game->getCoopMod()->coopMissionEnd = false;
+
+		_game->getCoopMod()->updateAllCoopBases();
+
+		// COOP FIX
+		if (_game->getCoopMod()->getServerOwner() == false)
+		{
+			_game->getCoopMod()->setHost(false);
+		}
+
+	}
+
+	// coop
+	// The client should be able to retrieve the save.
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true)
+	{
+
+		_game->getCoopMod()->coopMissionEnd = false;
+
+		if (_game->getCoopMod()->getCoopStatic() == false)
+		{
+			CoopState* coopWindow = new CoopState(979);
+			_game->pushState(coopWindow);
+
+			return;
+		}
+
+		SavedGame *newsave = new SavedGame();
+
+		std::string filename = "client/basehost.data";
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			filename = "host/basehost.data";
+		}
+
+		std::string filepath = Options::getMasterUserFolder() + filename;
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			newsave->load(filename, _game->getMod(), _game->getLanguage());
+
+			// OLD SAVE SOLDIERS FROM BATTLE (CLIENT)
+			Base *base_selected = new Base(*_game->getSavedGame()->getSelectedBase());
+
+
+
+			// RANK PROMOTION
+			for (auto& base : *newsave->getBases())
+			{
+
+				auto& soldiers = *base->getSoldiers();
+				auto& selected_soldiers = *base_selected->getSoldiers();
+
+				for (auto it = soldiers.begin(); it != soldiers.end();)
+				{
+					Soldier* client_soldier = *it;
+					bool found = false;
+
+					for (auto* soldier : selected_soldiers)
+					{
+						if (soldier->getCoopName() == client_soldier->getCoopName())
+						{
+							// Copy stats and update rank and counts
+							UnitStats copiedStats = *soldier->getCurrentStats();
+							client_soldier->setBothStats(&copiedStats);
+							client_soldier->setCoopRank(soldier->getRank());
+							client_soldier->addKillCount(soldier->getKills());
+							client_soldier->addMissionCount();
+							client_soldier->addStunCount(soldier->getStuns());
+							found = true;
+							break;
+						}
+					}
+
+					if (!found && client_soldier->getCoopBase() != -1)
+					{
+						// Remove soldier permanently
+						delete client_soldier;
+						it = soldiers.erase(it);
+					}
+					else
+					{
+						++it;
+					}
+				}
+
+			}
+	
+			// save
+			newsave->save(filename, _game->getMod());
+
+
+		}
+
+		_game->getCoopMod()->inventory_battle_window = true;
+
+		_game->popState();
+
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "host/basehost.data", _palette));
+		}
+		else
+		{
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "client/basehost.data", _palette));
+		}
+
+	
+		// COOP FIX
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_game->getCoopMod()->setHost(true);
+		}
+
+	}
+	
+
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		// Delete all co-op UFOs and missions
+
+
+		_game->getCoopMod()->inventory_battle_window = true;
+
+		_game->getCoopMod()->gamePaused = 0;
+
+		_game->getCoopMod()->_battleWindow = false;
+		_game->getCoopMod()->_battleInit = false;
+
+		_game->getCoopMod()->_clientPanicHandle = false;
+
+		_game->getCoopMod()->_isActiveAISync = false;
+
+		_game->getCoopMod()->_isClosed = true;
+
+		_game->getCoopMod()->_isActivePlayerSync = false;
+
+		_game->getCoopMod()->_onClickClose = false;
+
+		_game->getCoopMod()->setPlayerTurn(0);
+
+		if (_game->getCoopMod()->coopFunds != 0)
+		{
+
+			_game->getSavedGame()->setFunds(_game->getCoopMod()->coopFunds);
+
+			_game->getCoopMod()->coopFunds = 0;
+
+		}
+	
+		Json::Value markers;
+
+		markers["state"] = "baseRequest";
+
+		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+
+	}
+
 	State::init();
 	timeDisplay();
 	updateSlackingIndicator();
@@ -764,6 +1018,121 @@ void GeoscapeState::think()
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
+
+	// coop time1MonthCoop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == true)
+	{
+		time1Month();
+
+		_game->getCoopMod()->time1MonthCoop = false;
+
+	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			Json::Value root;
+
+			root["state"] = "target_positions";
+
+			int craft_index = 0;
+
+			// crafts
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coopBase == false)
+				{
+
+					for (auto* craft : *base->getCrafts())
+					{
+
+						root["crafts"][craft_index]["craft_id"] = craft->getId();
+						root["crafts"][craft_index]["rule"] = craft->getRules()->getType();
+						root["crafts"][craft_index]["coopbase_id"] = base->_coop_base_id;
+						root["crafts"][craft_index]["lat"] = craft->getLatitude();
+						root["crafts"][craft_index]["lon"] = craft->getLongitude();
+						root["crafts"][craft_index]["status"] = craft->getStatus();
+
+						root["crafts"][craft_index]["fuel"] = craft->getFuel();
+						root["crafts"][craft_index]["damage"] = craft->getDamage();
+						root["crafts"][craft_index]["speed"] = craft->getSpeed();
+
+						craft_index++;
+
+					}
+
+				}
+
+			}
+
+			int ufo_index = 0;
+
+			// ufos
+			for (auto* ufo : *_game->getSavedGame()->getUfos())
+			{
+
+				if (ufo->getMission() && ufo->_coop == false)
+				{
+
+					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;
+					root["ufos"][ufo_index]["mission_id"] = ufo->getMission()->getId();
+					root["ufos"][ufo_index]["mission_rule"] = ufo->getMission()->getRules().getType();
+					root["ufos"][ufo_index]["ufo_rule"] = ufo->getRules()->getType();
+					root["ufos"][ufo_index]["race"] = ufo->getMission()->getRace();
+					root["ufos"][ufo_index]["lon"] = ufo->getLongitude();
+					root["ufos"][ufo_index]["lat"] = ufo->getLatitude();
+					root["ufos"][ufo_index]["wave"] = ufo->getMissionWaveNumber();
+					root["ufos"][ufo_index]["region"] = ufo->getMission()->getRegion();
+					root["ufos"][ufo_index]["status"] = _game->getCoopMod()->ufostatusToInt(ufo->getStatus());
+					root["ufos"][ufo_index]["detected"] = ufo->getDetected();
+					root["ufos"][ufo_index]["altitude"] = ufo->getAltitude();
+					root["ufos"][ufo_index]["crash_id"] = ufo->getCrashId();
+					root["ufos"][ufo_index]["land_id"] = ufo->getLandId();
+					root["ufos"][ufo_index]["speed"] = ufo->getSpeed();
+				
+					ufo_index++;
+
+				}
+
+
+
+			}
+
+
+			// send
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+
+
+	}
+
+	// coop
+	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true)
+	{
+
+		GameTime* current_time = _game->getSavedGame()->getTime();
+
+		Json::Value root;
+
+		root["state"] = "time";
+
+		root["weekday"] = current_time->getWeekday();
+		root["day"] = current_time->getDay();
+		root["month"] = current_time->getMonth();
+		root["year"] = current_time->getYear();
+		root["hour"] = current_time->getHour();
+		root["minute"] = current_time->getMinute();
+		root["second"] = current_time->getSecond();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
 
 	if (_popups.empty() && _dogfights.empty() && (!_zoomInEffectTimer->isRunning() || _zoomInEffectDone) && (!_zoomOutEffectTimer->isRunning() || _zoomOutEffectDone))
 	{
@@ -1057,8 +1426,12 @@ void GeoscapeState::time5Seconds()
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
-					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED))
+					// coop
+					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
+					{
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+					}
+				
 				}
 				if (count < _game->getSavedGame()->getMissionSites()->size())
 				{
@@ -1069,6 +1442,11 @@ void GeoscapeState::time5Seconds()
 				// If UFO was destroyed, don't spawn missions
 				if (ufo->getStatus() == Ufo::DESTROYED)
 					return;
+
+				// coop
+				if (ufo->getCoop() == true)
+					return;
+
 				if (Base *base = dynamic_cast<Base*>(ufo->getDestination()))
 				{
 					mission->setWaveCountdown(30 * (RNG::generate(0, 400) + 48));
@@ -1087,6 +1465,7 @@ void GeoscapeState::time5Seconds()
 						return;
 					}
 				}
+				
 			}
 			// Init UFO shields
 			if (ufo->getShield() == -1)
@@ -1117,7 +1496,8 @@ void GeoscapeState::time5Seconds()
 				AlienMission *mission = ufo->getMission();
 				bool detected = ufo->getDetected();
 				mission->ufoLifting(*ufo, *_game->getSavedGame());
-				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
+				// coop
+				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
 				}
@@ -2112,7 +2492,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			}
 			ufo->setDetected(true);
 			// don't show if player said he doesn't want to see this UFO anymore
-			if (!_game->getSavedGame()->isUfoOnIgnoreList(ufo->getId()))
+			if (!_game->getSavedGame()->isUfoOnIgnoreList(ufo->getId()) && ufo->getCoop() == false)
 			{
 				popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected()));
 			}
@@ -2129,7 +2509,8 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 		{
 			ufo->setDetected(false);
 			ufo->setHyperDetected(false);
-			if (!ufo->getFollowers()->empty())
+			// coop
+			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
 			}
@@ -2873,6 +3254,20 @@ void GeoscapeState::time1Day()
  */
 void GeoscapeState::time1Month()
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == false)
+	{
+
+		Json::Value root;
+
+		root["state"] = "time1Month";
+		root["data"] = true;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	_game->getSavedGame()->addMonth();
 
 	// Determine alien mission for this month.
@@ -3558,20 +3953,69 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())
 	{
-		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
-		_game->getSavedGame()->setBattleGame(bgame);
-		bgame->setMissionType("STR_BASE_DEFENSE");
-		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
-		bgen.setBase(base);
-		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(ufo->getCraftStats().missionCustomDeploy));
-		bgen.setAlienRace(ufo->getAlienRace());
-		bgen.setWorldShade(shade);
-		Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-		bgen.setWorldTexture(globeTexture, globeTexture);
-		bgen.setUfoDamagePercentage(ufoDamagePercentage);
-		bgen.run();
-		_pause = true;
-		_game->pushState(new BriefingState(0, base));
+
+		// coop base defense
+		if (connectionTCP::getCoopStatic() == true)
+		{
+
+			// fix
+			if (_game->getSavedGame() && ufo->getCoop() == false)
+			{
+
+				std::vector<Base*>* bases = _game->getSavedGame()->getBases();
+				size_t index = std::find(bases->begin(), bases->end(), base) - bases->begin();
+				_game->getSavedGame()->setSelectedBase(index);
+
+				_game->getCoopMod()->setGeoscapeState(this);
+				_game->getCoopMod()->_isMainCampaignBaseDefense = true;
+
+				temp_ufo = ufo;
+
+				if (_game->getCoopMod()->getHost() == true)
+				{
+					CoopState* coopWindow = new CoopState(77);
+					_game->pushState(coopWindow);
+				}
+				// The client wants to start a COOP mission!!! Transferring them to HOST!!!
+				else
+				{
+
+					Json::Value root;
+
+					root["state"] = "changeHost";
+
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+					_game->getCoopMod()->setHost(true);
+
+					// fix
+					CoopState* coopWindow = new CoopState(77);
+					_game->pushState(coopWindow);
+				}
+
+			}
+
+		}
+		else
+		{
+
+			SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+			_game->getSavedGame()->setBattleGame(bgame);
+			bgame->setMissionType("STR_BASE_DEFENSE");
+			BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+			bgen.setBase(base);
+			bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(ufo->getCraftStats().missionCustomDeploy));
+			bgen.setAlienRace(ufo->getAlienRace());
+			bgen.setWorldShade(shade);
+			Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
+			bgen.setWorldTexture(globeTexture, globeTexture);
+			bgen.setUfoDamagePercentage(ufoDamagePercentage);
+			bgen.run();
+			_pause = true;
+			_game->pushState(new BriefingState(0, base));
+
+		}
+
 	}
 	else
 	{

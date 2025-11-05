@@ -199,9 +199,20 @@ void UfoTrackerState::popupTarget(Target *target)
 
 	Ufo* u = dynamic_cast<Ufo*>(target);
 
+	// coop
 	if (u != 0)
 	{
-		_game->pushState(new UfoDetectedState(u, _state, false, u->getHyperDetected()));
+
+		// coop
+		if (u->getCoop() == false)
+		{
+			_game->pushState(new UfoDetectedState(u, _state, false, u->getHyperDetected()));
+		}
+		else
+		{
+			_game->pushState(new TargetInfoState(target, _globe));
+		}
+
 	}
 	else
 	{

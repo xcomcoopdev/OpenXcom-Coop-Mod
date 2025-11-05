@@ -955,6 +955,34 @@ void DogfightState::animate()
  */
 void DogfightState::update()
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() && _ufo->_coop == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "ufo_damage";
+		root["ufo_id"] = _ufo->_coop_ufo_id;
+		root["damage"] = _ufo->getDamage();
+
+		root["status"] = _game->getCoopMod()->ufostatusToInt(_ufo->getStatus());
+		root["detected"] = _ufo->getDetected();
+		root["altitude"] = _ufo->getAltitude();
+
+		root["wave"] = _ufo->getMissionWaveNumber();
+		root["crash_id"] = _ufo->getCrashId();
+		root["land_id"] = _ufo->getLandId();
+
+		root["craft_rule"] = _craft->getRules()->getType();
+		root["craft_id"] = _craft->getId();
+
+		root["end"] = _end;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	bool finalRun = false;
 	// Check if craft is not low on fuel when window minimized, and
 	// Check if crafts destination hasn't been changed when window minimized.

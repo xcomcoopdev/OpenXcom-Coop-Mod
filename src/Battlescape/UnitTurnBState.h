@@ -39,6 +39,7 @@ public:
 	~UnitTurnBState();
 	/// Initializes the state.
 	void init() override;
+	void deinit() override;
 	/// Handles a cancels request.
 	void cancel() override;
 	/// Runs state functionality every cycle.

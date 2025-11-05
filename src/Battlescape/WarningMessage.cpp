@@ -107,11 +107,23 @@ void WarningMessage::setPalette(const SDL_Color *colors, int firstcolor, int nco
  */
 void WarningMessage::showMessage(const std::string &msg, int time)
 {
+
 	_text->setText(msg);
 	_fade = time * 12;
+
+	//  coop
+	if (time < 0)
+	{
+		_fade = 0;
+	}
+	else
+	{
+		_timer->start();
+	}
+
 	_redraw = true;
 	setVisible(true);
-	_timer->start();
+	
 }
 
 /**

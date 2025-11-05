@@ -62,12 +62,25 @@ ProjectileFlyBState::~ProjectileFlyBState()
 }
 
 /**
+ * Deinitalize the state.
+ */
+void ProjectileFlyBState::deinit()
+{
+	// coop
+	_parent->getCoopMod()->_coop_task_completed = true;
+
+}
+
+/**
  * Initializes the sequence:
  * - checks if the shot is valid,
  * - calculates the base accuracy.
  */
 void ProjectileFlyBState::init()
 {
+
+	_parent->getCoopMod()->_coop_task_completed = false;
+
 	if (_initialized) return;
 	_initialized = true;
 
@@ -79,14 +92,108 @@ void ProjectileFlyBState::init()
 		return;
 	}
 
-	if (!_parent->getSave()->getTile(_action.target)) // invalid target position
+	_action.actor->coop_action = false;
+
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+		_parent->getCoopMod()->_coopProjectilesHost.clear();
+		_parent->getCoopMod()->_coopProjectilesClient.clear();
+		_parent->getCoopMod()->_coopTileDamage.clear();
+		_parent->getCoopMod()->_coopInit = false;
+		_action.actor->coop_no_line_fire = false;
+	}
+
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
+	{
+
+		_action.actor->coop_action = true;
+
+		// no line fire
+		if (_action.actor->coop_no_line_fire == true)
+		{
+
+			_action.actor->coop_no_line_fire = false;
+
+			if (_parent->getPanicHandled())
+			{
+				_action.result = "STR_NO_LINE_OF_FIRE";
+			}
+
+			_parent->popState();
+			return;
+
+		}
+
+		_action.actor->coop_tu = _action.actor->getTimeUnits();
+		_action.actor->coop_energy = _action.actor->getEnergy();
+		_action.actor->coop_morale = _action.actor->getMorale();
+		_action.actor->coop_health = _action.actor->getHealth();
+		_action.actor->coop_mana = _action.actor->getMana();
+		_action.actor->coop_stun = _action.actor->getStunlevel();
+
+		if (_parent->getCoopMod()->_currentAmmoID != -1 && _parent->getCoopMod()->currentAmmoType != "")
+		{
+
+			bool found = false;
+
+			for (auto ammo_item : *_parent->getSave()->getItems())
+			{
+
+				if (ammo_item->getId() == _parent->getCoopMod()->_currentAmmoID && ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+				{
+
+					found = true;
+					_ammo = ammo_item;
+					break;
+				}
+
+			}
+
+			if (found == false)
+			{
+
+				for (auto ammo_item : *_parent->getSave()->getItems())
+				{
+
+					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+					{
+
+						found = true;
+						_ammo = ammo_item;
+						break;
+					}
+				}
+
+			}
+
+			// Something really bad happened here...
+			// In this exceptional case, create new ammo
+			if (found == false)
+			{
+
+				_ammo = new BattleItem(_parent->getSave()->getMod()->getItem(_parent->getCoopMod()->currentAmmoType), _parent->getSave()->getCurrentItemId());
+
+			}
+
+			_parent->getCoopMod()->currentAmmoType = "";
+			_parent->getCoopMod()->_currentAmmoID = -1;
+
+		}
+
+	}
+
+
+	if (!_parent->getSave()->getTile(_action.target) && !_action.actor->coop_action) // invalid target position
 	{
 		_parent->popState();
 		return;
 	}
 
 	//test TU only on first lunch waypoint or normal shoot
-	if (_range == 0 && !_action.haveTU(&_action.result))
+	// coop
+	if (_range == 0 && !_action.haveTU(&_action.result) && !_action.actor->coop_action)
 	{
 		_parent->popState();
 		return;
@@ -97,7 +204,13 @@ void ProjectileFlyBState::init()
 	bool reactionShoot = _unit->getFaction() != _parent->getSave()->getSide();
 	if (_action.type != BA_THROW)
 	{
-		_ammo = _action.weapon->getAmmoForAction(_action.type, reactionShoot ? nullptr : &_action.result);
+
+		// coop
+		if (!_ammo)
+		{
+			_ammo = _action.weapon->getAmmoForAction(_action.type, reactionShoot ? nullptr : &_action.result);
+		}
+
 		if (!_ammo)
 		{
 			_parent->popState();
@@ -105,7 +218,7 @@ void ProjectileFlyBState::init()
 		}
 	}
 
-	if (_unit->isOut() || _unit->isOutThresholdExceed())
+	if (((_unit->isOut() || _unit->isOutThresholdExceed())) && !_action.actor->coop_action)
 	{
 		// something went wrong - we can't shoot when dead or unconscious, or if we're about to fall over.
 		_parent->popState();
@@ -116,8 +229,9 @@ void ProjectileFlyBState::init()
 	if (reactionShoot)
 	{
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
+
 		// target is dead: cancel the shot.
-		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit())
+		if ((!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit()) && !_action.actor->coop_action)
 		{
 			_parent->popState();
 			return;
@@ -408,6 +522,56 @@ void ProjectileFlyBState::init()
 	{
 		_parent->getMap()->enableObstacles();
 	}
+
+	
+	// COOP
+	// Shoot projectiles inc...
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+
+		Json::Value obj;
+
+		obj["state"] = "ProjectileFlyBState";
+		obj["actor_id"] = _action.actor->getId();
+		obj["actor_tu"] = _action.actor->coop_tu;
+		obj["actor_energy"] = _action.actor->coop_energy;
+		obj["actor_morale"] = _action.actor->coop_morale;
+		obj["actor_health"] = _action.actor->coop_health;
+		obj["actor_mana"] = _action.actor->coop_mana;
+		obj["actor_stun"] = _action.actor->coop_stun;
+		obj["actor_no_line_fire"] = _action.actor->coop_no_line_fire;
+		obj["type"] = (int)_action.type;
+		obj["hand"] = _parent->getCoopWeaponHand();
+		obj["fusetimer"] = _action.weapon->getFuseTimer();
+		obj["fuse"] = _action.weapon->isFuseEnabled();
+		obj["coords"]["target"]["x"] = _action.target.x;
+		obj["coords"]["target"]["y"] = _action.target.y;
+		obj["coords"]["target"]["z"] = _action.target.z;
+		obj["coords"]["start"]["x"] = _action.actor->getPosition().x;
+		obj["coords"]["start"]["y"] = _action.actor->getPosition().y;
+		obj["coords"]["start"]["z"] = _action.actor->getPosition().z;
+		obj["targeting"] = _action.targeting;
+		// fix!
+		obj["weapon_type"] = _action.weapon->getRules()->getType();
+
+		obj["projectiles"] = _parent->getCoopMod()->_coopProjectilesClient;
+
+		obj["tile_damage"] = _parent->getCoopMod()->_coopTileDamage;
+
+		obj["ammo_type"] = "";
+		obj["ammo_id"] = -1;
+
+		if (_ammo)
+		{
+
+			obj["ammo_type"] = _ammo->getRules()->getType();
+			obj["ammo_id"] = _ammo->getId();
+
+		}
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
 }
 
 /**
@@ -566,6 +730,10 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
+
+			// coop
+			_unit->coop_no_line_fire = true;
+
 			// no line of fire
 			delete projectile;
 			_parent->getMap()->setProjectile(0);

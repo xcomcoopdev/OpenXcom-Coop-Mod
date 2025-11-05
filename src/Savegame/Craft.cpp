@@ -49,6 +49,19 @@
 namespace OpenXcom
 {
 
+// coop
+void Craft::makeCoopVehicle(Vehicle* vehicle)
+{
+
+	// ERIKOISTILANNE KOSKA VEHICLE EI TARVITSE KOKEMUSTA !!!
+	vehicle->setCoop(1);
+
+	// kaytetty (fix)
+	vehicle->setCoopBase(-1);
+
+	this->getVehicles()->push_back(vehicle);
+}
+
 /**
  * Initializes a craft of the specified type and
  * assigns it the latest craft ID available.
@@ -494,6 +507,16 @@ std::string Craft::getStatus() const
  */
 void Craft::setStatus(const std::string &status)
 {
+	// coop
+	if (coop == false)
+	{
+		_status = status;
+	}
+
+}
+
+void Craft::setCoopStatus(const std::string& status)
+{
 	_status = status;
 }
 
@@ -801,6 +824,11 @@ int Craft::getFuel() const
  */
 void Craft::setFuel(int fuel)
 {
+
+	// coop
+	if (coop == true)
+		return;
+
 	_fuel = fuel;
 	if (_fuel > _stats.fuelMax)
 	{
@@ -927,6 +955,13 @@ bool Craft::isIgnoredByHK() const
  */
 bool Craft::getLowFuel() const
 {
+
+	// coop
+	if (coop == true)
+	{
+		return true;
+	}
+
 	return _lowFuel;
 }
 
@@ -1095,6 +1130,13 @@ void Craft::evacuateCrew(const Mod *mod)
  */
 bool Craft::think()
 {
+
+	// coop
+	if (coop == true)
+	{
+		return false;
+	}
+
 	if (_takeoff == 0)
 	{
 		move();
@@ -1425,6 +1467,15 @@ bool Craft::isDestroyed() const
  */
 int Craft::getSpaceAvailable() const
 {
+
+	// coop
+	// check if not pvp
+	if (connectionTCP::getCoopGamemode() != 2 && connectionTCP::getCoopGamemode() != 3 && connectionTCP::getCoopStatic() == true && getMaxUnitsClamped() > 2)
+	{
+		return (getMaxUnitsClamped() / 2) - getSpaceUsed();
+	}
+
+
 	return getMaxUnitsClamped() - getSpaceUsed();
 }
 

@@ -69,6 +69,8 @@
 #include "../Mod/AlienRace.h"
 #include "RankCount.h"
 
+#include "../CoopMod/CoopMenu.h"
+
 namespace OpenXcom
 {
 
@@ -102,6 +104,15 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 	return find != vec.end();
 }
 
+}
+void SavedGame::setCoop(CoopMenu *coopstate)
+{
+	_coopSave = coopstate;
+}
+
+CoopMenu *SavedGame::getCoop()
+{
+	return _coopSave;
 }
 
 /**
@@ -369,6 +380,62 @@ SaveInfo SavedGame::getSaveInfo(const std::string &file, Language *lang)
 	return save;
 }
 
+// coop
+void SavedGame::setMonthsPassed(int months)
+{
+	_monthsPassed = months;
+}
+
+std::string SavedGame::sendResearch()
+{
+
+	Json::Value root;
+
+	root["state"] = "research";
+
+	int index = 0;
+
+
+	for (auto research : _discovered)
+	{
+
+		root["research"][index] = research->getName();
+
+		index++;
+
+	}
+
+	Json::FastWriter fastWriter;
+	std::string jsonString = fastWriter.write(root);
+
+	return jsonString;
+
+}
+
+void SavedGame::syncResearch(std::string research_str)
+{
+
+	Json::Value root_research;
+	Json::Reader reader;
+
+	reader.parse(research_str, root_research);
+
+	for (Json::Value research_name : root_research["research"])
+	{
+
+		std::string str_research_name = research_name.asString();
+
+		RuleResearch *research = new RuleResearch(str_research_name, 0);
+		addFinishedResearchSimple(research);
+
+	}
+
+
+
+
+
+}
+
 /**
  * Loads a saved game's contents from a YAML file.
  * @note Assumes the saved game is blank.
@@ -394,6 +461,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
 	reader.tryRead("monthsPassed", _monthsPassed);
+	// coop
+	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
@@ -777,6 +846,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("ironman", _ironman);
 
 	// Saves the full game data to the save
+	// COOP_ERROR
+	COOP_ERROR
 	YAML::YamlRootNodeWriter writer(1000000); //1MB starting buffer
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);

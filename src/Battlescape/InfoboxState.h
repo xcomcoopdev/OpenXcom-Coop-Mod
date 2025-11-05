@@ -47,7 +47,8 @@ public:
 	void think() override;
 	/// Closes the window.
 	void close();
-
+	// coop
+	bool _coop = false;
 };
 
 }

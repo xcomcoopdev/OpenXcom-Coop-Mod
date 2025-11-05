@@ -337,6 +337,11 @@ Globe::Globe(Game* game, int cenX, int cenY, int width, int height, int x, int y
 	_rules = game->getMod()->getGlobe();
 	_texture = new SurfaceSet(*_game->getMod()->getSurfaceSet("TEXTURE.DAT"));
 	_markerSet = _game->getMod()->getSurfaceSet("GlobeMarkers");
+	
+	// COOP
+	Surface *coopBase = _markerSet->addFrame(9);
+	coopBase->loadImage("multiplayer/base.png");
+	
 
 	_countries = new Surface(width, height, x, y);
 	_markers = new Surface(width, height, x, y);

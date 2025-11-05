@@ -168,6 +168,10 @@ void SaveGameState::think()
 				// and pause screen too
 				_game->popState();
 			}
+
+			// coop
+			_game->getCoopMod()->setPauseOff();
+
 			break;
 		case SAVE_INSTA:
 			// timestamp is visible already, no need to repeat it

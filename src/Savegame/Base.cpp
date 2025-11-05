@@ -52,6 +52,8 @@
 #include "Region.h"
 #include "../Mod/RuleRegion.h"
 
+#include <random>
+
 namespace OpenXcom
 {
 
@@ -96,6 +98,83 @@ Base::~Base()
 		delete proj;
 	}
 	Collections::deleteAll(_vehiclesFromBase);
+}
+
+void Base::syncTrade(std::string items, SavedGame *save, Mod *mod)
+{
+
+	Json::Value root;
+	Json::Reader reader;
+
+	reader.parse(items, root);
+
+	for (auto item : root["items"])
+	{
+
+		std::string name = item["name"].asString();
+		std::string craft_rule = item["craft_rule"].asString();
+		std::string soldier_rule = item["soldier_rule"].asString();
+		int amount = item["amount"].asInt();
+		int hour = item["hour"].asInt();
+		int int_type = item["type"].asInt();
+
+
+
+		TransferType type = (TransferType)int_type;
+
+		// TRANSFER_ITEM = 0 TRANSFER_CRAFT = 1 TRANSFER_SOLDIER = 2 TRANSFER_SCIENTIST = 3 TRANSFER_ENGINEER = 4
+
+		Transfer *t = 0;
+		t = new Transfer(hour);
+
+		if (type == TRANSFER_CRAFT)
+		{
+
+			RuleCraft *rule = mod->getCraft(craft_rule);
+		
+			Craft *craft = new Craft(rule, this, save->getId(rule->getType()));
+
+			craft->setStatus("STR_REFUELLING");
+			t->setCraft(craft);
+
+		}
+		else if (type == TRANSFER_SOLDIER)
+		{
+
+			if (soldier_rule == "")
+			{
+				continue;
+			}
+				
+			RuleSoldier *rule = mod->getSoldier(soldier_rule);
+
+			int nationality = save->selectSoldierNationalityByLocation(mod, rule, this);
+			t->setSoldier(mod->genSoldier(save, rule, nationality));
+
+
+		}
+		else if (type == TRANSFER_ENGINEER)
+		{
+			t->setEngineers(amount);
+		}
+		else if (type == TRANSFER_SCIENTIST)
+		{
+			t->setScientists(amount);
+		}
+		else
+		{
+
+			RuleItem *rule_item = mod->getItem(name);
+
+			t->setItems(rule_item, amount);
+		}
+
+		getTransfers()->push_back(t);
+
+
+	}
+
+
 }
 
 /**
@@ -168,6 +247,23 @@ void Base::load(const YAML::YamlNodeReader& reader, SavedGame *save, bool newGam
 	}
 
 	_items->load(reader["items"], _mod);
+
+	// coop
+	reader.tryRead("coopbaseid", _coop_base_id);
+
+	// coop
+	if (_coop_base_id == 0)
+	{
+
+		std::random_device rd;                              // Seed
+		std::mt19937 gen(rd());                             // Mersenne Twister RNG
+		std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+
+		int random_number = distrib(gen);
+
+		_coop_base_id = random_number;
+
+	}
 
 	reader.tryRead("scientists", _scientists);
 	reader.tryRead("engineers", _engineers);
@@ -364,6 +460,8 @@ void Base::save(YAML::YamlNodeWriter writer) const
 	writer.write("soldiers", _soldiers,
 		[&](YAML::YamlNodeWriter& vectorWriter, Soldier* s)
 		{ s->save(vectorWriter.write(), _mod->getScriptGlobal()); });
+	// COOP ERROR if (xcraft->coop == false)
+	COOP_ERROR
 	writer.write("crafts", _crafts,
 		[&](YAML::YamlNodeWriter& vectorWriter, Craft* c)
 		{ c->save(vectorWriter.write(), _mod->getScriptGlobal()); });
@@ -415,6 +513,8 @@ std::string Base::getName(Language *) const
  */
 int Base::getMarker() const
 {
+	if (_coopBase == true)
+		return 9;
 	// Cheap hack to hide bases when they haven't been placed yet
 	if (AreSame(_lon, 0.0) && AreSame(_lat, 0.0))
 		return -1;
@@ -466,6 +566,13 @@ int Base::getScientists() const
 void Base::setScientists(int scientists)
 {
 	 _scientists = scientists;
+}
+
+
+
+void Base::isCoopBase(bool coopBase)
+{
+	_coopBase = coopBase;
 }
 
 /**
@@ -581,6 +688,13 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
  */
 int Base::getAvailableSoldiers(bool checkCombatReadiness, bool includeWounded) const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_soldiers;
+	}
+
 	int total = 0;
 	for (const auto* soldier : _soldiers)
 	{
@@ -809,6 +923,13 @@ int Base::getUsedQuarters() const
  */
 int Base::getAvailableQuarters() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_quarters;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{
@@ -880,6 +1001,13 @@ bool Base::storesOverfullCritical() const
  */
 int Base::getAvailableStores() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_stores;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{
@@ -913,6 +1041,13 @@ int Base::getUsedLaboratories() const
  */
 int Base::getAvailableLaboratories() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_laboratory;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{
@@ -952,6 +1087,13 @@ int Base::getUsedWorkshops() const
  */
 int Base::getAvailableWorkshops() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_workshop;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{
@@ -996,6 +1138,13 @@ int Base::getUsedHangars() const
  */
 int Base::getAvailableHangars() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_hangar;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{
@@ -1407,6 +1556,13 @@ int Base::getUsedPsiLabs() const
  */
 int Base::getAvailableTraining() const
 {
+
+	// coop
+	if (_coopIcon == true)
+	{
+		return coop_training;
+	}
+
 	int total = 0;
 	for (const auto* fac : _facilities)
 	{

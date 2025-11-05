@@ -97,7 +97,7 @@
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)..\bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(ProjectDir)..\obj\$(Platform)\$(Configuration)\</IntDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)..\obj\$(Platform)\$(Configuration)\</IntDir>
-    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</LinkIncremental>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</GenerateManifest>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</GenerateManifest>
@@ -123,6 +123,9 @@
     <EmbedManifest Condition="'$(Configuration)|$(Platform)'=='Release_XP|Win32'">false</EmbedManifest>
     <EmbedManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</EmbedManifest>
     <EmbedManifest Condition="'$(Configuration)|$(Platform)'=='Release_XP|x64'">false</EmbedManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -205,6 +208,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
       <ConformanceMode>true</ConformanceMode>
+      <CompileAsManaged>false</CompileAsManaged>
     </ClCompile>
     <Link>
       <AdditionalDependencies>SDL_image.lib;SDL_mixer.lib;SDL_gfx.lib;SDLmain.lib;SDL.lib;SDL_gfx.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -218,6 +222,7 @@
       </DataExecutionPrevention>
       <TargetMachine>MachineX86</TargetMachine>
       <Profile>false</Profile>
+      <GenerateMapFile>false</GenerateMapFile>
     </Link>
     <PostBuildEvent>
       <Command>copy /y "$(ProjectDir)..\deps\lib\$(Platform)\*.dll" "$(ProjectDir)..\bin\$(Platform)\"</Command>
@@ -330,6 +335,12 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CoopMod\ChatMenu.cpp" />
+    <ClCompile Include="CoopMod\connectionTCP.cpp" />
+    <ClCompile Include="CoopMod\CoopMenu.cpp" />
+    <ClCompile Include="CoopMod\CoopState.cpp" />
+    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp" />
+    <ClCompile Include="CoopMod\Profile.cpp" />
     <ClCompile Include="..\libs\miniz\miniz.c" />
     <ClCompile Include="..\libs\rapidyaml\c4\base64.cpp" />
     <ClCompile Include="..\libs\rapidyaml\c4\char_traits.cpp" />
@@ -742,6 +753,12 @@
     <ClCompile Include="Ufopaedia\UfopaediaStartState.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CoopMod\ChatMenu.h" />
+    <ClInclude Include="CoopMod\connectionTCP.h" />
+    <ClInclude Include="CoopMod\CoopMenu.h" />
+    <ClInclude Include="CoopMod\CoopState.h" />
+    <ClInclude Include="CoopMod\OptionsMultiplayer.h" />
+    <ClInclude Include="CoopMod\Profile.h" />
     <ClInclude Include="..\libs\miniz\miniz.h" />
     <ClInclude Include="..\libs\rapidyaml\c4\allocator.hpp" />
     <ClInclude Include="..\libs\rapidyaml\c4\base64.hpp" />
