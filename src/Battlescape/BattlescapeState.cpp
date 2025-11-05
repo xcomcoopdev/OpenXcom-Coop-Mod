@@ -94,8 +94,6 @@
 namespace OpenXcom
 {
 
-int counter = 0;
-
 /**
  * Initializes all the elements in the Battlescape screen.
  * @param game Pointer to the core game.
@@ -953,66 +951,57 @@ void BattlescapeState::think()
 			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->_battleInit == false && _battleGame->isBusy() == false && _save->getSide() == FACTION_PLAYER && _battleGame->getPanicHandled() == true && _save->isPreview() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
 			{
 
-				if (counter < 10)
+				_game->getCoopMod()->_battleInit = true;
+				_game->getCoopMod()->coopInventory = true;
+				_game->getCoopMod()->playerInsideCoopBase = false;
+				_game->getCoopMod()->_battleWindow = false;
+				_game->getCoopMod()->_isMainCampaignBaseDefense = false;
+
+				// Check if this is a campaign mission
+				if (!_game->getSavedGame()->getCountries()->empty())
 				{
-					counter++;
+
+					_game->getCoopMod()->setCoopCampaign(true);
 				}
 				else
 				{
 
-					counter = 0;
-
-					_game->getCoopMod()->_battleInit = true;
-					_game->getCoopMod()->coopInventory = true;
-					_game->getCoopMod()->playerInsideCoopBase = false;
-					_game->getCoopMod()->_battleWindow = false;
-					_game->getCoopMod()->_isMainCampaignBaseDefense = false;
-
-					// Check if this is a campaign mission
-					if (!_game->getSavedGame()->getCountries()->empty())
-					{
-
-						_game->getCoopMod()->setCoopCampaign(true);
-					}
-					else
-					{
-
-						_game->getCoopMod()->setCoopCampaign(false);
-					}
-
-					if (_game->getCoopMod()->getHost() == false)
-					{
-
-						if (_game->getCoopMod()->_waitBC == false)
-						{
-							Json::Value root;
-
-							root["state"] = "WAIT_BATTLESCAPE_HOST_TRUE";
-
-							_game->getCoopMod()->_waitBC = true;
-
-							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-						}
-					}
-					else
-					{
-
-						if (_game->getCoopMod()->_waitBH == false)
-						{
-
-							Json::Value root;
-
-							root["state"] = "WAIT_BATTLESCAPE_CLIENT_TRUE";
-
-							_game->getCoopMod()->_waitBH = true;
-
-							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-						}
-					}
-					
-					_game->getCoopMod()->coopMissionEnd = true;
-				
+					_game->getCoopMod()->setCoopCampaign(false);
 				}
+
+				if (_game->getCoopMod()->getHost() == false)
+				{
+
+					if (_game->getCoopMod()->_waitBC == false)
+					{
+						Json::Value root;
+
+						root["state"] = "WAIT_BATTLESCAPE_HOST_TRUE";
+
+						_game->getCoopMod()->_waitBC = true;
+
+						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+					}
+				}
+				else
+				{
+
+					if (_game->getCoopMod()->_waitBH == false)
+					{
+
+						Json::Value root;
+
+						root["state"] = "WAIT_BATTLESCAPE_CLIENT_TRUE";
+
+						_game->getCoopMod()->_waitBH = true;
+
+						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+					}
+				}
+					
+				_game->getCoopMod()->coopMissionEnd = true;
+				
+				
 				
 			}
 			

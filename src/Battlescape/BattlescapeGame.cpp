@@ -924,7 +924,7 @@ void BattlescapeGame::endTurn()
 	_AISecondMove = false;
 
 	// coop
-	if (_triggerProcessed.tryRun() || (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
+	if (_triggerProcessed.tryRun() || (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
 	{
 		if (_save->getTileEngine()->closeUfoDoors() && Mod::SLIDING_DOOR_CLOSE != -1)
 		{
@@ -950,7 +950,7 @@ void BattlescapeGame::endTurn()
 				BattleUnit *unit = item->getOwner();
 
 				// coop (pvp)
-				if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
+				if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
 				{
 
 					if (item)
@@ -1039,7 +1039,7 @@ void BattlescapeGame::endTurn()
 
 
 		// coop
-		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
+		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
 		{
 			// do nothing
 
@@ -1065,8 +1065,16 @@ void BattlescapeGame::endTurn()
 
 	}
 
+	// coop (PVE)
+	if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false))
+	{
+
+		return;
+
+	}
+
 	// coop (PVP)
-	if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3) || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false))
+	if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3))
 	{
 
 		_endTurnRequested = false;

@@ -531,26 +531,6 @@ void NextTurnState::think()
 void NextTurnState::close()
 {
 
-	// coop
-	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->_onClickClose == false)
-	{
-
-		Json::Value root;
-		root["state"] = "click_close";
-		root["data"] = false;
-
-		//_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}	
-
-	// coop
-	/*
-	if (_battleGame->getSide() == FACTION_PLAYER && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->_isClosed == false)
-	{
-		return;
-	}
-	*/
-
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
@@ -684,18 +664,6 @@ void NextTurnState::close()
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 				}
-
-			}
-
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-			{
-
-				_game->getCoopMod()->_clientPanicHandle = true;
-
-				Json::Value root;
-				root["state"] = "close_event";
-
-				//_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 			}
 

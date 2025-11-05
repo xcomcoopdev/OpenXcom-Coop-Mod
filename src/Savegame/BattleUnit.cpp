@@ -5006,6 +5006,11 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 		return false;
 	}
 
+	// coop fix
+	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn != 2)
+	{
+		return false;
+	}
 			
 	return (_faction == faction && !isOut() && (!checkReselect || reselectAllowed()) && (!checkInventory || hasInventory()));
 }
