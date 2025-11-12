@@ -357,9 +357,9 @@ int Projectile::calculateThrow(double accuracy)
 
 			Json::Value projectile(Json::objectValue);
 
-			projectile["rng_x"] = _targetVoxel.x;
-			projectile["rng_y"] = _targetVoxel.y;
-			projectile["rng_z"] = _targetVoxel.z;
+			projectile["rng_x"] = targetVoxel.x;
+			projectile["rng_y"] = targetVoxel.y;
+			projectile["rng_z"] = targetVoxel.z;
 			projectile["seed"] = RNG::getSeedCoop();
 
 			_coopProjectilesClient.append(projectile);

@@ -70,6 +70,7 @@
 #include "RankCount.h"
 
 #include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -831,7 +832,7 @@ void saveVectorIf(YAML::YamlNodeWriter& writer,
 	for (const T* item : vec)
 	{
 		if (!keep(item))
-			continue; // suodatus tässä
+			continue; // filtering here
 		item->save(seq.write(), std::forward<Args>(args)...);
 	}
 }

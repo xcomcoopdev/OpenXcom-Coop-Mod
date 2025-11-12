@@ -78,7 +78,7 @@ InfoboxState::InfoboxState(const std::string &msg)
 	_timer->start();
 
 
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_isActivePlayerSync == true && _game->getCoopMod()->_isActiveAISync == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_isActivePlayerSync == true)
 	{
 
 		Json::Value root;

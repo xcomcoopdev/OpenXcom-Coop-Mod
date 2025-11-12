@@ -137,6 +137,18 @@ void UnitTurnBState::init()
 		obj["stunlevel"] = _unit->getStunlevel();
 		obj["mana"] = _unit->getMana();
 
+		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
+		{
+			int j = 0;
+			for (auto* bu : *_unit->getVisibleUnits())
+			{
+
+				obj["visible_units"][j]["unit_id"] = _unit->getId();
+
+				j++;
+			}
+		}
+
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 

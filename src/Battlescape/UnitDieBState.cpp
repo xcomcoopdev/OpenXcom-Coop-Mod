@@ -145,7 +145,17 @@ UnitDieBState::~UnitDieBState()
 		root["motionpoints"] = _unit->getMotionPoints();
 
 		// new
-		root["units"]["respawn"] = _unit->getRespawn();
+		root["respawn"] = _unit->getRespawn();
+
+		bool isTile = false;
+
+		if (_unit->getTile())
+		{
+
+			isTile = true;
+		}
+
+		root["isTile"] = isTile;
 
 		_parent->sendPacketData(root.toStyledString());
 	}
@@ -194,7 +204,17 @@ void UnitDieBState::init()
 		root["noSound"] = _noSound;
 
 		// new
-		root["units"]["respawn"] = _unit->getRespawn();
+		root["respawn"] = _unit->getRespawn();
+
+		bool isTile = false;
+
+		if (_unit->getTile())
+		{
+
+			isTile = true;
+		}
+
+		root["isTile"] = isTile;
 
 		_parent->sendPacketData(root.toStyledString());
 

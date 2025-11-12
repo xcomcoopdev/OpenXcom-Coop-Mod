@@ -62,6 +62,7 @@ void UnitWalkBState::init()
 
 	// coop
 	_parent->setCoopTaskCompleted(false);
+	_parent->getCoopMod()->_coopWalkInit = true;
 
 	_unit = _action.actor;
 	_numUnitsSpotted = _unit->getUnitsSpottedThisTurn().size();
@@ -126,6 +127,8 @@ void UnitWalkBState::init()
 void UnitWalkBState::deinit()
 {
 
+	_parent->getCoopMod()->_coopWalkInit = false;
+
 	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
 	{
@@ -142,6 +145,18 @@ void UnitWalkBState::deinit()
 
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();
+
+		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
+		{
+			int j = 0;
+			for (auto* bu : *_unit->getVisibleUnits())
+			{
+
+				root["visible_units"][j]["unit_id"] = _unit->getId();
+
+				j++;
+			}
+		}
 
 		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
@@ -230,6 +245,13 @@ void UnitWalkBState::think()
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
 			bool onScreenBoundary = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true));
+
+			// coop
+			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActiveAISync == false)
+			{
+				onScreenBoundary = true;
+			}
+
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
 			playMovementSound();
 			if (_parent->getSave()->isPreview())
@@ -313,7 +335,7 @@ void UnitWalkBState::think()
 			unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
 			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_isActiveAISync == false)
+			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
 			{
 				unitSpotted = false;
 			}
@@ -516,7 +538,7 @@ void UnitWalkBState::think()
 		unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
 		// coop
-		if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_isActiveAISync == false)
+		if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
 		{
 			unitSpotted = false;
 		}

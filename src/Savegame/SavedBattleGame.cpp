@@ -1097,6 +1097,11 @@ UnitFaction SavedBattleGame::getSide() const
 	return _side;
 }
 
+void SavedBattleGame::setSideCoop(int side)
+{
+	_side = (UnitFaction)side;
+}
+
 /**
  * Test if weapon is usable by unit.
  * @param weapon
@@ -1176,6 +1181,11 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 int SavedBattleGame::getTurn() const
 {
 	return _turn;
+}
+
+void SavedBattleGame::setTurnCoop(int turn)
+{
+	_turn = turn;
 }
 
 /**
@@ -1468,6 +1478,7 @@ const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft*
  */
 void SavedBattleGame::endTurn()
 {
+
 	// reset turret direction for all hostile and neutral units (as it may have been changed during reaction fire)
 	for (auto* bu : _units)
 	{
@@ -3429,6 +3440,7 @@ void SavedBattleGame::resetUnitHitStates()
 void SavedBattleGame::abortPathCoop()
 {
 	getPathfinding()->abortPathCoop();
+
 }
 
 ////////////////////////////////////////////////////////////

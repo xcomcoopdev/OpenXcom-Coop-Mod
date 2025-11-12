@@ -168,7 +168,7 @@ class connectionTCP
 	void writeHostMapFile2();
 	void writeHostMapFile();
 	bool inventory_battle_window = true; // Do not use inventory if another player joins a saved game
-	bool getServerOwner();
+	static bool getServerOwner();
 	bool ready_coop_battle = false; // notify the other player that the co-op mission is starting
 	std::vector<Soldier*> coopSoldiers;
 	std::string current_base_name = "";
@@ -211,17 +211,16 @@ class connectionTCP
 	Json::Value _coopEndPath = Json::nullValue;;
 
 	bool _coopInit = false;
+	bool _coopWalkInit = false;
 	bool _coopAllow = true;
 
 	int _coopPVPwin = 0; // 0 = not set, 1 = xcom, 2 = ufo
 
 	bool _clientPanicHandle = false;
 
-	bool _isActiveAISync = false;
+	static bool _isActiveAISync;
 
-	bool _isClosed = true;
-
-	bool _isActivePlayerSync = false;
+	static bool _isActivePlayerSync;
 
 	bool _onClickClose = false;
 
@@ -230,9 +229,28 @@ class connectionTCP
 
 	bool _enable_research_sync = true;
 
+	static bool _enable_time_sync;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
+
+	// time
+	int _weekday = 0;
+	int _day = 0;
+	int _month = 0;
+	int _year = 0;
+	int _hour = 0;
+	int _minute = 0;
+	int _second = 0;
+
+	int _AIProgressCoop = -1;
+	bool _AISecondMoveCoop = false;
+	int _coopEnd = 0;
+	int _psi_target_id = -1;
+
+	int _melee_target_id = -1;
+	int _melee_hit_number = -1;
 
 };
 

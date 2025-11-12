@@ -125,6 +125,7 @@ private:
 	Uint8 _turnsSinceStunned = 255;
 
 	BattleUnit* _previousOwner = nullptr;
+
 	const Unit *_spawnUnit = nullptr;
 	std::string _activeHand;
 	std::string _preferredHandForReactions;

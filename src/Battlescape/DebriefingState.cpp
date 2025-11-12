@@ -313,6 +313,18 @@ DebriefingState::DebriefingState() :
 
 	}
 
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "DebriefingState";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
+
 }
 
 /**

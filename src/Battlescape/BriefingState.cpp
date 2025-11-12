@@ -264,6 +264,35 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 		}
 	}
 
+
+	// coop
+	// if pvp gamemode
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+		{
+
+			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (unit->getCoop() == 1)
+				{
+					unit->convertToFaction(FACTION_PLAYER);
+					unit->setOriginalFaction(FACTION_PLAYER);
+				}
+				else
+				{
+					unit->convertToFaction(FACTION_HOSTILE);
+					unit->setOriginalFaction(FACTION_HOSTILE);
+				}
+
+			}
+		}
+
+	}
+
+
 }
 
 /**
@@ -522,8 +551,13 @@ void BriefingState::setupCoop()
 					{
 
 						unit->setCoop(1);
-						unit->convertToFaction(FACTION_PLAYER);
-						unit->setOriginalFaction(FACTION_PLAYER);
+						//unit->convertToFaction(FACTION_PLAYER);
+						//unit->setOriginalFaction(FACTION_PLAYER);
+					}
+					else if (unit->getFaction() == FACTION_PLAYER)
+					{
+
+						unit->setCoop(0);
 					}
 				}
 		}
@@ -538,8 +572,8 @@ void BriefingState::setupCoop()
 					{
 
 						unit->setCoop(0);
-						unit->convertToFaction(FACTION_PLAYER);
-						unit->setOriginalFaction(FACTION_PLAYER);
+						//unit->convertToFaction(FACTION_PLAYER);
+						//unit->setOriginalFaction(FACTION_PLAYER);
 					}
 					else if (unit->getFaction() == FACTION_PLAYER)
 					{

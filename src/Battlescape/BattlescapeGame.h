@@ -175,6 +175,7 @@ public:
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
 	void psi_attack(std::string str_obj);
+	void melee_attack(std::string str_obj);
 	bool getHost();
 	bool isCoop();
 	void abortCoopPath(int x, int y, int z, int unit_id, int setDirection, int setFaceDirection);
@@ -206,6 +207,7 @@ public:
 	void handleNonTargetAction();
 	// coop
 	void endTurnCoop();
+	void endBattleTurnCoop();
 	/// Removes current state.
 	void popState();
 	/// Sets state think interval.

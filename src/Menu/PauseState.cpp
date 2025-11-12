@@ -62,14 +62,15 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 
 	// Create objects
 	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
-	_btnLoad = new TextButton(180, 18, x+18, 52);
-	_btnSave = new TextButton(180, 18, x+18, 74);
-	_btnAbandon = new TextButton(180, 18, x+18, 96);
-	_btnOptions = new TextButton(180, 18, x+18, 122);
-	_btnCancel = new TextButton(180, 18, x+18, 150);
-	_txtTitle = new Text(206, 17, x+5, 32);
-	_txtVersion = new Text(216, 9, x, 11);
+	_btnLoad = new TextButton(180, 18, x + 18, 52);
+	_btnSave = new TextButton(180, 18, x + 18, 72);
+	_btnAbandon = new TextButton(180, 18, x + 18, 92);
+	_btnOptions = new TextButton(180, 18, x + 18, 112);
 	_btnCoop = new TextButton(180, 18, x + 18, 132);
+	_btnCancel = new TextButton(180, 18, x + 18, 152);
+	_txtTitle = new Text(206, 17, x + 5, 32);
+
+	_txtVersion = new Text(216, 9, x, 11);
 
 	// Set palette
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);

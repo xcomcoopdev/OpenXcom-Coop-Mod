@@ -53,8 +53,36 @@ PsiAttackBState::~PsiAttackBState()
  */
 void PsiAttackBState::init()
 {
+
 	if (_initialized) return;
 	_initialized = true;
+
+	// coop
+	if (_parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_psi_target_id != -1)
+	{
+
+		// unit
+		for (auto u : *_parent->getSave()->getUnits())
+		{
+
+			if (u->getId() == _parent->getCoopMod()->_psi_target_id)
+			{
+				_target = u;
+				_parent->getCoopMod()->_psi_target_id = -1;
+				break;
+			}
+		}
+
+		_item = _action.weapon;
+		_unit = _action.actor;
+
+		int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
+		Position voxel = _action.target.toVoxel() + Position(8, 8, height);
+		_parent->statePushFront(new ExplosionBState(_parent, voxel, BattleActionAttack::GetAferShoot(_action, _action.weapon)));
+
+		return;
+	}
+
 
 	_item = _action.weapon;
 
@@ -107,7 +135,8 @@ void PsiAttackBState::init()
 
 		int index = 0;
 
-		obj["id"] = _unit->getId();
+		obj["unit_id"] = _unit->getId();
+		obj["target_id"] = _target->getId();
 
 		int startx = _unit->getPosition().x;
 		int starty = _unit->getPosition().y;
@@ -132,12 +161,16 @@ void PsiAttackBState::init()
 		obj["stunlevel"] = _unit->getStunlevel();
 		obj["mana"] = _unit->getMana();
 
+		// new!
+		obj["weapon_type"] = _action.weapon->getRules()->getType();
+		obj["type"] = (int)_action.type;
+		obj["hand"] = _parent->getCoopWeaponHand();
+
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
 
 }
-
 
 /**
  * After the explosion animation is done doing its thing,

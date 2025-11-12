@@ -192,6 +192,7 @@ void ProjectileFlyBState::init()
 	_unit = _action.actor;
 
 	bool reactionShoot = _unit->getFaction() != _parent->getSave()->getSide();
+
 	if (_action.type != BA_THROW)
 	{
 
@@ -559,6 +560,17 @@ void ProjectileFlyBState::init()
 
 		}
 
+		int pos_index = 0;
+		for (Position pos : _action.waypoints)
+		{
+
+			obj["waypoints"][pos_index]["pos_x"] = pos.x;
+			obj["waypoints"][pos_index]["pos_y"] = pos.y;
+			obj["waypoints"][pos_index]["pos_z"] = pos.z;
+			
+			pos_index++;
+		}
+
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
@@ -700,7 +712,8 @@ bool ProjectileFlyBState::createNewProjectile()
 		{
 			_projectileImpact = projectile->calculateTrajectory(BattleUnit::getFiringAccuracy(attack, _parent->getMod()) / accuracyDivider);
 		}
-		if (_targetVoxel != TileEngine::invalid.toVoxel() && (_projectileImpact != V_EMPTY || _action.type == BA_LAUNCH))
+		// coop
+		if ((_targetVoxel != TileEngine::invalid.toVoxel() || _action.actor->coop_action) && (_projectileImpact != V_EMPTY || _action.type == BA_LAUNCH))
 		{
 			// set the soldier in an aiming position
 			_unit->aim(true);

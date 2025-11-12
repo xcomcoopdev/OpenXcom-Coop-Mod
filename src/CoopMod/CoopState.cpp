@@ -951,9 +951,7 @@ void CoopState::loadWorld()
 							if (soldier->getCoopBase() == newbase->_coop_base_id)
 							{
 
-								//Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
-
-								Soldier* deep_copied_soldier = soldier;
+								Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
 
 								newbase->getSoldiers()->push_back(deep_copied_soldier);
 

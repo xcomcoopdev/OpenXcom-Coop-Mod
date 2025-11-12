@@ -121,6 +121,10 @@ OptionsMultiplayerState::OptionsMultiplayerState(OptionsOrigin origin) : Options
 		{
 			_settingsGeneral[optionInfo.owner()].push_back(optionInfo);
 		}
+		else if (optionInfo.category() == "STR_GEOSCAPE")
+		{
+			_settingsGeo[optionInfo.owner()].push_back(optionInfo);
+		}
 		else if (optionInfo.category() == "STR_BASESCAPE")
 		{				
 			_settingsBase[optionInfo.owner()].push_back(optionInfo);
@@ -220,6 +224,22 @@ void OptionsMultiplayerState::updateList()
 		addControls(_settingsGeneral[idx]);
 		row += _settingsGeneral[idx].size();
 		_offsetGeneralMax = row;
+	}
+
+	if (_settingsGeo[idx].size() > 0)
+	{
+		if (row > -1)
+		{
+			_lstOptions->addRow(2, "", "");
+			row++;
+		}
+		_lstOptions->addRow(2, tr("STR_GEOSCAPE").c_str(), "");
+		row++;
+		_offsetGeoMin = row;
+		_lstOptions->setCellColor(_offsetGeoMin, 0, _colorGroup);
+		addSettings(_settingsGeo[idx]);
+		row += _settingsGeo[idx].size();
+		_offsetGeoMax = row;
 	}
 
 	if (_settingsBase[idx].size() > 0)

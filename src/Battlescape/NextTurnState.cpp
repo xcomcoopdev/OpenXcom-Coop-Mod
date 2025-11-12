@@ -60,7 +60,15 @@ namespace OpenXcom
  */
 NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *state) : _battleGame(battleGame), _state(state), _timer(0), _currentTurn(0), _showBriefing(false)
 {
-	
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
+	{
+
+		battleGame->setSideCoop(0);
+
+	}
+
 	//coop
 	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
@@ -531,6 +539,17 @@ void NextTurnState::think()
 void NextTurnState::close()
 {
 
+	// coop
+	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "click_close";
+		root["data"] = false;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}	
+
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
@@ -558,23 +577,9 @@ void NextTurnState::close()
 	bool killingAllAliensIsNotEnough = _battleGame->getObjectiveType() == MUST_DESTROY || (_battleGame->getVIPSurvivalPercentage() > 0 && _battleGame->getVIPEscapeType() != ESCAPE_NONE);
 
 	// coop
-	if ((!killingAllAliensIsNotEnough && (tally.liveAliens == 0 && connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)) || tally.liveSoldiers == 0)
+	if ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0)
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
-
-		// coop
-		if (_game->getCoopMod()->getCoopStatic() == true)
-		{
-
-			Json::Value root;
-			root["state"] = "win_pve";
-			root["exit_area"] = tally.liveSoldiers;
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-		}
-		
-
 	}
 	else
 	{
@@ -604,12 +609,14 @@ void NextTurnState::close()
 
 				newsave->save("coop_mission.sav", _game->getMod());
 
-				Json::Value root;
-				root["state"] = "current_seed";
-				int index = 0;
-
 				if (_game->getCoopMod()->teleport == true)
 				{
+
+					Json::Value root;
+					root["state"] = "current_seed";
+					int index = 0;
+
+					root["end"] = true;
 
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 					{

@@ -1495,6 +1495,19 @@ void Globe::drawDetail()
 		// Draw bases names
 		for (auto* xbase : *_game->getSavedGame()->getBases())
 		{
+
+			// coop
+			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+			{
+				continue;
+			}
+
+			// coop
+			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+			{
+				continue;
+			}
+
 			if (xbase->getMarker() == -1 || pointBack(xbase->getLongitude(), xbase->getLatitude()))
 				continue;
 			polarToCart(xbase->getLongitude(), xbase->getLatitude(), &x, &y);
@@ -1765,6 +1778,19 @@ void Globe::drawMarkers()
 	// Draw the base markers
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		{
+			continue;
+		}
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		{
+			continue;
+		}
+
 		drawTarget(xbase, _markers);
 	}
 

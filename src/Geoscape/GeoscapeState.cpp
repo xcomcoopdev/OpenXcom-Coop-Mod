@@ -935,8 +935,6 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->_isActiveAISync = false;
 
-		_game->getCoopMod()->_isClosed = true;
-
 		_game->getCoopMod()->_isActivePlayerSync = false;
 
 		_game->getCoopMod()->_onClickClose = false;
@@ -1114,7 +1112,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && connectionTCP::_enable_time_sync == true)
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();
@@ -3256,7 +3254,7 @@ void GeoscapeState::time1Month()
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == false && _game->getCoopMod()->_enable_time_sync == true)
 	{
 
 		Json::Value root;
@@ -3391,6 +3389,19 @@ void GeoscapeState::globeClick(Action *action)
  */
 void GeoscapeState::btnInterceptClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	{
+		return;
+	}
+
 	if (buttonsDisabled())
 	{
 		return;
@@ -3488,6 +3499,19 @@ void GeoscapeState::btnDebugClick(Action *)
  */
 void GeoscapeState::btnBasesClick(Action *)
 {
+
+	// coop
+	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	{
+		return;
+	}
+
 	if (buttonsDisabled())
 	{
 		return;

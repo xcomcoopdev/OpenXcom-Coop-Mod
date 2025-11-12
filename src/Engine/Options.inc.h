@@ -88,6 +88,7 @@ OPT bool oxceGeoscapeEventsInstantDelivery;
 OPT bool oxceShowBaseNameInPopups;
 
 OPT bool EnableResearchSync;
+OPT bool EnableTimeSync;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

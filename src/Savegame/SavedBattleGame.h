@@ -389,10 +389,14 @@ public:
 	TileEngine *getTileEngine() const;
 	/// Gets the playing side.
 	UnitFaction getSide() const;
+	// coop
+	void setSideCoop(int side);
 	/// Can unit use that weapon?
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.
 	int getTurn() const;
+	// coop
+	void setTurnCoop(int turn);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.

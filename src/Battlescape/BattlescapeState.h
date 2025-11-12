@@ -128,6 +128,7 @@ private:
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
 	void psi_attack(std::string str_obj);
+	void melee_attack(std::string str_obj);
 	void shootPlayerTarget(std::string str_obj);
 	void showCoopWarning(const std::string &message);
 	void showCoopLongWarning(const std::string &message);
@@ -265,6 +266,7 @@ private:
 	void popup(State *state);
 	/// Finishes a battle.
 	void finishBattle(bool abort, int inExitArea);
+	void finishBattleCoop();
 	/// Show the launch button.
 	void showLaunchButton(bool show);
 	/// Reset visiblity of special buttons like psi or skill.

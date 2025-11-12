@@ -462,6 +462,7 @@ void Base::save(YAML::YamlNodeWriter writer) const
 		{ s->save(vectorWriter.write(), _mod->getScriptGlobal()); });
 
 	// coop
+	writer.write("coopbaseid", _coop_base_id);
 	writer.write("crafts", _crafts,
 				 [&](YAML::YamlNodeWriter& v, const Craft* c)
 				 {

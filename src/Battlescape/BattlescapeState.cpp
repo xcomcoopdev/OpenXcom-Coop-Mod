@@ -929,6 +929,7 @@ void BattlescapeState::think()
 		{
 			State::think();
 			int ret = _battleGame->think();
+
 			if (ret > -1)
 			{
 				_map->refreshAIProgress(100 - ret); // progress = 100 - ret;
@@ -954,7 +955,7 @@ void BattlescapeState::think()
 			// coop panic handle
 			if (_game->getCoopMod()->_waitBH == true && _game->getCoopMod()->getHost() == false)
 			{
-
+				_save->setSideCoop(0);
 				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
 
 			}
@@ -1228,10 +1229,10 @@ void BattlescapeState::think()
 
 						for (auto unit : *_save->getUnits())
 						{
-							if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
+							if (unit->getCoop() == 1)
 							{
 
-								if (unit->getCoop() != 0 && unit->getHealth() > 0 && unit->isOut() == false)
+								if (unit->getCoop() != 0 && unit->getHealth() > 0 && unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
 								{
 									_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
 									found = true;
@@ -1278,10 +1279,10 @@ void BattlescapeState::think()
 						for (auto unit : *_save->getUnits())
 						{
 
-							if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() != 1)
+							if (unit->getCoop() != 1)
 							{
 
-								if (unit->getCoop() == 0 && unit->getHealth() > 0 && unit->isOut() == false)
+								if (unit->getCoop() == 0 && unit->getHealth() > 0 && unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
 								{
 									_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
 									found = true;
@@ -1327,21 +1328,89 @@ void BattlescapeState::think()
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
 
+				if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+				{
+
+					_battleGame->cancelAllActions();
+
+				}
+
 				// Client's turn and host is waiting
 				if (_game->getCoopMod()->getHost() == false)
 				{
-					_game->getCoopMod()->setPlayerTurn(2);
-					_game->getCoopMod()->_isActivePlayerSync = true;
+	
+					if (_game->getCoopMod()->getCoopGamemode() == 2)
+					{
+
+						_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->_isActivePlayerSync = false;
+
+					}
+					else if (_game->getCoopMod()->getCoopGamemode() == 3)
+					{
+
+						_game->getCoopMod()->setPlayerTurn(2);
+						_game->getCoopMod()->_isActivePlayerSync = true;
+
+					}
+					// PVE2
+					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
+					{
+
+						_game->getCoopMod()->_isActivePlayerSync = false;
+						_game->getCoopMod()->_battleInit = false;
+						_game->getCoopMod()->_isActiveAISync = true;
+						_game->getCoopMod()->_clientPanicHandle = true;
+
+						endTurnCoop();
+
+					}
+					else
+					{
+
+						_game->getCoopMod()->setPlayerTurn(2);
+						_game->getCoopMod()->_isActivePlayerSync = true;
+
+					}
+
 				}
 				else
 				{
 
-					_game->getCoopMod()->_isActivePlayerSync = false;
+					if (_game->getCoopMod()->getCoopGamemode() == 2)
+					{
 
-					_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->setPlayerTurn(2);
+						_game->getCoopMod()->_isActivePlayerSync = true;
+					}
+					else if (_game->getCoopMod()->getCoopGamemode() == 3)
+					{
+
+						_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->_isActivePlayerSync = false;
+					}
+					// PVE2
+					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
+					{
+	
+						_game->getCoopMod()->_battleInit = false;
+						_game->getCoopMod()->_isActiveAISync = true;
+						_game->getCoopMod()->_isActivePlayerSync = true;
+
+						endTurnCoop();
+
+					}
+					else
+					{
+
+						_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->_isActivePlayerSync = false;
+					}
 
 					Json::Value root;
 					root["state"] = "current_seed";
+
+					root["end"] = false;
 
 					int index = 0;
 
@@ -1371,6 +1440,36 @@ void BattlescapeState::think()
 
 							// new
 							root["units"][index]["respawn"] = unit->getRespawn();
+
+							// mind control (host)
+							if (unit->_coop_mindcontrolled == true)
+							{
+
+								unit->_coop_mindcontrolled = false;
+
+								if (unit->getCoop() == 0)
+								{
+									unit->convertToFaction(FACTION_HOSTILE);
+									unit->setOriginalFaction(FACTION_HOSTILE);
+
+									unit->setCoop(1);
+								}
+								else if (unit->getCoop() == 1)
+								{
+
+									unit->convertToFaction(FACTION_PLAYER);
+									unit->setOriginalFaction(FACTION_PLAYER);
+
+									unit->setCoop(0);
+								}
+
+							}
+
+							// PVP
+							if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+							{
+								unit->resetTimeUnitsAndEnergy();
+							}
 
 							// coop fix
 							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
@@ -2361,107 +2460,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	_game->getCoopMod()->_isActivePlayerSync = false;
 
 	bool is_return = false;
-
-	// coop
-	if (_game->getCoopMod()->getCurrentTurn() == 1)
-	{
-		is_return = true;
-	}
-
-	// coop
-	if (_game->getCoopMod()->getChatMenu())
-	{
-		if (_game->getCoopMod()->getChatMenu()->isActive() == true)
-		{
-
-			is_return = true;
-		}
-	}
-
-	bool is_battle_finished = false;
-
-	// coop (pvp)
-	if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-	{
-
-		bool found_host = false;
-		bool found_client = false;
-
-		for (auto *bu : *_save->getUnits())
-		{
-
-			if (bu->getCoop() == 0 && bu->isOut() == false && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
-			{
-				found_host = true;
-				break;
-			}
-		}
-
-		for (auto *bu : *_save->getUnits())
-		{
-
-			if (bu->getCoop() == 1 && bu->isOut() == false && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
-			{
-				found_client = true;
-				break;
-			}
-		}
-
-		// is ufo win?
-		if (found_host == false && _game->getCoopMod()->getCoopGamemode() == 2)
-		{
-			_game->getCoopMod()->_coopPVPwin = 2;
-		}
-		// is xcom win?
-		else if (found_client == false && _game->getCoopMod()->getCoopGamemode() == 2)
-		{
-			_game->getCoopMod()->_coopPVPwin = 1;
-		}
-		// is xcom win?
-		else if (found_host == false && _game->getCoopMod()->getCoopGamemode() == 3)
-		{
-			_game->getCoopMod()->_coopPVPwin = 1;
-		}
-		// is ufo win?
-		else if (found_client == false && _game->getCoopMod()->getCoopGamemode() == 3)
-		{
-			_game->getCoopMod()->_coopPVPwin = 2;
-		}
-
-		if (found_host == false || found_client == false)
-		{
 	
-			is_battle_finished = true;
-		}
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			// check mindcontrolled
-			for (auto *bu : *_save->getUnits())
-			{
-
-				if (bu->_coop_mindcontrolled == true)
-				{
-
-					if (bu->getCoop() == 0)
-					{
-						bu->setCoop(1);
-					}
-					else if (bu->getCoop() == 1)
-					{
-						bu->setCoop(0);
-					}
-
-					bu->_coop_mindcontrolled = false;
-				}
-			}
-
-		}
-
-
-	}
-	
-
 	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
 	{
 
@@ -2483,6 +2482,8 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		root["pvp_win"] = _game->getCoopMod()->_coopPVPwin;
 
 		root["seed"] = RNG::getSeed();
+
+		root["battle_turn"] = _save->getTurn();
 
 		// Check that synchronization works
 		int index = 0;
@@ -2511,19 +2512,6 @@ void BattlescapeState::btnEndTurnClick(Action *)
 				// new
 				root["units"][index]["respawn"] = unit->getRespawn();
 
-				if (is_battle_finished && _game->getCoopMod()->_coopPVPwin == 2)
-				{
-
-					unit->instaKill();
-
-				}
-
-
-				if (_game->getCoopMod()->getHost() && (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3) && !is_battle_finished)
-				{
-					unit->resetTimeUnitsAndEnergy();
-				}
-
 				index++;
 			
 		}
@@ -2536,21 +2524,14 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		}
 
 		// pvp
-		if (_game->getCoopMod()->getHost() == false && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
+		if (_game->getCoopMod()->getHost() == true && (_game->getCoopMod()->getCoopGamemode() == 2))
 		{
 			is_return = true;
 		}
 
-
-		if (is_battle_finished == true)
+		if (_game->getCoopMod()->getHost() == false && (_game->getCoopMod()->getCoopGamemode() == 3))
 		{
-
-			finishBattle(false, 0);
-
-			root["battle"] = true;
-
 			is_return = true;
-
 		}
 		
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
@@ -2566,8 +2547,6 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	if (allowButtons() && (is_return == false || _save->isPreview() == true))
 	{
 
-		_game->getCoopMod()->_isClosed = false;
-
 		// if not pvp
 		if (_game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3)
 		{
@@ -2580,8 +2559,19 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		else
 		{
 
-			_game->getCoopMod()->_isActiveAISync = false;
-			_game->getCoopMod()->_isActivePlayerSync = false;
+			_save->setSideCoop(0);
+
+			_game->getCoopMod()->_isActiveAISync = true;
+
+			if (_game->getCoopMod()->getHost() == false)
+			{
+				_game->getCoopMod()->_isActivePlayerSync = false;
+			}
+			else
+			{
+				_game->getCoopMod()->_isActivePlayerSync = true;
+			}
+
 
 		}
 
@@ -2852,25 +2842,6 @@ void BattlescapeState::btnVisibleUnitClick(Action *action)
 	}
 	else if (btnID != -1)
 	{
-
-		// coop
-		// pvp
-		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-		{
-
-			// if host
-			if (_game->getCoopMod()->getHost() == true && _visibleUnit[btnID]->getCoop() == 1)
-			{
-				return;
-			}
-
-			// if client
-			if (_game->getCoopMod()->getHost() == false && _visibleUnit[btnID]->getCoop() == 0)
-			{
-				return;
-			}
-
-		}
 
 		Position position = _visibleUnit[btnID]->getPosition();
 		if (position == TileEngine::invalid)
@@ -3215,11 +3186,10 @@ bool BattlescapeState::playableUnitSelected()
 	if (_save->getSelectedUnit())
 	{
 
-		if (_game->getCoopMod()->getCoopStatic() == true && _save->getSelectedUnit()->getCoop() == 0 && _game->getCoopMod()->getHost() == false && _battleGame->isYourTurn != 1)
-			return false;
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
+			return true;
 
-		// coop
-		if (_game->getCoopMod()->getCoopStatic() == true && _save->getSelectedUnit()->getCoop() == 1 && _game->getCoopMod()->getHost() == true && _battleGame->isYourTurn != 1)
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_isActivePlayerSync == false)
 			return false;
 
 	}
@@ -3951,8 +3921,21 @@ void BattlescapeState::psi_attack(std::string str_obj)
 	_battleGame->psi_attack(str_obj);
 }
 
+void BattlescapeState::melee_attack(std::string str_obj)
+{
+	_battleGame->melee_attack(str_obj);
+}
+
 void BattlescapeState::endTurnCoop()
 {
+
+	// PVP
+	if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+	{
+
+		_save->setSideCoop(0);
+
+	}
 
 	// coop camera fix (sync problem)
 	_battleGame->cancelAllActions();
@@ -4018,6 +4001,22 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	const Json::Value& tile_damage = obj["tile_damage"];
 	_battleGame->getCoopMod()->_coopTileDamage.clear();
 	_battleGame->getCoopMod()->_coopTileDamage = tile_damage;
+
+	_battleGame->getCurrentAction()->waypoints.clear();
+
+	// waypoints
+	for (int i = 0; i < obj["waypoints"].size(); i++)
+	{
+
+		int pos_x = obj["waypoints"][i]["pos_x"].asInt();
+		int pos_y = obj["waypoints"][i]["pos_y"].asInt();
+		int pos_z = obj["waypoints"][i]["pos_z"].asInt();
+
+		Position new_waypoint = Position(pos_z, pos_y, pos_z);
+
+		_battleGame->getCurrentAction()->waypoints.push_back(new_waypoint);
+
+	}
 
 	Position targetPos = Position(target_x, target_y, target_z);
 
@@ -5208,13 +5207,40 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 
 	if (!nextStage.empty() && inExitArea && !isPreview)
 	{
-		// if there is a next mission stage + we have people in exit area OR we killed all aliens, load the next stage
-		_popups.clear();
-		_save->setMissionType(nextStage);
-		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
-		bgen.nextStage();
-		_game->popState();
-		_game->pushState(new BriefingState(0, 0));
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == false)
+		{
+
+			// if there is a next mission stage + we have people in exit area OR we killed all aliens, load the next stage
+			_popups.clear();
+			_save->setMissionType(nextStage);
+			BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+			bgen.nextStage();
+			_game->popState();
+			_game->pushState(new BriefingState(0, 0));
+
+		}
+		else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+		{
+
+			// if there is a next mission stage + we have people in exit area OR we killed all aliens, load the next stage
+			_popups.clear();
+			_save->setMissionType(nextStage);
+			BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+			bgen.nextStage();
+			_game->popState();
+
+			// please wait message
+			CoopState* coopWindow = new CoopState(4);
+			_game->pushState(coopWindow);
+
+			// start  coop mission
+			BriefingState* b = new BriefingState(0, 0);
+			b->setupCoop();
+
+		}
+
 	}
 	else
 	{
@@ -5300,6 +5326,13 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			}
 		}
 	}
+}
+
+void BattlescapeState::finishBattleCoop()
+{
+
+	_game->pushState(new DebriefingState);
+
 }
 
 /**

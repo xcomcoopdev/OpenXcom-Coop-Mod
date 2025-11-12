@@ -2395,6 +2395,7 @@ void BattleUnit::resetTimeUnitsAndEnergy()
  */
 bool BattleUnit::addToVisibleUnits(BattleUnit *unit)
 {
+
 	bool add = true;
 	for (auto* bu : _unitsSpottedThisTurn)
 	{
@@ -5236,7 +5237,7 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 	}
 
 	// coop fix
-	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn != 2)
+	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 1 && connectionTCP::_isActiveAISync == false)
 	{
 		return false;
 	}

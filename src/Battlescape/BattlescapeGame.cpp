@@ -244,6 +244,28 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 		unit->setCoopMorale(morale);
 		unit->setCoopMana(mana);
 
+		if (getCoopMod()->_isActiveAISync == false && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3)
+		{
+
+			for (auto& unit : *_save->getUnits())
+			{
+
+				for (int i = 0; i < obj["visible_units"].size(); i++)
+				{
+
+					int json_id = obj["visible_units"][i]["unit_id"].asInt();
+
+					// Check if the same unit
+					if (unit->getId() == json_id)
+					{
+
+						unit->addToVisibleUnits(unit);
+					}
+				}
+			}
+
+		}
+
 		// other
 		_save->setSelectedUnit(unit);
 		_currentAction.actor = unit;
@@ -340,6 +362,27 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 
 		unit->setPosition(*startpos);
 
+
+		if (getCoopMod()->_isActiveAISync == false && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3)
+		{
+			for (auto& unit : *_save->getUnits())
+			{
+
+				for (int i = 0; i < obj["visible_units"].size(); i++)
+				{
+
+					int json_id = obj["visible_units"][i]["unit_id"].asInt();
+
+					// Check if the same unit
+					if (unit->getId() == json_id)
+					{
+
+						unit->addToVisibleUnits(unit);
+					}
+				}
+			}
+		}
+
 		// stats
 		unit->setTimeUnits(tu);
 		unit->setCoopEnergy(energy);
@@ -366,7 +409,10 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 
 	reader.parse(obj_str, obj);
 
-	int id = obj["id"].asInt();
+	int unit_id = obj["unit_id"].asInt();
+
+	int target_id = obj["target_id"].asInt();
+	getCoopMod()->_psi_target_id = target_id;
 
 	int tu = obj["tu"].asInt();
 	int energy = obj["energy"].asInt();
@@ -383,27 +429,28 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 	int endy = obj["coords"]["end"]["y"].asInt();
 	int endz = obj["coords"]["end"]["z"].asInt();
 
+	// new!
+	std::string weapon_type = obj["weapon_type"].asString();
+	std::string hand = obj["hand"].asString();
+	int type = obj["type"].asInt();
+
 	Position* startpos = new Position(startx, starty, startz);
 	Position* endpos = new Position(endx, endy, endz);
 
 	BattleUnit* unit = 0;
 
-	bool found = false;
+	bool found_unit = false;
 
+	// unit
 	for (auto u : *_save->getUnits())
 	{
 
-		if (u->getId() == id)
+		if (u->getId() == unit_id)
 		{
-			found = true;
+			found_unit = true;
 			unit = u;
 			break;
 		}
-	}
-
-	if (found == false)
-	{
-		return;
 	}
 
 	unit->setPosition(*startpos);
@@ -418,11 +465,172 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 	// other
 	_save->setSelectedUnit(unit);
 	_currentAction.actor = unit;
-	_currentAction.type = BA_WALK;
 	_currentAction.targeting = false;
 	_currentAction.target = *endpos;
+	_currentAction.type = (BattleActionType)type;
 
-	statePushBack(new PsiAttackBState(this, _currentAction));
+	// if not weapon
+	if (!_currentAction.weapon && weapon_type != "")
+	{
+		if (hand == "right")
+		{
+
+			_currentAction.weapon = unit->getRightHandWeapon();
+
+			unit->setActiveRightHand();
+		}
+
+		if (hand == "left")
+		{
+
+			_currentAction.weapon = unit->getLeftHandWeapon();
+
+			unit->setActiveLeftHand();
+		}
+
+		_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+	}
+	else if (_currentAction.weapon)
+	{
+
+		if (_currentAction.weapon->getRules()->getType() != weapon_type && weapon_type != "")
+		{
+
+			_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+		}
+	}
+
+	// if weapon is not null
+	if (_currentAction.weapon)
+	{
+
+		_currentAction.updateTU();
+
+		statePushBack(new PsiAttackBState(this, _currentAction));
+
+	}
+
+}
+
+void BattlescapeGame::melee_attack(std::string obj_str)
+{
+
+	
+	Json::Reader reader;
+	Json::Value obj;
+
+	reader.parse(obj_str, obj);
+
+	int unit_id = obj["unit_id"].asInt();
+
+	int target_id = obj["target_id"].asInt();
+	getCoopMod()->_melee_target_id = target_id;
+
+	int tu = obj["tu"].asInt();
+	int energy = obj["energy"].asInt();
+	int health = obj["health"].asInt();
+	int morale = obj["morale"].asInt();
+	int stunlevel = obj["stunlevel"].asInt();
+	int mana = obj["mana"].asInt();
+
+	int startx = obj["coords"]["start"]["x"].asInt();
+	int starty = obj["coords"]["start"]["y"].asInt();
+	int startz = obj["coords"]["start"]["z"].asInt();
+
+	int endx = obj["coords"]["end"]["x"].asInt();
+	int endy = obj["coords"]["end"]["y"].asInt();
+	int endz = obj["coords"]["end"]["z"].asInt();
+
+	// new!
+	std::string weapon_type = obj["weapon_type"].asString();
+	std::string hand = obj["hand"].asString();
+	int type = obj["type"].asInt();
+
+	int hitNumber = obj["hitNumber"].asInt();
+	getCoopMod()->_melee_hit_number = hitNumber;
+
+	// ammo
+	int ammo_id = obj["ammo_id"].asInt();
+	std::string ammo_type = obj["ammo_type"].asString();
+
+	getCoopMod()->_currentAmmoID = ammo_id;
+	getCoopMod()->currentAmmoType = ammo_type;
+
+	Position* startpos = new Position(startx, starty, startz);
+	Position* endpos = new Position(endx, endy, endz);
+
+	BattleUnit* unit = 0;
+
+	bool found_unit = false;
+
+	// unit
+	for (auto u : *_save->getUnits())
+	{
+
+		if (u->getId() == unit_id)
+		{
+			found_unit = true;
+			unit = u;
+			break;
+		}
+	}
+
+	unit->setPosition(*startpos);
+
+	// stats
+	unit->setTimeUnits(tu);
+	unit->setCoopEnergy(energy);
+	unit->setHealth(health);
+	unit->setCoopMorale(morale);
+	unit->setCoopMana(mana);
+
+	// other
+	_save->setSelectedUnit(unit);
+	_currentAction.actor = unit;
+	_currentAction.targeting = false;
+	_currentAction.target = *endpos;
+	_currentAction.type = (BattleActionType)type;
+
+	// if not weapon
+	if (!_currentAction.weapon && weapon_type != "")
+	{
+		if (hand == "right")
+		{
+
+			_currentAction.weapon = unit->getRightHandWeapon();
+
+			unit->setActiveRightHand();
+		}
+
+		if (hand == "left")
+		{
+
+			_currentAction.weapon = unit->getLeftHandWeapon();
+
+			unit->setActiveLeftHand();
+		}
+
+		_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+	}
+	else if (_currentAction.weapon)
+	{
+
+		if (_currentAction.weapon->getRules()->getType() != weapon_type && weapon_type != "")
+		{
+
+			_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+		}
+	}
+
+	// if weapon is not null
+	if (_currentAction.weapon)
+	{
+
+		_currentAction.updateTU();
+
+		statePushBack(new MeleeAttackBState(this, _currentAction));
+	}
+
 
 }
 
@@ -494,6 +702,7 @@ void BattlescapeGame::abortCoopPath(int x, int y, int z, int unit_id, int setDir
 
 	_save->getPathfinding()->abortPathCoop();
 
+	/*
 	for (auto &unit : *_save->getUnits())
 	{
 
@@ -508,6 +717,7 @@ void BattlescapeGame::abortCoopPath(int x, int y, int z, int unit_id, int setDir
 		}
 
 	}
+	*/
 
 }
 
@@ -609,14 +819,16 @@ int BattlescapeGame::think()
 	// nothing is happening - see if we need some alien AI or units panicking or what have you
 	if (_states.empty())
 	{
-		if (_save->getUnitsFalling())
+		// coop
+		if (_save->getUnitsFalling() && ((getCoopMod()->getCoopStatic() == true && getCoopMod()->_isActivePlayerSync == true) || getCoopMod()->getCoopStatic() == false))
 		{
 			statePushFront(new UnitFallBState(this));
 			_save->setUnitsFalling(false);
 			return ret;
 		}
 		// it's a non player side (ALIENS or CIVILIANS)
-		if (_save->getSide() != FACTION_PLAYER)
+		// coop
+		if (_save->getSide() != FACTION_PLAYER && ((getCoopMod()->getCoopStatic() == true && getCoopMod()->_isActivePlayerSync == true) || getCoopMod()->getCoopStatic() == false))
 		{
 			auto sideBackup = _save->getSide();
 			_save->resetUnitHitStates();
@@ -641,6 +853,7 @@ int BattlescapeGame::think()
 						}
 						ret = units > 0 ? total / units : 0;
 						//Log(LOG_INFO) << "units: " << units << " total: " << total << " ret: " << ret;
+
 					}
 				}
 				else
@@ -684,6 +897,40 @@ int BattlescapeGame::think()
 		}
 	}
 
+	// COOP
+	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true && getCoopMod()->_isActiveAISync == true)
+	{
+
+		Json::Value root;
+		root["state"] = "AIProgress";
+
+		root["ret"] = ret;
+		root["side"] = (int)_save->getSide();
+
+		root["selected_unit_id"] = -1;
+
+		if (_save->getSelectedUnit())
+		{
+			root["selected_unit_id"] = _save->getSelectedUnit()->getId();
+		}
+
+		root["AISecondMove"] = _AISecondMove;
+
+		root["end"] = getCoopMod()->_coopEnd;
+		getCoopMod()->_coopEnd = 0;
+
+		getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
+	// coop
+	if (getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false && getCoopMod()->_AIProgressCoop > -1 && getCoopMod()->_isActiveAISync == true)
+	{
+
+		ret = getCoopMod()->_AIProgressCoop;
+		_AISecondMove = getCoopMod()->_AISecondMoveCoop;
+
+	}
+
 	return ret;
 }
 
@@ -717,6 +964,9 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 		{
 			if (!_save->getDebugMode())
 			{
+				// coop
+				getCoopMod()->_coopEnd = 1;
+
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
 			}
@@ -923,7 +1173,7 @@ void BattlescapeGame::endTurn()
 	_AISecondMove = false;
 
 	// coop
-	if (_triggerProcessed.tryRun() || (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
+	if (_triggerProcessed.tryRun())
 	{
 		if (_save->getTileEngine()->closeUfoDoors() && Mod::SLIDING_DOOR_CLOSE != -1)
 		{
@@ -947,23 +1197,6 @@ void BattlescapeGame::endTurn()
 				const RuleItem *rule = item->getRules();
 				const Tile *tile = item->getTile();
 				BattleUnit *unit = item->getOwner();
-
-				// coop (pvp)
-				if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
-				{
-
-					if (item)
-					{
-
-						if (item->getFuseTimer() > 0 && item->getTile())
-						{
-							item->setFuseTimer(item->getFuseTimer() - 1);
-							item->setFuseEnabled(true);
-						}
-
-					}
-
-				}
 
 				if (!tile && unit && item->getFuseTimer() != -1 && !_allEnemiesNeutralized)
 				{
@@ -1040,18 +1273,7 @@ void BattlescapeGame::endTurn()
 			}
 		}
 
-
-		// coop
-		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false)))
-		{
-			// do nothing
-
-		}
-		else
-		{
-			_save->endTurn();
-		}
-
+		_save->endTurn();
 
 		t = _save->getTileEngine()->checkForTerrainExplosions();
 		if (t)
@@ -1062,70 +1284,6 @@ void BattlescapeGame::endTurn()
 			return;
 		}
 
-
-
-
-
-	}
-
-	// coop (PVE)
-	if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (connectionTCP::_coopGamemode == 1 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 0 && _parentState->getBattleGame()->getHost() == false) || (connectionTCP::_coopGamemode == 4 && _parentState->getBattleGame()->getHost() == false))
-	{
-
-		return;
-
-	}
-
-	// coop (PVP)
-	if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3))
-	{
-
-		_endTurnRequested = false;
-
-		bool is_battle_finished = false;
-		bool found_host = false;
-		bool found_client = false;
-
-		for (auto *bu : *_save->getUnits())
-		{
-
-			if (bu->getCoop() == 0 && bu->isOut() == false && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
-			{
-				found_host = true;
-				break;
-			}
-		}
-
-		for (auto *bu : *_save->getUnits())
-		{
-
-			if (bu->getCoop() == 1 && bu->isOut() == false && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
-			{
-				found_client = true;
-				break;
-			}
-		}
-
-		if (found_host == false || found_client == false)
-		{
-
-			is_battle_finished = true;
-		}
-
-
-		if (is_battle_finished == true)
-		{
-			_save->endTurn();
-			_save->setAborted(true);
-			_parentState->finishBattle(true, 0);
-		}
-		else
-		{
-			return;
-		}
-
-
-	
 	}
 
 	_triggerProcessed.reset();
@@ -1588,6 +1746,11 @@ void BattlescapeGame::handleNonTargetAction()
 void BattlescapeGame::endTurnCoop()
 {
 	_parentState->endTurnCoop();
+}
+
+void BattlescapeGame::endBattleTurnCoop()
+{
+	endTurn();
 }
 
 /**
@@ -2143,7 +2306,7 @@ bool BattlescapeGame::cancelCurrentAction(bool bForce)
 	bool bPreviewed = Options::battleNewPreviewPath != PATH_NONE;
 
 	// coop
-	if (_parentState->getBattleGame()->isCoop() == true && _parentState->getBattleGame()->getCoopMod()->_isActivePlayerSync == true && _parentState->getBattleGame()->getCoopMod()->_isActiveAISync == false)
+	if (_parentState->getBattleGame()->isCoop() == true && _parentState->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
 	{
 		Json::Value obj;
 		obj["state"] = "cancelCurrentAction";
@@ -2721,6 +2884,13 @@ void BattlescapeGame::launchAction()
  */
 void BattlescapeGame::psiButtonAction()
 {
+
+	// coop fix
+	if (!_save->getSelectedUnit())
+	{
+		return;
+	}
+
 	if (!_currentAction.waypoints.empty()) // in case waypoints were set with a blaster launcher, avoid accidental misclick
 		return;
 	BattleItem *item = _save->getSelectedUnit()->getSpecialWeapon(BT_PSIAMP);
@@ -2760,17 +2930,11 @@ void BattlescapeGame::psiButtonAction()
 		setupCursor();
 
 		// coop psi click
-		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && isYourTurn == 2)
+		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && _parentState->getGame()->getCoopMod()->_isActivePlayerSync == true)
 		{
 
 			Json::Value root;
 			root["state"] = "psi_press";
-
-			// if pvp (only mindcontrol)
-			if (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3)
-			{
-				_currentAction.type = BA_MINDCONTROL;
-			}
 
 			_parentState->getGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
@@ -2787,7 +2951,42 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 {
 	if (victim)
 	{
+
 		Game *game = getSave()->getBattleState()->getGame();
+
+		// coop (pvp)
+		if (game->getCoopMod()->getCoopStatic() == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3))
+		{
+
+			attack.type = BA_MINDCONTROL;
+
+		}
+
+		// coop (pvp)
+		if (game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3))
+		{
+
+			if (victim->getCoop() == 0)
+			{
+				victim->setCoop(1);
+			}
+			else if (victim->getCoop() == 1)
+			{
+				victim->setCoop(0);
+			}
+
+			victim->_coop_mindcontrolled = true;
+
+			victim->convertToFaction(FACTION_PLAYER);
+			victim->setOriginalFaction(FACTION_PLAYER);
+
+			Json::Value root;
+			root["state"] = "psi_result";
+			root["unit_id"] = victim->getId();
+
+			game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
+
 		if (attack.attacker->getFaction() == FACTION_HOSTILE)
 		{
 			// show a little infobox with the name of the unit and "... is under alien control"
@@ -2808,28 +3007,7 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 			}
 			getSave()->getBattleState()->updateSoldierInfo();
 		}
-		
-		// coop (pvp)
-		if (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3)
-		{
 
-			if (attack.type == BA_MINDCONTROL || attack.type ==  BA_PANIC)
-			{
-
-				if (victim->getCoop() == 0)
-				{
-					victim->setCoop(1);
-					victim->_coop_mindcontrolled = true;
-				}
-				else if (victim->getCoop() == 1)
-				{
-					victim->setCoop(0);
-					victim->_coop_mindcontrolled = true;
-				}
-
-			}
-
-		}
 	}
 }
 

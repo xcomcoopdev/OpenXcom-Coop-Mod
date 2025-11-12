@@ -380,82 +380,6 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	_scriptValues.save(writer, shared);
 }
 
-YAML::YamlNodeWriter Soldier::saveCoop(YAML::YamlNodeWriter writer, const ScriptGlobal* shared)
-{
-
-	writer.setAsMap();
-
-	writer.write("type", _rules->getType());
-	writer.write("id", _id);
-	writer.write("name", _name);
-
-	// coop
-	writer.write("coopbase", _coopbase);
-	writer.write("coop", _coop);
-	writer.write("coopcraft", _coopcraft);
-	writer.write("coopcrafttype", _coopcraft_type);
-	writer.write("coopname", _coopname);
-
-	if (!_callsign.empty())
-		writer.write("callsign", _callsign);
-	writer.write("nationality", _nationality);
-	writer.write("initialStats", _initialStats);
-	writer.write("currentStats", _currentStats);
-	if (_dailyDogfightExperienceCache.firing > 0 || _dailyDogfightExperienceCache.reactions > 0 || _dailyDogfightExperienceCache.bravery > 0)
-		writer.write("dailyDogfightExperienceCache", _dailyDogfightExperienceCache);
-	writer.write("rank", _rank);
-	// coop
-	if (_craft && _coopbase == -1)
-		_craft->saveId(writer["craft"]);
-	writer.write("gender", _gender);
-	writer.write("look", _look);
-	writer.write("lookVariant", _lookVariant);
-	writer.write("missions", _missions);
-	writer.write("kills", _kills);
-	writer.write("stuns", _stuns);
-	if (_manaMissing > 0)
-		writer.write("manaMissing", _manaMissing);
-	if (_healthMissing > 0)
-		writer.write("healthMissing", _healthMissing);
-	if (_recovery > 0.0f)
-		writer.write("recovery", _recovery);
-	writer.write("armor", _armor->getType());
-	if (_replacedArmor != 0)
-		writer.write("replacedArmor", _replacedArmor->getType());
-	if (_transformedArmor != 0)
-		writer.write("transformedArmor", _transformedArmor->getType());
-	if (_psiTraining)
-		writer.write("psiTraining", _psiTraining);
-	if (_training)
-		writer.write("training", _training);
-	if (_returnToTrainingWhenHealed)
-		writer.write("returnToTrainingWhenHealed", _returnToTrainingWhenHealed);
-	writer.write("improvement", _improvement);
-	writer.write("psiStrImprovement", _psiStrImprovement);
-	writer.write("equipmentLayout", _equipmentLayout,
-				 [](YAML::YamlNodeWriter& w, EquipmentLayoutItem* i)
-				 { i->save(w.write()); });
-	writer.write("personalEquipmentLayout", _personalEquipmentLayout,
-				 [](YAML::YamlNodeWriter& w, EquipmentLayoutItem* i)
-				 { i->save(w.write()); });
-	if (_personalEquipmentArmor)
-		writer.write("personalEquipmentArmor", _personalEquipmentArmor->getType());
-	if (_death != 0)
-		_death->save(writer["death"]);
-	if (Options::soldierDiaries && (!_diary->getMissionIdList().empty() || !_diary->getSoldierCommendations()->empty() || _diary->getMonthsService() > 0))
-		_diary->save(writer["diary"]);
-	if (_corpseRecovered)
-		writer.write("corpseRecovered", _corpseRecovered);
-	if (!_previousTransformations.empty())
-		writer.write("previousTransformations", _previousTransformations);
-	if (!_transformationBonuses.empty())
-		writer.write("transformationBonuses", _transformationBonuses);
-
-	_scriptValues.save(writer, shared);
-
-	return writer;
-}
-
 /**
  * Returns the soldier's full name (and, optionally, statString).
  * @param statstring Add stat string?
@@ -1014,21 +938,25 @@ void Soldier::setId(int id)
 	_id = id;
 }
 
-Soldier* Soldier::deepCopy(const Mod* mod, SavedGame* save) const
+// coop
+Soldier* Soldier::deepCopy(const Mod* mod, SavedGame* save)
 {
 	// Create a new soldier with the same soldier type and nationality
-	//Soldier* copy = new Soldier(mod->getSoldier(_rules->getType()), nullptr, _nationality);
+	Soldier* copy = new Soldier(mod->getSoldier(_rules->getType()), _armor, _nationality);
 
-	//copy.sav
+	// Load this soldier to YAML
+	YAML::YamlRootNodeWriter coopWriter;
+	this->save(coopWriter, mod->getScriptGlobal());
 
-	//saveCoop()
-	// Save this soldier to YAML and load into the new one
-	//YAML::Node tmp = this->save(mod->getScriptGlobal());
-	//copy->load(tmp, mod, save, mod->getScriptGlobal(), false);
+    // make a reader directly from the writer
+	YAML::YamlNodeReader coopReader = coopWriter.toReader();
 
-	//copy->setCoopName(_coopname);
+	// load
+	copy->load(coopReader, mod, save, mod->getScriptGlobal(), false);
 
-	return nullptr;
+	copy->setCoopName(_coopname);
+
+	return copy;
 }
 
 /**

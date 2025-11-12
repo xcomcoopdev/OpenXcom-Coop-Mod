@@ -59,6 +59,85 @@ void MeleeAttackBState::init()
 	if (_initialized) return;
 	_initialized = true;
 
+	
+	// coop
+	if (_parent->getCoopMod()->_isActivePlayerSync == false)
+	{
+
+		if (_parent->getCoopMod()->_melee_target_id != -1)
+		{
+
+			// unit
+			for (auto u : *_parent->getSave()->getUnits())
+			{
+
+				if (u->getId() == _parent->getCoopMod()->_melee_target_id)
+				{
+					_target = u;
+					_parent->getCoopMod()->_melee_target_id = -1;
+					break;
+				}
+			}
+
+		}
+
+		if (_parent->getCoopMod()->_melee_hit_number != -1)
+		{
+
+			_hitNumber = _parent->getCoopMod()->_melee_hit_number;
+
+		}
+
+		
+		if (_parent->getCoopMod()->_currentAmmoID != -1 && _parent->getCoopMod()->currentAmmoType != "")
+		{
+
+			bool found = false;
+
+			for (auto ammo_item : *_parent->getSave()->getItems())
+			{
+
+				if (ammo_item->getId() == _parent->getCoopMod()->_currentAmmoID && ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+				{
+
+					found = true;
+					_ammo = ammo_item;
+					break;
+				}
+			}
+
+			if (found == false)
+			{
+
+				for (auto ammo_item : *_parent->getSave()->getItems())
+				{
+
+					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+					{
+
+						found = true;
+						_ammo = ammo_item;
+						break;
+					}
+				}
+			}
+
+			// Something really bad happened here...
+			// In this exceptional case, create new ammo
+			if (found == false)
+			{
+
+				_ammo = new BattleItem(_parent->getSave()->getMod()->getItem(_parent->getCoopMod()->currentAmmoType), _parent->getSave()->getCurrentItemId());
+			}
+
+			_parent->getCoopMod()->currentAmmoType = "";
+			_parent->getCoopMod()->_currentAmmoID = -1;
+		}
+
+		coop_action = true;
+		
+	}
+
 	int terrainMeleeTilePart = _action.terrainMeleeTilePart;
 	_action.terrainMeleeTilePart = 0; // reset!
 
@@ -72,20 +151,26 @@ void MeleeAttackBState::init()
 	_unit = _action.actor;
 
 	bool reactionShoot = _unit->getFaction() != _parent->getSave()->getSide();
-	_ammo = _action.weapon->getAmmoForAction(BA_HIT, reactionShoot ? nullptr : &_action.result);
+
+	// coop
 	if (!_ammo)
 	{
-		_parent->popState();
-		return;
+		_ammo = _action.weapon->getAmmoForAction(BA_HIT, reactionShoot ? nullptr : &_action.result);
 	}
 
-	if (!_parent->getSave()->getTile(_action.target)) // invalid target position
+	if (!_ammo && !coop_action)
 	{
 		_parent->popState();
 		return;
 	}
 
-	if (_unit->isOut() || _unit->isOutThresholdExceed())
+	if (!_parent->getSave()->getTile(_action.target) && !coop_action) // invalid target position
+	{
+		_parent->popState();
+		return;
+	}
+
+	if (_unit->isOut() || _unit->isOutThresholdExceed() && !coop_action)
 	{
 		// something went wrong - we can't shoot when dead or unconscious, or if we're about to fall over.
 		_parent->popState();
@@ -97,7 +182,7 @@ void MeleeAttackBState::init()
 	{
 		// no ammo or target is dead: give the time units back and cancel the shot.
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
-		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit())
+		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit() && !coop_action)
 		{
 			_parent->popState();
 			return;
@@ -110,7 +195,7 @@ void MeleeAttackBState::init()
 	}
 
 	//spend TU
-	if (!_action.spendTU(&_action.result))
+	if (!_action.spendTU(&_action.result) && !coop_action)
 	{
 		_parent->popState();
 		return;
@@ -124,39 +209,113 @@ void MeleeAttackBState::init()
 		return;
 	}
 
-	AIModule *ai = _unit->getAIModule();
-
-	if (_unit->getFaction() == _parent->getSave()->getSide() &&
-		_unit->getFaction() != FACTION_PLAYER &&
-		_parent->_debugPlay == false &&
-		ai && ai->getTarget())
+	// coop
+	if (coop_action == false)
 	{
-		_target = ai->getTarget();
+
+		AIModule* ai = _unit->getAIModule();
+
+		if (_unit->getFaction() == _parent->getSave()->getSide() &&
+			_unit->getFaction() != FACTION_PLAYER &&
+			_parent->_debugPlay == false &&
+			ai && ai->getTarget())
+		{
+			_target = ai->getTarget();
+		}
+		else
+		{
+			_target = _parent->getSave()->getTile(_action.target)->getUnit();
+		}
+
+		if (!_target)
+		{
+			throw Exception("This is a known (but tricky) bug... still fixing it, sorry. In the meantime, try save scumming option or kill all aliens in debug mode to finish the mission.");
+		}
+
+		int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
+		_voxel = _action.target.toVoxel() + Position(8, 8, height);
+
+		if (!_parent->getSave()->getTile(_voxel.toTile()))
+		{
+			throw Exception("Melee attack animation overflow: target voxel is outside of the map boundaries.");
+		}
+
+		if (_unit->getFaction() == FACTION_HOSTILE)
+		{
+			_hitNumber = _weapon->getRules()->getAIMeleeHitCount() - 1;
+		}
+
 	}
 	else
 	{
-		_target = _parent->getSave()->getTile(_action.target)->getUnit();
-	}
 
-	if (!_target)
-	{
-		throw Exception("This is a known (but tricky) bug... still fixing it, sorry. In the meantime, try save scumming option or kill all aliens in debug mode to finish the mission.");
-	}
+		if (_target)
+		{
 
-	int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
-	_voxel = _action.target.toVoxel() + Position(8, 8, height);
+			int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
+			_voxel = _action.target.toVoxel() + Position(8, 8, height);
 
-	if (!_parent->getSave()->getTile(_voxel.toTile()))
-	{
-		throw Exception("Melee attack animation overflow: target voxel is outside of the map boundaries.");
-	}
+		}
 
-	if (_unit->getFaction() == FACTION_HOSTILE)
-	{
-		_hitNumber = _weapon->getRules()->getAIMeleeHitCount() - 1;
 	}
 
 	performMeleeAttack();
+
+	// coop
+	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+		Json::Value obj;
+		obj["state"] = "melee_attack";
+
+		int index = 0;
+
+		obj["unit_id"] = _unit->getId();
+		obj["target_id"] = _target->getId();
+
+		int startx = _unit->getPosition().x;
+		int starty = _unit->getPosition().y;
+		int startz = _unit->getPosition().z;
+
+		obj["coords"]["start"]["x"] = startx;
+		obj["coords"]["start"]["y"] = starty;
+		obj["coords"]["start"]["z"] = startz;
+
+		int endx = _parent->getCurrentAction()->target.x;
+		int endy = _parent->getCurrentAction()->target.y;
+		int endz = _parent->getCurrentAction()->target.z;
+
+		obj["coords"]["end"]["x"] = endx;
+		obj["coords"]["end"]["y"] = endy;
+		obj["coords"]["end"]["z"] = endz;
+
+		obj["tu"] = _unit->getTimeUnits();
+		obj["energy"] = _unit->getEnergy();
+		obj["health"] = _unit->getHealth();
+		obj["morale"] = _unit->getMorale();
+		obj["stunlevel"] = _unit->getStunlevel();
+		obj["mana"] = _unit->getMana();
+
+		// new!
+		obj["weapon_type"] = _action.weapon->getRules()->getType();
+		obj["type"] = (int)_action.type;
+		obj["hand"] = _parent->getCoopWeaponHand();
+
+		obj["hitNumber"] = _hitNumber;
+
+		obj["ammo_type"] = "";
+		obj["ammo_id"] = -1;
+
+		if (_ammo)
+		{
+
+			obj["ammo_type"] = _ammo->getRules()->getType();
+			obj["ammo_id"] = _ammo->getId();
+		}
+
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
 }
 
 /**

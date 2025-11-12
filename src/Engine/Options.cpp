@@ -571,6 +571,7 @@ void createAdvancedOptionsOTHER()
 	// your fork's advanced options here
 
 	// coop
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableTimeSync", &EnableTimeSync, true, "Enable Time Sync", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
 
 }

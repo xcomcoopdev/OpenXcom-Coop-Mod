@@ -2517,7 +2517,7 @@ bool TileEngine::checkReactionFire(BattleUnit *unit, const BattleAction &origina
 	}
 
 	// coop
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false && _save->getBattleGame()->getCoopMod()->_isActiveAISync == false)
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false)
 	{
 		return false;
 	}
@@ -3232,6 +3232,19 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 		{
 			target->setMurdererWeaponAmmo(attack.damage_item->getRules()->getName());
 		}
+	}
+
+	// COOP
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "hit_unit";
+		root["unit_id"] = target->getId();
+		root["health"] = target->getHealth();
+
+		_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
 	}
 
 	return true;
