@@ -119,6 +119,24 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 
 }
 
+connectionTCP::~connectionTCP()
+{
+
+	 _stop = true;
+	 _clientStop = true;
+	 _hostStop = true;
+
+	if (_loopThread.joinable())
+		_loopThread.join();   
+
+	if (_clientThread.joinable())
+		_clientThread.join();
+
+	if (_hostThread.joinable())
+		_hostThread.join();   
+
+}
+
 SPSCQueue<1024> g_txQ{};
 SPSCQueue<1024> g_rxQ{};
 
@@ -184,7 +202,7 @@ void sendTCPPacketStaticData(std::string data)
 		return;
 	if (!g_txQ.push(std::move(data)))
 	{
-		OutputDebugStringA("TX queue full, dropping packet\n");
+		DebugLog("TX queue full, dropping packet\n");
 	}
 }
 
@@ -206,13 +224,13 @@ static inline bool maybeHandlePingOnClient(const Json::Value& obj)
 void logError(const std::string& msg)
 {
 	std::cerr << msg << std::endl;
-	OutputDebugStringA((msg + "\n").c_str());
+	DebugLog((msg + "\n").c_str());
 }
 
 // in the loop, load the map file data between host and client
-DWORD __stdcall loopData(LPVOID param)
+void connectionTCP::loopData()
 {
-	while (true)
+	while (!_stop)
 	{
 		try
 		{
@@ -235,7 +253,7 @@ DWORD __stdcall loopData(LPVOID param)
 				while (getline(myfile, line))
 				{
 					while (!isWaitMap)
-						Sleep(20);
+						SDL_Delay(20);
 
 					std::cout << line << std::endl;
 					if (fileindex != 0)
@@ -257,7 +275,8 @@ DWORD __stdcall loopData(LPVOID param)
 						for (unsigned i = 0; i < result.length(); i += 3000)
 						{
 							while (!isWaitMap)
-								Sleep(20);
+								SDL_Delay(20);
+
 							isWaitMap = false;
 
 							std::string splitValue = result.substr(i, 3000);
@@ -278,7 +297,7 @@ DWORD __stdcall loopData(LPVOID param)
 				sendTCPPacketStaticData(obj.toStyledString());
 
 				while (!isWaitMap)
-					Sleep(20);
+					SDL_Delay(20);
 
 				std::string jsonData = sendFileBase
 										   ? "{\"state\" : \"MAP_RESULT_CLIENT_BASE\"}"
@@ -308,7 +327,7 @@ DWORD __stdcall loopData(LPVOID param)
 				while (getline(myfile, line))
 				{
 					while (!isWaitMap)
-						Sleep(20);
+						SDL_Delay(20);
 
 					std::cout << line << std::endl;
 					if (fileindex != 0)
@@ -330,7 +349,8 @@ DWORD __stdcall loopData(LPVOID param)
 						for (unsigned i = 0; i < result.length(); i += 3000)
 						{
 							while (!isWaitMap)
-								Sleep(20);
+								SDL_Delay(20);
+
 							isWaitMap = false;
 
 							std::string splitValue = result.substr(i, 3000);
@@ -351,7 +371,7 @@ DWORD __stdcall loopData(LPVOID param)
 				sendTCPPacketStaticData(obj.toStyledString());
 
 				while (!isWaitMap)
-					Sleep(20);
+					SDL_Delay(20);
 
 				std::string jsonData = sendFileBase
 										   ? "{\"state\" : \"MAP_RESULT_HOST_BASE\"}"
@@ -372,15 +392,14 @@ DWORD __stdcall loopData(LPVOID param)
 			logError("Unknown error in loopData!");
 		}
 
-		Sleep(10); // Prevent 100% CPU usage when idle
+		SDL_Delay(10); // Prevent 100% CPU usage when idle
 	}
 }
 
 void connectionTCP::createLoopdataThread()
 {
 
-	HANDLE hClientThread2 = CreateThread(NULL, 0, loopData, NULL, 0, 0);
-	CloseHandle(hClientThread2);
+	_loopThread = std::thread(&connectionTCP::loopData, this);
 
 }
 
@@ -389,7 +408,7 @@ void connectionTCP::updateCoopTask()
 {
 
 	// time
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0)
 	{
 
 		if (_game->getSavedGame())
@@ -661,7 +680,7 @@ void connectionTCP::updateCoopTask()
 				std::istringstream ss(jsonStr);
 				if (!Json::parseFromStream(rb, ss, &obj, &errs))
 				{
-					OutputDebugStringA(("JSON parse error: " + errs + "\n").c_str());
+					DebugLog(("JSON parse error: " + errs + "\n").c_str());
 					continue; // drop malformed
 				}
 
@@ -672,11 +691,9 @@ void connectionTCP::updateCoopTask()
 				const bool consumeNow =
 						 _coop_task_completed || (
 						 (stateString == "abortPath" && _coopWalkInit) ||
-						 stateString == "waypoint" ||
 						 (stateString == "unit_death" && _coopInit) ||
-						 (stateString == "after_unit_death" && _coopInit) &&
-					 !_isActiveAISync) ||
-					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress";
+						 (stateString == "after_unit_death" && _coopInit)) ||
+					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState";
 
 				if (consumeNow)
 				{
@@ -691,7 +708,7 @@ void connectionTCP::updateCoopTask()
 			}
 			catch (const std::exception& e)
 			{
-				OutputDebugStringA((std::string("Exception in processNetworkLoopNoLocks: ") + e.what() + "\n").c_str());
+				DebugLog((std::string("Exception in processNetworkLoopNoLocks: ") + e.what() + "\n").c_str());
 				// Put back to the *back* to avoid pinning the head
 				rxHold.emplace_back(std::move(jsonStr));
 				onConnect = -3;
@@ -960,40 +977,40 @@ static inline bool maybeHandlePongOnClient(const Json::Value& obj)
 }
 
 // ===== Client thread =====
-extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
+void connectionTCP::startTCPClient()
 {
 
-	Sleep(1000);
-	OutputDebugStringA("startTCPClient\n");
+	SDL_Delay(1000);
+	DebugLog("startTCPClient\n");
 	resetCoopState(false); // client
 
 #ifdef _WIN32
-	Sleep(100); // tiny stagger; avoid long sleeps
+	SDL_Delay(100); // tiny stagger; avoid long sleeps
 #endif
 
 	if (SDLNet_Init() == -1)
 	{
-		OutputDebugStringA("SDLNet init failed\n");
+		DebugLog("SDLNet init failed\n");
 		onConnect = -3;
-		return (unsigned long)-1;
+		return;
 	}
 
 	IPaddress ip;
 	if (SDLNet_ResolveHost(&ip, ipAddress.c_str(), tcp_port) == -1)
 	{
-		OutputDebugStringA("Can't resolve host\n");
+		DebugLog("Can't resolve host\n");
 		SDLNet_Quit();
 		onConnect = 0;
-		return (unsigned long)-1;
+		return;
 	}
 
 	TCPsocket sock = SDLNet_TCP_Open(&ip);
 	if (!sock)
 	{
-		OutputDebugStringA("Can't connect to server\n");
+		DebugLog("Can't connect to server\n");
 		SDLNet_Quit();
 		onConnect = 0;
-		return (unsigned long)-1;
+		return;
 	}
 
 	SDLNet_SocketSet socketSet = SDLNet_AllocSocketSet(1);
@@ -1008,6 +1025,9 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 	for (;;)
 	{
 		if (onConnect == -1)
+			break;
+
+		if (_clientStop)
 			break;
 
 		// ---- Batch-send: drain up to 64 queued payloads into one write ----
@@ -1025,7 +1045,7 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 			{
 				if (!sendAll(sock, out.data(), (int)out.size()))
 				{
-					OutputDebugStringA("DISCONNECT CLIENT: SEND\n");
+					DebugLog("DISCONNECT CLIENT: SEND\n");
 					onConnect = -2;
 					onceTime = false;
 					break;
@@ -1043,7 +1063,7 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 				int bytes = SDLNet_TCP_Recv(sock, buf, sizeof(buf));
 				if (bytes <= 0)
 				{
-					OutputDebugStringA("DISCONNECT CLIENT: RECV\n");
+					DebugLog("DISCONNECT CLIENT: RECV\n");
 					onConnect = -2;
 					onceTime = false;
 					goto client_cleanup;
@@ -1061,7 +1081,7 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 				msgLen = SDL_SwapBE32(msgLen);
 				if (msgLen > kMaxMsgLen)
 				{
-					OutputDebugStringA("Client: message too large, disconnecting\n");
+					DebugLog("Client: message too large, disconnecting\n");
 					onConnect = -3;
 					onceTime = false;
 					goto client_cleanup;
@@ -1088,7 +1108,7 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 					}
 					if (!g_rxQ.push(std::move(message)))
 					{
-						OutputDebugStringA("RX queue full, dropping message\n");
+						DebugLog("RX queue full, dropping message\n");
 					}
 				}
 			}
@@ -1111,7 +1131,7 @@ extern "C" unsigned long __stdcall startTCPClient(void* /*param*/)
 		if (ready == 0 && g_txQ.empty())
 		{
 #ifdef _WIN32
-			Sleep(0);
+			SDL_Delay(0);
 #endif
 		}
 	}
@@ -1120,41 +1140,41 @@ client_cleanup:
 	SDLNet_FreeSocketSet(socketSet);
 	SDLNet_TCP_Close(sock);
 	SDLNet_Quit();
-	return 0;
+	return;
 }
 
 // ===== Host thread (single client) =====
 // Simplified for exactly two players: host + one client.
 // If another client tries to connect, close it silently (no "server_full" message),
 // because we only use sendTCPPacketStaticData for outbound traffic.
-extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
+void connectionTCP::startTCPHost()
 {
-	OutputDebugStringA("startTCPHost\n");
+	DebugLog("startTCPHost\n");
 	resetCoopState(true); // host
 
 	if (SDLNet_Init() == -1)
 	{
 		onConnect = -3;
-		OutputDebugStringA("SDLNet init failed\n");
-		return (unsigned long)-1;
+		DebugLog("SDLNet init failed\n");
+		return;
 	}
 
 	IPaddress ip;
 	if (SDLNet_ResolveHost(&ip, nullptr, tcp_port) == -1)
 	{
-		OutputDebugStringA("Can't resolve host\n");
+		DebugLog("Can't resolve host\n");
 		SDLNet_Quit();
 		onConnect = -3;
-		return (unsigned long)-1;
+		return;
 	}
 
 	TCPsocket listening = SDLNet_TCP_Open(&ip);
 	if (!listening)
 	{
-		OutputDebugStringA("Can't open TCP socket\n");
+		DebugLog("Can't open TCP socket\n");
 		SDLNet_Quit();
 		onConnect = -3;
-		return (unsigned long)-1;
+		return;
 	}
 
 	SDLNet_SocketSet socketSet = SDLNet_AllocSocketSet(2);
@@ -1172,6 +1192,9 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 		if (onConnect == -1)
 			break;
 
+		if (_hostStop)
+			break;
+
 		// ---- Accept new client if we don't have one ----
 		if (TCPsocket newClient = SDLNet_TCP_Accept(listening))
 		{
@@ -1179,7 +1202,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 			{
 				clientSock = newClient;
 				SDLNet_TCP_AddSocket(socketSet, clientSock);
-				OutputDebugStringA("Host: client connected\n");
+				DebugLog("Host: client connected\n");
 				onConnect = 1;
 			}
 			else
@@ -1205,7 +1228,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 			{
 				if (!sendAll(clientSock, out.data(), (int)out.size()))
 				{
-					OutputDebugStringA("Host: send failed, drop client\n");
+					DebugLog("Host: send failed, drop client\n");
 					onConnect = -3;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
@@ -1225,7 +1248,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 				int bytes = SDLNet_TCP_Recv(clientSock, buf, sizeof(buf));
 				if (bytes <= 0)
 				{
-					OutputDebugStringA("Host: client disconnected\n");
+					DebugLog("Host: client disconnected\n");
 					onConnect = -2;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
@@ -1246,7 +1269,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 				msgLen = SDL_SwapBE32(msgLen);
 				if (msgLen > kMaxMsgLen)
 				{
-					OutputDebugStringA("Host: message too large, drop client\n");
+					DebugLog("Host: message too large, drop client\n");
 					onConnect = -3;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
@@ -1278,7 +1301,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 					}
 					if (!g_rxQ.push(std::move(message)))
 					{
-						OutputDebugStringA("RX queue full, dropping message\n");
+						DebugLog("RX queue full, dropping message\n");
 					}
 				}
 			}
@@ -1291,7 +1314,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 		if (ready == 0 && OpenXcom::g_txQ.empty())
 		{
 #ifdef _WIN32
-			Sleep(0);
+			SDL_Delay(0);
 #endif
 		}
 	}
@@ -1309,7 +1332,7 @@ extern "C" unsigned long __stdcall startTCPHost(void* /*param*/)
 
 	server_owner = false;
 	onConnect = -1;
-	return 0;
+	return;
 }
 
 // TCP
@@ -1799,41 +1822,90 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		AbortCoopWalk = false;
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-		battlestate->movePlayerTarget(jsonString);
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->movePlayerTarget(jsonString);
+
+				}
+			}
+		}
+
 	}
 
 	if (stateString == "psi_attack")
 	{
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-		battlestate->psi_attack(jsonString);
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->psi_attack(jsonString);
+
+				}
+			}
+		}
+
+
 	}
 
 	if (stateString == "melee_attack")
 	{
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-		battlestate->melee_attack(jsonString);
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->melee_attack(jsonString);
+
+				}
+			}
+		}
+
 	}
 
 	if (stateString == "BattleScapeTurn")
 	{
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-		battlestate->turnPlayerTarget(jsonString);
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->turnPlayerTarget(jsonString);
+
+				}
+			}
+		}
+
 	}
 
 	if (stateString == "psi_press")
@@ -1854,47 +1926,85 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "ProjectileFlyBState")
 	{
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-		battlestate->shootPlayerTarget(jsonString);
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->shootPlayerTarget(jsonString);
+
+				}
+			}
+		}
+
+
 	}
 
 	if (stateString == "active_grenade")
 	{
 
-		int actor_id = obj["actor_id"].asInt();
-		int type = obj["type"].asInt();
-		std::string hand = obj["hand"].asString();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		bool fusetimer = obj["fusetimer"].asInt();
+					int actor_id = obj["actor_id"].asInt();
+					int type = obj["type"].asInt();
+					std::string hand = obj["hand"].asString();
 
-		int item_id = obj["item_id"].asInt();
+					bool fusetimer = obj["fusetimer"].asInt();
 
-		_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActiveGranade(actor_id, type, hand, fusetimer, item_id);
+					int item_id = obj["item_id"].asInt();
+
+					_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActiveGranade(actor_id, type, hand, fusetimer, item_id);
+
+				}
+			}
+		}
+
 	}
 
 	if (stateString == "action_click")
 	{
 
-		int actor_id = obj["actor_id"].asInt();
-		int type = obj["type"].asInt();
-		std::string hand = obj["hand"].asString();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		bool fuse = obj["fuse"].asBool();
-		bool fusetimer = obj["fusetimer"].asInt();
+					int actor_id = obj["actor_id"].asInt();
+					int type = obj["type"].asInt();
+					std::string hand = obj["hand"].asString();
 
-		int target_x = obj["target_x"].asInt();
-		int target_y = obj["target_y"].asInt();
-		int target_z = obj["target_z"].asInt();
+					bool fuse = obj["fuse"].asBool();
+					bool fusetimer = obj["fusetimer"].asInt();
 
-		int time = obj["time"].asInt();
+					int target_x = obj["target_x"].asInt();
+					int target_y = obj["target_y"].asInt();
+					int target_z = obj["target_z"].asInt();
 
-		std::string weapon_type = obj["weapon_type"].asString();
-		int weapon_id = obj["weapon_id"].asInt();
+					int time = obj["time"].asInt();
 
-		_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActionClick(actor_id, hand, type, fuse, fusetimer, target_x, target_y, target_z, time, weapon_type, weapon_id);
+					std::string weapon_type = obj["weapon_type"].asString();
+					int weapon_id = obj["weapon_id"].asInt();
+
+					_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActionClick(actor_id, hand, type, fuse, fusetimer, target_x, target_y, target_z, time, weapon_type, weapon_id);
+
+				}
+			}
+		}
+
+
 	}
 
 	if (stateString == "unit_action")
@@ -1917,16 +2027,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "medkit")
 	{
 
-		int actor_id = obj["actor_id"].asInt();
-		int type = obj["type"].asInt();
-		int part = obj["part"].asInt();
-		int time = obj["time"].asInt();
-		std::string medkit_state = obj["medkit_state"].asString();
-		std::string action_result = obj["action_result"].asString();
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
 
-		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					int actor_id = obj["actor_id"].asInt();
+					int type = obj["type"].asInt();
+					int part = obj["part"].asInt();
+					int time = obj["time"].asInt();
+					std::string medkit_state = obj["medkit_state"].asString();
+					std::string action_result = obj["action_result"].asString();
 
-		battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+
+					battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
+
+				}
+			}
+		}
+
 	}
 
 	// info box
@@ -2375,25 +2497,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "waypoint")
-	{
-
-		_game->getSavedGame()->getSavedBattle()->getBattleGame()->clearWaypointsCoop();
-		
-		for (int i = 0; i < obj["waypoints"].size(); i++)
-		{
-
-			int pos_x = obj["waypoints"][i]["pos_x"].asInt();
-			int pos_y = obj["waypoints"][i]["pos_y"].asInt();
-			int pos_z = obj["waypoints"][i]["pos_z"].asInt();
-
-			_game->getSavedGame()->getSavedBattle()->getBattleGame()->setWaypointCoop(pos_x, pos_y, pos_z);
-
-		}
-
-
-	}
-
 	// months
 	if (stateString == "time1Month")
 	{
@@ -2724,26 +2827,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				_AISecondMoveCoop = AISecondMove;
 
-				if (end == 1 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
-				{
-
-					if (_coopEnd == 0)
-					{
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(1);
-						_coopEnd++;
-					}
-					else if (_coopEnd == 1)
-					{
-
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
-						_coopEnd = 0;
-					}
-
-					_AISecondMoveCoop = false;
-
-					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
-				}
-
 				if (selected_unit_id != -1)
 				{
 
@@ -2757,10 +2840,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							break;
 						}
 					}
-
 				}
+				
+				if (end == 1 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
+				{
 
+					if (_coopEnd == 0)
+					{
+						_game->getSavedGame()->getSavedBattle()->setSideCoop(1);
+						_coopEnd++;
+					}
+					else if (_coopEnd == 1)
+					{
 
+						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
+						_coopEnd = 0;
+	
+					}
+
+					_AISecondMoveCoop = false;
+
+					_game->getSavedGame()->getSavedBattle()->setSelectedUnit(0);
+
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+				}
 
 			}
 
@@ -2772,12 +2875,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "DebriefingState")
 	{
 
-		if (_game->getCoopMod()->coopMissionEnd == false)
+		bool abort = obj["abort"].asBool();
+
+		_AISecondMoveCoop = false;
+		_AIProgressCoop = 100;
+
+		if (_game->getSavedGame())
 		{
 
-			_game->pushState(new DebriefingState);
-
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+				_game->getSavedGame()->getSavedBattle()->setAborted(abort);
+				_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+			}
 		}
+
+		_game->popState();
+		_game->pushState(new DebriefingState());
 
 	}
 
@@ -3042,7 +3157,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "MAP_RESULT_CLIENT" && onTcpHost == false)
 	{
 
-		OutputDebugStringA("MAP_RESULT_CLIENT");
+		DebugLog("MAP_RESULT_CLIENT");
 
 		writeHostMapFile();
 		loadHostMap();
@@ -3084,16 +3199,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-				OutputDebugStringA("Error: obj missing 'data' or it is not a string.\n");
+				DebugLog("Error: obj missing 'data' or it is not a string.\n");
 			}
 		}
 		catch (const std::exception& e)
 		{
-			OutputDebugStringA(("Exception in map loading: " + std::string(e.what()) + "\n").c_str());
+			DebugLog(("Exception in map loading: " + std::string(e.what()) + "\n").c_str());
 		}
 		catch (...)
 		{
-			OutputDebugStringA("Unknown exception in map loading.\n");
+			DebugLog("Unknown exception in map loading.\n");
 		}
 	}
 
@@ -3138,21 +3253,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// file (host)
 		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/host"))
 		{
-			OutputDebugStringA("host folder created!");
+			DebugLog("host folder created!");
 		}
 		else
 		{
-			OutputDebugStringA("host folder failed created!");
+			DebugLog("host folder failed created!");
 		}
 
 		// file (client)
 		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/client"))
 		{
-			OutputDebugStringA("client folder created!");
+			DebugLog("client folder created!");
 		}
 		else
 		{
-			OutputDebugStringA("client folder failed created!");
+			DebugLog("client folder failed created!");
 		}
 
 		// IF THE HOST IS IN BATTLE, INCLUDE JOINERS; OTHERWISE DO NOTHING
@@ -3276,21 +3391,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// file (host)
 		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/host"))
 		{
-			OutputDebugStringA("host folder created!");
+			DebugLog("host folder created!");
 		}
 		else
 		{
-			OutputDebugStringA("host folder failed created!");
+			DebugLog("host folder failed created!");
 		}
 
 		// file (client)
 		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/client"))
 		{
-			OutputDebugStringA("client folder created!");
+			DebugLog("client folder created!");
 		}
 		else
 		{
-			OutputDebugStringA("client folder failed created!");
+			DebugLog("client folder failed created!");
 		}
 
 		// campaign check
@@ -3427,6 +3542,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		sendTCPPacketData(markers.toStyledString());
+
+		
 
 		// RESET ALL SOLDIERS OUT OF THE BASES(HAPPENS ONCE IN AN ERROR SITUATION)
 		for (auto* base : *_game->getSavedGame()->getBases())
@@ -4143,7 +4260,7 @@ void connectionTCP::sendTCPPacketStaticData2(std::string data)
 		return;
 	if (!enqueueTx(std::move(data)))
 	{ // fastest path
-		OutputDebugStringA("TX queue full, dropping packet\n");
+		DebugLog("TX queue full, dropping packet\n");
 	}
 }
 
@@ -4623,8 +4740,15 @@ void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress)
 		sendTcpPlayer = playername;
 	}
 
-	HANDLE hostThread = CreateThread(NULL, 0, startTCPHost, NULL, 0, 0);
-	CloseHandle(hostThread);
+	if (_hostThread.joinable())
+	{
+		_hostStop = true;
+		_hostThread.join();
+	}
+
+	_hostStop = false;
+	 _hostThread = std::thread(&connectionTCP::startTCPHost, this);
+
 }
 
 void connectionTCP::connectTCPServer(std::string playername, std::string ipaddress)
@@ -4651,8 +4775,16 @@ void connectionTCP::connectTCPServer(std::string playername, std::string ipaddre
 		tcp_port = port;
 	}
 
-	HANDLE clientThread = CreateThread(NULL, 0, startTCPClient, NULL, 0, 0);
-	CloseHandle(clientThread);
+	if (_clientThread.joinable())
+	{
+		_clientStop = true;
+		_clientThread.join();
+	}
+
+	_clientStop = false;
+
+	_clientThread = std::thread(&connectionTCP::startTCPClient, this);
+
 }
 
 // coop
@@ -4704,7 +4836,7 @@ void connectionTCP::sendTCPPacketData(std::string data)
 		return;
 	if (!g_txQ.push(std::move(data)))
 	{
-		OutputDebugStringA("TX queue full, dropping packet\n");
+		DebugLog("TX queue full, dropping packet\n");
 	}
 }
 

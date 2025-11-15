@@ -51,7 +51,7 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 {
 
 	// coop 
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && parent->_coop_death == false)
 	{
 		return;
 	}
@@ -118,8 +118,10 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 UnitDieBState::~UnitDieBState()
 {
 
+	_parent->_coop_death = false;
+
 	// coop
-	if ((_parent->isCoop() == true && coop == false && _parent->getCoopMod()->getHost() == true))
+	if ((_parent->isCoop() == true && _parent->_coop_death == false && _parent->getCoopMod()->getHost() == true))
 	{
 
 		// coop
@@ -166,13 +168,13 @@ void UnitDieBState::init()
 {
 
 	// coop 
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _parent->_coop_death == false)
 	{
 		return;
 	}
 
 	// coop
-	if ((_parent->isCoop() == true && coop == false && _parent->getCoopMod()->getHost() == true))
+	if ((_parent->isCoop() == true && _parent->_coop_death == false && _parent->getCoopMod()->getHost() == true))
 	{
 
 		// coop
@@ -253,7 +255,7 @@ void UnitDieBState::think()
 {
 
 	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && coop == false)
+	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _parent->_coop_death == false)
 	{
 		_unit->setCoopStatus(STATUS_STANDING);
 		_parent->popState();

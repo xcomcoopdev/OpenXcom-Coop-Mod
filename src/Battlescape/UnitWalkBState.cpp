@@ -183,6 +183,7 @@ void UnitWalkBState::think()
 		_parent->getCoopMod()->AbortCoopWalk = false;
 
 		_unit->setCoopStatus(STATUS_STANDING);
+		_unit->setwalkPhaseCoop(0);
 
 		_pf->abortPath();
 		_parent->popState();

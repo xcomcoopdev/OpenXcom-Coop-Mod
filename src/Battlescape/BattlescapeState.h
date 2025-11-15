@@ -266,7 +266,6 @@ private:
 	void popup(State *state);
 	/// Finishes a battle.
 	void finishBattle(bool abort, int inExitArea);
-	void finishBattleCoop();
 	/// Show the launch button.
 	void showLaunchButton(bool show);
 	/// Reset visiblity of special buttons like psi or skill.

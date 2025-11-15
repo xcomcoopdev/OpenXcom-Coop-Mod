@@ -347,7 +347,7 @@ CoopState::CoopState(int state)
 		{
 			Json::Value obj;
 			obj["state"] = "SEND_FILE_HOST_BASE";
-			OutputDebugStringA(obj.toStyledString().c_str());
+			DebugLog(obj.toStyledString());
 			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 		}
 		else
@@ -355,7 +355,7 @@ CoopState::CoopState(int state)
 
 			Json::Value obj;
 			obj["state"] = "SEND_FILE_CLIENT_BASE";
-			OutputDebugStringA(obj.toStyledString().c_str());
+			DebugLog(obj.toStyledString());
 			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 		}
 

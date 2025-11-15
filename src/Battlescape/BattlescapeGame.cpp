@@ -734,10 +734,8 @@ void BattlescapeGame::sendPacketData(std::string data)
 void BattlescapeGame::coopDeath(BattleUnit* unit, const RuleDamageType *damageType, bool noSound)
 {
 
-	UnitDieBState* death = new UnitDieBState(this, unit, damageType, noSound);
-	death->coop = true;
-
-	statePushNext(death);
+	_coop_death = true;
+	statePushNext(new UnitDieBState(this, unit, damageType, noSound));
 
 }
 
@@ -2306,7 +2304,7 @@ bool BattlescapeGame::cancelCurrentAction(bool bForce)
 	bool bPreviewed = Options::battleNewPreviewPath != PATH_NONE;
 
 	// coop
-	if (_parentState->getBattleGame()->isCoop() == true && _parentState->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+	if (isCoop() == true && getCoopMod()->_isActivePlayerSync == true)
 	{
 		Json::Value obj;
 		obj["state"] = "cancelCurrentAction";
@@ -2706,30 +2704,6 @@ void BattlescapeGame::primaryAction(Position pos)
 
 		}
 
-		// waypoints
-		if (_parentState->getBattleGame()->isCoop() == true && _parentState->getBattleGame()->getCoopMod()->_isActivePlayerSync == true && _parentState->getBattleGame()->getCoopMod()->_isActiveAISync == false)
-		{
-
-			Json::Value obj;
-			obj["state"] = "waypoint";
-
-			int index = 0;
-
-			// new
-			for (auto& waypoint : _currentAction.waypoints)
-			{
-
-				obj["waypoints"][index]["pos_x"] = waypoint.x;
-				obj["waypoints"][index]["pos_y"] = waypoint.y;
-				obj["waypoints"][index]["pos_z"] = waypoint.z;
-
-				index++;
-			}
-
-			_parentState->getGame()->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
-
 	}
 	else
 	{
@@ -2742,10 +2716,10 @@ void BattlescapeGame::primaryAction(Position pos)
 		if (unit && unit != _save->getSelectedUnit() && (unit->getVisible() || _debugPlay))
 		{
 			// coop
-			if ((_save->getBattleGame()->isCoop() == true && _parentState->getGame()->getCoopMod()->getCurrentTurn() == 2 && unit->getFaction() == _save->getSide()))
+			if ((isCoop() == true && getCoopMod()->getCurrentTurn() == 2 && unit->getFaction() == _save->getSide()))
 			{
 
-				if (_save->getBattleGame()->getHost() == true && unit->getCoop() != 1)
+				if (getHost() == true && unit->getCoop() != 1)
 				{
 					_save->setSelectedUnit(unit);
 					_parentState->updateSoldierInfo();

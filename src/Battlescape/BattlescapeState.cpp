@@ -1235,6 +1235,7 @@ void BattlescapeState::think()
 								if (unit->getCoop() != 0 && unit->getHealth() > 0 && unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
 								{
 									_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+									updateSoldierInfo();
 									found = true;
 									break;
 								}
@@ -1285,6 +1286,7 @@ void BattlescapeState::think()
 								if (unit->getCoop() == 0 && unit->getHealth() > 0 && unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
 								{
 									_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+									updateSoldierInfo();
 									found = true;
 									break;
 								}
@@ -1328,12 +1330,7 @@ void BattlescapeState::think()
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
 
-				if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-				{
-
-					_battleGame->cancelAllActions();
-
-				}
+				_battleGame->cancelAllActions();
 
 				// Client's turn and host is waiting
 				if (_game->getCoopMod()->getHost() == false)
@@ -1357,8 +1354,8 @@ void BattlescapeState::think()
 					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
 					{
 
-						_game->getCoopMod()->_isActivePlayerSync = false;
 						_game->getCoopMod()->_battleInit = false;
+						_game->getCoopMod()->_isActivePlayerSync = false;
 						_game->getCoopMod()->_isActiveAISync = true;
 						_game->getCoopMod()->_clientPanicHandle = true;
 
@@ -1392,8 +1389,7 @@ void BattlescapeState::think()
 					// PVE2
 					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
 					{
-	
-						_game->getCoopMod()->_battleInit = false;
+
 						_game->getCoopMod()->_isActiveAISync = true;
 						_game->getCoopMod()->_isActivePlayerSync = true;
 
@@ -1414,7 +1410,7 @@ void BattlescapeState::think()
 
 					int index = 0;
 
-					if (_game->getCoopMod()->teleport == true)
+					if (_game->getCoopMod()->teleport == true && _save->getTurn() >= 1)
 					{
 
 						for (auto& unit : *_save->getUnits())
@@ -1803,6 +1799,7 @@ void BattlescapeState::setSelectedCoopUnit(int actor_id)
 
 			_save->setSelectedUnit(unit);
 			_battleGame->getCurrentAction()->actor = unit;
+			updateSoldierInfo();
 
 			break;
 		}
@@ -3981,7 +3978,9 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	int actor_health = obj["actor_health"].asInt();
 	int actor_mana = obj["actor_mana"].asInt();
 	int actor_stun = obj["actor_stun"].asInt();
+
 	bool actor_no_line_fire = obj["actor_no_line_fire"].asBool();
+	bool actor_unable_to_throw_here = obj["actor_unable_to_throw_here"].asBool();
 
 	std::string weapon_type = obj["weapon_type"].asString();
 
@@ -4012,7 +4011,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 		int pos_y = obj["waypoints"][i]["pos_y"].asInt();
 		int pos_z = obj["waypoints"][i]["pos_z"].asInt();
 
-		Position new_waypoint = Position(pos_z, pos_y, pos_z);
+		Position new_waypoint = Position(pos_x, pos_y, pos_z);
 
 		_battleGame->getCurrentAction()->waypoints.push_back(new_waypoint);
 
@@ -4073,6 +4072,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	}
 
 	unit->coop_no_line_fire = actor_no_line_fire;
+	unit->coop_unable_to_throw_here = actor_unable_to_throw_here;
 
 	_battleGame->getCurrentAction()->actor = unit;
 
@@ -5137,6 +5137,12 @@ void BattlescapeState::popup(State *state)
 void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
 
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false)
+	{
+		return;
+	}
+
 	bool isPreview = _save->isPreview();
 
 	while (!_game->isState(this))
@@ -5326,13 +5332,6 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			}
 		}
 	}
-}
-
-void BattlescapeState::finishBattleCoop()
-{
-
-	_game->pushState(new DebriefingState);
-
 }
 
 /**

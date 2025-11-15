@@ -1112,7 +1112,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && connectionTCP::_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame()->getTime())
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();

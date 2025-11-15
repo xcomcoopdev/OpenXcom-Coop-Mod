@@ -1222,6 +1222,11 @@ void BattleUnit::keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycl
 	}
 }
 
+void BattleUnit::setwalkPhaseCoop(int phase)
+{
+	_walkPhase = phase;
+}
+
 /**
  * Gets the walking phase for animation and sound.
  * @return phase will always go from 0-7

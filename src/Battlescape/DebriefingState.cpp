@@ -320,6 +320,13 @@ DebriefingState::DebriefingState() :
 		Json::Value root;
 		root["state"] = "DebriefingState";
 
+		root["abort"] = false;
+
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+			root["abort"] = _game->getSavedGame()->getSavedBattle()->isAborted();
+		}
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}
@@ -420,6 +427,7 @@ void DebriefingState::applyVisibility()
 
 void DebriefingState::init()
 {
+
 	State::init();
 
 	if (_initDone)

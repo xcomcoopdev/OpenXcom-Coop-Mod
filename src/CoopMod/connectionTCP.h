@@ -44,6 +44,24 @@
 #include <cmath>     // round
 #include <optional>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+inline void DebugLog(const std::string& msg)
+{
+#ifdef _WIN32
+	OutputDebugStringA(msg.c_str());
+#else
+	std::fprintf(stderr, "%s\n", msg.c_str());
+#endif
+}
+
+inline void DebugLog(const char* msg)
+{
+	DebugLog(std::string(msg));
+}
+
 template <size_t N>
 struct SPSCQueue
 {
@@ -104,6 +122,9 @@ bool enqueueTx(std::string&& s);
 class connectionTCP
 {
   private:
+	std::thread _loopThread;
+	std::thread _clientThread;
+	std::thread _hostThread;
 	inline static SPSCQueue<1024> txQ{};
 	inline static SPSCQueue<1024> rxQ{};
 	// chat menu
@@ -112,14 +133,21 @@ class connectionTCP
 	Uint32 lastRandomClear = 0;
 	void generateCraftSoldiers();
 	bool _onTCP = false;
+	bool _stop = false;
+	bool _hostStop = false;
+	bool _clientStop = false;
+	void loopData();
+	void startTCPClient();
+	void startTCPHost();
   public:
 	// coop
+	connectionTCP(Game* game);
+	~connectionTCP();  
 	bool teleport = false;
 	bool _isMainCampaignBaseDefense = false;
 	bool coop_end_turn = false;
 	bool allow_cutscene = true;
 	static bool _isChatActiveStatic;
-	connectionTCP(Game* game);
 	void createLoopdataThread();
 	void updateCoopTask();
 	std::string getCurrentClientName();

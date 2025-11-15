@@ -322,6 +322,7 @@ public:
 	void setWaypointCoop(int x, int y, int z);
 	void clearWaypointsCoop();
 	void CoopShoot();
+	bool _coop_death = false;
 };
 
 }

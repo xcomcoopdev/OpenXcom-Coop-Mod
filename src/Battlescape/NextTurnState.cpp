@@ -609,7 +609,7 @@ void NextTurnState::close()
 
 				newsave->save("coop_mission.sav", _game->getMod());
 
-				if (_game->getCoopMod()->teleport == true)
+				if (_game->getCoopMod()->teleport == true && _battleGame->getTurn() >= 1)
 				{
 
 					Json::Value root;

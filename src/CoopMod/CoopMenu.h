@@ -26,8 +26,6 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Savegame/BattleUnit.h"
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include "../Basescape/CraftInfoState.h"
 #include "../Battlescape/BattlescapeGenerator.h"
 #include "../Battlescape/BriefingState.h"

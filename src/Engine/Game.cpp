@@ -160,11 +160,21 @@ void Game::run()
 	{
 
 		// coop tasks
-		if (_tcpConnection)
+		try
 		{
+			if (_tcpConnection)
+			{
 
-			_tcpConnection->updateCoopTask();
-
+				_tcpConnection->updateCoopTask();
+			}
+		}
+		catch (const std::exception& e)
+		{
+			DebugLog((std::string("Exception in updateCoopTask: ") + e.what() + "\n").c_str());
+		}
+		catch (...)
+		{
+			DebugLog("Unknown non-std::exception thrown in updateCoopTask\n");
 		}
 
 		// Clean up states

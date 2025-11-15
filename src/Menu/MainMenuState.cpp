@@ -244,7 +244,7 @@ MainMenuState::MainMenuState(bool updateCheck)
 	// coop version
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
-	_textCoopVersion->setText("Coop Mod 1.32.0 [v2025-11-12]");
+	_textCoopVersion->setText("Coop Mod 1.32.0 [v2025-11-15]");
 
 }
 

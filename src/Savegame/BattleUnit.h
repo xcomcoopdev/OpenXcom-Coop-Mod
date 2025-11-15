@@ -292,6 +292,8 @@ public:
 	void startWalking(int direction, Position destination, SavedBattleGame *savedBattleGame);
 	/// Increase the walkingPhase
 	void keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycle);
+	// coop
+	void setwalkPhaseCoop(int phase);
 	/// Increase the walkingPhase
 	void keepWalkingCoop(SavedBattleGame* savedBattleGame, bool fullWalkCycle);
 	/// Gets the walking phase for animation and sound
@@ -914,6 +916,7 @@ public:
 	int coop_mana = 0;
 	int coop_stun = 0;
 	bool coop_no_line_fire = false;
+	bool coop_unable_to_throw_here = false;
 	bool coop_action = false;
 };
 

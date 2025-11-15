@@ -1202,6 +1202,31 @@ void Globe::drawRadars()
 	// Draw radars around bases
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		{
+			continue;
+		}
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
+		{
+			continue;
+		}
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		{
+			continue;
+		}
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == false && xbase->_coopIcon == true)
+		{
+			continue;
+		}
+
 		lat = xbase->getLatitude();
 		lon = xbase->getLongitude();
 		// Cheap hack to hide bases when they haven't been placed yet
@@ -1503,7 +1528,19 @@ void Globe::drawDetail()
 			}
 
 			// coop
+			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
+			{
+				continue;
+			}
+
+			// coop
 			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+			{
+				continue;
+			}
+
+			// coop
+			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == false && xbase->_coopIcon == true)
 			{
 				continue;
 			}
@@ -1786,7 +1823,19 @@ void Globe::drawMarkers()
 		}
 
 		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
+		{
+			continue;
+		}
+
+		// coop
 		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		{
+			continue;
+		}
+
+		// coop
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == false &&xbase->_coopIcon == true)
 		{
 			continue;
 		}

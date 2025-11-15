@@ -51,27 +51,6 @@
 
 namespace OpenXcom
 {
-
-bool isReadablePointer(void* ptr)
-{
-	if (!ptr)
-		return false;
-
-	MEMORY_BASIC_INFORMATION mbi;
-	if (VirtualQuery(ptr, &mbi, sizeof(mbi)))
-	{
-		DWORD protect = mbi.Protect;
-		bool readable =
-			(protect & PAGE_READONLY) ||
-			(protect & PAGE_READWRITE) ||
-			(protect & PAGE_EXECUTE_READ) ||
-			(protect & PAGE_EXECUTE_READWRITE);
-
-		return readable && mbi.State == MEM_COMMIT;
-	}
-	return false;
-}
-
 /**
  * Initializes all the elements in the Briefing screen.
  * @param game Pointer to the core game.

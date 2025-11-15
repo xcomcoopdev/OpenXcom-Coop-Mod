@@ -92,6 +92,7 @@ void ProjectileFlyBState::init()
 		_parent->getCoopMod()->_coopTileDamage.clear();
 		_parent->getCoopMod()->_coopInit = false;
 		_action.actor->coop_no_line_fire = false;
+		_action.actor->coop_unable_to_throw_here = false;
 	}
 
 	// coop
@@ -99,6 +100,18 @@ void ProjectileFlyBState::init()
 	{
 
 		_action.actor->coop_action = true;
+
+		if (_action.actor->coop_unable_to_throw_here == true)
+		{
+
+			_action.actor->coop_unable_to_throw_here = false;
+
+			_action.result = "STR_UNABLE_TO_THROW_HERE";
+
+			_parent->popState();
+			return;
+
+		}
 
 		// no line fire
 		if (_action.actor->coop_no_line_fire == true)
@@ -517,7 +530,7 @@ void ProjectileFlyBState::init()
 	
 	// COOP
 	// Shoot projectiles inc...
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true && _action.autoShotCounter <= 1)
 	{
 
 		Json::Value obj;
@@ -531,6 +544,7 @@ void ProjectileFlyBState::init()
 		obj["actor_mana"] = _action.actor->coop_mana;
 		obj["actor_stun"] = _action.actor->coop_stun;
 		obj["actor_no_line_fire"] = _action.actor->coop_no_line_fire;
+		obj["actor_unable_to_throw_here"] = _action.actor->coop_unable_to_throw_here;
 		obj["type"] = (int)_action.type;
 		obj["hand"] = _parent->getCoopWeaponHand();
 		obj["fusetimer"] = _action.weapon->getFuseTimer();
@@ -658,6 +672,10 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
+
+			// coop
+			_unit->coop_unable_to_throw_here = true;
+
 			// unable to throw here
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
