@@ -22,24 +22,15 @@
 #include "../Menu/SaveGameState.h"
 #include "../Menu/LoadGameState.h"
 #include "CoopState.h"
-
 #include "../Mod/ExtraSprites.h"
 #include "../Engine/Surface.h"
-
 #include "Profile.h"
-
 #include "ChatMenu.h"
-
-#include "vorbis/vorbisfile.h"
-
 
 namespace OpenXcom
 {
 
 int current_gamemode = 0;
-
-OggVorbis_File vf;
-void* dummy = (void*)&ov_clear;
 
 /**
  * Initializes all the elements in the New Battle window.
@@ -231,7 +222,6 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	// check if campaign mission
 	if (!_game->getSavedGame()->getCountries()->empty())
 	{
-		current_gamemode = 1;
 		_game->getCoopMod()->setCoopCampaign(true);
 	}
 	else
@@ -451,6 +441,175 @@ void CoopMenu::init()
 
 }
 
+void CoopMenu::convertUnits()
+{
+
+	// Convert single-player save to multiplayer save (PvE)
+	if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+	{
+
+		_game->getCoopMod()->setPlayerTurn(3);
+
+		connectionTCP::_coopGamemode = 1;
+
+		// Split the soldiers in half
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+
+			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
+
+			int soldier_total_count = 0;
+
+			// check soldiers count
+			for (auto entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (entity->getFaction() == FACTION_PLAYER)
+				{
+					soldier_total_count++;
+				}
+			}
+
+			int soldier_used = (soldier_total_count / 2);
+
+			// make coop soldiers
+			for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (unit->getFaction() == FACTION_PLAYER)
+				{
+
+					unit->setCoop(1);
+
+					if (soldier_used <= 0)
+					{
+						break;
+					}
+
+					soldier_used--;
+				}
+			}
+		}
+	}
+
+	// if pve2 gamemode
+	if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
+	{
+		// swapper
+		for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		{
+
+			if (unit->getFaction() == FACTION_HOSTILE)
+			{
+
+				unit->convertToFaction(FACTION_PLAYER);
+				unit->setOriginalFaction(FACTION_PLAYER);
+				_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+				unit->setAIModule(0);
+			}
+			else if (unit->getFaction() == FACTION_PLAYER)
+			{
+
+				unit->convertToFaction(FACTION_HOSTILE);
+				unit->setOriginalFaction(FACTION_HOSTILE);
+			}
+		}
+
+		// Split the soldiers in half
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+
+			int soldier_total_count = 0;
+
+			// check soldiers count
+			for (auto& entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (entity->getFaction() == FACTION_PLAYER)
+				{
+					soldier_total_count++;
+				}
+			}
+
+			int soldier_used = (soldier_total_count / 2);
+
+			// make coop soldiers
+			for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (unit->getFaction() == FACTION_PLAYER)
+				{
+
+					unit->setCoop(1);
+
+					if (soldier_used <= 0)
+					{
+						break;
+					}
+
+					soldier_used--;
+				}
+			}
+		}
+	}
+	// if pvp gamemode
+	else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
+	{
+
+		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		{
+
+			if (unit->getFaction() == FACTION_HOSTILE)
+			{
+				unit->setCoop(1);
+			}
+			else if (unit->getFaction() == FACTION_PLAYER)
+			{
+
+				unit->setCoop(0);
+			}
+		}
+	}
+	// pvp2
+	else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
+	{
+
+		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		{
+
+			if (unit->getFaction() == FACTION_HOSTILE)
+			{
+
+				unit->setCoop(0);
+				unit->convertToFaction(FACTION_PLAYER);
+				unit->setOriginalFaction(FACTION_PLAYER);
+			}
+			else if (unit->getFaction() == FACTION_PLAYER)
+			{
+
+				unit->setCoop(1);
+				unit->convertToFaction(FACTION_HOSTILE);
+				unit->setOriginalFaction(FACTION_HOSTILE);
+
+				std::string alienName = "MALE_CIVILIAN";
+
+				if (unit->getGeoscapeSoldier())
+				{
+
+					if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+					{
+						alienName = "FEMALE_CIVILIAN";
+					}
+				}
+
+				Unit* rule = _game->getMod()->getUnit(alienName, true);
+				unit->setUnitRulesCoop(rule);
+			}
+		}
+	}
+
+}
+
 void CoopMenu::btnPVEClick(Action *action)
 {
 
@@ -536,158 +695,34 @@ void CoopMenu::joinTCPGame(Action *action)
 	// JOIN GAME
 	_game->getCoopMod()->setCoopSession(false);
 
-	_game->getCoopMod()->setPlayerTurn(0);
+	_game->getCoopMod()->setPlayerTurn(3);
 
-	// Convert single-player save to multiplayer save (PvE)
-	if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+	bool convert = true;
+
+	if (_game->getSavedGame()->getSavedBattle())
 	{
 
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
+		// check if already converted units...
+		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 		{
 
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto &entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			if (unit->getCoop() == 1)
 			{
 
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
+				convert = false;
+				break;
 			}
 		}
 	}
-	// if pve2 gamemode
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 4 && _game->getSavedGame()->getSavedBattle())
+	else
 	{
 
-		// swapper
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-			}
-
-		}
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto &entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
-
+		convert = false;
 	}
-	// if pvp gamemode
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 2 && _game->getSavedGame()->getSavedBattle())
+
+	if (convert == true)
 	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->setCoop(1);
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-			}
-		}
-	}
-	// pvp2
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 3 && _game->getSavedGame()->getSavedBattle())
-	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->setCoop(0);
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->setCoop(1);
-			}
-		}
+		convertUnits();
 	}
 
 	_game->pushState(new CoopState(15));
@@ -705,7 +740,10 @@ void CoopMenu::hostTCPGame(Action *action)
 		_game->getCoopMod()->setChatMenu(new ChatMenu(smallFont, _game));
 	}
 
-	connectionTCP::_coopGamemode = current_gamemode;
+	if (current_gamemode != 0)
+	{
+		connectionTCP::_coopGamemode = current_gamemode;
+	}
 
 	_game->getCoopMod()->setCoopSession(false);
 
@@ -726,7 +764,7 @@ void CoopMenu::hostTCPGame(Action *action)
 	_btnPVE->setVisible(false);
 	_btnPVE2->setVisible(false);
 
-	_game->getCoopMod()->setPlayerTurn(0);
+	_game->getCoopMod()->setPlayerTurn(3);
 
 	bool convert = true;
 
@@ -737,7 +775,7 @@ void CoopMenu::hostTCPGame(Action *action)
 		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 		{
 
-			if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
+			if (unit->getCoop() == 1)
 			{
 
 				convert = false;
@@ -753,109 +791,9 @@ void CoopMenu::hostTCPGame(Action *action)
 
 	}
 
-	
-	// Convert single-player save to multiplayer save (PvE)
-	if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+	if (convert == true)
 	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		connectionTCP::_coopGamemode = 1;
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle() && convert == true)
-		{
-
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
-	}
-	// if pvp gamemode
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 2 && _game->getSavedGame()->getSavedBattle())
-	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		if (convert == true)
-		{
-
-			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_HOSTILE)
-				{
-
-					unit->setCoop(1);
-					unit->convertToFaction(FACTION_PLAYER);
-					unit->setOriginalFaction(FACTION_PLAYER);
-				}
-			}
-
-		}
-
-
-
-	}
-	// pvp2
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 3 && _game->getSavedGame()->getSavedBattle())
-	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		if (convert == true)
-		{
-
-			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_HOSTILE)
-				{
-
-					unit->setCoop(0);
-					unit->convertToFaction(FACTION_PLAYER);
-					unit->setOriginalFaction(FACTION_PLAYER);
-				}
-				else if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-				}
-			}
-
-		}
-
-
+		convertUnits();
 	}
 
 

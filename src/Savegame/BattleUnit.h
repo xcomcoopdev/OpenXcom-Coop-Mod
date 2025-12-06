@@ -341,6 +341,8 @@ public:
 	int getMorale() const;
 	/// Get overkill damage to unit.
 	int getOverKillDamage() const;
+	//  coop
+	void damageCoop(SavedBattleGame* save);
 	/// Do damage to the unit.
 	int damage(Position relative, int power, const RuleDamageType *type, SavedBattleGame *save, BattleActionAttack attack, UnitSide sideOverride = SIDE_MAX, UnitBodyPart bodypartOverride = BODYPART_MAX);
 	/// Heal stun level of the unit.
@@ -918,6 +920,10 @@ public:
 	bool coop_no_line_fire = false;
 	bool coop_unable_to_throw_here = false;
 	bool coop_action = false;
+
+	// coop
+	void setUnitRulesCoop(Unit *unitRules);
+
 };
 
 } //namespace OpenXcom

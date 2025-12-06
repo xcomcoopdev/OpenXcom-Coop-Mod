@@ -122,6 +122,17 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 
 	centerAllSurfaces();
 
+	// PVP
+	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+	{
+		_btnIntercept->setVisible(false);
+	}
+
+	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	{
+		_btnIntercept->setVisible(false);
+	}
+
 	_btnIntercept->setText(tr("STR_INTERCEPT"));
 	_btnIntercept->onMouseClick((ActionHandler)&UfoDetectedState::btnInterceptClick);
 

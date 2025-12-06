@@ -99,7 +99,7 @@ class CoopMenu : public State
 	bool _isRightClick;
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
-
+	void convertUnits();
   public:
 	/// Creates the New Battle state.
 	CoopMenu();

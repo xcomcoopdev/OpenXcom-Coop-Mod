@@ -193,6 +193,8 @@ public:
 	bool awardExperience(BattleActionAttack attack, BattleUnit *target, bool rangeAtack);
 	/// Handles unit hit.
 	bool hitUnit(BattleActionAttack attack, BattleUnit *target, const Position &relative, int damage, const RuleDamageType *type, bool rangeAtack = true);
+	/// Handles bullet/weapon hits. (coop)
+	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
 	/// Handles bullet/weapon hits.
 	void hit(BattleActionAttack attack, Position center, int power, const RuleDamageType *type, bool rangeAtack = true, int terrainMeleeTilePart = 0);
 	/// Handles explosions.

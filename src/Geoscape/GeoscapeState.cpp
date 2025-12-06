@@ -1077,6 +1077,17 @@ void GeoscapeState::think()
 				if (ufo->getMission() && ufo->_coop == false)
 				{
 
+					if (ufo->DetectedCoopPrevious == 0)
+					{
+						ufo->setDetectedCoop(false);
+						ufo->DetectedCoopPrevious = -1;
+					}
+					else if (ufo->DetectedCoopPrevious == 1)
+					{
+						ufo->setDetectedCoop(true);
+						ufo->DetectedCoopPrevious = -1;
+					}
+
 					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;
 					root["ufos"][ufo_index]["mission_id"] = ufo->getMission()->getId();
 					root["ufos"][ufo_index]["mission_rule"] = ufo->getMission()->getRules().getType();
@@ -1092,7 +1103,36 @@ void GeoscapeState::think()
 					root["ufos"][ufo_index]["crash_id"] = ufo->getCrashId();
 					root["ufos"][ufo_index]["land_id"] = ufo->getLandId();
 					root["ufos"][ufo_index]["speed"] = ufo->getSpeed();
-				
+
+					if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+					{
+
+						if (ufo->getDetected() == true)
+						{
+							ufo->DetectedCoopPrevious = 1;
+						}
+						else
+						{
+							ufo->DetectedCoopPrevious = 0;
+						}
+
+						ufo->setDetectedCoop(true);
+					}
+					else if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+					{
+
+						if (ufo->getDetected() == true)
+						{
+							ufo->DetectedCoopPrevious = 1;
+						}
+						else
+						{
+							ufo->DetectedCoopPrevious = 0;
+						}
+
+						ufo->setDetectedCoop(true);
+					}
+	
 					ufo_index++;
 
 				}

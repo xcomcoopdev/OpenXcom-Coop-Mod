@@ -655,23 +655,20 @@ void CoopState::loadWorld()
 			Base* selected_base = 0;
 
 			// fix
-			if (_game->getSavedGame()->getSelectedBase())
-			{
-
-				selected_base = _game->getSavedGame()->getSelectedBase();
-			}
-			else
+			if (_game->getCoopMod()->getSelectedCraft())
 			{
 
 				selected_base = _game->getCoopMod()->getSelectedCraft()->getBase();
+			}
+			else
+			{
+				selected_base = _game->getSavedGame()->getSelectedBase();
 			}
 
 			// RECEIVE CLIENT DATA
 			SavedGame* client_save = new SavedGame();
 
 			client_save->load(filename, _game->getMod(), _game->getLanguage());
-
-			Base* hostBase = selected_base;
 
 			Craft* selected_craft = _game->getCoopMod()->getSelectedCraft();
 
@@ -683,7 +680,7 @@ void CoopState::loadWorld()
 			}
 
 			// HOST SOLDIERS
-			for (auto& host_soldier : *hostBase->getSoldiers())
+			for (auto& host_soldier : *selected_base->getSoldiers())
 			{
 
 				if (host_soldier->getCraft())
@@ -720,14 +717,14 @@ void CoopState::loadWorld()
 				{
 
 					// check if match
-					if ((soldier->getCoopBase() == hostBase->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
+					if ((soldier->getCoopBase() == selected_base->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
 					{
 
 						if (soldier->getCoopCraft() != -1 || _game->getCoopMod()->_isMainCampaignBaseDefense == true)
 						{
 
 							// if the same craft
-							std::vector<Soldier*>* soldiers = hostBase->getSoldiers();
+							std::vector<Soldier*>* soldiers = selected_base->getSoldiers();
 
 							int lastId = 0;
 							Soldier* lastSoldier = nullptr;
@@ -767,7 +764,7 @@ void CoopState::loadWorld()
 									soldier->calcStatString(_game->getMod()->getStatStrings(), false);
 									soldiers->push_back(soldier);
 
-									soldier->setCraftAndMoveEquipment(selected_craft, hostBase, _game->getSavedGame()->getMonthsPassed() == -1);
+									soldier->setCraftAndMoveEquipment(selected_craft, selected_base, _game->getSavedGame()->getMonthsPassed() == -1);
 
 									space_available--;
 								}
@@ -784,7 +781,7 @@ void CoopState::loadWorld()
 								soldier->calcStatString(_game->getMod()->getStatStrings(), false);
 								soldiers->push_back(soldier);
 
-								soldier->setCraftAndMoveEquipment(selected_craft, hostBase, _game->getSavedGame()->getMonthsPassed() == -1);
+								soldier->setCraftAndMoveEquipment(selected_craft, selected_base, _game->getSavedGame()->getMonthsPassed() == -1);
 
 							}
 
@@ -812,7 +809,7 @@ void CoopState::loadWorld()
 						for (auto& vehicle : *client_craft->getVehicles())
 						{
 
-							if (selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && (vehicle->getCoopBase() == hostBase->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
+							if (selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && (vehicle->getCoopBase() == selected_base->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
 							{
 
 								selected_craft->makeCoopVehicle(vehicle);

@@ -30,8 +30,6 @@
 #include "../Battlescape/Map.h"
 #include "../Battlescape/Camera.h"
 
-#include "../Engine/Unicode.h"
-
 namespace OpenXcom
 {
 

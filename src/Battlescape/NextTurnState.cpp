@@ -62,7 +62,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
+	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _battleGame->isPreview() == false)
 	{
 
 		battleGame->setSideCoop(0);
@@ -74,6 +74,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	{
 
 		_game->getCoopMod()->_battleWindow = true;
+		_game->getCoopMod()->_onClickClose = false;
 
 	}
 	
@@ -540,7 +541,7 @@ void NextTurnState::close()
 {
 
 	// coop
-	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->getHost() == true)
+	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->getHost() == true && _battleGame->isPreview() == false)
 	{
 
 		Json::Value root;
@@ -609,7 +610,7 @@ void NextTurnState::close()
 
 				newsave->save("coop_mission.sav", _game->getMod());
 
-				if (_game->getCoopMod()->teleport == true && _battleGame->getTurn() >= 1)
+				if (_battleGame->getTurn() >= 1)
 				{
 
 					Json::Value root;
@@ -631,7 +632,7 @@ void NextTurnState::close()
 						root["units"][index]["energy"] = unit->getEnergy();
 						root["units"][index]["morale"] = unit->getMorale();
 						root["units"][index]["mana"] = unit->getMana();
-						root["units"][index]["stun"] = unit->getStunlevel();
+						root["units"][index]["stunlevel"] = unit->getStunlevel();
 
 						root["units"][index]["setDirection"] = unit->getDirection();
 						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();

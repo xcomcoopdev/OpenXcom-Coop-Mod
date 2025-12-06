@@ -303,6 +303,21 @@ DebriefingState::DebriefingState() :
 	if (_game->getCoopMod()->isCoopSession() == true)
 	{
 		_game->getCoopMod()->coopMissionEnd = true;
+
+		// fix
+		_game->getCoopMod()->_coop_task_completed = true;
+		_game->getCoopMod()->playerInsideCoopBase = false;
+		_game->getCoopMod()->_battleWindow = false;
+		_game->getCoopMod()->_isMainCampaignBaseDefense = false;
+		_game->getCoopMod()->_waitBH = false;
+		_game->getCoopMod()->_waitBC = false;
+		_game->getCoopMod()->_isActiveAISync = false;
+		_game->getCoopMod()->_isActivePlayerSync = false;
+		_game->getCoopMod()->_battleInit = false;
+		_game->getCoopMod()->gamePaused = 0;
+		_game->getCoopMod()->_clientPanicHandle = false;
+		_game->getCoopMod()->_onClickClose = false;
+
 	}
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)

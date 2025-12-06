@@ -115,6 +115,9 @@ void UnitWalkBState::init()
 		obj["visible"] = _unit->getVisible();
 		obj["hiding"] = _unit->isHiding();
 
+		obj["setDirection"] = _unit->getDirection();
+		obj["setFaceDirection"] = _unit->getFaceDirection();
+
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 
 	}
@@ -146,6 +149,7 @@ void UnitWalkBState::deinit()
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();
 
+		/*
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
@@ -157,6 +161,7 @@ void UnitWalkBState::deinit()
 				j++;
 			}
 		}
+		*/
 
 		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
 

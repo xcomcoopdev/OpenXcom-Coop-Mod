@@ -166,6 +166,7 @@ public:
 	connectionTCP* getCoopMod();
 	void handlePanickUnitCoop(BattleUnit* unit);
 	void infoboxCoop(std::string msg);
+	void infoboxOkCoop(std::string msg);
 	void setPauseOn();
 	void setPauseOff();
 	void setCoopTaskCompleted(bool task);
@@ -296,6 +297,9 @@ public:
 	void setKneelReserved(bool reserved);
 	/// Checks the kneel reservation setting.
 	bool getKneelReserved() const;
+	/// Checks for and triggers proximity grenades. (coop)
+	void checkForProximityCoop(BattleUnit* unit);
+	int checkForProximityGrenadesCoop(BattleUnit* unit);
 	/// Checks for and triggers proximity grenades.
 	int checkForProximityGrenades(BattleUnit *unit);
 	/// Cleans up all the deleted states.
@@ -322,7 +326,7 @@ public:
 	void setWaypointCoop(int x, int y, int z);
 	void clearWaypointsCoop();
 	void CoopShoot();
-	bool _coop_death = false;
+	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
 };
 
 }

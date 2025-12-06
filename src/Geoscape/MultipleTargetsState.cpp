@@ -146,19 +146,7 @@ void MultipleTargetsState::popupTarget(Target *target)
 		{
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-			{
-				return;
-			}
-
-			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
-			{
-				return;
-			}
-
-			// coop
-			if (u->_coop == false)
+			if (u)
 			{
 				_game->pushState(new UfoDetectedState(u, _state, false, u->getHyperDetected()));
 			}

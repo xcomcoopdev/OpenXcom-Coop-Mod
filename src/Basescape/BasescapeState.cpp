@@ -234,6 +234,17 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 		_btnTransfer->setVisible(false);
 		_btnPurchase->setVisible(true);
 		_btnSell->setVisible(false);
+
+		// PVP
+		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+		{
+
+			_btnPurchase->setVisible(false);
+			_btnSoldiers->setVisible(false);
+			_btnCrafts->setVisible(false);
+
+		}
+
 	}
 
 }

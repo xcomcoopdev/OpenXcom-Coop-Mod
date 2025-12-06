@@ -1709,6 +1709,15 @@ Position TileEngine::getSightOriginVoxel(BattleUnit *currentUnit)
 	const Position pos = currentUnit->getPosition();
 	auto* tile = currentUnit->getTile();
 
+	// coop fix
+	if (!tile)
+	{
+
+		currentUnit->setCoopStatus(STATUS_DEAD);
+		return currentUnit->getPosition();
+
+	}
+
 	// determine the origin and target voxels for the raytrace
 	Position originVoxel;
 	originVoxel = pos.toVoxel() + Position(8, 8, 0);
@@ -2945,9 +2954,38 @@ int TileEngine::hitTile(Tile* tile, int damage, const RuleDamageType* type)
 		{
 			tile->setFire(0);
 			if (damage >= type->SmokeThreshold * 2)
-				tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
+			{
+
+				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
+				{
+					tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
+				}
+				else
+				{
+
+					int oldest = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
+					tile->setSmoke(oldest); // for SmokeThreshold == 0
+					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
+				}
+
+			}
 			else
-				tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
+			{
+
+				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
+				{
+					tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
+				}
+				else
+				{
+
+					int oldest2 = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
+					tile->setSmoke(oldest2 * (damage - type->SmokeThreshold) / type->SmokeThreshold);
+					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
+				}
+
+			}
+
 			return 1;
 		}
 	}
@@ -3171,6 +3209,7 @@ bool TileEngine::awardExperience(BattleActionAttack attack, BattleUnit *target, 
  */
 bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Position &relative, int damage, const RuleDamageType *type, bool rangeAtack)
 {
+
 	if (_save->isPreview())
 	{
 		return false;
@@ -3178,6 +3217,17 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 	if (!target || target->getHealth() <= 0)
 	{
 		return false;
+	}
+
+	// COOP
+	if (_save->getBattleGame())
+	{
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
+		{
+
+			return true;
+
+		}
 	}
 
 	const int healthOrig = target->getHealth();
@@ -3260,6 +3310,112 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 	return true;
 }
 
+// coop
+void TileEngine::hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack, int terrainMeleeTilePart, uint64_t seed)
+{
+
+	int current_damage = type->getRandomDamageForTileCoop(power, seed);
+	int damage = current_damage;
+	int tileFinalDamage = current_damage;
+
+	bool terrainChanged = false; // did the hit destroy a tile thereby changing line of sight?
+	int effectGenerated = 0;     // did the hit produce smoke (1), fire/light (2) or disabled a unit (3) ?
+	Position tilePos = center.toTile();
+	Tile* tile = _save->getTile(tilePos);
+	if (!tile || power <= 0)
+	{
+		return;
+	}
+
+	voxelCheckFlush();
+	const VoxelType part = (terrainMeleeTilePart > 0) ? (VoxelType)terrainMeleeTilePart : voxelCheck(center, attack.attacker);
+
+	if (part >= V_FLOOR && part <= V_OBJECT)
+	{
+		bool nothing = true;
+		if (terrainMeleeTilePart == 0 && (part == V_FLOOR || part == V_OBJECT))
+		{
+			for (auto* bi : *tile->getInventory())
+			{
+				if (hitUnit(attack, bi->getUnit(), Position(0, 0, 0), damage, type, rangeAtack))
+				{
+					if (bi->getGlow())
+						effectGenerated = 2; // Any glowing corpses?
+					nothing = false;
+					break;
+				}
+			}
+		}
+		if (nothing)
+		{
+			const TilePart tp = static_cast<TilePart>(part);
+			// Do we need to update the visibility of units due to smoke/fire?
+			effectGenerated = hitTile(tile, damage, type);
+			// If a tile was destroyed we may have revealed new areas for one or more observers
+			if (tileFinalDamage >= tile->getMapData(tp)->getArmor())
+				terrainChanged = true;
+
+			if (part == V_OBJECT && _save->getMissionType() == "STR_BASE_DEFENSE")
+			{
+				if (tileFinalDamage >= tile->getMapData(O_OBJECT)->getArmor() && tile->getMapData(O_OBJECT)->isBaseModule())
+				{
+					_save->getModuleMap()[(center.x / 16) / 10][(center.y / 16) / 10].second--;
+				}
+			}
+			if (tile->damage(tp, tileFinalDamage, _save->getObjectiveType()))
+			{
+				_save->addDestroyedObjective();
+			}
+		}
+	}
+	else if (part == V_UNIT)
+	{
+		BattleUnit* bu = tile->getOverlappingUnit(_save);
+		if (bu && bu->getHealth() > 0)
+		{
+			int verticaloffset = 0;
+			if (bu != tile->getUnit())
+			{
+				verticaloffset = 24;
+			}
+			const int sz = bu->getArmor()->getSize() * 8;
+			const Position target = bu->getPosition().toVoxel() + Position(sz, sz, bu->getFloatHeight() - tile->getTerrainLevel());
+			const Position relative = (center - target) - Position(0, 0, verticaloffset);
+
+			hitUnit(attack, bu, relative, damage, type, rangeAtack);
+			if (bu->getFire())
+			{
+				effectGenerated = 2;
+			}
+		}
+	}
+
+	// Recalculate relevant item/unit locations and visibility depending on what happened during the hit
+	if (terrainChanged || effectGenerated)
+	{
+		applyGravity(tile);
+		LightLayers layer = LL_ITEMS;
+		if (part == V_FLOOR && _save->getTile(tilePos - Position(0, 0, 1)))
+		{
+			layer = LL_AMBIENT; // roof destroyed, update sunlight in this tile column
+		}
+		else if (terrainChanged || effectGenerated)
+		{
+			layer = LL_FIRE; // spawned fire or smoke that can block light.
+		}
+		calculateLighting(layer, tilePos, 1, true);
+		calculateFOV(tilePos, 1, true, terrainChanged); // append any new units or tiles revealed by the terrain change
+	}
+	else
+	{
+		// script could affect visibility of units, fast check if something is changed.
+		calculateFOV(tilePos, 1, false); // skip updating of tiles
+	}
+	// Note: If bu was knocked out this will have no effect on unit visibility quite yet, as it is not marked as out
+	// and will continue to block visibility at this point in time.
+
+}
+
 /**
  * Handles bullet/weapon hits.
  *
@@ -3272,6 +3428,94 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
  */
 void TileEngine::hit(BattleActionAttack attack, Position center, int power, const RuleDamageType *type, bool rangeAtack, int terrainMeleeTilePart)
 {
+
+	// coop
+	int damage = 0;
+	int tileFinalDamage = 0;
+
+	if (_save->getBattleGame())
+	{
+
+		// COOP
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
+		{
+
+			_save->getBattleGame()->getCoopMod()->_battleActions.push_back(attack);
+
+			return;
+		}
+
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
+		{
+
+			uint64_t seed = RNG::getSeedCoop();
+
+			int current_damage = type->getRandomDamageForTileCoop(power, seed);
+			damage = current_damage;
+			tileFinalDamage = current_damage;
+
+			uint64_t _smokeRNG = RNG::generate(7, 15);
+
+			_save->getBattleGame()->getCoopMod()->_smokeRNGs.push_back(_smokeRNG);
+
+			Json::Value root;
+			root["state"] = "hit_tile";
+
+			root["center_x"] = center.x;
+			root["center_y"] = center.y;
+			root["center_z"] = center.z;
+
+			root["power"] = power;
+			root["rangeAtack"] = rangeAtack;
+			root["terrainMeleeTilePart"] = terrainMeleeTilePart;
+
+			root["seed"] = seed;
+			root["smokeRNG"] = _smokeRNG;
+
+			// new!!!
+			root["ArmorEffectiveness"] = type->ArmorEffectiveness;
+			root["FireBlastCalc"] = type->FireBlastCalc;
+			root["FireThreshold"] = type->FireThreshold;
+			root["FixRadius"] = type->FixRadius;
+			root["IgnoreDirection"] = type->IgnoreDirection;
+			root["IgnoreNormalMoraleLose"] = type->IgnoreNormalMoraleLose;
+			root["IgnoreOverKill"] = type->IgnoreOverKill;
+			root["IgnorePainImmunity"] = type->IgnorePainImmunity;
+			root["IgnoreSelfDestruct"] = type->IgnoreSelfDestruct;
+			root["RadiusEffectiveness"] = type->RadiusEffectiveness;
+			root["RadiusReduction"] = type->RadiusReduction;
+			root["RandomArmor"] = type->RandomArmor;
+			root["RandomArmorPre"] = type->RandomArmorPre;
+			root["RandomEnergy"] = type->RandomEnergy;
+			root["RandomHealth"] = type->RandomHealth;
+			root["RandomItem"] = type->RandomItem;
+			root["RandomMana"] = type->RandomMana;
+			root["RandomMorale"] = type->RandomMorale;
+			root["RandomStun"] = type->RandomStun;
+			root["RandomTile"] = type->RandomTile;
+			root["RandomTime"] = type->RandomTime;
+			root["RandomType"] = _save->getBattleGame()->getCoopMod()->ItemDamageRandomTypeToInt(type->RandomType);
+			root["RandomWound"] = type->RandomWound;
+			root["ResistType"] = _save->getBattleGame()->getCoopMod()->ItemDamageTypeToInt(type->ResistType);
+			root["SmokeThreshold"] = type->SmokeThreshold;
+			root["TileDamageMethod"] = type->TileDamageMethod;
+			root["ToArmor"] = type->ToArmor;
+			root["ToArmorPre"] = type->ToArmorPre;
+			root["ToEnergy"] = type->ToEnergy;
+			root["ToHealth"] = type->ToHealth;
+			root["ToItem"] = type->ToItem;
+			root["ToMana"] = type->ToMana;
+			root["ToMorale"] = type->ToMorale;
+			root["ToStun"] = type->ToStun;
+			root["ToTile"] = type->ToTile;
+			root["ToWound"] = type->ToWound;
+
+			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+
+	}
+
 	bool terrainChanged = false; //did the hit destroy a tile thereby changing line of sight?
 	int effectGenerated = 0; //did the hit produce smoke (1), fire/light (2) or disabled a unit (3) ?
 	Position tilePos = center.toTile();
@@ -3283,37 +3527,12 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 
 	voxelCheckFlush();
 	const VoxelType part = (terrainMeleeTilePart > 0) ? (VoxelType)terrainMeleeTilePart : voxelCheck(center, attack.attacker);
-	int damage = type->getRandomDamage(power);
-
-	int tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
 
 	// coop
-	if (_save->getBattleGame())
+	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == false)
 	{
-
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true)
-		{
-
-			auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
-
-			if (!_coopTileDamage.empty())
-			{
-
-				Json::Value first;
-				bool found = _coopTileDamage.removeIndex(0, &first);
-				if (found)
-				{
-
-					uint64_t seed = first.get("seed", 0).asUInt64();
-
-					int current_damage = type->getRandomDamageForTileCoop(power, seed);
-
-					damage = current_damage;
-					tileFinalDamage = current_damage;
-				}
-			}
-		}
-
+		damage = type->getRandomDamage(power);
+		tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
 	}
 
 	if (part >= V_FLOOR && part <= V_OBJECT)
@@ -5245,6 +5464,18 @@ Tile *TileEngine::applyGravity(Tile *t)
  */
 void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 {
+
+	// COOP
+	if (_save->getBattleGame())
+	{
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
+		{
+
+			return;
+
+		}
+	}
+
 	// don't spawn anything outside of bounds
 	if (t == 0)
 		return;
@@ -5264,7 +5495,7 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 	if (_save->getBattleGame())
 	{
 
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->playerInsideCoopBase == false)
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
 		{
 
 			Json::Value obj;

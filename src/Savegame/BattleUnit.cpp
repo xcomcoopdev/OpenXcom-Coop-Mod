@@ -74,6 +74,7 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_capturable(true), _vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
+
 	// coop
 	_coop = soldier->getCoop();
 	_name = soldier->getName(true);
@@ -434,6 +435,7 @@ BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, 
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
+
 	if (enviro)
 	{
 		auto newArmor = enviro->getArmorTransformation(_armor);
@@ -1574,6 +1576,16 @@ int BattleUnit::getOverKillDamage() const
 	return std::max(-_health - (int)(_stats.health * _armor->getOverKill()), 0);
 }
 
+void BattleUnit::damageCoop(SavedBattleGame* save)
+{
+
+	auto* selfDestructItem = getSpecialWeapon(getArmor()->getSelfDestructItem());
+	setAlreadyExploded(true);
+	Position p = getPosition().toVoxel();
+	save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem}, 0));
+
+}
+
 /**
  * Helper function for setting value with max bound.
  */
@@ -1591,6 +1603,13 @@ static inline void setValueMax(int& value, int diff, int min, int max)
  */
 int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type, SavedBattleGame *save, BattleActionAttack attack, UnitSide sideOverride, UnitBodyPart bodypartOverride)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return 1;
+	}
+
 	if (save->isPreview())
 	{
 		return 0;
@@ -1990,6 +2009,19 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			setAlreadyExploded(true);
 			Position p = getPosition().toVoxel();
 			save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{ BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem }, 0));
+
+			// coop
+			if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+			{
+
+				Json::Value root;
+				root["state"] = "selfDestruct";
+				root["unit_id"] = _id;
+
+				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+			}
+
 		}
 
 		if (attack.attacker)
@@ -5242,7 +5274,7 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 	}
 
 	// coop fix
-	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 1 && connectionTCP::_isActiveAISync == false)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false)
 	{
 		return false;
 	}
@@ -5871,6 +5903,11 @@ bool BattleUnit::avoidsFire() const
 void BattleUnit::disableIndicators()
 {
 	_disableIndicators = true;
+}
+
+void BattleUnit::setUnitRulesCoop(Unit* unitRules)
+{
+	_unitRules = unitRules;
 }
 
 ////////////////////////////////////////////////////////////

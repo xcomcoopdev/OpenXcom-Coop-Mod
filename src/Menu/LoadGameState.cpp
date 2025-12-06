@@ -225,6 +225,117 @@ void LoadGameState::think()
 					}
 					else
 					{
+
+						// coop
+						// if pvp gamemode
+						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+						{
+
+							if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+							{
+
+								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+								{
+
+									if (unit->getCoop() == 1)
+									{
+										unit->convertToFaction(FACTION_PLAYER);
+										unit->setOriginalFaction(FACTION_PLAYER);
+									}
+									else if (unit->getFaction() != FACTION_NEUTRAL)
+									{
+										unit->convertToFaction(FACTION_HOSTILE);
+										unit->setOriginalFaction(FACTION_HOSTILE);
+
+										std::string alienName = "MALE_CIVILIAN";
+
+										if (unit->getGeoscapeSoldier())
+										{
+
+											if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+											{
+												alienName = "FEMALE_CIVILIAN";
+											}
+										}
+
+										Unit* rule = _game->getMod()->getUnit(alienName, true);
+										unit->setUnitRulesCoop(rule);
+									}
+								}
+							}
+						}
+						// coop
+						// if pvp gamemode
+						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+						{
+
+							if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+							{
+
+								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+								{
+
+									if (unit->getCoop() == 1)
+									{
+										unit->convertToFaction(FACTION_PLAYER);
+										unit->setOriginalFaction(FACTION_PLAYER);
+									}
+									else if (unit->getFaction() != FACTION_NEUTRAL)
+									{
+										unit->convertToFaction(FACTION_HOSTILE);
+										unit->setOriginalFaction(FACTION_HOSTILE);
+
+										std::string alienName = "MALE_CIVILIAN";
+
+										if (unit->getGeoscapeSoldier())
+										{
+
+											if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+											{
+												alienName = "FEMALE_CIVILIAN";
+											}
+										}
+
+										Unit* rule = _game->getMod()->getUnit(alienName, true);
+										unit->setUnitRulesCoop(rule);
+									}
+								}
+							}
+						}
+						// HOST PVP2
+						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getSavedGame()->getCoop()->getGameMode() == 3)
+						{
+
+							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+							{
+
+								if (unit->getCoop() == 1)
+								{
+									unit->convertToFaction(FACTION_HOSTILE);
+									unit->setOriginalFaction(FACTION_HOSTILE);
+
+									std::string alienName = "MALE_CIVILIAN";
+
+									if (unit->getGeoscapeSoldier())
+									{
+
+										if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+										{
+											alienName = "FEMALE_CIVILIAN";
+										}
+									}
+
+									Unit* rule = _game->getMod()->getUnit(alienName, true);
+									unit->setUnitRulesCoop(rule);
+								}
+								else if (unit->getFaction() != FACTION_NEUTRAL)
+								{
+									unit->convertToFaction(FACTION_PLAYER);
+									unit->setOriginalFaction(FACTION_PLAYER);
+								}
+							}
+						}
+
 						_game->pushState(bs);
 
 					}

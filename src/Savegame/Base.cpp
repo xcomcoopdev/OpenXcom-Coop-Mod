@@ -471,9 +471,6 @@ void Base::save(YAML::YamlNodeWriter writer) const
 					 c->save(v.write(), _mod->getScriptGlobal());
 				 });
 
-	writer.write("crafts", _crafts,
-		[&](YAML::YamlNodeWriter& vectorWriter, Craft* c)
-		{ c->save(vectorWriter.write(), _mod->getScriptGlobal()); });
 	_items->save(writer["items"]);
 	writer.write("scientists", _scientists);
 	writer.write("engineers", _engineers);

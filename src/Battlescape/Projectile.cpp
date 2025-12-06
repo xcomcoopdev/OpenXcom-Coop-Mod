@@ -205,7 +205,6 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 
 		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
 		auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-		auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
 
 		auto* conf = _action.weapon->getActionConf(_action.type);
 
@@ -230,7 +229,7 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 
 			_coopProjectilesClient.append(projectile);
 			_coopProjectilesHost.append(projectile);
-			_coopTileDamage.append(projectile);
+
 		}
 
 		_save->getBattleGame()->getCoopMod()->_coopAllow = true;
@@ -353,7 +352,6 @@ int Projectile::calculateThrow(double accuracy)
 
 			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
 			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-			auto& _coopTileDamage = _save->getBattleGame()->getCoopMod()->_coopTileDamage;
 
 			Json::Value projectile(Json::objectValue);
 
@@ -361,10 +359,12 @@ int Projectile::calculateThrow(double accuracy)
 			projectile["rng_y"] = targetVoxel.y;
 			projectile["rng_z"] = targetVoxel.z;
 			projectile["seed"] = RNG::getSeedCoop();
+			projectile["origin_x"] = originVoxel.x;
+			projectile["origin_y"] = originVoxel.y;
+			projectile["origin_z"] = originVoxel.z;
 
 			_coopProjectilesClient.append(projectile);
 			_coopProjectilesHost.append(projectile);
-			_coopTileDamage.append(_coopTileDamage);
 			
 			_save->getBattleGame()->getCoopMod()->_coopAllow = true;
 		}
@@ -411,13 +411,35 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 			if (found)
 			{
 
-				int rng_target_x = first.get("rng_x", 0).asInt();
-				int rng_target_y = first.get("rng_y", 0).asInt();
-				int rng_target_z = first.get("rng_z", 0).asInt();
+				if (first.isObject() &&
+					first.isMember("rng_x") &&
+					first.isMember("rng_y") &&
+					first.isMember("rng_z"))
+				{
+					int rng_target_x = first["rng_x"].asInt();
+					int rng_target_y = first["rng_y"].asInt();
+					int rng_target_z = first["rng_z"].asInt();
 
-				target->x = rng_target_x;
-				target->y = rng_target_y;
-				target->z = rng_target_z;
+					target->x = rng_target_x;
+					target->y = rng_target_y;
+					target->z = rng_target_z;
+
+				}
+
+				if (first.isObject() &&
+					first.isMember("origin_x") &&
+					first.isMember("origin_y") &&
+					first.isMember("origin_z"))
+				{
+					int origin_target_x = first["origin_x"].asInt();
+					int origin_target_y = first["origin_y"].asInt();
+					int origin_target_z = first["origin_z"].asInt();
+
+					origin.x = origin_target_x;
+					origin.y = origin_target_y;
+					origin.z = origin_target_z;
+
+				}
 
 				return;
 
@@ -436,13 +458,33 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 				if (found)
 				{
 
-					int rng_target_x = first.get("rng_x", 0).asInt();
-					int rng_target_y = first.get("rng_y", 0).asInt();
-					int rng_target_z = first.get("rng_z", 0).asInt();
+					if (first.isObject() &&
+						first.isMember("rng_x") &&
+						first.isMember("rng_y") &&
+						first.isMember("rng_z"))
+					{
+						int rng_target_x = first["rng_x"].asInt();
+						int rng_target_y = first["rng_y"].asInt();
+						int rng_target_z = first["rng_z"].asInt();
 
-					target->x = rng_target_x;
-					target->y = rng_target_y;
-					target->z = rng_target_z;
+						target->x = rng_target_x;
+						target->y = rng_target_y;
+						target->z = rng_target_z;
+					}
+
+					if (first.isObject() &&
+						first.isMember("origin_x") &&
+						first.isMember("origin_y") &&
+						first.isMember("origin_z"))
+					{
+						int origin_target_x = first["origin_x"].asInt();
+						int origin_target_y = first["origin_y"].asInt();
+						int origin_target_z = first["origin_z"].asInt();
+
+						origin.x = origin_target_x;
+						origin.y = origin_target_y;
+						origin.z = origin_target_z;
+					}
 
 					return;
 				}

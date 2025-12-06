@@ -94,6 +94,8 @@
 namespace OpenXcom
 {
 
+bool battle_init_coop = false;
+
 /**
  * Initializes all the elements in the Battlescape screen.
  * @param game Pointer to the core game.
@@ -785,9 +787,6 @@ BattlescapeState::BattlescapeState() :
 
 	}
 
-	// coop
-	_game->getCoopMod()->teleport = false;
-
 }
 
 /**
@@ -952,73 +951,82 @@ void BattlescapeState::think()
 
 			}
 
-			// coop panic handle
-			if (_game->getCoopMod()->_waitBH == true && _game->getCoopMod()->getHost() == false)
-			{
-				_save->setSideCoop(0);
-				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
-
-			}
-
 			// coop init
 			// Initialize only during a co-op session
 			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->_battleInit == false && _battleGame->isBusy() == false && _save->getSide() == FACTION_PLAYER && _battleGame->getPanicHandled() == true && _save->isPreview() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
 			{
 
-				_game->getCoopMod()->_battleInit = true;
-				_game->getCoopMod()->coopInventory = true;
-				_game->getCoopMod()->playerInsideCoopBase = false;
-				_game->getCoopMod()->_battleWindow = false;
-				_game->getCoopMod()->_isMainCampaignBaseDefense = false;
-
-				// Check if this is a campaign mission
-				if (!_game->getSavedGame()->getCountries()->empty())
+				if (battle_init_coop == false)
 				{
 
-					_game->getCoopMod()->setCoopCampaign(true);
-				}
-				else
-				{
-
-					_game->getCoopMod()->setCoopCampaign(false);
-				}
-
-				if (_game->getCoopMod()->getHost() == false)
-				{
-
-					if (_game->getCoopMod()->_waitBC == false)
-					{
-						Json::Value root;
-
-						root["state"] = "WAIT_BATTLESCAPE_HOST_TRUE";
-
-						_game->getCoopMod()->_waitBC = true;
-
-						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-					}
-				}
-				else
-				{
-
-					if (_game->getCoopMod()->_waitBH == false)
-					{
-
-						Json::Value root;
-
-						root["state"] = "WAIT_BATTLESCAPE_CLIENT_TRUE";
-
-						_game->getCoopMod()->_waitBH = true;
-
-						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-					}
-				}
+					battle_init_coop = true;
 					
-				_game->getCoopMod()->coopMissionEnd = true;
-				
-				
-				
+				}
+				else
+				{
+
+					battle_init_coop = false;
+
+					_game->getCoopMod()->_battleInit = true;
+					_game->getCoopMod()->coopInventory = true;
+					_game->getCoopMod()->playerInsideCoopBase = false;
+					_game->getCoopMod()->_battleWindow = false;
+					_game->getCoopMod()->_isMainCampaignBaseDefense = false;
+
+					// Check if this is a campaign mission
+					if (!_game->getSavedGame()->getCountries()->empty())
+					{
+
+						_game->getCoopMod()->setCoopCampaign(true);
+					}
+					else
+					{
+
+						_game->getCoopMod()->setCoopCampaign(false);
+					}
+
+					if (_game->getCoopMod()->getHost() == false)
+					{
+
+						if (_game->getCoopMod()->_waitBC == false)
+						{
+							Json::Value root;
+
+							root["state"] = "WAIT_BATTLESCAPE_HOST_TRUE";
+
+							_game->getCoopMod()->_waitBC = true;
+
+							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+						}
+					}
+					else
+					{
+
+						if (_game->getCoopMod()->_waitBH == false)
+						{
+
+							Json::Value root;
+
+							root["state"] = "WAIT_BATTLESCAPE_CLIENT_TRUE";
+
+							_game->getCoopMod()->_waitBH = true;
+
+							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+						}
+					}
+
+				}
+
+
+						
 			}
-			
+
+			// coop panic handle
+			if (_game->getCoopMod()->_waitBH == true && _game->getCoopMod()->getHost() == false)
+			{
+				_save->setSideCoop(0);
+				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
+			}
 
 			// game paused
 			if (_game->getCoopMod()->gamePaused != 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _battleGame->isYourTurn != 2 && _game->getCoopMod()->_battleInit == true)
@@ -1267,6 +1275,7 @@ void BattlescapeState::think()
 
 								_game->getCoopMod()->sendTCPPacketData(root.toStyledString().c_str());
 							}
+
 						}
 					}
 					
@@ -1317,6 +1326,7 @@ void BattlescapeState::think()
 
 								_game->getCoopMod()->sendTCPPacketData(root.toStyledString().c_str());
 							}
+
 						}
 					}
 						
@@ -1324,13 +1334,24 @@ void BattlescapeState::think()
 			}
 
 			// coop
-			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _game->getCoopMod()->gamePaused == 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
+			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _game->getCoopMod()->gamePaused == 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true && _battleGame->isBusy() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
 			{
 
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
 
 				_battleGame->cancelAllActions();
+
+				// PVP
+				if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+				{
+
+					for (auto& unit : *_save->getUnits())
+					{	
+						unit->resetTimeUnitsAndEnergy();
+					}
+
+				}
 
 				// Client's turn and host is waiting
 				if (_game->getCoopMod()->getHost() == false)
@@ -1351,15 +1372,13 @@ void BattlescapeState::think()
 
 					}
 					// PVE2
-					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
+					else if (_game->getCoopMod()->getCoopGamemode() == 4)
 					{
 
 						_game->getCoopMod()->_battleInit = false;
 						_game->getCoopMod()->_isActivePlayerSync = false;
 						_game->getCoopMod()->_isActiveAISync = true;
 						_game->getCoopMod()->_clientPanicHandle = true;
-
-						endTurnCoop();
 
 					}
 					else
@@ -1387,7 +1406,7 @@ void BattlescapeState::think()
 						_game->getCoopMod()->_isActivePlayerSync = false;
 					}
 					// PVE2
-					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->teleport == false)
+					else if (_game->getCoopMod()->getCoopGamemode() == 4)
 					{
 
 						_game->getCoopMod()->_isActiveAISync = true;
@@ -1403,107 +1422,8 @@ void BattlescapeState::think()
 						_game->getCoopMod()->_isActivePlayerSync = false;
 					}
 
-					Json::Value root;
-					root["state"] = "current_seed";
-
-					root["end"] = false;
-
-					int index = 0;
-
-					if (_game->getCoopMod()->teleport == true && _save->getTurn() >= 1)
-					{
-
-						for (auto& unit : *_save->getUnits())
-						{
-
-							root["units"][index]["unit_id"] = unit->getId();
-							root["units"][index]["pos_x"] = unit->getPosition().x;
-							root["units"][index]["pos_y"] = unit->getPosition().y;
-							root["units"][index]["pos_z"] = unit->getPosition().z;
-
-							root["units"][index]["time"] = unit->getTimeUnits();
-							root["units"][index]["health"] = unit->getHealth();
-							root["units"][index]["energy"] = unit->getEnergy();
-							root["units"][index]["morale"] = unit->getMorale();
-							root["units"][index]["mana"] = unit->getMana();
-							root["units"][index]["stun"] = unit->getStunlevel();
-
-							root["units"][index]["setDirection"] = unit->getDirection();
-							root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
-
-							// motions points (fix)
-							root["units"][index]["motionpoints"] = unit->getMotionPoints();
-
-							// new
-							root["units"][index]["respawn"] = unit->getRespawn();
-
-							// mind control (host)
-							if (unit->_coop_mindcontrolled == true)
-							{
-
-								unit->_coop_mindcontrolled = false;
-
-								if (unit->getCoop() == 0)
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
-									unit->setCoop(1);
-								}
-								else if (unit->getCoop() == 1)
-								{
-
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-
-									unit->setCoop(0);
-								}
-
-							}
-
-							// PVP
-							if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-							{
-								unit->resetTimeUnitsAndEnergy();
-							}
-
-							// coop fix
-							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-							{
-								unit->setCoopStatus(STATUS_DEAD);
-							}
-
-							if (unit->getTile() && (unit->getStatus() == STATUS_DEAD || unit->getStatus() == STATUS_UNCONSCIOUS))
-							{
-
-								unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
-
-							}
-
-							bool isTile = false;
-
-							if (unit->getTile())
-							{
-
-								isTile = true;
-
-							}
-
-							root["units"][index]["isTile"] = isTile;
-							root["units"][index]["status"] = _battleGame->getCoopMod()->unitstatusToInt(unit->getStatus());
-
-							index++;
-						}
-
-						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-					}
-
 				}
-
-				_game->getCoopMod()->teleport = true;
 			
-
 			}
 
 
@@ -2498,7 +2418,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 				root["units"][index]["energy"] = unit->getEnergy();
 				root["units"][index]["morale"] = unit->getMorale();
 				root["units"][index]["mana"] = unit->getMana();
-				root["units"][index]["stun"] = unit->getStunlevel();
+				root["units"][index]["stunlevel"] = unit->getStunlevel();
 
 				root["units"][index]["setDirection"] = unit->getDirection();
 				root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
@@ -3528,6 +3448,16 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 	for (auto* bu : *battleUnit->getVisibleUnits())
 	{
 		if (j >= VISIBLE_MAX) break; // loop finished
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
+		{
+			if (bu->getFaction() == FACTION_PLAYER)
+			{
+				continue;
+			}
+		}
+
 		_btnVisibleUnit[j]->setTooltip(_txtVisibleUnitTooltip[j]);
 		_btnVisibleUnit[j]->setVisible(true);
 		_numVisibleUnit[j]->setVisible(true);
@@ -3997,10 +3927,6 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	_battleGame->getCoopMod()->_coopProjectilesHost.clear();
 	_battleGame->getCoopMod()->_coopProjectilesClient = arr;
 
-	const Json::Value& tile_damage = obj["tile_damage"];
-	_battleGame->getCoopMod()->_coopTileDamage.clear();
-	_battleGame->getCoopMod()->_coopTileDamage = tile_damage;
-
 	_battleGame->getCurrentAction()->waypoints.clear();
 
 	// waypoints
@@ -4041,33 +3967,14 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	// coop fix
 	getMap()->getCamera()->stopKeyScrolling();
 
-	if (actor_tu != 0)
-	{
-		unit->setCoopTimeUnits(actor_tu);
-	}
+	unit->setCoopTimeUnits(actor_tu);
 
-	if (actor_energy != 0)
+	if (_game->getCoopMod()->getHost() == false)
 	{
 		unit->setCoopEnergy(actor_energy);
-	}
-
-	if (actor_morale != 0)
-	{
 		unit->setCoopMorale(actor_morale);
-	}
-
-	if (actor_health != 0)
-	{
 		unit->setHealth(actor_health);
-	}
-
-	if (actor_mana != 0)
-	{
 		unit->setCoopMana(actor_mana);
-	}
-
-	if (actor_stun != 0)
-	{
 		unit->setStunlevelCoop(actor_stun);
 	}
 
@@ -5138,7 +5045,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false && _save->isPreview() == false)
 	{
 		return;
 	}

@@ -69,6 +69,7 @@ void PsiAttackBState::init()
 			{
 				_target = u;
 				_parent->getCoopMod()->_psi_target_id = -1;
+				_action.target = u->getPosition();
 				break;
 			}
 		}
@@ -76,9 +77,14 @@ void PsiAttackBState::init()
 		_item = _action.weapon;
 		_unit = _action.actor;
 
-		int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
-		Position voxel = _action.target.toVoxel() + Position(8, 8, height);
-		_parent->statePushFront(new ExplosionBState(_parent, voxel, BattleActionAttack::GetAferShoot(_action, _action.weapon)));
+		if (_parent->getSave()->getTile(_action.target))
+		{
+
+			int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
+			Position voxel = _action.target.toVoxel() + Position(8, 8, height);
+			_parent->statePushFront(new ExplosionBState(_parent, voxel, BattleActionAttack::GetAferShoot(_action, _action.weapon)));
+
+		}
 
 		return;
 	}

@@ -105,7 +105,8 @@ void UnitTurnBState::init()
 	}
 
 	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	const int tu = _chargeTUs ? (_turret ? 1 : _unit->getTurnCost()) : 0;
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true && _unit->spendTimeUnits(tu))
 	{
 		Json::Value obj;
 		obj["state"] = "BattleScapeTurn";
@@ -137,6 +138,10 @@ void UnitTurnBState::init()
 		obj["stunlevel"] = _unit->getStunlevel();
 		obj["mana"] = _unit->getMana();
 
+		obj["setDirection"] = _unit->getDirection();
+		obj["setFaceDirection"] = _unit->getFaceDirection();
+
+		/*
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
@@ -148,6 +153,7 @@ void UnitTurnBState::init()
 				j++;
 			}
 		}
+		*/
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}

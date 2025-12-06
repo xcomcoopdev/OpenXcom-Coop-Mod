@@ -55,12 +55,13 @@ namespace OpenXcom
 void Craft::makeCoopVehicle(Vehicle* vehicle)
 {
 
-	// ERIKOISTILANNE KOSKA VEHICLE EI TARVITSE KOKEMUSTA !!!
+	// Just in case, coop is set to 1.
 	vehicle->setCoop(1);
 
-	// kaytetty (fix)
+	//// Vehicle is not linked to any coop base (fix)
 	vehicle->setCoopBase(-1);
 
+	// Add the second player's vehicle to the craft
 	this->getVehicles()->push_back(vehicle);
 }
 

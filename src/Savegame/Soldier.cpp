@@ -330,8 +330,7 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	if (_dailyDogfightExperienceCache.firing > 0 || _dailyDogfightExperienceCache.reactions > 0 || _dailyDogfightExperienceCache.bravery > 0)
 		writer.write("dailyDogfightExperienceCache", _dailyDogfightExperienceCache);
 	writer.write("rank", _rank);
-	// coop
-	if (_craft && _coopbase == -1)
+	if (_craft)
 		_craft->saveId(writer["craft"]);
 	writer.write("gender", _gender);
 	writer.write("look", _look);

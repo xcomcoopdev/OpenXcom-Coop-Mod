@@ -132,6 +132,7 @@ public:
 	/// Sets the UFO's detection status.
 	void setDetected(bool detected);
 	void setDetectedCoop(bool detected);
+	int DetectedCoopPrevious = -1;
 	/// Gets the UFO's seconds left on the ground.
 	size_t getSecondsRemaining() const;
 	/// Sets the UFO's seconds left on the ground.

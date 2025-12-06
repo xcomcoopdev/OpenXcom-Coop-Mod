@@ -112,6 +112,8 @@ bool connectionTCP::_enable_time_sync = true;
 
 bool connectionTCP::_coopCampaign = false;
 
+bool connectionTCP::_battleInit = false;
+
 std::string current_ping = "";
 
 connectionTCP::connectionTCP(Game* game) : _game(game)
@@ -685,6 +687,10 @@ void connectionTCP::updateCoopTask()
 				}
 
 				const std::string stateString = obj.get("state", "defaultState").asString();
+
+				DebugLog("STATE: ");
+				DebugLog(stateString.c_str());
+
 				const int fromId = obj.get("from", -1).asInt();
 
 				// Make operator precedence explicit:
@@ -692,8 +698,9 @@ void connectionTCP::updateCoopTask()
 						 _coop_task_completed || (
 						 (stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInit) ||
-						 (stateString == "after_unit_death" && _coopInit)) ||
-					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState";
+						 (stateString == "after_unit_death" && _coopInit) ||
+						 (stateString == "hit_tile" && _coopInit)) ||
+					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn";
 
 				if (consumeNow)
 				{
@@ -1476,6 +1483,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		// visible units
+		/*
 		for (int j = 0; j < obj["visible_units"].size(); j++)
 		{
 
@@ -1517,6 +1525,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	
 		}
+		*/
 
 	}
 
@@ -2070,6 +2079,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
+
+	// info box ok
+	if (stateString == "info_box_ok")
+	{
+
+		std::string msg = obj["msg"].asString();
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				_game->getSavedGame()->getSavedBattle()->getBattleGame()->infoboxOkCoop(msg);
+			}
+		}
+	}
+
 	if (stateString == "after_unit_death")
 	{
 
@@ -2143,6 +2170,157 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "selfDestruct")
+	{
+
+		
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					int unit_id = obj["unit_id"].asInt();
+
+					// Check if the same unit
+					if (unit->getId() == unit_id)
+					{
+
+						unit->damageCoop(_game->getSavedGame()->getSavedBattle());
+
+						break;
+
+					}
+				}
+
+			}
+		}
+
+	}
+
+	// hit tile
+	if (stateString == "hit_tile")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
+				{
+
+					int center_x = obj["center_x"].asInt();
+					int center_y = obj["center_y"].asInt();
+					int center_z = obj["center_z"].asInt();
+
+					int power = obj["power"].asInt();
+					int damageType_int = obj["damageType"].asInt();
+					bool rangeAtack = obj["rangeAtack"].asBool();
+					int terrainMeleeTilePart = obj["terrainMeleeTilePart"].asInt();
+
+					uint64_t seed = obj["seed"].asUInt64();
+					int smokeRNG = obj["smokeRNG"].asInt();
+					_smokeRNGs.push_back(smokeRNG);
+
+					float ArmorEffectiveness = obj["ArmorEffectiveness"].asFloat();
+					bool FireBlastCalc = obj["FireBlastCalc"].asBool();
+					int FireThreshold = obj["FireThreshold"].asInt();
+					int FixRadius = obj["FixRadius"].asInt();
+					bool IgnoreDirection = obj["IgnoreDirection"].asBool();
+					bool IgnoreNormalMoraleLose = obj["IgnoreNormalMoraleLose"].asBool();
+					bool IgnoreOverKill = obj["IgnoreOverKill"].asBool();
+					bool IgnorePainImmunity = obj["IgnorePainImmunity"].asBool();
+					bool IgnoreSelfDestruct = obj["IgnoreSelfDestruct"].asBool();
+					float RadiusEffectiveness = obj["RadiusEffectiveness"].asFloat();
+					float RadiusReduction = obj["RadiusReduction"].asFloat();
+					bool RandomArmor = obj["RandomArmor"].asBool();
+					bool RandomArmorPre = obj["RandomArmorPre"].asBool();
+					bool RandomEnergy = obj["RandomEnergy"].asBool();
+					bool RandomHealth = obj["RandomHealth"].asBool();
+					bool RandomItem = obj["RandomItem"].asBool();
+					bool RandomMana = obj["RandomMana"].asBool();
+					bool RandomMorale = obj["RandomMorale"].asBool();
+					bool RandomStun = obj["RandomStun"].asBool();
+					bool RandomTile = obj["RandomTile"].asBool();
+					bool RandomTime = obj["RandomTime"].asBool();
+					int RandomType = obj["RandomType"].asInt();
+					bool RandomWound = obj["RandomWound"].asBool();
+					int ResistType = obj["ResistType"].asInt();
+					int SmokeThreshold = obj["SmokeThreshold"].asInt();
+					int TileDamageMethod = obj["TileDamageMethod"].asInt();
+					float ToArmor = obj["ToArmor"].asFloat();
+					float ToArmorPre = obj["ToArmorPre"].asFloat();
+					float ToEnergy = obj["ToEnergy"].asFloat();
+					float ToHealth = obj["ToHealth"].asFloat();
+					float ToItem = obj["ToItem"].asFloat();
+					float ToMana = obj["ToMana"].asFloat();
+					float ToMorale = obj["ToMorale"].asFloat();
+					float ToStun = obj["ToStun"].asFloat();
+					float ToTile = obj["ToTile"].asFloat();
+					float ToWound = obj["ToWound"].asFloat();
+
+					RuleDamageType* dmg = new RuleDamageType();
+
+					dmg->ArmorEffectiveness = ArmorEffectiveness;
+					dmg->FireBlastCalc = FireBlastCalc;
+					dmg->FireThreshold = FireThreshold;
+					dmg->FixRadius = FixRadius;
+					dmg->IgnoreDirection = IgnoreDirection;
+					dmg->IgnoreNormalMoraleLose = IgnoreNormalMoraleLose;
+					dmg->IgnoreOverKill = IgnoreOverKill;
+					dmg->IgnorePainImmunity = IgnorePainImmunity;
+					dmg->IgnoreSelfDestruct = IgnoreSelfDestruct;
+					dmg->RadiusEffectiveness = RadiusEffectiveness;
+					dmg->RadiusReduction = RadiusReduction;
+					dmg->RandomArmor = RandomArmor;
+					dmg->RandomArmorPre = RandomArmorPre;
+					dmg->RandomEnergy = RandomEnergy;
+					dmg->RandomHealth = RandomHealth;
+					dmg->RandomItem = RandomItem;
+					dmg->RandomMana = RandomMana;
+					dmg->RandomMorale = RandomMorale;
+					dmg->RandomStun = RandomStun;
+					dmg->RandomTile = RandomTile;
+					dmg->RandomTime = RandomTime;
+					dmg->RandomType = intToItemDamageRandomType(RandomType);
+					dmg->RandomWound = RandomWound;
+					dmg->ResistType = intToItemDamageType(ResistType);
+					dmg->SmokeThreshold = SmokeThreshold;
+					dmg->TileDamageMethod = TileDamageMethod;
+					dmg->ToArmor = ToArmor;
+					dmg->ToArmorPre = ToArmorPre;
+					dmg->ToEnergy = ToEnergy;
+					dmg->ToHealth = ToHealth;
+					dmg->ToItem = ToItem;
+					dmg->ToMana = ToMana;
+					dmg->ToMorale = ToMorale;
+					dmg->ToStun = ToStun;
+					dmg->ToTile = ToTile;
+					dmg->ToWound = ToWound;
+
+					if (!_battleActions.empty())
+					{
+						BattleActionAttack oldest = _battleActions.front();  
+				
+						_game->getSavedGame()->getSavedBattle()->getBattleGame()->hitCoop(oldest, Position(center_x, center_y, center_z), power, dmg, rangeAtack, terrainMeleeTilePart, seed);
+
+						_battleActions.erase(_battleActions.begin()); 
+				
+					}
+
+				}
+
+			}
+
+		}
+
+	}
+
 	// unit_death
 	if (stateString == "unit_death")
 	{
@@ -2205,7 +2383,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							int damageType_int = obj["damageType"].asInt();
 							bool noSound = obj["noSound"].asBool();
-							const RuleDamageType* damageType = _game->getMod()->getDamageType((ItemDamageType)damageType_int);
+							const RuleDamageType* damageType = _game->getMod()->getDamageType(intToItemDamageType(damageType_int));
 
 							_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, noSound);
 
@@ -2267,6 +2445,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "checkForProximityGrenades")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
+				{
+
+					int unit_id = obj["unit_id"].asInt();
+
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						if (unit->getId() == unit_id)
+						{
+		
+							_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
+
+							break;
+
+						}
+
+					}
+
+
+				}
+
+			}
+		}
+
+	}
+
 	// RANDOM SEED
 	if (stateString == "current_seed")
 	{
@@ -2278,14 +2492,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 
 				bool end = obj["end"].asBool();
-
-				if (end && _game->getSavedGame()->getSavedBattle()->getBattleGame())
-				{
-
-					//_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
-
-					//_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
-				}
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
 
@@ -2306,7 +2512,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int energy = obj["units"][i]["energy"].asInt();
 							int morale = obj["units"][i]["morale"].asInt();
 							int mana = obj["units"][i]["mana"].asInt();
-							int stun = obj["units"][i]["stun"].asInt();
+							int stunlevel = obj["units"][i]["stunlevel"].asInt();
 
 							int motionpoints = obj["motionpoints"].asInt();
 
@@ -2326,6 +2532,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopMorale(morale);
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
+							unit->setStunlevelCoop(stunlevel);
 
 							int pos_x = obj["units"][i]["pos_x"].asInt();
 							int pos_y = obj["units"][i]["pos_y"].asInt();
@@ -2352,12 +2559,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 									unit->setCoop(0);
 								}
-							}
-
-							// PVP
-							if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-							{
-								unit->resetTimeUnitsAndEnergy();
 							}
 
 							// Check if positions do not match
@@ -2714,7 +2915,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				ufo->setLatitude(d_lat);
 				ufo->setLongitude(d_lon);
 
-				ufo->setDetectedCoop(detected);
+				if (getCoopGamemode() == 2 && getHost() == false)
+				{
+					ufo->setDetectedCoop(true);
+				}
+				else if (getCoopGamemode() == 3 && getHost() == true)
+				{
+					ufo->setDetectedCoop(true);
+				}
+				else
+				{
+					ufo->setDetectedCoop(detected);
+				}
+
 				ufo->setStatusCoop(status);
 				ufo->setAltitudeCoop(altitude);
 
@@ -2803,6 +3016,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "endTurn")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int side = obj["side"].asInt();
+
+				_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
+
+				if (side == 0)
+				{
+
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
+
+				}
+				else
+				{
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+				}
+
+			}
+
+		}
+
+	}
+
 	if (stateString == "AIProgress")
 	{
 
@@ -2862,7 +3106,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					_game->getSavedGame()->getSavedBattle()->setSelectedUnit(0);
 
-					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
 				}
 
 			}
@@ -2885,14 +3128,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (_game->getSavedGame()->getSavedBattle())
 			{
+				_game->getSavedGame()->getSavedBattle()->getBattleGame()->cancelCurrentAction();
+				_game->getSavedGame()->getSavedBattle()->getBattleGame()->cancelAllActions();
+
 				_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 				_game->getSavedGame()->getSavedBattle()->setAborted(abort);
 				_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+
+				_game->popState();
+				_game->pushState(new DebriefingState);
 			}
 		}
-
-		_game->popState();
-		_game->pushState(new DebriefingState());
 
 	}
 
@@ -2994,12 +3240,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int energy = obj["units"][i]["energy"].asInt();
 							int morale = obj["units"][i]["morale"].asInt();
 							int mana = obj["units"][i]["mana"].asInt();
-							int stun = obj["units"][i]["stun"].asInt();
+							int stunlevel = obj["units"][i]["stunlevel"].asInt();
 							bool is_out = obj["units"][i]["is_out"].asBool();
 							int motionpoints = obj["motionpoints"].asInt();
 
 							int setDirection = obj["units"][i]["setDirection"].asInt();
 							int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
+
+							bool respawn = obj["units"][i]["respawn"].asBool();
 
 							if (getHost() == false)
 							{
@@ -3012,6 +3260,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								unit->setCoopMorale(morale);
 								unit->setCoopEnergy(energy);
 								unit->setCoopMana(mana);
+
+								unit->setRespawn(respawn);
+								unit->setStunlevelCoop(stunlevel);
+
 							}
 
 							int pos_x = obj["units"][i]["pos_x"].asInt();
@@ -3046,9 +3298,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					_battleInit = false;
 					_isActiveAISync = true;
 
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-
 				}
 				// pvp2
 				else if (connectionTCP::_coopGamemode == 3)
@@ -3057,9 +3306,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					_isActivePlayerSync = false;
 					_battleInit = false;
 					_isActiveAISync = true;
-
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
 					
 				}
 				// pvp
@@ -4188,7 +4434,7 @@ void connectionTCP::setPauseOn()
 {
 
 	// coop
-	if (getCoopStatic() == true && (getCurrentTurn() == 1 || getCurrentTurn() == 3) && gamePaused == 0 && _battleWindow == false)
+	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false)
 	{
 
 		Json::Value root;
@@ -4203,7 +4449,7 @@ void connectionTCP::setPauseOff()
 {
 
 	// coop
-	if (getCoopStatic() == true && (getCurrentTurn() == 1 || getCurrentTurn() == 3) && gamePaused == 0 && _battleWindow == false)
+	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false)
 	{
 
 		Json::Value root;
@@ -4523,6 +4769,156 @@ Ufo::UfoStatus connectionTCP::intToUfostatus(int status)
 	if (status == 4)
 		return Ufo::IGNORE_ME;
 	return Ufo::IGNORE_ME;
+}
+
+int connectionTCP::ItemDamageRandomTypeToInt(ItemDamageRandomType type)
+{
+
+	if (type == DRT_DEFAULT)
+		return 0;
+	if (type == DRT_UFO)
+		return 1;
+	if (type == DRT_TFTD)
+		return 2;
+	if (type == DRT_FLAT)
+		return 3;
+	if (type == DRT_FIRE)
+		return 4;
+	if (type == DRT_NONE)
+		return 5;
+	if (type == DRT_UFO_WITH_TWO_DICE)
+		return 6;
+	if (type == DRT_EASY)
+		return 7;
+	if (type == DRT_STANDARD)
+		return 8;
+	if (type == DRT_EXPLOSION)
+		return 9;
+
+	return 0;
+}
+
+ItemDamageRandomType connectionTCP::intToItemDamageRandomType(int type)
+{
+	if (type == 0)
+		return DRT_DEFAULT;
+	if (type == 1)
+		return DRT_UFO;
+	if (type == 2)
+		return DRT_TFTD;
+	if (type == 3)
+		return DRT_FLAT;
+	if (type == 4)
+		return DRT_FIRE;
+	if (type == 5)
+		return DRT_NONE;
+	if (type == 6)
+		return DRT_UFO_WITH_TWO_DICE;
+	if (type == 7)
+		return DRT_EASY;
+	if (type == 8)
+		return DRT_STANDARD;
+	if (type == 9)
+		return DRT_EXPLOSION;
+
+	return DRT_DEFAULT;
+}
+
+int connectionTCP::ItemDamageTypeToInt(ItemDamageType type)
+{
+
+	if (type == DT_NONE)
+		return 0;
+	if (type == DT_AP)
+		return 1;
+	if (type == DT_IN)
+		return 2;
+	if (type == DT_HE)
+		return 3;
+	if (type == DT_LASER)
+		return 4;
+	if (type == DT_PLASMA)
+		return 5;
+	if (type == DT_STUN)
+		return 6;
+	if (type == DT_MELEE)
+		return 7;
+	if (type == DT_ACID)
+		return 8;
+	if (type == DT_SMOKE)
+		return 9;
+	if (type == DT_10)
+		return 10;
+	if (type == DT_11)
+		return 11;
+	if (type == DT_12)
+		return 12;
+	if (type == DT_13)
+		return 13;
+	if (type == DT_14)
+		return 14;
+	if (type == DT_15)
+		return 15;
+	if (type == DT_16)
+		return 16;
+	if (type == DT_17)
+		return 17;
+	if (type == DT_18)
+		return 18;
+	if (type == DT_19)
+		return 19;
+	if (type == DAMAGE_TYPES)
+		return 20;
+
+	return 0;
+}
+
+ItemDamageType connectionTCP::intToItemDamageType(int type)
+{
+	if (type == 0)
+		return DT_NONE;
+	if (type == 1)
+		return DT_AP;
+	if (type == 2)
+		return DT_IN;
+	if (type == 3)
+		return DT_HE;
+	if (type == 4)
+		return DT_LASER;
+	if (type == 5)
+		return DT_PLASMA;
+	if (type == 6)
+		return DT_STUN;
+	if (type == 7)
+		return DT_MELEE;
+	if (type == 8)
+		return DT_ACID;
+	if (type == 9)
+		return DT_SMOKE;
+	if (type == 10)
+		return DT_10;
+	if (type == 11)
+		return DT_11;
+	if (type == 12)
+		return DT_12;
+	if (type == 13)
+		return DT_13;
+	if (type == 14)
+		return DT_14;
+	if (type == 15)
+		return DT_15;
+	if (type == 16)
+		return DT_16;
+	if (type == 17)
+		return DT_17;
+	if (type == 18)
+		return DT_18;
+	if (type == 19)
+		return DT_19;
+	if (type == 20)
+		return DAMAGE_TYPES;
+
+	return DT_NONE;
 }
 
 void connectionTCP::syncResearch(std::string research)
@@ -4895,7 +5291,6 @@ void connectionTCP::disconnectTCP()
 		}
 
 		// both
-		teleport = false;
 		connectionTCP::_coopGamemode = 0;
 		gamePaused = 0;
 		playerInsideCoopBase = false;

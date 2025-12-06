@@ -38,7 +38,9 @@
 #include "CoopState.h"
 #include "Profile.h"
 #include "ChatMenu.h"
-#include "../Savegame/Ufo.h" 
+
+#include "../Savegame/Ufo.h"
+
 
 #include <algorithm> // clamp, minmax
 #include <cmath>     // round
@@ -143,7 +145,6 @@ class connectionTCP
 	// coop
 	connectionTCP(Game* game);
 	~connectionTCP();  
-	bool teleport = false;
 	bool _isMainCampaignBaseDefense = false;
 	bool coop_end_turn = false;
 	bool allow_cutscene = true;
@@ -212,7 +213,7 @@ class connectionTCP
 	bool _waitBC = false; // is the client ready in battle?
 	bool _waitBH = false; // is the host ready in battle?
 	bool _battleWindow = false; // end turn screen
-	bool _battleInit = false; // when both have joined and are ready for battle, initialize
+	static bool _battleInit; // when both have joined and are ready for battle, initialize
 	bool resetCoopInventory = false;
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
@@ -225,16 +226,21 @@ class connectionTCP
 	void sendResearch();
 	ChatMenu* getChatMenu();
 	void setChatMenu(ChatMenu* menu);
+
 	int unitstatusToInt(UnitStatus status);
 	UnitStatus intToUnitstatus(int status);
 	int ufostatusToInt(Ufo::UfoStatus status);
 	Ufo::UfoStatus intToUfostatus(int status);
+	int ItemDamageRandomTypeToInt(ItemDamageRandomType type);
+	ItemDamageRandomType intToItemDamageRandomType(int type);
+	int ItemDamageTypeToInt(ItemDamageType type);
+	ItemDamageType intToItemDamageType(int type);
+
 	bool time1MonthCoop = false;
 
 	// coop projectiles
 	Json::Value _coopProjectilesClient;
 	Json::Value _coopProjectilesHost;
-	Json::Value _coopTileDamage;
 
 	Json::Value _coopEndPath = Json::nullValue;;
 
@@ -279,6 +285,10 @@ class connectionTCP
 
 	int _melee_target_id = -1;
 	int _melee_hit_number = -1;
+
+	std::vector<BattleActionAttack> _battleActions;
+
+	std::vector <int> _smokeRNGs;
 
 };
 
