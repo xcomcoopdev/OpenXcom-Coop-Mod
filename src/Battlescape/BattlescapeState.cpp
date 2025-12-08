@@ -2403,6 +2403,31 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		root["battle_turn"] = _save->getTurn();
 
 		// Check that synchronization works
+
+		// tiles
+		int json_index = 0;
+		for (int tile_index = 0; tile_index < _save->getMapSizeXYZ();)
+		{
+
+			// only specific tiles (fire, smoke)
+			if (_save->getTile(tile_index)->getFire() != 0)
+			{
+
+				root["tiles"][json_index]["tile_pos_x"] = _save->getTile(tile_index)->getPosition().x;
+				root["tiles"][json_index]["tile_pos_y"] = _save->getTile(tile_index)->getPosition().y;
+				root["tiles"][json_index]["tile_pos_z"] = _save->getTile(tile_index)->getPosition().z;
+
+				root["tiles"][json_index]["getDangerous"] = _save->getTile(tile_index)->getDangerous();
+				root["tiles"][json_index]["getFire"] = _save->getTile(tile_index)->getFire();
+				root["tiles"][json_index]["getSmoke"] = _save->getTile(tile_index)->getSmoke();
+
+				json_index++;
+
+			}
+
+			++tile_index;
+		}
+	
 		int index = 0;
 
 		for (auto& unit : *_save->getUnits())
@@ -2428,6 +2453,16 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 				// new
 				root["units"][index]["respawn"] = unit->getRespawn();
+
+				root["units"][index]["fire"] = unit->getFire();
+
+				Json::Value fatalArray(Json::arrayValue);
+				for (int i = 0; i < BODYPART_MAX; ++i)
+				{
+					fatalArray.append(unit->getFatalWoundsCoop()[i]);
+				}
+
+				root["units"][index]["fatalWounds"] = fatalArray;
 
 				index++;
 			

@@ -215,6 +215,8 @@ public:
 	Position getLastPosCoop();
 	void setCoopStatus(UnitStatus status);
 	void stopCoopWalk();
+	const int* getFatalWoundsCoop() const;
+	void setFatalWoundCoop(int bodyPart, int value);
 	bool _coop_mindcontrolled = false;
 	void setOriginalFaction(UnitFaction faction);
 	void setCoop(int coop);

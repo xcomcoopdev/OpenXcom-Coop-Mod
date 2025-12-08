@@ -1217,6 +1217,25 @@
     <ClCompile Include="Basescape\ItemLocationsState.cpp">
       <Filter>Basescape</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\ChatMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\connectionTCP.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\CoopMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\CoopState.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\Profile.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\CrashHandler.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2690,6 +2709,25 @@
     <ClInclude Include="Engine\NullableValue.h">
       <Filter>Engine</Filter>
     </ClInclude>
+    <ClInclude Include="CoopMod\ChatMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\connectionTCP.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CoopMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CoopState.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\OptionsMultiplayer.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\Profile.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CrashHandler.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Geoscape">
@@ -2754,6 +2792,9 @@
     </Filter>
     <Filter Include="Engine\rapidyaml\c4\yml\std">
       <UniqueIdentifier>{032166e7-3396-4da8-8b9a-79ec1b036488}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="CoopMod">
+      <UniqueIdentifier>{b0c71ac9-bbfe-407f-ad22-69039e71e471}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

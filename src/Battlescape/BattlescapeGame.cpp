@@ -247,7 +247,6 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 		unit->setCoopMorale(morale);
 		unit->setCoopMana(mana);
 
-		/*
 		if (getCoopMod()->_isActiveAISync == false && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3)
 		{
 
@@ -269,8 +268,7 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 			}
 
 		}
-		*/
-
+	
 		// other
 		_save->setSelectedUnit(unit);
 		_currentAction.actor = unit;
@@ -379,7 +377,6 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		unit->setDirection(setDirection);
 		unit->setFaceDirection(setFaceDirection);
 
-		/*
 		if (getCoopMod()->_isActiveAISync == false && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3)
 		{
 			for (auto& unit : *_save->getUnits())
@@ -399,7 +396,6 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 				}
 			}
 		}
-		*/
 
 		// stats
 		unit->setTimeUnits(tu);

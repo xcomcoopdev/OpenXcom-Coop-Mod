@@ -103,7 +103,7 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 		root["rules"] = mission->getRules()->getType();
 		root["race"] = mission->getAlienRace();
 		root["city"] = mission->getCity();
-		root["time"] = mission->getSecondsRemaining();
+		root["time"] = Json::UInt64(mission->getSecondsRemaining());
 		root["lon"] = mission->getLongitude();
 		root["lat"] = mission->getLatitude();
 

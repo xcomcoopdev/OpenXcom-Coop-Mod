@@ -2343,6 +2343,16 @@ void BattleUnit::stopCoopWalk()
 	_walkPhase = 0;
 }
 
+const int* BattleUnit::getFatalWoundsCoop() const
+{
+	return _fatalWounds;
+}
+
+void BattleUnit::setFatalWoundCoop(int bodyPart, int value)
+{
+	_fatalWounds[bodyPart] = value;
+}
+
 void BattleUnit::setOriginalFaction(UnitFaction faction)
 {
 	_originalFaction = faction;

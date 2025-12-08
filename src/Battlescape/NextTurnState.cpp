@@ -643,6 +643,17 @@ void NextTurnState::close()
 						// new
 						root["units"][index]["respawn"] = unit->getRespawn();
 
+						root["units"][index]["fire"] = unit->getFire();
+
+						Json::Value fatalArray(Json::arrayValue);
+						for (int i = 0; i < BODYPART_MAX; ++i)
+						{
+							fatalArray.append(unit->getFatalWoundsCoop()[i]);
+						}
+
+						root["units"][index]["fatalWounds"] = fatalArray;
+
+
 						// coop fix
 						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 						{
@@ -667,6 +678,29 @@ void NextTurnState::close()
 						root["units"][index]["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
 
 						index++;
+					}
+
+					// tiles
+					int json_index = 0;
+					for (int tile_index = 0; tile_index < _battleGame->getMapSizeXYZ();)
+					{
+
+						// only specific tiles (fire, smoke)
+						if (_battleGame->getTile(tile_index)->getSmoke() != 0 || _battleGame->getTile(tile_index)->getFire() != 0)
+						{
+
+							root["tiles"][json_index]["tile_pos_x"] = _battleGame->getTile(tile_index)->getPosition().x;
+							root["tiles"][json_index]["tile_pos_y"] = _battleGame->getTile(tile_index)->getPosition().y;
+							root["tiles"][json_index]["tile_pos_z"] = _battleGame->getTile(tile_index)->getPosition().z;
+
+							root["tiles"][json_index]["getDangerous"] = _battleGame->getTile(tile_index)->getDangerous();
+							root["tiles"][json_index]["getFire"] = _battleGame->getTile(tile_index)->getFire();
+							root["tiles"][json_index]["getSmoke"] = _battleGame->getTile(tile_index)->getSmoke();
+
+							json_index++;
+						}
+
+						++tile_index;
 					}
 
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

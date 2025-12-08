@@ -499,18 +499,17 @@ void CraftInfoState::btnOkClick(Action *)
 
 		// save the other player's base (CLIENT only), e.g., soldiers, etc.
 		std::string filename = "";
-		std::string filepath = Options::getMasterUserFolder() + filename;
 
 		if (_game->getCoopMod()->getServerOwner() == true)
 		{
-
 			filename = "host/basehost.data";
 		}
 		else
 		{
-
 			filename = "client/basehost.data";
 		}
+
+		std::string filepath = Options::getMasterUserFolder() + filename;
 
 		if (OpenXcom::CrossPlatform::fileExists(filepath))
 		{
@@ -620,11 +619,10 @@ void CraftInfoState::btnOkClick(Action *)
 						++it; // Advance to the next element only if not removed
 					}
 				}
+
 			}
 		}
 	}
-
-
 
 	_game->popState();
 }

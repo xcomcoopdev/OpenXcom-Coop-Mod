@@ -149,7 +149,6 @@ void UnitWalkBState::deinit()
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();
 
-		/*
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
@@ -161,8 +160,7 @@ void UnitWalkBState::deinit()
 				j++;
 			}
 		}
-		*/
-
+	
 		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}

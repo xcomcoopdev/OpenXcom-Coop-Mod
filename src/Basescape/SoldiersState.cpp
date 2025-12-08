@@ -619,9 +619,8 @@ void SoldiersState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
-		// tallentetaan toisen pelaaja base (vain CLIENT) esim. sotilaat jne
+		// save the other player's base (CLIENT only), e.g., soldiers, etc.
 		std::string filename = "";
-		std::string filepath = Options::getMasterUserFolder() + filename;
 
 		if (_game->getCoopMod()->getServerOwner() == true)
 		{
@@ -633,6 +632,8 @@ void SoldiersState::btnOkClick(Action *)
 
 			filename = "client/basehost.data";
 		}
+
+		std::string filepath = Options::getMasterUserFolder() + filename;
 
 		if (OpenXcom::CrossPlatform::fileExists(filepath))
 		{

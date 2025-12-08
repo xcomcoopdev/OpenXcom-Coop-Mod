@@ -1976,6 +1976,12 @@ bool TileEngine::isTileInLOS(BattleAction *action, Tile *tile, bool drawing)
 	tempAction.type = action->type;
 	tempAction.target = tile->getPosition();
 
+	// coop fix
+	if (!currentUnit->getTile())
+	{
+		return false;
+	}
+
 	Position originVoxel = getOriginVoxel(tempAction, currentUnit->getTile());
 	Position scanVoxel;
 	std::vector<Position> _trajectory;
@@ -5464,18 +5470,6 @@ Tile *TileEngine::applyGravity(Tile *t)
  */
 void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 {
-
-	// COOP
-	if (_save->getBattleGame())
-	{
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
-		{
-
-			return;
-
-		}
-	}
-
 	// don't spawn anything outside of bounds
 	if (t == 0)
 		return;

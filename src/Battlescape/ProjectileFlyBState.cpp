@@ -262,7 +262,6 @@ void ProjectileFlyBState::init()
 		{
 			// out of range
 			_action.result = "STR_OUT_OF_RANGE";
-			DebugLog("STR_OUT_OF_RANGE");
 			_parent->popState();
 			return;
 		}
@@ -272,7 +271,6 @@ void ProjectileFlyBState::init()
 		{
 			// out of range
 			_action.result = "STR_OUT_OF_RANGE";
-			DebugLog("STR_OUT_OF_RANGE2");
 			_parent->popState();
 			return;
 		}
@@ -368,7 +366,6 @@ void ProjectileFlyBState::init()
 					if (_parent->getSave()->getSide() == FACTION_PLAYER) // Only show message during player's turn
 					{
 						_action.result = "STR_FAILED_CQB_CHECK";
-						DebugLog("STR_FAILED_CQB_CHECK");
 					}
 					int rng = RNG::generate(0, 5);
 					Position closeQuartersFailedNewTarget = _unit->getPosition();
@@ -682,7 +679,6 @@ bool ProjectileFlyBState::createNewProjectile()
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
 			_action.result = "STR_UNABLE_TO_THROW_HERE";
-			DebugLog("STR_UNABLE_TO_THROW_HERE");
 			_action.clearTU();
 			_parent->popState();
 			return false;
@@ -717,7 +713,6 @@ bool ProjectileFlyBState::createNewProjectile()
 			if (_parent->getPanicHandled())
 			{
 				_action.result = "STR_NO_TRAJECTORY";
-				DebugLog("STR_NO_TRAJECTORY");
 			}
 			_unit->abortTurn();
 			_parent->popState();
@@ -765,7 +760,6 @@ bool ProjectileFlyBState::createNewProjectile()
 			if (_parent->getPanicHandled())
 			{
 				_action.result = "STR_NO_LINE_OF_FIRE";
-				DebugLog("STR_NO_LINE_OF_FIRE555");
 			}
 			_unit->abortTurn();
 			_parent->popState();

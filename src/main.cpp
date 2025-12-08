@@ -16,17 +16,18 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <sstream>
-#include <exception>
-#include <cassert>
-#include "version.h"
-#include "Engine/Exception.h"
-#include "Engine/Logger.h"
 #include "Engine/CrossPlatform.h"
-#include "Engine/Game.h"
-#include "Engine/Options.h"
+#include "Engine/Exception.h"
 #include "Engine/FileMap.h"
+#include "Engine/Game.h"
+#include "Engine/Logger.h"
+#include "Engine/Options.h"
 #include "Menu/StartState.h"
+#include "version.h"
+#include <cassert>
+#include <exception>
+#include <sstream>
+#include "CoopMod/CrashHandler.h" // coop
 
 /** @mainpage
  * @author OpenXcom Developers
@@ -79,7 +80,7 @@ void exceptionLogger()
 			throw;
 		}
 	}
-	catch (const std::exception &e)
+	catch (const std::exception& e)
 	{
 		error = e.what();
 	}
@@ -91,12 +92,13 @@ void exceptionLogger()
 	exit(EXIT_FAILURE);
 }
 
-Game *game = 0;
+Game* game = 0;
 
 // If you can't tell what the main() is for you should have your
 // programming license revoked...
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
+	CrashHandler::install(); // coop
 #ifndef DUMP_CORE
 #ifdef _MSC_VER
 	// Uncomment to check memory leaks in VS
@@ -145,18 +147,17 @@ int main(int argc, char *argv[])
 
 namespace OpenXcom
 {
-	Exception::Exception(const std::string &msg) : runtime_error(msg) {
+Exception::Exception(const std::string& msg) : runtime_error(msg)
+{
 #ifdef DUMP_CORE
-		__builtin_trap();
+	__builtin_trap();
 #endif
-	}
+}
 }
 
 #ifdef __MORPHOS__
-const char Version[] = "$VER: OpenXCom " OPENXCOM_VERSION_SHORT " (" __AMIGADATE__  ")";
+const char Version[] = "$VER: OpenXCom " OPENXCOM_VERSION_SHORT " (" __AMIGADATE__ ")";
 #endif
-
-
 
 #ifndef NDEBUG
 
@@ -183,9 +184,9 @@ struct BadMove
 
 	BadMove& operator=(BadMove&& b)
 	{
-		i = {}; //this can reset other `b` too if we do not check for `this == &b`
+		i = {}; // this can reset other `b` too if we do not check for `this == &b`
 		i = b.i;
-		b.i = {}; //same there
+		b.i = {}; // same there
 		return *this;
 	}
 
@@ -196,7 +197,7 @@ struct BadMove
 };
 
 static auto dummy = ([]
-{
+					 {
 	{
 		std::vector<int> v = { 1, 2, 3, 4 };
 		Collections::removeIf(v, [](int& i) { return i < 3; });
@@ -264,8 +265,7 @@ static auto dummy = ([]
 		assert((v == std::vector<BadMove>{ }));
 	}
 
-	return 0;
-})();
+	return 0; })();
 
 struct DummyVectDouble
 {
@@ -275,7 +275,7 @@ struct DummyVectDouble
 };
 
 static auto dummyMath = ([]
-{
+						 {
 	const DummyVectDouble x { 1, 0, 0 };
 	const DummyVectDouble y { 0, 1, 0 };
 	const DummyVectDouble z { 0, 0, 1 };
@@ -306,7 +306,6 @@ static auto dummyMath = ([]
 	assert(x256 == VectCrossProduct(y256, z256, 256));
 	assert(y256 == VectCrossProduct(z256, x256, 256));
 
-	return 0;
-})();
+	return 0; })();
 
 #endif

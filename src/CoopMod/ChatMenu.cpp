@@ -15,20 +15,20 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>. 
+ * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "ChatMenu.h"
+#include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/Camera.h"
+#include "../Battlescape/Map.h"
 #include "../Engine/Font.h"
 #include "../Engine/Game.h"
 #include "../Engine/Surface.h"
 #include "../Engine/Unicode.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/SavedGame.h"
 #include <ctime>
 #include <sstream>
-#include "../Savegame/SavedGame.h"
-#include "../Savegame/SavedBattleGame.h"
-#include "../Battlescape/BattlescapeGame.h"
-#include "../Battlescape/Map.h"
-#include "../Battlescape/Camera.h"
 
 namespace OpenXcom
 {
@@ -36,7 +36,7 @@ namespace OpenXcom
 ChatMenu::ChatMenu(Font* gameFont, Game* game) : active(false), _font(gameFont), _game(game) {}
 
 void ChatMenu::setActive(bool state)
-{	
+{
 	_game->getCoopMod()->_isChatActiveStatic = state;
 
 	active.store(state);
@@ -135,7 +135,14 @@ void ChatMenu::drawText(SDL_Surface* screen, const std::string& text, int x, int
 		}
 
 		SurfaceCrop glyph = _font->getChar(uc);
-		SDL_Rect dst = {posX, y, 0, 0};
+
+		// SDL_Rect: x, y = Sint16, w, h = Uint16
+		SDL_Rect dst;
+		dst.x = static_cast<Sint16>(posX);
+		dst.y = static_cast<Sint16>(y);
+		dst.w = 0;
+		dst.h = 0;
+
 		SDL_Rect crop = *glyph.getCrop();
 		Surface* surf = const_cast<Surface*>(glyph.getSurface());
 		SDL_BlitSurface(surf->getSurface(), &crop, screen, &dst);
@@ -173,7 +180,6 @@ void ChatMenu::updateMiniChat()
 
 void ChatMenu::update()
 {
-
 }
 
 void ChatMenu::draw(SDL_Surface* screen)
@@ -202,7 +208,12 @@ void ChatMenu::draw(SDL_Surface* screen)
 	}
 
 	// Input box
-	SDL_Rect inputBox = {chatBox.x + 5, chatBox.y + chatBox.h - (_font->getHeight() + 6), chatBox.w - 10, _font->getHeight() + 4};
+	SDL_Rect inputBox;
+	inputBox.x = static_cast<Sint16>(chatBox.x + 5);
+	inputBox.y = static_cast<Sint16>(chatBox.y + chatBox.h - (_font->getHeight() + 6));
+	inputBox.w = static_cast<Uint16>(chatBox.w - 10);
+	inputBox.h = static_cast<Uint16>(_font->getHeight() + 4);
+
 	SDL_FillRect(screen, &inputBox, SDL_MapRGB(screen->format, 40, 40, 40));
 
 	if (inputText.empty())
@@ -287,4 +298,3 @@ void ChatMenu::clearMessages()
 }
 
 }
-

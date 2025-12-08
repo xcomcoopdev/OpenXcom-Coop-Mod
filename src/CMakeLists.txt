@@ -134,6 +134,16 @@ set ( battlescape_src
   Battlescape/WarningMessage.cpp
 )
 
+set ( coopmod_src
+  CoopMod/ChatMenu.cpp
+  CoopMod/connectionTCP.cpp
+  CoopMod/CoopMenu.cpp
+  CoopMod/CoopState.cpp
+  CoopMod/CrashHandler.cpp
+  CoopMod/OptionsMultiplayer.cpp
+  CoopMod/Profile.cpp
+)
+
 set ( engine_src
   Engine/Action.cpp
   Engine/Adlib/adlplayer.cpp
@@ -441,6 +451,7 @@ set ( cxx_src
     ${root_src}
     ${basescape_src}
     ${battlescape_src}
+    ${coopmod_src} 
     ${engine_src}
     ${geoscape_src}
     ${interface_src}
@@ -623,7 +634,7 @@ if (WIN32)
   set(WIN32_LIBS imagehlp dbghelp)
 endif(WIN32)
 
-target_link_libraries ( openxcom ${system_libs} ${PKG_DEPS_LDFLAGS} ${WIN32_LIBS} )
+target_link_libraries ( openxcom ${system_libs} ${PKG_DEPS_LDFLAGS} jsoncpp vorbisfile SDL_net ${WIN32_LIBS} )
 
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
@@ -669,6 +680,7 @@ endif ()
 if ( MSVC OR "${CMAKE_GENERATOR}" STREQUAL "Xcode" )
   source_group ( "Basescape" FILES ${basescape_src} )
   source_group ( "Battlescape" FILES ${battlescape_src} )
+  source_group ( "CoopMod" FILES ${coopmod_src} )
   source_group ( "Engine" FILES ${engine_src} )
   source_group ( "Geoscape" FILES ${geoscape_src} )
   source_group ( "Interface" FILES ${interface_src} )

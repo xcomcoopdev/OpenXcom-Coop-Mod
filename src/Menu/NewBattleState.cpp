@@ -407,7 +407,7 @@ void NewBattleState::init()
 			Json::Value root;
 
 			root["state"] = "craft_list";
-			root["selected_craft_id"] = _cbxCraft->getSelected();
+			root["selected_craft_id"] = Json::UInt(_cbxCraft->getSelected());
 
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
@@ -1073,9 +1073,9 @@ void NewBattleState::cbxCraftChange(Action *)
 		Json::Value root;
 
 		root["state"] = "craft_list";
-		root["selected_craft_id"] = _cbxCraft->getSelected();
+		root["selected_craft_id"] = Json::UInt(_cbxCraft->getSelected());
 
-		_game->getCoopMod()->_coop_selected_craft_id = _cbxCraft->getSelected();
+		_game->getCoopMod()->_coop_selected_craft_id = Json::UInt(_cbxCraft->getSelected());
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
