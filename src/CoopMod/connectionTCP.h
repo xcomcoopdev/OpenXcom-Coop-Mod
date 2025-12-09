@@ -290,6 +290,8 @@ class connectionTCP
 
 	std::vector <int> _smokeRNGs;
 
+	bool pve2_init = false;
+
 };
 
 }

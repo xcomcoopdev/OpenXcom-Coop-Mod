@@ -984,7 +984,7 @@ void BattlescapeState::think()
 
 						_game->getCoopMod()->setCoopCampaign(false);
 					}
-
+					
 					if (_game->getCoopMod()->getHost() == false)
 					{
 
@@ -1014,6 +1014,7 @@ void BattlescapeState::think()
 							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 						}
 					}
+
 
 				}
 
@@ -1324,7 +1325,7 @@ void BattlescapeState::think()
 								root["actor_id"] = _save->getSelectedUnit()->getId();
 								_battleGame->getCurrentAction()->actor = _save->getSelectedUnit();
 
-								_game->getCoopMod()->sendTCPPacketData(root.toStyledString().c_str());
+								_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 							}
 
 						}
@@ -1372,13 +1373,11 @@ void BattlescapeState::think()
 
 					}
 					// PVE2
-					else if (_game->getCoopMod()->getCoopGamemode() == 4)
+					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->pve2_init == false)
 					{
 
-						_game->getCoopMod()->_battleInit = false;
 						_game->getCoopMod()->_isActivePlayerSync = false;
 						_game->getCoopMod()->_isActiveAISync = true;
-						_game->getCoopMod()->_clientPanicHandle = true;
 
 					}
 					else
@@ -1406,8 +1405,10 @@ void BattlescapeState::think()
 						_game->getCoopMod()->_isActivePlayerSync = false;
 					}
 					// PVE2
-					else if (_game->getCoopMod()->getCoopGamemode() == 4)
+					else if (_game->getCoopMod()->getCoopGamemode() == 4 && _game->getCoopMod()->pve2_init == false)
 					{
+
+						_game->getCoopMod()->pve2_init = true;
 
 						_game->getCoopMod()->_isActiveAISync = true;
 						_game->getCoopMod()->_isActivePlayerSync = true;

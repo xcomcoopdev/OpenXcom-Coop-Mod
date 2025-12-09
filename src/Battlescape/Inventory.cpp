@@ -401,98 +401,103 @@ void Inventory::drawItems()
 		// Ground items
 		int fatalWounds = 0;
 		auto& occupiedSlots = *clearOccupiedSlotsCache();
-		for (auto* groundItem : *_selUnit->getTile()->getInventory())
+
+		// coop fix
+		if (_selUnit->getTile())
 		{
-
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getHost() == true && _selUnit->getCoop() == 1 || _game->getCoopMod()->getHost() == false && _selUnit->getCoop() == 0) && _game->getCoopMod()->playerInsideCoopBase == false)
-				continue;
-
-			const Surface *frame = groundItem->getBigSprite(texture, save, _animFrame);
-			// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
-			if (groundItem == _selItem || groundItem->getRules()->getInventoryHeight() == 0 || groundItem->getRules()->getInventoryWidth() == 0 || !frame)
-				continue;
-
-			// check if item is in visible range
-			if (groundItem->getSlotX() < _groundOffset || groundItem->getSlotX() >= _groundOffset + _groundSlotsX)
-				continue;
-
-			// check if something was draw here before
-			auto& pos = occupiedSlots[groundItem->getSlotY()][groundItem->getSlotX() - _groundOffset];
-			if (pos)
+			for (auto* groundItem : *_selUnit->getTile()->getInventory())
 			{
-				continue;
-			}
-			else
-			{
-				pos = true;
-			}
 
-			int x, y;
-			x = (groundItem->getSlot()->getX() + (groundItem->getSlotX() - _groundOffset) * RuleInventory::SLOT_W);
-			y = (groundItem->getSlot()->getY() + groundItem->getSlotY() * RuleInventory::SLOT_H);
-			BattleItem::ScriptFill(&work, groundItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
-			work.executeBlit(frame, _items, x, y, 0);
+				// coop
+				if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getHost() == true && _selUnit->getCoop() == 1 || _game->getCoopMod()->getHost() == false && _selUnit->getCoop() == 0) && _game->getCoopMod()->playerInsideCoopBase == false)
+					continue;
 
-			// grenade primer indicators
-			if (groundItem->getFuseTimer() >= 0 && groundItem->getRules()->getInventoryWidth() > 0)
-			{
-				primers(x, y, groundItem->isFuseEnabled());
-			}
+				const Surface* frame = groundItem->getBigSprite(texture, save, _animFrame);
+				// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
+				if (groundItem == _selItem || groundItem->getRules()->getInventoryHeight() == 0 || groundItem->getRules()->getInventoryWidth() == 0 || !frame)
+					continue;
 
-			// fatal wounds
-			fatalWounds = 0;
-			if (groundItem->getUnit())
-			{
-				// don't show on dead units
-				if (groundItem->getUnit()->getStatus() == STATUS_UNCONSCIOUS && groundItem->getUnit()->indicatorsAreEnabled())
+				// check if item is in visible range
+				if (groundItem->getSlotX() < _groundOffset || groundItem->getSlotX() >= _groundOffset + _groundSlotsX)
+					continue;
+
+				// check if something was draw here before
+				auto& pos = occupiedSlots[groundItem->getSlotY()][groundItem->getSlotX() - _groundOffset];
+				if (pos)
 				{
-					fatalWounds = groundItem->getUnit()->getFatalWounds();
-					if (_burnIndicator && groundItem->getUnit()->getFire() > 0)
+					continue;
+				}
+				else
+				{
+					pos = true;
+				}
+
+				int x, y;
+				x = (groundItem->getSlot()->getX() + (groundItem->getSlotX() - _groundOffset) * RuleInventory::SLOT_W);
+				y = (groundItem->getSlot()->getY() + groundItem->getSlotY() * RuleInventory::SLOT_H);
+				BattleItem::ScriptFill(&work, groundItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
+				work.executeBlit(frame, _items, x, y, 0);
+
+				// grenade primer indicators
+				if (groundItem->getFuseTimer() >= 0 && groundItem->getRules()->getInventoryWidth() > 0)
+				{
+					primers(x, y, groundItem->isFuseEnabled());
+				}
+
+				// fatal wounds
+				fatalWounds = 0;
+				if (groundItem->getUnit())
+				{
+					// don't show on dead units
+					if (groundItem->getUnit()->getStatus() == STATUS_UNCONSCIOUS && groundItem->getUnit()->indicatorsAreEnabled())
 					{
-						indicators(_burnIndicator, x, y);
-					}
-					else if (_woundIndicator && fatalWounds > 0)
-					{
-						indicators(_woundIndicator, x, y);
-					}
-					else if (_shockIndicator && groundItem->getUnit()->hasNegativeHealthRegen())
-					{
-						indicators(_shockIndicator, x, y);
-					}
-					else if (_stunIndicator)
-					{
-						indicators(_stunIndicator, x, y);
+						fatalWounds = groundItem->getUnit()->getFatalWounds();
+						if (_burnIndicator && groundItem->getUnit()->getFire() > 0)
+						{
+							indicators(_burnIndicator, x, y);
+						}
+						else if (_woundIndicator && fatalWounds > 0)
+						{
+							indicators(_woundIndicator, x, y);
+						}
+						else if (_shockIndicator && groundItem->getUnit()->hasNegativeHealthRegen())
+						{
+							indicators(_shockIndicator, x, y);
+						}
+						else if (_stunIndicator)
+						{
+							indicators(_stunIndicator, x, y);
+						}
 					}
 				}
-			}
-			if (fatalWounds > 0)
-			{
-				_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W)-4);
-				if (fatalWounds > 9)
+				if (fatalWounds > 0)
 				{
-					_stackNumber->setX(_stackNumber->getX()-4);
+					_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W) - 4);
+					if (fatalWounds > 9)
+					{
+						_stackNumber->setX(_stackNumber->getX() - 4);
+					}
+					_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H) - 6);
+					_stackNumber->setValue(fatalWounds);
+					_stackNumber->draw();
+					_stackNumber->setColor(color2);
+					_stackNumber->blit(stackLayer.getSurface());
 				}
-				_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H)-6);
-				_stackNumber->setValue(fatalWounds);
-				_stackNumber->draw();
-				_stackNumber->setColor(color2);
-				_stackNumber->blit(stackLayer.getSurface());
-			}
 
-			// item stacking
-			if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 1)
-			{
-				_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W)-4);
-				if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 9)
+				// item stacking
+				if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 1)
 				{
-					_stackNumber->setX(_stackNumber->getX()-4);
+					_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W) - 4);
+					if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 9)
+					{
+						_stackNumber->setX(_stackNumber->getX() - 4);
+					}
+					_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H) - 6);
+					_stackNumber->setValue(_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()]);
+					_stackNumber->draw();
+					_stackNumber->setColor(color);
+					_stackNumber->blit(stackLayer.getSurface());
 				}
-				_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H)-6);
-				_stackNumber->setValue(_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()]);
-				_stackNumber->draw();
-				_stackNumber->setColor(color);
-				_stackNumber->blit(stackLayer.getSurface());
 			}
 		}
 
@@ -1704,7 +1709,8 @@ void Inventory::arrangeGround(int alterOffset)
 	_xMax = 0;
 	_stackLevel.clear();
 
-	if (_selUnit != 0)
+	// coop fix
+	if (_selUnit != 0 && _selUnit->getTile())
 	{
 		std::unordered_map< std::string, std::vector< std::vector<BattleItem*> > > typeItemLists; // Lists of items of the same type
 		std::vector<BattleItem*> itemListOrder; // Placement order of item type stacks.

@@ -1218,12 +1218,15 @@ void SavedBattleGame::startFirstTurn()
 	resetUnitTiles();
 
 	// check what unit is still on this tile after reset.
-	if (inventoryTile->getUnit())
+	// coop fix
+	if (inventoryTile)
 	{
-		// make sure we select the unit closest to the ramp.
-		setSelectedUnit(inventoryTile->getUnit());
+		if (inventoryTile->getUnit())
+		{
+			// make sure we select the unit closest to the ramp.
+			setSelectedUnit(inventoryTile->getUnit());
+		}
 	}
-
 
 	// initialize xcom units for battle
 	for (auto* bu : *getUnits())

@@ -318,6 +318,8 @@ DebriefingState::DebriefingState() :
 		_game->getCoopMod()->_clientPanicHandle = false;
 		_game->getCoopMod()->_onClickClose = false;
 
+		_game->getCoopMod()->pve2_init = false;
+
 	}
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)

@@ -703,9 +703,8 @@ void connectionTCP::updateCoopTask()
 						 _coop_task_completed || (
 						 (stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInit) ||
-						 (stateString == "after_unit_death" && _coopInit) ||
-						 (stateString == "hit_tile" && _coopInit)) ||
-					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn";
+						 (stateString == "after_unit_death" && _coopInit)) ||
+					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile";
 
 				if (consumeNow)
 				{
@@ -3083,6 +3082,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (_game->getSavedGame()->getSavedBattle())
 			{
 
+				// PVE2
+				if (getCoopGamemode() == 4 && pve2_init == false)
+				{
+
+					pve2_init = true;
+
+					_battleInit = false;
+					_isActivePlayerSync = false;
+					_isActiveAISync = true;
+					_clientPanicHandle = true;
+					_waitBC = false;
+					_waitBH = false;
+
+				}
+
 				int side = obj["side"].asInt();
 
 				_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
@@ -3282,7 +3296,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					{
 
 						_game->getSavedGame()->getSavedBattle()->getTile(i)->setFire(0);
-						_game->getSavedGame()->getSavedBattle()->getTile(i)->setSmoke(0);
 
 						for (int json_id = 0; json_id < obj["tiles"].size(); json_id++)
 						{
@@ -3407,6 +3420,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					_isActivePlayerSync = false;
 					_battleInit = false;
 					_isActiveAISync = true;
+
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
 					
 				}
 				// pvp
@@ -5422,6 +5438,8 @@ void connectionTCP::disconnectTCP()
 		onceTime = false;
 
 		isWaitMap = true;
+
+		_game->getCoopMod()->pve2_init = false;
 
 		setPlayerTurn(2);
 
