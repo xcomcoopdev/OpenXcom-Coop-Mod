@@ -54,7 +54,13 @@ CutsceneState::CutsceneState(const std::string &cutsceneId)
 
 	}
 
-	_game->getCoopMod()->allow_cutscene = true;
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->allow_cutscene = false;
+	}
+
+
 
 }
 
@@ -106,6 +112,7 @@ void CutsceneState::init()
 	{
 		Log(LOG_WARNING) << "cutscene definition empty: " << _cutsceneId;
 	}
+
 }
 
 bool CutsceneState::initDisplay()

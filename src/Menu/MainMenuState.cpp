@@ -244,7 +244,7 @@ MainMenuState::MainMenuState(bool updateCheck)
 	// coop version
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
-	_textCoopVersion->setText("Coop Mod 1.33.1 [v2025-12-09]");
+	_textCoopVersion->setText("Coop Mod 1.34.0 [v2025-12-11]");
 
 }
 
@@ -266,7 +266,9 @@ void MainMenuState::init()
 	_game->getCoopMod()->disconnectTCP();
 	connectionTCP::_coopGamemode = 0;
 	_game->getCoopMod()->coopMissionEnd = false;
-	
+
+	// coop
+	_game->getCoopMod()->allow_cutscene = true;
 }
 
 /**

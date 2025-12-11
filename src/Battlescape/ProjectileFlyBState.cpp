@@ -69,10 +69,12 @@ ProjectileFlyBState::~ProjectileFlyBState()
 void ProjectileFlyBState::init()
 {
 
-	_parent->getCoopMod()->_coop_task_completed = false;
-
 	if (_initialized) return;
 	_initialized = true;
+
+	// coop
+	_parent->getCoopMod()->_coop_task_completed = false;
+	_parent->getCoopMod()->_coopInitDeath = true;
 
 	BattleItem *weapon = _action.weapon;
 
@@ -89,7 +91,6 @@ void ProjectileFlyBState::init()
 	{
 		_parent->getCoopMod()->_coopProjectilesHost.clear();
 		_parent->getCoopMod()->_coopProjectilesClient.clear();
-		_parent->getCoopMod()->_coopInit = false;
 		_action.actor->coop_no_line_fire = false;
 		_action.actor->coop_unable_to_throw_here = false;
 
@@ -787,6 +788,7 @@ void ProjectileFlyBState::deinit()
 
 	// coop
 	_parent->getCoopMod()->_coop_task_completed = true;
+	_parent->getCoopMod()->_coopInitDeath = false;
 
 	_parent->getMap()->setFollowProjectile(true); // turn back on when done shooting
 }

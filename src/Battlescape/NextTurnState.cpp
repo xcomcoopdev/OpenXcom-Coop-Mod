@@ -295,6 +295,19 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	if (_battleGame->getSide() == FACTION_PLAYER)
 	{
+
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->_isActiveAISync == true && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 2)
+		{
+
+			Json::Value root;
+			root["state"] = "endPlayerTurn";
+			root["data"] = false;
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}	
+
+
 		checkBugHuntMode();
 		_state->bugHuntMessage();
 	}

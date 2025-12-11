@@ -136,7 +136,7 @@ UnitDieBState::~UnitDieBState()
 		root["energy"] = _unit->getEnergy();
 		root["morale"] = _unit->getMorale();
 		root["mana"] = _unit->getMana();
-		root["stun"] = _unit->getStunlevel();
+		root["stunlevel"] = _unit->getStunlevel();
 
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();
@@ -192,7 +192,7 @@ void UnitDieBState::init()
 		root["energy"] = _unit->getEnergy();
 		root["morale"] = _unit->getMorale();
 		root["mana"] = _unit->getMana();
-		root["stun"] = _unit->getStunlevel();
+		root["stunlevel"] = _unit->getStunlevel();
 
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();

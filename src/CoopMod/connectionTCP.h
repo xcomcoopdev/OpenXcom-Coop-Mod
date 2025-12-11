@@ -244,7 +244,7 @@ class connectionTCP
 
 	Json::Value _coopEndPath = Json::nullValue;;
 
-	bool _coopInit = false;
+	bool _coopInitDeath = false;
 	bool _coopWalkInit = false;
 	bool _coopAllow = true;
 

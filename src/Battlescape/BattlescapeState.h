@@ -116,6 +116,10 @@ private:
 	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time);
 	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
 	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
+	// This should end the co-op battle.
+	void EndCoopBattle();
+	// This should end the co-op turn.
+	void EndCoopTurn();
 	std::string _hand = "right";
 	void coopPsiButtonAction();
 	void coopLaunchPress();

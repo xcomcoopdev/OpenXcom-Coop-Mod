@@ -200,7 +200,6 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
 	{
 
-		_save->getBattleGame()->getCoopMod()->_coopInit = true;
 		_save->getBattleGame()->getCoopMod()->_coopAllow = false;
 
 		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
@@ -347,7 +346,6 @@ int Projectile::calculateThrow(double accuracy)
 		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
 		{
 
-			_save->getBattleGame()->getCoopMod()->_coopInit = true;
 			_save->getBattleGame()->getCoopMod()->_coopAllow = false;
 
 			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;

@@ -1077,15 +1077,21 @@ void GeoscapeState::think()
 				if (ufo->getMission() && ufo->_coop == false)
 				{
 
-					if (ufo->DetectedCoopPrevious == 0)
+					// only pvp
+					if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
 					{
-						ufo->setDetectedCoop(false);
-						ufo->DetectedCoopPrevious = -1;
-					}
-					else if (ufo->DetectedCoopPrevious == 1)
-					{
-						ufo->setDetectedCoop(true);
-						ufo->DetectedCoopPrevious = -1;
+
+						if (ufo->DetectedCoopPrevious == 0)
+						{
+							ufo->setDetectedCoop(false);
+							ufo->DetectedCoopPrevious = -1;
+						}
+						else if (ufo->DetectedCoopPrevious == 1)
+						{
+							ufo->setDetectedCoop(true);
+							ufo->DetectedCoopPrevious = -1;
+						}
+
 					}
 
 					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;

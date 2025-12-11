@@ -1341,6 +1341,8 @@ void BattlescapeState::think()
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
 
+				_game->getCoopMod()->_isActiveAISync = false;
+
 				_battleGame->cancelAllActions();
 
 				// PVP
@@ -1383,8 +1385,8 @@ void BattlescapeState::think()
 					else
 					{
 
-						_game->getCoopMod()->setPlayerTurn(2);
-						_game->getCoopMod()->_isActivePlayerSync = true;
+						_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->_isActivePlayerSync = false;
 
 					}
 
@@ -1419,8 +1421,8 @@ void BattlescapeState::think()
 					else
 					{
 
-						_game->getCoopMod()->setPlayerTurn(1);
-						_game->getCoopMod()->_isActivePlayerSync = false;
+						_game->getCoopMod()->setPlayerTurn(2);
+						_game->getCoopMod()->_isActivePlayerSync = true;
 					}
 
 				}
@@ -1969,6 +1971,43 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 
 }
 
+void BattlescapeState::EndCoopBattle()
+{
+
+	_battleGame->cancelCurrentAction();
+	_battleGame->cancelAllActions();
+
+	_battleGame->cleanupDeleted();
+
+	while (!_game->isState(this))
+	{
+		_game->popState();
+	}
+
+	_popups.clear();
+	_animTimer->stop();
+	_gameTimer->stop();
+	_game->popState();
+
+}
+
+void BattlescapeState::EndCoopTurn()
+{
+
+	_battleGame->cancelCurrentAction();
+	_battleGame->cancelAllActions();
+
+	_battleGame->cleanupDeleted();
+
+	while (!_game->isState(this))
+	{
+		_game->popState();
+	}
+
+	_popups.clear();
+
+}
+
 void BattlescapeState::coopPsiButtonAction()
 {
 
@@ -2471,9 +2510,16 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 		// coop
 		// pve
-		if (_game->getCoopMod()->getHost() == false && (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 4))
+		if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 4)
 		{
 			is_return = true;
+
+			if (_game->getCoopMod()->getHost() == false)
+			{
+				_game->getCoopMod()->_isActivePlayerSync = false;
+				_game->getCoopMod()->_isActiveAISync = true;
+			}
+
 		}
 
 		// pvp
@@ -2504,8 +2550,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		if (_game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3)
 		{
 
-			_game->getCoopMod()->_isActiveAISync = true;
-			_game->getCoopMod()->_isActivePlayerSync = true;
+			// do nothing
 
 		}
 		// pvp

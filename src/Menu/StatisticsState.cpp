@@ -335,6 +335,7 @@ void StatisticsState::listStats()
  */
 void StatisticsState::btnOkClick(Action *)
 {
+
 	if (_game->getSavedGame()->getEnding() == END_NONE)
 	{
 		_game->popState();

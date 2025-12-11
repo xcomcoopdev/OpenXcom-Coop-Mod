@@ -642,7 +642,7 @@ void connectionTCP::updateCoopTask()
 	}
 
 	// disconnect from server!
-	if (onConnect == -2)
+	if (onConnect == -2 && allow_cutscene == true)
 	{
 
 		// Make sure it calls disconnectTCP, otherwise it may get stuck.
@@ -700,11 +700,12 @@ void connectionTCP::updateCoopTask()
 
 				// Make operator precedence explicit:
 				const bool consumeNow =
-						 _coop_task_completed || (
+						 (_coop_task_completed || (
 						 (stateString == "abortPath" && _coopWalkInit) ||
-						 (stateString == "unit_death" && _coopInit) ||
-						 (stateString == "after_unit_death" && _coopInit)) ||
-					stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile";
+						 (stateString == "unit_death" && _coopInitDeath) ||
+						 (stateString == "after_unit_death" && _coopInitDeath)) ||
+					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile") &&
+					!(stateString == "endPlayerTurn" && _coopEnd == 1);
 
 				if (consumeNow)
 				{
@@ -720,7 +721,7 @@ void connectionTCP::updateCoopTask()
 			catch (const std::exception& e)
 			{
 				// Build a single message used for both DebugLog and crash log
-				std::string msg = std::string("Exception in processNetworkLoopNoLocks: ") + e.what();
+				std::string msg = std::string("Network process exception: ") + e.what();
 
 				// Existing debug log
 				DebugLog((msg + "\n").c_str());
@@ -796,7 +797,10 @@ void connectionTCP::syncCoopInventory()
 		int tile_y = _jsonInventory[i]["tile_y"].asInt();
 		int tile_z = _jsonInventory[i]["tile_z"].asInt();
 
-		_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+		if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+		{
+			_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+		}
 
 		resetCoopInventory = true;
 
@@ -2131,7 +2135,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						int energy = obj["energy"].asInt();
 						int morale = obj["morale"].asInt();
 						int mana = obj["mana"].asInt();
-						int stun = obj["stun"].asInt();
+						int stunlevel = obj["stunlevel"].asInt();
 						int motionpoints = obj["motionpoints"].asInt();
 
 						int setDirection = obj["setDirection"].asInt();
@@ -2150,6 +2154,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						unit->setCoopEnergy(energy);
 						unit->setCoopMana(mana);
 
+						unit->setStunlevelCoop(stunlevel);
 						
 						int status_int = obj["status"].asInt();
 						UnitStatus unitStatus = intToUnitstatus(status_int);
@@ -2359,7 +2364,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int energy = obj["energy"].asInt();
 							int morale = obj["morale"].asInt();
 							int mana = obj["mana"].asInt();
-							int stun = obj["stun"].asInt();
+							int stunlevel = obj["stunlevel"].asInt();
 							int motionpoints = obj["motionpoints"].asInt();
 
 							int setDirection = obj["setDirection"].asInt();
@@ -2377,6 +2382,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopMorale(morale);
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
+
+							unit->setStunlevelCoop(stunlevel);
 
 							int pos_x = obj["pos_x"].asInt();
 							int pos_y = obj["pos_y"].asInt();
@@ -2507,36 +2514,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
 
 				// tiles
-				for (int i = 0; i < _game->getSavedGame()->getSavedBattle()->getMapSizeXYZ(); ++i)
+				auto* savedGame = _game->getSavedGame();
+				auto* battle = savedGame->getSavedBattle();
+				int mapSize = battle->getMapSizeXYZ();
+
+				// 1) Reset all tiles
+				for (int i = 0; i < mapSize; ++i)
 				{
+					Tile* tile = battle->getTile(i);
+					tile->setFire(0);
+					tile->setSmoke(0);
+				}
 
-					_game->getSavedGame()->getSavedBattle()->getTile(i)->setFire(0);
-					_game->getSavedGame()->getSavedBattle()->getTile(i)->setSmoke(0);
+				// 2) Apply JSON data
+				const Json::Value& tiles = obj["tiles"];
+				for (Json::ArrayIndex json_id = 0; json_id < tiles.size(); ++json_id)
+				{
+					int tile_pos_x = tiles[json_id]["tile_pos_x"].asInt();
+					int tile_pos_y = tiles[json_id]["tile_pos_y"].asInt();
+					int tile_pos_z = tiles[json_id]["tile_pos_z"].asInt();
 
-					for (int json_id = 0; json_id < obj["tiles"].size(); json_id++)
-					{
+					bool getDangerous = tiles[json_id]["getDangerous"].asBool();
+					int getFire = tiles[json_id]["getFire"].asInt();
+					int getSmoke = tiles[json_id]["getSmoke"].asInt();
 
-						int tile_pos_x = obj["tiles"][json_id]["tile_pos_x"].asInt();
-						int tile_pos_y = obj["tiles"][json_id]["tile_pos_y"].asInt();
-						int tile_pos_z = obj["tiles"][json_id]["tile_pos_z"].asInt();
+					// Direct lookup by coordinates
+					Tile* tile = battle->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
 
-						// Check if the same tile
-						if (_game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().x == tile_pos_x && _game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().y == tile_pos_y && _game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().z == tile_pos_z)
-						{
+					if (!tile)
+						continue;
 
-							bool getDangerous = obj["tiles"][json_id]["getDangerous"].asBool();
-							int getFire = obj["tiles"][json_id]["getFire"].asInt();
-							int getSmoke = obj["tiles"][json_id]["getSmoke"].asInt();
-
-							_game->getSavedGame()->getSavedBattle()->getTile(i)->setDangerous(getDangerous);
-							_game->getSavedGame()->getSavedBattle()->getTile(i)->setFire(getFire);
-							_game->getSavedGame()->getSavedBattle()->getTile(i)->setSmoke(getSmoke);
-
-							break;
-
-						}
-					}
-
+					tile->setDangerous(getDangerous);
+					tile->setFire(getFire);
+					tile->setSmoke(getSmoke);
 				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -3082,20 +3092,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (_game->getSavedGame()->getSavedBattle())
 			{
 
-				// PVE2
-				if (getCoopGamemode() == 4 && pve2_init == false)
-				{
+				pve2_init = true;
 
-					pve2_init = true;
-
-					_battleInit = false;
-					_isActivePlayerSync = false;
-					_isActiveAISync = true;
-					_clientPanicHandle = true;
-					_waitBC = false;
-					_waitBH = false;
-
-				}
+				_battleInit = false;
+				_isActivePlayerSync = false;
+				_isActiveAISync = true;
+				_clientPanicHandle = true;
+				_waitBC = false;
+				_waitBH = false;
 
 				int side = obj["side"].asInt();
 
@@ -3116,6 +3120,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 
 		}
+
+	}
+
+	if (stateString == "endPlayerTurn")
+	{
+
+		_AIProgressCoop = 100;
+
+		_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+
+		// end battle
+		_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopTurn();
 
 	}
 
@@ -3200,14 +3216,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (_game->getSavedGame()->getSavedBattle())
 			{
-				_game->getSavedGame()->getSavedBattle()->getBattleGame()->cancelCurrentAction();
-				_game->getSavedGame()->getSavedBattle()->getBattleGame()->cancelAllActions();
-
 				_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 				_game->getSavedGame()->getSavedBattle()->setAborted(abort);
-				_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
 
-				_game->popState();
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopBattle();
+
 				_game->pushState(new DebriefingState);
 			}
 		}
@@ -3292,33 +3305,36 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 
 					// tiles
-					for (int i = 0; i < _game->getSavedGame()->getSavedBattle()->getMapSizeXYZ(); ++i)
+					auto* savedGame = _game->getSavedGame();
+					auto* battle = savedGame->getSavedBattle();
+					int mapSize = battle->getMapSizeXYZ();
+
+					// 1) Reset all tiles
+					for (int i = 0; i < mapSize; ++i)
 					{
+						Tile* tile = battle->getTile(i);
+						tile->setFire(0);
+					}
 
-						_game->getSavedGame()->getSavedBattle()->getTile(i)->setFire(0);
+					// 2) Apply JSON data
+					const Json::Value& tiles = obj["tiles"];
+					for (Json::ArrayIndex json_id = 0; json_id < tiles.size(); ++json_id)
+					{
+						int tile_pos_x = tiles[json_id]["tile_pos_x"].asInt();
+						int tile_pos_y = tiles[json_id]["tile_pos_y"].asInt();
+						int tile_pos_z = tiles[json_id]["tile_pos_z"].asInt();
 
-						for (int json_id = 0; json_id < obj["tiles"].size(); json_id++)
-						{
+						bool getDangerous = tiles[json_id]["getDangerous"].asBool();
+						int getFire = tiles[json_id]["getFire"].asInt();;
 
-							int tile_pos_x = obj["tiles"][json_id]["tile_pos_x"].asInt();
-							int tile_pos_y = obj["tiles"][json_id]["tile_pos_y"].asInt();
-							int tile_pos_z = obj["tiles"][json_id]["tile_pos_z"].asInt();
+						// Direct lookup by coordinates
+						Tile* tile = battle->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
 
-							// Check if the same tile
-							if (_game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().x == tile_pos_x && _game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().y == tile_pos_y && _game->getSavedGame()->getSavedBattle()->getTile(i)->getPosition().z == tile_pos_z)
-							{
+						if (!tile)
+							continue;
 
-								bool getDangerous = obj["tiles"][json_id]["getDangerous"].asBool();
-								int getFire = obj["tiles"][json_id]["getFire"].asInt();
-								int getSmoke = obj["tiles"][json_id]["getSmoke"].asInt();
-
-								_game->getSavedGame()->getSavedBattle()->getTile(i)->setDangerous(getDangerous);
-								_game->getSavedGame()->getSavedBattle()->getTile(i)->setFire(getFire);
-								_game->getSavedGame()->getSavedBattle()->getTile(i)->setSmoke(getSmoke);
-
-								break;
-							}
-						}
+						tile->setDangerous(getDangerous);
+						tile->setFire(getFire);
 					}
 
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -3407,10 +3423,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)
 				{
 
-					_isActivePlayerSync = false;
-					_clientPanicHandle = true;
-					_battleInit = false;
-					_isActiveAISync = true;
+					_isActivePlayerSync = true;
+					_isActiveAISync = false;
+
+					setPlayerTurn(2);
 
 				}
 				// pvp2
@@ -3439,8 +3455,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				_isActivePlayerSync = true;
 
-				// if not pvp
-				if (connectionTCP::_coopGamemode != 2)
+				// if not pvp and pvp2
+				if (connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)
 				{
 			
 					// Auto save before (only HOST)
@@ -3450,7 +3466,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					newsave->save("coop_mission_2.sav", _game->getMod());
 
-					setPlayerTurn(2);
+					_battleInit = false;
+					_isActiveAISync = true;
+
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
 
 				}
 				else if (connectionTCP::_coopGamemode == 2)
@@ -3463,7 +3483,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					battlestate->endTurnCoop();
 
 				}
+				else if (connectionTCP::_coopGamemode == 3)
+				{
 
+					setPlayerTurn(2);
+
+				}
 
 			}
 
