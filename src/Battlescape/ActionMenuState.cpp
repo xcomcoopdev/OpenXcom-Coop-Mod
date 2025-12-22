@@ -190,18 +190,19 @@ ActionMenuState::ActionMenuState(BattleAction *action, int x, int y) : _action(a
 	}
 
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleGame()->isYourTurn == 2)
+	if (_game->getSavedGame()->getSavedBattle()->getBattleGame() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit())
 	{
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleGame()->isYourTurn == 2)
+		{
 
-		Json::Value root;
+			Json::Value root;
 
-		root["state"] = "unit_action";
-		root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getId();
+			root["state"] = "unit_action";
+			root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getId();
 
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
 	}
-
 
 }
 

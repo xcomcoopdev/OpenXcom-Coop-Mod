@@ -1690,22 +1690,28 @@ void DogfightState::update()
 			{
 				if (_ufo->getShotDownByCraftId() == _craft->getUniqueId())
 				{
-					for (auto* country : *_game->getSavedGame()->getCountries())
+
+					// coop
+					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 					{
-						if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
-							country->addActivityXcom(_ufo->getRules()->getScore()*2);
-							break;
+							if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+							{
+								country->addActivityXcom(_ufo->getRules()->getScore() * 2);
+								break;
+							}
+						}
+						for (auto* region : *_game->getSavedGame()->getRegions())
+						{
+							if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
+							{
+								region->addActivityXcom(_ufo->getRules()->getScore() * 2);
+								break;
+							}
 						}
 					}
-					for (auto* region : *_game->getSavedGame()->getRegions())
-					{
-						if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
-						{
-							region->addActivityXcom(_ufo->getRules()->getScore()*2);
-							break;
-						}
-					}
+
 					setStatus("STR_UFO_DESTROYED");
 					_game->getMod()->getSound("GEO.CAT", Mod::UFO_EXPLODE)->play(); //11
 				}
@@ -1717,22 +1723,28 @@ void DogfightState::update()
 				{
 					setStatus("STR_UFO_CRASH_LANDS");
 					_game->getMod()->getSound("GEO.CAT", Mod::UFO_CRASH)->play(); //10
-					for (auto* country : *_game->getSavedGame()->getCountries())
+
+					// coop
+					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 					{
-						if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
-							country->addActivityXcom(_ufo->getRules()->getScore());
-							break;
+							if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+							{
+								country->addActivityXcom(_ufo->getRules()->getScore());
+								break;
+							}
+						}
+						for (auto* region : *_game->getSavedGame()->getRegions())
+						{
+							if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
+							{
+								region->addActivityXcom(_ufo->getRules()->getScore());
+								break;
+							}
 						}
 					}
-					for (auto* region : *_game->getSavedGame()->getRegions())
-					{
-						if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
-						{
-							region->addActivityXcom(_ufo->getRules()->getScore());
-							break;
-						}
-					}
+
 				}
 				bool survived = true;
 				bool fakeUnderwaterTexture = _state->getGlobe()->insideFakeUnderwaterTexture(_ufo->getLongitude(), _ufo->getLatitude());
@@ -1818,22 +1830,28 @@ void DogfightState::update()
 				_ufo->setSpeed(0);
 				_ufo->setStatus(Ufo::DESTROYED);
 				_destroyUfo = true;
-				for (auto* country : *_game->getSavedGame()->getCountries())
+
+				// coop
+				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 				{
-					if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+					for (auto* country : *_game->getSavedGame()->getCountries())
 					{
-						country->addActivityXcom(_ufo->getRules()->getScore());
-						break;
+						if (country->getRules()->insideCountry(_ufo->getLongitude(), _ufo->getLatitude()))
+						{
+							country->addActivityXcom(_ufo->getRules()->getScore());
+							break;
+						}
+					}
+					for (auto* region : *_game->getSavedGame()->getRegions())
+					{
+						if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
+						{
+							region->addActivityXcom(_ufo->getRules()->getScore());
+							break;
+						}
 					}
 				}
-				for (auto* region : *_game->getSavedGame()->getRegions())
-				{
-					if (region->getRules()->insideRegion(_ufo->getLongitude(), _ufo->getLatitude()))
-					{
-						region->addActivityXcom(_ufo->getRules()->getScore());
-						break;
-					}
-				}
+
 			}
 			else // Brought it down over land (or survived splashdown)
 			{

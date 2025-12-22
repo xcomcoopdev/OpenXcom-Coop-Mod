@@ -38,7 +38,7 @@ namespace OpenXcom
  * @param mission Pointer to the respective Mission Site.
  * @param state Pointer to the Geoscape.
  */
-MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *state) : _mission(mission), _state(state)
+MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *state, bool coop) : _mission(mission), _state(state)
 {
 	_screen = false;
 
@@ -93,7 +93,7 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 
 	// COOP
 	// Synchronizing the mission for the other player.
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && coop == false)
 	{
 
 		Json::Value root;

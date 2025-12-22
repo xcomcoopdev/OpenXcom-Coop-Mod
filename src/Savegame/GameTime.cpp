@@ -241,6 +241,16 @@ int GameTime::getMonth() const
 	return _month;
 }
 
+void GameTime::setMonthCoop(int month)
+{
+	_month = month;
+}
+
+void GameTime::setYearCoop(int year)
+{
+	_year = year;
+}
+
 /**
  * Returns a localizable-string representation of
  * the current ingame month.

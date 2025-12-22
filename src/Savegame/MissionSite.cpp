@@ -264,4 +264,14 @@ void MissionSite::setDetected(bool detected)
 	_detected = detected;
 }
 
+void MissionSite::setCoop(bool coop)
+{
+	_coop = coop;
+}
+
+bool MissionSite::getCoop()
+{
+	return _coop;
+}
+
 }

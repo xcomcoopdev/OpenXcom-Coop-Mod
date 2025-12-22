@@ -107,6 +107,8 @@ public:
 	void time1Day();
 	/// Trigger whenever 1 month passes.
 	void time1Month();
+	/// Trigger whenever 1 month passes.
+	void time1MonthCoop();
 	/// Resets the timer to minimum speed.
 	void timerReset();
 	/// Displays a popup window.

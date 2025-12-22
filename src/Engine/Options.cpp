@@ -572,7 +572,10 @@ void createAdvancedOptionsOTHER()
 
 	// coop
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableTimeSync", &EnableTimeSync, true, "Enable Time Sync", "STR_GEOSCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHostOnlyTimeSpeed", &EnableHostOnlyTimeSpeed, false, "Only Host Can Change Time Speed", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
 
 }
 

@@ -61,7 +61,7 @@ void MeleeAttackBState::init()
 
 	
 	// coop
-	if (_parent->getCoopMod()->_isActivePlayerSync == false)
+	if (_parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->getCoopStatic() == true)
 	{
 
 		if (_parent->getCoopMod()->_melee_target_id != -1)
@@ -280,9 +280,9 @@ void MeleeAttackBState::init()
 		obj["coords"]["start"]["y"] = starty;
 		obj["coords"]["start"]["z"] = startz;
 
-		int endx = _parent->getCurrentAction()->target.x;
-		int endy = _parent->getCurrentAction()->target.y;
-		int endz = _parent->getCurrentAction()->target.z;
+		int endx = _action.target.x;
+		int endy = _action.target.y;
+		int endz = _action.target.z;
 
 		obj["coords"]["end"]["x"] = endx;
 		obj["coords"]["end"]["y"] = endy;

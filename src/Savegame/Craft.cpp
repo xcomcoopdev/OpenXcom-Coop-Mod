@@ -853,6 +853,11 @@ void Craft::setFuel(int fuel)
 	}
 }
 
+void Craft::setFuelCoop(int fuel)
+{
+	_fuel = fuel;
+}
+
 /**
  * Returns the ratio between the amount of fuel currently
  * contained in this craft and the total it can carry.
@@ -2153,6 +2158,13 @@ int Craft::getNumLargeUnits() const
  */
 int Craft::getNumTotalSoldiers() const
 {
+
+	// coop
+	if (coop_total_soldiers != -1)
+	{
+		return coop_total_soldiers;
+	}
+
 	if (_rules->getMaxUnitsLimit() == 0)
 		return 0;
 
@@ -2173,6 +2185,13 @@ int Craft::getNumTotalSoldiers() const
  */
 int Craft::getNumTotalVehicles() const
 {
+
+	// coop
+	if (coop_total_vehicles != -1)
+	{
+		return coop_total_vehicles;
+	}
+
 	return _vehicles.size();
 }
 

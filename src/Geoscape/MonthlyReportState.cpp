@@ -42,6 +42,8 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleVideo.h"
 
+#include "../Mod/RuleRegion.h"
+
 namespace OpenXcom
 {
 /**
@@ -109,7 +111,24 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtFailure->setText(tr("STR_YOU_HAVE_FAILED"));
 	_txtFailure->setVisible(false);
 
-	calculateChanges();
+	// coop
+	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	{
+		calculateChanges();
+	}
+	else
+	{
+
+		_ratingTotal = _game->getCoopMod()->ratingTotalCoop;
+		_fundingDiff = _game->getCoopMod()->fundingDiffCoop;
+		_lastMonthsRating = _game->getCoopMod()->lastMonthsRatingCoop;
+
+		_happyList = _game->getCoopMod()->_happyListCoop;
+		_sadList = _game->getCoopMod()->_sadListCoop;
+		_pactList = _game->getCoopMod()->_pactListCoop;
+		_cancelPactList = _game->getCoopMod()->_cancelPactListCoop;
+
+	}
 
 	int month = _game->getSavedGame()->getTime()->getMonth() - 1, year = _game->getSavedGame()->getTime()->getYear();
 	if (month == 0)
@@ -428,6 +447,7 @@ void MonthlyReportState::calculateChanges()
 		xcomSubTotal += region->getActivityXcom().at(monthOffset);
 		alienTotal += region->getActivityAlien().at(monthOffset);
 	}
+
 	// apply research bonus AFTER calculating our total, because this bonus applies to the council ONLY,
 	// and shouldn't influence each country's decision.
 
@@ -483,8 +503,117 @@ void MonthlyReportState::calculateChanges()
 			break;
 		}
 	}
+
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->_enable_time_sync == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "monthly_report";
+
+		// countries
+		Json::Value countries(Json::arrayValue);
+
+		for (auto* country : *_game->getSavedGame()->getCountries())
+		{
+
+			Json::Value c;
+
+			c["type"] = country->getRules()->getType();
+
+			Json::Value funding(Json::arrayValue);
+
+			for (int f : country->getFunding())
+				funding.append(f);
+
+			c["funding"] = funding;
+
+			// activityXcom
+			Json::Value activityXcom(Json::arrayValue);
+
+			for (int x : country->getActivityXcom())
+				activityXcom.append(x);
+
+			c["activityXcom"] = activityXcom;
+
+			// activityAlien
+			Json::Value activityAlien(Json::arrayValue);
+
+			for (int a : country->getActivityAlien())
+				activityAlien.append(a);
+
+			c["activityAlien"] = activityAlien;
+
+			countries.append(c);
+
+		}
+
+		root["countries"] = countries;
+
+		// regions
+		Json::Value regions(Json::arrayValue);
+
+		for (auto* region : *_game->getSavedGame()->getRegions())
+		{
+
+			Json::Value r;
+
+			r["type"] = region->getRules()->getType();
+
+			// activityXcom
+			Json::Value activityXcom(Json::arrayValue);
+
+			for (int x : region->getActivityXcom())
+				activityXcom.append(x);
+
+			r["activityXcom"] = activityXcom;
+
+			// activityAlien
+			Json::Value activityAlien(Json::arrayValue);
+
+			for (int a : region->getActivityAlien())
+				activityAlien.append(a);
+
+			r["activityAlien"] = activityAlien;
+
+			regions.append(r);
+		}
+
+		root["regions"] = regions;
+
+		// month
+		root["month"] = _game->getSavedGame()->getTime()->getMonth();
+		// year
+		root["year"] = _game->getSavedGame()->getTime()->getYear();
+
+		root["fundingDiff"] = _fundingDiff;
+		root["ratingTotal"] = _ratingTotal;
+		root["lastMonthsRating"] = _lastMonthsRating;
+
+		root["happyList"] = Json::Value(Json::arrayValue);
+		for (const auto& s : _happyList)
+			root["happyList"].append(s);
+
+		root["sadList"] = Json::Value(Json::arrayValue);
+		for (const auto& s : _sadList)
+			root["sadList"].append(s);
+
+		root["pactList"] = Json::Value(Json::arrayValue);
+		for (const auto& s : _pactList)
+			root["pactList"].append(s);
+
+		root["cancelPactList"] = Json::Value(Json::arrayValue);
+		for (const auto& s : _cancelPactList)
+			root["cancelPactList"].append(s);
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
+
 }
 
 /**

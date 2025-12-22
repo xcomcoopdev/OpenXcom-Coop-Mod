@@ -68,6 +68,10 @@ public:
 	std::string getDayString(Language *lang) const;
 	/// Gets the ingame month.
 	int getMonth() const;
+	// coop
+	void setMonthCoop(int month);
+	// coop
+	void setYearCoop(int year);
 	// Gets a string version of the ingame month.
 	std::string getMonthString() const;
 	/// Gets the ingame year.

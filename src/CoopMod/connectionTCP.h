@@ -156,6 +156,7 @@ class connectionTCP
 	void setClientSoldiers();
 	void deleteAllCoopBases();
 	void updateAllCoopBases();
+	void fixCoopSave();
 	// coop
 	// battle states
 	void setConfirmLandingState(ConfirmLandingState* landing);
@@ -203,7 +204,7 @@ class connectionTCP
 	std::string current_base_name = "";
 	int64_t coopFunds = 0;
 	void setHost(bool host);
-	bool playerInsideCoopBase = false; // is the player really in another player's base?
+	static bool playerInsideCoopBase; // is the player really in another player's base?
 	bool coopMissionEnd = false; // is the co-op mission completed?
 	Json::Value _jsonTargets, _jsonDamages, _jsonInventory;
 	void syncCoopInventory();
@@ -236,8 +237,6 @@ class connectionTCP
 	int ItemDamageTypeToInt(ItemDamageType type);
 	ItemDamageType intToItemDamageType(int type);
 
-	bool time1MonthCoop = false;
-
 	// coop projectiles
 	Json::Value _coopProjectilesClient;
 	Json::Value _coopProjectilesHost;
@@ -265,6 +264,12 @@ class connectionTCP
 
 	static bool _enable_time_sync;
 
+	static bool _enable_reaction_shoot;
+
+	static bool _enable_other_player_footsteps;
+
+	static bool _enable_host_only_time_speed;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -291,6 +296,22 @@ class connectionTCP
 	std::vector <int> _smokeRNGs;
 
 	bool pve2_init = false;
+
+	std::string other_time_speed_coop = "";
+
+	int show_coop_mission_popup = -1;
+
+	std::string show_coop_ufo_popup_type = "";
+	std::string show_coop_ufo_popup_race = "";
+	std::string show_coop_ufo_popup_altitude = "";
+
+	bool show_coop_monthly_report = false;
+
+	int fundingDiffCoop = -1;
+	int ratingTotalCoop = -1;
+	int lastMonthsRatingCoop = -1;
+
+	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
 };
 

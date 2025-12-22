@@ -49,7 +49,7 @@ namespace OpenXcom
  * @param detected Was the UFO detected?
  * @param hyperwave Was it a hyperwave radar?
  */
-UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave) : _ufo(ufo), _state(state)
+UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop) : _ufo(ufo), _state(state)
 {
 
 	// Generate UFO ID
@@ -227,6 +227,22 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	ss.str("");
 	ss << Unicode::TOK_COLOR_FLIP << tr(_ufo->getMission()->getRegion());
 	_lstInfo2->addRow(2, tr("STR_ZONE").c_str(), ss.str().c_str());
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && coop == false && detected == true)
+	{
+
+		Json::Value root;
+
+		root["state"] = "ufo_popup";
+
+		root["type"] = ufo->getRules()->getType();
+		root["race"] = ufo->getAlienRace();
+	
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 }
 
 /**

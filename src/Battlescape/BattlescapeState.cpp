@@ -752,7 +752,7 @@ BattlescapeState::BattlescapeState() :
 
 	// COOP
 	// BATTLESCAPE INIT
-	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview() && _game->getCoopMod()->isCoopSession() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview() && _game->getCoopMod()->isCoopSession() == true && (_game->getCoopMod()->_waitBC == false || _game->getCoopMod()->_waitBH == false))
 	{
 
 		// waiting...
@@ -770,7 +770,7 @@ BattlescapeState::BattlescapeState() :
 
 	// coop
 	// set player turn
-	if (_game->getCoopMod()->isCoopSession() == true && _save->isPreview() == false)
+	if (_game->getCoopMod()->isCoopSession() == true && _save->isPreview() == false && (_game->getCoopMod()->_waitBC == false || _game->getCoopMod()->_waitBH == false))
 	{
 
 		_game->getCoopMod()->_isMainCampaignBaseDefense = false;
@@ -784,6 +784,51 @@ BattlescapeState::BattlescapeState() :
 			_game->getCoopMod()->setPlayerTurn(3);
 		}
 
+
+	}
+
+	// coop fix (pause menu)
+	if (_game->getCoopMod()->isCoopSession() == true)
+	{
+
+		if (_game->getCoopMod()->getHost() == true)
+		{
+
+			if (_game->getCoopMod()->_waitBH == true)
+			{
+
+				if (_game->getCoopMod()->gamePaused == 2)
+				{
+					_game->getCoopMod()->setPlayerTurn(1);
+				}
+				else
+				{
+					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				}
+
+			}
+
+			_game->getCoopMod()->_waitBH = false;
+		}
+		else
+		{
+
+			if (_game->getCoopMod()->_waitBC == true)
+			{
+
+				if (_game->getCoopMod()->gamePaused == 2)
+				{
+					_game->getCoopMod()->setPlayerTurn(1);
+				}
+				else
+				{
+					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				}
+
+			}
+
+			_game->getCoopMod()->_waitBC = false;
+		}
 
 	}
 
@@ -932,6 +977,37 @@ void BattlescapeState::think()
 			if (ret > -1)
 			{
 				_map->refreshAIProgress(100 - ret); // progress = 100 - ret;
+
+				// COOP
+				if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->_isActiveAISync == true)
+				{
+
+					Json::Value root;
+					root["state"] = "AIProgress";
+
+					root["ret"] = ret;
+					root["side"] = (int)_save->getSide();
+
+					root["selected_unit_id"] = -1;
+
+					if (_save->getSelectedUnit())
+					{
+						root["selected_unit_id"] = _save->getSelectedUnit()->getId();
+					}
+
+					root["AISecondMove"] = _battleGame->_AISecondMove;
+
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				}
+
+				// coop
+				if (_game->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false && _game->getCoopMod()->_AIProgressCoop > -1 && _game->getCoopMod()->_isActiveAISync == true)
+				{
+
+					ret = _game->getCoopMod()->_AIProgressCoop;
+					_battleGame->_AISecondMove = _game->getCoopMod()->_AISecondMoveCoop;
+				}
+
 			}
 
 			// coop
@@ -2509,7 +2585,16 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		}
 
 		// coop
+		is_return = true;
+
+		if (_game->getCoopMod()->getHost() == false)
+		{
+			_game->getCoopMod()->_isActivePlayerSync = false;
+			_game->getCoopMod()->_isActiveAISync = true;
+		}
+		
 		// pve
+		/*
 		if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 4)
 		{
 			is_return = true;
@@ -2532,7 +2617,8 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		{
 			is_return = true;
 		}
-		
+		*/
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 
@@ -2557,6 +2643,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		else
 		{
 
+			/*
 			_save->setSideCoop(0);
 
 			_game->getCoopMod()->_isActiveAISync = true;
@@ -2569,7 +2656,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 			{
 				_game->getCoopMod()->_isActivePlayerSync = true;
 			}
-
+			*/
 
 		}
 
@@ -3936,14 +4023,6 @@ void BattlescapeState::melee_attack(std::string str_obj)
 
 void BattlescapeState::endTurnCoop()
 {
-
-	// PVP
-	if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-	{
-
-		_save->setSideCoop(0);
-
-	}
 
 	// coop camera fix (sync problem)
 	_battleGame->cancelAllActions();

@@ -140,7 +140,6 @@ private:
 	bool _playerPanicHandled;
 	int _AIActionCounter;
 	BattleAction _currentAction;
-	bool _AISecondMove, _playedAggroSound;
 	bool _endTurnRequested;
 	bool _endConfirmationHandled;
 	bool _allEnemiesNeutralized;
@@ -159,6 +158,7 @@ private:
 	/// Shows the infoboxes in the queue (if any).
 	void showInfoBoxQueue();
 public:
+	bool _AISecondMove, _playedAggroSound;
 	/// is debug mode enabled in the battlescape?
 	static bool _debugPlay;
 	static int isYourTurn;

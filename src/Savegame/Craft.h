@@ -195,6 +195,8 @@ public:
 	int getFuel() const;
 	/// Sets the craft's amount of fuel.
 	void setFuel(int fuel);
+	// coop
+	void setFuelCoop(int fuel);
 	/// Gets the craft's percentage of fuel.
 	int getFuelPercentage() const;
 	/// Gets the craft's max amount of damage.
@@ -379,6 +381,8 @@ public:
 	int validateAddingVehicles(int totalSize) const;
 	// coop
 	bool coop = false;
+	int coop_total_vehicles = -1;
+	int coop_total_soldiers = -1;
 };
 
 // helper overloads for (de)serialization

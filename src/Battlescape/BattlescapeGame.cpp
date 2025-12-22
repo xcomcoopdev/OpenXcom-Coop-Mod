@@ -312,7 +312,7 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 
 		}
 
-		if (sound)
+		if (sound == true && connectionTCP::_enable_other_player_footsteps == true)
 		{
 			playUnitResponseSound(_currentAction.actor, 1); // "start moving" sound
 		}
@@ -856,6 +856,19 @@ int BattlescapeGame::think()
 			_save->resetUnitHitStates();
 			if (!_debugPlay)
 			{
+				// coop (PVP)
+				if ((getCoopMod()->getCoopGamemode() == 2 || getCoopMod()->getCoopGamemode() == 3) && _save->getSelectedUnit())
+				{
+
+					if (_save->getSelectedUnit()->getFaction() == FACTION_HOSTILE)
+					{
+						_endTurnRequested = true;
+						statePushBack(0); // end AI turn
+						return 0;
+					}
+
+				}
+
 				if (_save->getSelectedUnit())
 				{
 					if (!handlePanickingUnit(_save->getSelectedUnit()))
@@ -919,15 +932,13 @@ int BattlescapeGame::think()
 		}
 	}
 
-	// COOP
-	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true && getCoopMod()->_isActiveAISync == true)
+	// coop
+	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->_isActivePlayerSync == true && getCoopMod()->_isActiveAISync == true)
 	{
 
 		Json::Value root;
-		root["state"] = "AIProgress";
-
+		root["state"] = "update_progress";
 		root["ret"] = ret;
-		root["side"] = (int)_save->getSide();
 
 		root["selected_unit_id"] = -1;
 
@@ -938,19 +949,14 @@ int BattlescapeGame::think()
 
 		root["AISecondMove"] = _AISecondMove;
 
-		root["end"] = getCoopMod()->_coopEnd;
-		getCoopMod()->_coopEnd = 0;
-
 		getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 
 	// coop
-	if (getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false && getCoopMod()->_AIProgressCoop > -1 && getCoopMod()->_isActiveAISync == true)
+	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->_isActivePlayerSync == false && getCoopMod()->_AIProgressCoop > -1 && getCoopMod()->_isActiveAISync == true)
 	{
-
 		ret = getCoopMod()->_AIProgressCoop;
 		_AISecondMove = getCoopMod()->_AISecondMoveCoop;
-
 	}
 
 	return ret;
@@ -986,9 +992,6 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 		{
 			if (!_save->getDebugMode())
 			{
-				// coop
-				getCoopMod()->_coopEnd = 1;
-
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
 			}
@@ -1187,6 +1190,7 @@ void BattlescapeGame::endTurn()
 {
 
 	// coop
+	/*
 	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3 && _save->isPreview() == false)
 	{
 
@@ -1196,6 +1200,17 @@ void BattlescapeGame::endTurn()
 
 		getCoopMod()->sendTCPPacketData(root.toStyledString());
 
+	}
+	*/
+
+	// coop
+	if (getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true && _save->isPreview() == false)
+	{
+		Json::Value root;
+		root["state"] = "endTurn";
+		root["side"] = (int)_save->getSide();
+
+		getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 
 	_debugPlay = _save->getDebugMode() && _parentState->getGame()->isCtrlPressed() && (_save->getSide() != FACTION_NEUTRAL);
@@ -2710,14 +2725,6 @@ void BattlescapeGame::primaryAction(Position pos)
 					psiTargetAllowed = false;
 				}
 
-				// coop (only pvp)
-				if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && (_parentState->getGame()->getCoopMod()->getCoopGamemode() == 2 || _parentState->getGame()->getCoopMod()->getCoopGamemode() == 3))
-				{
-
-					psiTargetAllowed = true;
-
-				}
-
 				if (psiTargetAllowed)
 				{
 					_currentAction.updateTU();
@@ -3000,33 +3007,8 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 
 		}
 
-		// coop (pvp)
-		if (game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3))
-		{
-
-			if (victim->getCoop() == 0)
-			{
-				victim->setCoop(1);
-			}
-			else if (victim->getCoop() == 1)
-			{
-				victim->setCoop(0);
-			}
-
-			victim->_coop_mindcontrolled = true;
-
-			victim->convertToFaction(FACTION_PLAYER);
-			victim->setOriginalFaction(FACTION_PLAYER);
-
-			Json::Value root;
-			root["state"] = "psi_result";
-			root["unit_id"] = victim->getId();
-
-			game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}
-
 		// coop
-		if ((game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->getHost() == true) || game->getCoopMod()->getCoopStatic() == false)
+		if ((game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && victim->getFaction() != attack.attacker->getFaction() && victim->getVisible() == true) || game->getCoopMod()->getCoopStatic() == false)
 		{
 
 			if (attack.attacker->getFaction() == FACTION_HOSTILE)
@@ -3050,6 +3032,31 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 				getSave()->getBattleState()->updateSoldierInfo();
 			}
 
+		}
+
+		// coop (pvp)
+		if (game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3) && victim->getFaction() != attack.attacker->getFaction() && victim->getVisible() == true)
+		{
+
+			if (victim->getCoop() == 0)
+			{
+				victim->setCoop(1);
+			}
+			else if (victim->getCoop() == 1)
+			{
+				victim->setCoop(0);
+			}
+
+			victim->_coop_mindcontrolled = true;
+
+			victim->convertToFaction(FACTION_PLAYER);
+			victim->setOriginalFaction(FACTION_PLAYER);
+
+			Json::Value root;
+			root["state"] = "psi_result";
+			root["unit_id"] = victim->getId();
+
+			game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
 
 	}

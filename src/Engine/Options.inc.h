@@ -89,6 +89,9 @@ OPT bool oxceShowBaseNameInPopups;
 
 OPT bool EnableResearchSync;
 OPT bool EnableTimeSync;
+OPT bool EnableReactionFirePvp;
+OPT bool EnableOtherPlayerFootsteps;
+OPT bool EnableHostOnlyTimeSpeed;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

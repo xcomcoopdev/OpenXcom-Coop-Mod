@@ -129,7 +129,11 @@ OptionsMultiplayerState::OptionsMultiplayerState(OptionsOrigin origin) : Options
 		{				
 			_settingsBase[optionInfo.owner()].push_back(optionInfo);
 		}
-		
+		else if (optionInfo.category() == "STR_BATTLESCAPE")
+		{
+			_settingsBattle[optionInfo.owner()].push_back(optionInfo);
+		}
+
 	}
 }
 
@@ -256,6 +260,22 @@ void OptionsMultiplayerState::updateList()
 		addSettings(_settingsBase[idx]);
 		row += _settingsBase[idx].size();
 		_offsetBaseMax = row;
+	}
+
+	if (_settingsBattle[idx].size() > 0)
+	{
+		if (row > -1)
+		{
+			_lstOptions->addRow(2, "", "");
+			row++;
+		}
+		_lstOptions->addRow(2, tr("STR_BATTLESCAPE").c_str(), "");
+		row++;
+		_offsetBattleMin = row;
+		_lstOptions->setCellColor(_offsetBattleMin, 0, _colorGroup);
+		addSettings(_settingsBattle[idx]);
+		row += _settingsBattle[idx].size();
+		_offsetBattleMax = row;
 	}
 	
 }

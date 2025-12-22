@@ -1134,6 +1134,13 @@ const AlienBase *AlienMission::getAlienBase() const
  */
 void AlienMission::addScore(double lon, double lat, SavedGame &game) const
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_enable_time_sync == true && (connectionTCP::getServerOwner() == false || (connectionTCP::getServerOwner() == true && _coop == true)))
+	{
+		return;
+	}
+
 	if (_rule.getObjective() == OBJECTIVE_INFILTRATION)
 		return; // pact score is a special case
 	for (auto* region : *game.getRegions())

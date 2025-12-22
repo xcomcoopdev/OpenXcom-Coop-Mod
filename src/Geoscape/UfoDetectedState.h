@@ -44,7 +44,7 @@ private:
 	TextList *_lstInfo, *_lstInfo2;
 public:
 	/// Creates the Ufo Detected state.
-	UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave);
+	UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop = false);
 	/// Cleans up the Ufo Detected state.
 	~UfoDetectedState();
 	/// Handler for clicking the Intercept button.

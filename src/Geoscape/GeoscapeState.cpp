@@ -135,6 +135,8 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CoopState.h"
+#include "../Savegame/CraftWeapon.h"
+#include "../Mod/RuleCraftWeapon.h"
 
 namespace OpenXcom
 {
@@ -756,8 +758,16 @@ void GeoscapeState::handle(Action *action)
 void GeoscapeState::init()
 {
 
-	// coop
-	_game->getCoopMod()->setCoopCampaign(true);
+	// Graph requests (co-op)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true)
+	{
+
+		Json::Value root;
+		root["state"] = "graph_requests";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
 
 	// IF A CLIENT PLAYER IS INSIDE ANOTHER PLAYER'S BASE EVEN THOUGH A COOP MISSION SHOULD START (SPECIAL CASE)
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && _game->getCoopMod()->ready_coop_battle == true)
@@ -773,9 +783,8 @@ void GeoscapeState::init()
 	}
 
 	// HOST AFTER THE BATTLE
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->coopMissionEnd == true)
+	if (_game->getCoopMod()->getHost() == true && _game->getCoopMod()->coopMissionEnd == true)
 	{
-
 
 		for (auto &base : *_game->getSavedGame()->getBases())
 		{
@@ -801,7 +810,12 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->coopMissionEnd = false;
 
-		_game->getCoopMod()->updateAllCoopBases();
+		if (_game->getCoopMod()->getCoopStatic() == true)
+		{
+
+			_game->getCoopMod()->updateAllCoopBases();
+
+		}
 
 		// COOP FIX
 		if (_game->getCoopMod()->getServerOwner() == false)
@@ -1017,12 +1031,17 @@ void GeoscapeState::think()
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
 
-	// coop time1MonthCoop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == true)
-	{
-		time1Month();
 
-		_game->getCoopMod()->time1MonthCoop = false;
+	// coop
+	_game->getCoopMod()->setCoopCampaign(true);
+
+	// coop
+	if (_game->getCoopMod()->show_coop_monthly_report == true)
+	{
+
+		_game->getCoopMod()->show_coop_monthly_report = false;
+
+		time1MonthCoop();
 
 	}
 
@@ -1033,6 +1052,53 @@ void GeoscapeState::think()
 		if (_game->getSavedGame())
 		{
 
+			// mission popup
+			if (_game->getCoopMod()->show_coop_mission_popup != -1)
+			{
+
+				for (auto &site : *_game->getSavedGame()->getMissionSites())
+				{
+
+					if (site->getId() == _game->getCoopMod()->show_coop_mission_popup && site->getDetected() == true)
+					{
+
+						popup(new MissionDetectedState(site, this, true));
+			
+						_game->getCoopMod()->show_coop_mission_popup = -1;
+
+						break;
+
+					}
+
+				}
+
+
+			}
+
+			//  ufo popup
+			if (_game->getCoopMod()->show_coop_ufo_popup_race != "" && _game->getCoopMod()->show_coop_ufo_popup_type != "")
+			{
+
+				for (auto &ufo : *_game->getSavedGame()->getUfos())
+				{
+
+					if (ufo->getAlienRace() == _game->getCoopMod()->show_coop_ufo_popup_race && ufo->getRules()->getType() == _game->getCoopMod()->show_coop_ufo_popup_type && ufo->getCoop() == true && ufo->getDetected() == true)
+					{
+
+						popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected(), true));
+
+						_game->getCoopMod()->show_coop_ufo_popup_race = "";
+						_game->getCoopMod()->show_coop_ufo_popup_type = "";
+
+						break;
+
+					}
+
+				}
+
+			}
+
+			// markers
 			Json::Value root;
 
 			root["state"] = "target_positions";
@@ -1059,6 +1125,27 @@ void GeoscapeState::think()
 						root["crafts"][craft_index]["fuel"] = craft->getFuel();
 						root["crafts"][craft_index]["damage"] = craft->getDamage();
 						root["crafts"][craft_index]["speed"] = craft->getSpeed();
+
+						int weapon_index = 0;
+
+						for (auto &weapon : *craft->getWeapons())
+						{
+
+							root["crafts"][craft_index]["weapons"][weapon_index]["type"] = weapon->getRules()->getType();
+							root["crafts"][craft_index]["weapons"][weapon_index]["ammo"] = weapon->getAmmo();
+								
+							weapon_index++;
+
+						}
+
+						// new!
+						root["crafts"][craft_index]["shield"] = craft->getShield();
+						root["crafts"][craft_index]["interceptionOrder"] = craft->getInterceptionOrder();
+						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage());
+						// vehciles
+						root["crafts"][craft_index]["num_total_vehicles"] = craft->getNumTotalVehicles();
+						// soldiers
+						root["crafts"][craft_index]["num_total_soldiers"] = craft->getNumTotalSoldiers();
 
 						craft_index++;
 
@@ -1158,7 +1245,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame()->getTime())
+	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame()->getTime())
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();
@@ -1167,14 +1254,44 @@ void GeoscapeState::think()
 
 		root["state"] = "time";
 
-		root["weekday"] = current_time->getWeekday();
-		root["day"] = current_time->getDay();
-		root["month"] = current_time->getMonth();
-		root["year"] = current_time->getYear();
-		root["hour"] = current_time->getHour();
-		root["minute"] = current_time->getMinute();
-		root["second"] = current_time->getSecond();
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			root["weekday"] = current_time->getWeekday();
+			root["day"] = current_time->getDay();
+			root["month"] = current_time->getMonth();
+			root["year"] = current_time->getYear();
+			root["hour"] = current_time->getHour();
+			root["minute"] = current_time->getMinute();
+			root["second"] = current_time->getSecond();
+		}
+	
+		root["time_speed"] = "";
 
+		if (_timeSpeed == _btn5Secs)
+		{
+			root["time_speed"] = "_btn5Secs";
+		}
+		else if (_timeSpeed == _btn1Min)
+		{
+			root["time_speed"] = "_btn1Min";
+		}
+		else if (_timeSpeed == _btn5Mins)
+		{
+			root["time_speed"] = "_btn5Mins";
+		}
+		else if (_timeSpeed == _btn30Mins)
+		{
+			root["time_speed"] = "_btn30Mins";
+		}
+		else if (_timeSpeed == _btn1Hour)
+		{
+			root["time_speed"] = "_btn1Hour";
+		}
+		else if (_timeSpeed == _btn1Day)
+		{
+			root["time_speed"] = "_btn1Day";
+		}
+		
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 
@@ -1262,6 +1379,7 @@ void GeoscapeState::timeDisplay()
 void GeoscapeState::timeAdvance()
 {
 	int timeSpan = 0;
+
 	if (_timeSpeed == _btn5Secs)
 	{
 		if (Options::oxceGeoSlowdownFactor > 1)
@@ -1301,6 +1419,83 @@ void GeoscapeState::timeAdvance()
 		timeSpan = 12 * 5 * 6 * 2 * 24;
 	}
 
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		timeSpan = 1;
+
+		if (_game->getCoopMod()->other_time_speed_coop == "_btn5Secs")
+		{
+			if (_timeSpeed == _btn5Secs)
+				timeSpan = 1;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 1;
+				_timeSpeed = _btn5Secs;
+			}
+
+		}
+		else if (_game->getCoopMod()->other_time_speed_coop == "_btn1Min")
+		{
+			if (_timeSpeed == _btn1Min)
+				timeSpan = 12;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 12;
+				_timeSpeed = _btn1Min;
+			}
+		}
+		else if (_game->getCoopMod()->other_time_speed_coop == "_btn5Mins")
+		{
+			if (_timeSpeed == _btn5Mins)
+				timeSpan = 12 * 5;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 12 * 5;
+				_timeSpeed = _btn5Mins;
+			}
+		}
+		else if (_game->getCoopMod()->other_time_speed_coop == "_btn30Mins")
+		{
+			if (_timeSpeed == _btn30Mins)
+				timeSpan = 12 * 5 * 6;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 12 * 5 * 6;
+				_timeSpeed = _btn30Mins;
+			}
+		}
+		else if (_game->getCoopMod()->other_time_speed_coop == "_btn1Hour")
+		{
+			if (_timeSpeed == _btn1Hour)
+				timeSpan = 12 * 5 * 6 * 2;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 12 * 5 * 6 * 2;
+				_timeSpeed = _btn1Hour;
+			}
+		}
+		else if (_game->getCoopMod()->other_time_speed_coop == "_btn1Day")
+		{
+			if (_timeSpeed == _btn1Day)
+				timeSpan = 12 * 5 * 6 * 2 * 24;
+
+			if (connectionTCP::_enable_host_only_time_speed == true && _game->getCoopMod()->getHost() == false)
+			{
+				timeSpan = 12 * 5 * 6 * 2 * 24;
+				_timeSpeed = _btn1Day;
+			}
+		}
+
+		_game->getCoopMod()->other_time_speed_coop = "";
+
+	}
 
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
@@ -1570,22 +1765,28 @@ void GeoscapeState::time5Seconds()
 			Craft* xcraft = (*craftIt);
 			if (xcraft->isDestroyed())
 			{
-				for (auto* country : *_game->getSavedGame()->getCountries())
+
+				// coop
+				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 				{
-					if (country->getRules()->insideCountry(xcraft->getLongitude(), xcraft->getLatitude()))
+					for (auto* country : *_game->getSavedGame()->getCountries())
 					{
-						country->addActivityXcom(-xcraft->getRules()->getScore());
-						break;
+						if (country->getRules()->insideCountry(xcraft->getLongitude(), xcraft->getLatitude()))
+						{
+							country->addActivityXcom(-xcraft->getRules()->getScore());
+							break;
+						}
+					}
+					for (auto* region : *_game->getSavedGame()->getRegions())
+					{
+						if (region->getRules()->insideRegion(xcraft->getLongitude(), xcraft->getLatitude()))
+						{
+							region->addActivityXcom(-xcraft->getRules()->getScore());
+							break;
+						}
 					}
 				}
-				for (auto* region : *_game->getSavedGame()->getRegions())
-				{
-					if (region->getRules()->insideRegion(xcraft->getLongitude(), xcraft->getLatitude()))
-					{
-						region->addActivityXcom(-xcraft->getRules()->getScore());
-						break;
-					}
-				}
+
 				//if (_ufoIsAttacking)
 				{
 					// Note: this was moved from DogfightState.cpp, as it was not 100% reliable there
@@ -2275,18 +2476,24 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 
 	int score = removeSite ? site->getDeployment()->getDespawnPenalty() : site->getDeployment()->getPoints();
 
-	Region *region = _game->getSavedGame()->locateRegion(*site);
-	if (region)
+	// coop
+	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && site->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 	{
-		region->addActivityAlien(score);
-	}
-	for (auto* country : *_game->getSavedGame()->getCountries())
-	{
-		if (country->getRules()->insideCountry(site->getLongitude(), site->getLatitude()))
+
+		Region* region = _game->getSavedGame()->locateRegion(*site);
+		if (region)
 		{
-			country->addActivityAlien(score);
-			break;
+			region->addActivityAlien(score);
 		}
+		for (auto* country : *_game->getSavedGame()->getCountries())
+		{
+			if (country->getRules()->insideCountry(site->getLongitude(), site->getLatitude()))
+			{
+				country->addActivityAlien(score);
+				break;
+			}
+		}
+
 	}
 
 	Ufo* ufo = site->getUfo();
@@ -2425,22 +2632,27 @@ void GeoscapeState::time30Minutes()
 			points *= 2;
 			FALLTHROUGH;
 		case Ufo::FLYING:
-			// Get area
-			for (auto* region : *_game->getSavedGame()->getRegions())
+
+			// coop
+			if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && ufo->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 			{
-				if (region->getRules()->insideRegion(ufo->getLongitude(), ufo->getLatitude()))
+				// Get area
+				for (auto* region : *_game->getSavedGame()->getRegions())
 				{
-					region->addActivityAlien(points);
-					break;
+					if (region->getRules()->insideRegion(ufo->getLongitude(), ufo->getLatitude()))
+					{
+						region->addActivityAlien(points);
+						break;
+					}
 				}
-			}
-			// Get country
-			for (auto* country : *_game->getSavedGame()->getCountries())
-			{
-				if (country->getRules()->insideCountry(ufo->getLongitude(), ufo->getLatitude()))
+				// Get country
+				for (auto* country : *_game->getSavedGame()->getCountries())
 				{
-					country->addActivityAlien(points);
-					break;
+					if (country->getRules()->insideCountry(ufo->getLongitude(), ufo->getLatitude()))
+					{
+						country->addActivityAlien(points);
+						break;
+					}
 				}
 			}
 
@@ -3175,24 +3387,29 @@ void GeoscapeState::time1Day()
 	}
 
 	// handle regional and country points for alien bases
-	for (auto* ab : *saveGame->getAlienBases())
+	// coop
+	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 	{
-		for (auto* region : *saveGame->getRegions())
+		for (auto* ab : *saveGame->getAlienBases())
 		{
-			if (region->getRules()->insideRegion(ab->getLongitude(), ab->getLatitude()))
+			for (auto* region : *saveGame->getRegions())
 			{
-				region->addActivityAlien(ab->getDeployment()->getPoints());
-				break;
+				if (region->getRules()->insideRegion(ab->getLongitude(), ab->getLatitude()))
+				{
+					region->addActivityAlien(ab->getDeployment()->getPoints());
+					break;
+				}
+			}
+			for (auto* country : *saveGame->getCountries())
+			{
+				if (country->getRules()->insideCountry(ab->getLongitude(), ab->getLatitude()))
+				{
+					country->addActivityAlien(ab->getDeployment()->getPoints());
+					break;
+				}
 			}
 		}
-		for (auto* country : *saveGame->getCountries())
-		{
-			if (country->getRules()->insideCountry(ab->getLongitude(), ab->getLatitude()))
-			{
-				country->addActivityAlien(ab->getDeployment()->getPoints());
-				break;
-			}
-		}
+
 	}
 
 	// Handle resupply of alien bases.
@@ -3300,16 +3517,13 @@ void GeoscapeState::time1Month()
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->time1MonthCoop == false && _game->getCoopMod()->_enable_time_sync == true)
+	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 	{
-
-		Json::Value root;
-
-		root["state"] = "time1Month";
-		root["data"] = true;
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
+		// do nothing
+	}
+	else
+	{
+		return;
 	}
 
 	_game->getSavedGame()->addMonth();
@@ -3339,7 +3553,58 @@ void GeoscapeState::time1Month()
 
 	// Handle funding
 	timerReset();
+
 	_game->getSavedGame()->monthlyFunding();
+
+	popup(new MonthlyReportState(_globe));
+
+	// Handle Xcom Operatives discovering bases
+	if (!_game->getSavedGame()->getAlienBases()->empty() && RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
+	{
+		for (auto* ab : *_game->getSavedGame()->getAlienBases())
+		{
+			if (!ab->isDiscovered())
+			{
+				ab->setDiscovered(true);
+				popup(new AlienBaseState(ab, this));
+				break;
+			}
+		}
+	}
+}
+
+void GeoscapeState::time1MonthCoop()
+{
+	_game->getSavedGame()->addMonth();
+
+	// Determine alien mission for this month.
+	determineAlienMissions();
+
+	// Handle Psi-Training and initiate a new retaliation mission, if applicable
+	if (!Options::anytimePsiTraining)
+	{
+		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
+		for (auto* xbase : *_game->getSavedGame()->getBases())
+		{
+			if (xbase->getAvailablePsiLabs() > 0)
+			{
+				for (auto* soldier : *xbase->getSoldiers())
+				{
+					if (soldier->isInPsiTraining())
+					{
+						soldier->trainPsi();
+						soldier->calcStatString(_game->getMod()->getStatStrings(), psiStrengthEval);
+					}
+				}
+			}
+		}
+	}
+
+	// Handle funding
+	timerReset();
+
+	_game->getSavedGame()->monthlyFunding();
+
 	popup(new MonthlyReportState(_globe));
 
 	// Handle Xcom Operatives discovering bases

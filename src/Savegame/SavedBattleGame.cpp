@@ -2180,6 +2180,70 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
 	newUnit->dontReselect();
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+
+		// PVP
+		if (connectionTCP::getCoopGamemode() == 2)
+		{
+			unit->setCoop(1);
+			unit->convertToFaction(FACTION_PLAYER);
+			unit->setOriginalFaction(FACTION_PLAYER);
+
+			newUnit->setCoop(1);
+			newUnit->convertToFaction(FACTION_PLAYER);
+			newUnit->setOriginalFaction(FACTION_PLAYER);
+
+		}
+		// PVP2
+		else if (connectionTCP::getCoopGamemode() == 3)
+		{
+
+			unit->setCoop(0);
+			newUnit->setCoop(0);
+		}
+
+	}
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "convertUnit";
+
+		root["unit_id"] = unit->getId();
+		root["respawn"] = unit->getRespawn();
+		root["spawn_unit_faction"] = (int)unit->getSpawnUnitFaction();
+		root["spawn_unit_type"] = unit->getSpawnUnit()->getType();
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+		// PVP
+		if (connectionTCP::getCoopGamemode() == 2)
+		{
+			unit->setCoop(1);
+			newUnit->setCoop(1);
+
+		}
+		// PVP2
+		else if (connectionTCP::getCoopGamemode() == 3)
+		{
+
+			unit->setCoop(0);
+			unit->convertToFaction(FACTION_PLAYER);
+			unit->setOriginalFaction(FACTION_PLAYER);
+
+			newUnit->setCoop(0);
+			newUnit->convertToFaction(FACTION_PLAYER);
+			newUnit->setOriginalFaction(FACTION_PLAYER);
+
+		}
+
+	}
+
 	return newUnit;
 }
 

@@ -94,6 +94,10 @@ public:
 	void setUfo(Ufo* ufo) { _ufo = ufo; }
 	/// DO NOT USE! Used only for loading saved games.
 	int getUfoUniqueId() const { return _ufoUniqueId; }
+	// coop
+	bool _coop = false;
+	void setCoop(bool coop);
+	bool getCoop();
 };
 
 }

@@ -62,13 +62,15 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _battleGame->isPreview() == false)
+	/*
+	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _battleGame->isPreview() == false && _game->getCoopMod()->_isActiveAISync == true && _battleGame->getSide() == FACTION_HOSTILE)
 	{
 
-		battleGame->setSideCoop(0);
+		battleGame->setSideCoop(2);
 
 	}
-
+	*/
+	
 	//coop
 	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
@@ -657,6 +659,46 @@ void NextTurnState::close()
 						root["units"][index]["respawn"] = unit->getRespawn();
 
 						root["units"][index]["fire"] = unit->getFire();
+
+						// mind control (host)
+						if (unit->_coop_mindcontrolled == true)
+						{
+
+							unit->_coop_mindcontrolled = false;
+
+							if (unit->getCoop() == 0)
+							{
+
+								unit->setCoop(1);
+
+								if (_game->getCoopMod()->getHost() == false)
+								{
+									unit->convertToFaction(FACTION_PLAYER);
+									unit->setOriginalFaction(FACTION_PLAYER);
+								}
+								else
+								{
+									unit->convertToFaction(FACTION_HOSTILE);
+									unit->setOriginalFaction(FACTION_HOSTILE);
+								}
+							}
+							else if (unit->getCoop() == 1)
+							{
+
+								unit->setCoop(0);
+
+								if (_game->getCoopMod()->getHost() == true)
+								{
+									unit->convertToFaction(FACTION_PLAYER);
+									unit->setOriginalFaction(FACTION_PLAYER);
+								}
+								else
+								{
+									unit->convertToFaction(FACTION_HOSTILE);
+									unit->setOriginalFaction(FACTION_HOSTILE);
+								}
+							}
+						}
 
 						Json::Value fatalArray(Json::arrayValue);
 						for (int i = 0; i < BODYPART_MAX; ++i)

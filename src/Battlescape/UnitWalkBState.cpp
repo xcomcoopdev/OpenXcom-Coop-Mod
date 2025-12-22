@@ -257,7 +257,30 @@ void UnitWalkBState::think()
 			}
 
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
-			playMovementSound();
+
+			// coop
+			bool sound = true;
+			// PVP
+			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
+			{
+
+				if (_parent->getCurrentAction()->run == false)
+				{
+					sound = false;
+				}
+
+				if (_parent->getCurrentAction()->sneak == true)
+				{
+					sound = false;
+				}
+			}
+
+			// coop
+			if ((sound == true && connectionTCP::_enable_other_player_footsteps == true && _parent->getCoopMod()->_isActivePlayerSync == false) || _parent->getCoopMod()->getCoopStatic() == false || _parent->getCoopMod()->_isActivePlayerSync == true || (_unit->getFaction() != FACTION_PLAYER && _parent->getCoopMod()->getCoopGamemode() != 2 && _parent->getCoopMod()->getCoopGamemode() != 3))
+			{
+				playMovementSound();
+			}
+
 			if (_parent->getSave()->isPreview())
 			{
 				_unit->resetTimeUnitsAndEnergy();
@@ -354,7 +377,8 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped)
+			// coop
+			if (!_falling && !_fallingWhenStopped && connectionTCP::_enable_reaction_shoot == true)
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
@@ -657,7 +681,9 @@ void UnitWalkBState::setNormalWalkSpeed()
 void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
-	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
+	// coop
+	if (((!_unit->getVisible() && (_parent->getCoopMod()->getCoopGamemode() != 2 && _parent->getCoopMod()->getCoopGamemode() != 3)) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false))
+		return;
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

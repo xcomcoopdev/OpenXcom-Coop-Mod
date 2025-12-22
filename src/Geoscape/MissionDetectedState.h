@@ -42,7 +42,7 @@ private:
 	Text *_txtTitle, *_txtCity;
 public:
 	/// Creates the Mission Detected state.
-	MissionDetectedState(MissionSite *mission, GeoscapeState *state);
+	MissionDetectedState(MissionSite *mission, GeoscapeState *state, bool coop = false);
 	/// Cleans up the Mission Detected state.
 	~MissionDetectedState();
 	/// Handler for clicking the Intercept button.

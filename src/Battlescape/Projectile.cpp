@@ -225,6 +225,9 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			projectile["rng_y"] = _targetVoxel.y;
 			projectile["rng_z"] = _targetVoxel.z;
 			projectile["seed"] = RNG::getSeedCoop();
+			projectile["origin_x"] = originVoxel.x;
+			projectile["origin_y"] = originVoxel.y;
+			projectile["origin_z"] = originVoxel.z;
 
 			_coopProjectilesClient.append(projectile);
 			_coopProjectilesHost.append(projectile);

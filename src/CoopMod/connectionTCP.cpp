@@ -31,7 +31,15 @@
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
 
+#include "../Savegame/Country.h"
+#include "../Mod/RuleCountry.h"
+#include "../Mod/RuleRegion.h"
+#include "../Savegame/Region.h"
+
 #include "CrashHandler.h"
+
+#include "../Mod/RuleCraftWeapon.h"
+#include "../Savegame/CraftWeapon.h"
 
 namespace OpenXcom
 {
@@ -112,9 +120,17 @@ bool connectionTCP::_isActivePlayerSync = false;
 
 bool connectionTCP::_enable_time_sync = true;
 
+bool connectionTCP::_enable_reaction_shoot = true;
+
+bool connectionTCP::_enable_other_player_footsteps = true;
+
+bool connectionTCP::_enable_host_only_time_speed = false;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
+
+bool connectionTCP::playerInsideCoopBase = false;
 
 std::string current_ping = "";
 
@@ -549,7 +565,11 @@ void connectionTCP::updateCoopTask()
 								missionSite->setDetected(true);
 								missionSite->setCity(str_city);
 
+								missionSite->setCoop(true);
+
 								_game->getSavedGame()->getMissionSites()->push_back(missionSite);
+
+								show_coop_mission_popup = missionSite->getId();
 
 						}
 						
@@ -704,7 +724,7 @@ void connectionTCP::updateCoopTask()
 						 (stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile") &&
+					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile") &&
 					!(stateString == "endPlayerTurn" && _coopEnd == 1);
 
 				if (consumeNow)
@@ -1364,6 +1384,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	coopSession = true;
 
+	if (stateString == "ufo_popup")
+	{
+
+		std::string str_type = obj["type"].asString();
+		std::string str_race = obj["race"].asString();
+
+		show_coop_ufo_popup_type = str_type;
+		show_coop_ufo_popup_race = str_race;
+
+	}
+
 	// delete_base
 	if (stateString == "delete_base")
 	{
@@ -1690,22 +1721,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "time")
 	{
 
-		int weekday = obj["weekday"].asInt();
-		int day = obj["day"].asInt();
-		int month = obj["month"].asInt();
-		int year = obj["year"].asInt();
-		int hour = obj["hour"].asInt();
-		int minute = obj["minute"].asInt();
-		int second = obj["second"].asInt();
+		if (getServerOwner() == false)
+		{
+			int weekday = obj["weekday"].asInt();
+			int day = obj["day"].asInt();
+			int month = obj["month"].asInt();
+			int year = obj["year"].asInt();
+			int hour = obj["hour"].asInt();
+			int minute = obj["minute"].asInt();
+			int second = obj["second"].asInt();
 
-		_weekday = weekday;
-		_day = day;
-		_month = month;
-		_year = year;
-		_hour = hour;
-		_minute = minute;
-		_second = second;
+			_weekday = weekday;
+			_day = day;
+			_month = month;
+			_year = year;
+			_hour = hour;
+			_minute = minute;
+			_second = second;
+		}
 
+		std::string time_speed = obj["time_speed"].asString();
+		other_time_speed_coop = time_speed;
+	
 	}
 
 	if (stateString == "changeHost")
@@ -2034,17 +2071,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "unit_action")
 	{
 
-		int actor_id = obj["actor_id"].asInt();
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		if (_game->getSavedGame())
 		{
-
-			if (unit->getId() == actor_id)
+			if (_game->getSavedGame()->getSavedBattle())
 			{
-				_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
-				break;
+		
+				int actor_id = obj["actor_id"].asInt();
+
+				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getId() == actor_id)
+					{
+						_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+						break;
+					}
+				}
 			}
 		}
+
 	}
 
 	// medkit
@@ -2110,6 +2155,45 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getSavedGame()->getSavedBattle()->getBattleGame()->infoboxOkCoop(msg);
 			}
 		}
+	}
+
+	if (stateString == "convertUnit")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					int unit_id = obj["unit_id"].asInt();
+
+					// Check if the same unit
+					if (unit->getId() == unit_id)
+					{
+
+						bool respawn = obj["respawn"].asBool();
+						int spawnUnitFactionInt = obj["spawn_unit_faction"].asInt();
+						std::string spawnUnitType = obj["spawn_unit_type"].asString();
+	
+
+						unit->setRespawn(respawn);
+						unit->setSpawnUnitFaction((UnitFaction)spawnUnitFactionInt);
+
+						auto* spawnType = _game->getSavedGame()->getSavedBattle()->getMod()->getUnit(spawnUnitType);
+						unit->setSpawnUnit(spawnType);
+
+						_game->getSavedGame()->getSavedBattle()->convertUnit(unit);
+
+						break;
+					}
+				}
+			}
+		}
+
 	}
 
 	if (stateString == "after_unit_death")
@@ -2178,6 +2262,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						{
 							unit->setCoopStatus(STATUS_DEAD);
 						}
+
+						break;
 
 					}
 				}
@@ -2611,18 +2697,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								if (unit->getCoop() == 0)
 								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-
+		
 									unit->setCoop(1);
+
+									if (_game->getCoopMod()->getHost() == false)
+									{
+										unit->convertToFaction(FACTION_PLAYER);
+										unit->setOriginalFaction(FACTION_PLAYER);
+									}
+									else
+									{
+										unit->convertToFaction(FACTION_HOSTILE);
+										unit->setOriginalFaction(FACTION_HOSTILE);
+									}
+
 								}
 								else if (unit->getCoop() == 1)
 								{
-
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
+									
 									unit->setCoop(0);
+
+									if (_game->getCoopMod()->getHost() == true)
+									{
+										unit->convertToFaction(FACTION_PLAYER);
+										unit->setOriginalFaction(FACTION_PLAYER);
+									}
+									else
+									{
+										unit->convertToFaction(FACTION_HOSTILE);
+										unit->setOriginalFaction(FACTION_HOSTILE);
+									}
+
 								}
 							}
 
@@ -2765,11 +2870,354 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	// months
-	if (stateString == "time1Month")
+	if (stateString == "update_graphs")
 	{
 
-		time1MonthCoop = true;
+		if (_game->getSavedGame() && getServerOwner() == false)
+		{
+			// income
+			// countries
+			const Json::Value& countries = obj["countries"];
+
+			for (const Json::Value& c : countries)
+			{
+
+				const std::string type = c["type"].asString();
+				const Json::Value& fundingJson = c["funding"];
+				const Json::Value& activityXcomJson = c["activityXcom"];
+				const Json::Value& activityAlienJson = c["activityAlien"];
+
+				Country* local = nullptr;
+				for (auto* country : *_game->getSavedGame()->getCountries())
+				{
+					if (country->getRules()->getType() == type)
+					{
+						local = country;
+						break;
+					}
+				}
+				if (!local)
+					continue;
+
+				// funding
+				auto& fundingVec = local->getFunding();
+				fundingVec.clear();
+				fundingVec.reserve(fundingJson.size());
+
+				for (const Json::Value& v : fundingJson)
+					fundingVec.push_back(v.asInt());
+
+				// activityXcom
+				auto& activityXcomVec = local->getActivityXcom();
+				activityXcomVec.clear();
+				activityXcomVec.reserve(activityXcomJson.size());
+
+				for (const Json::Value& v : activityXcomJson)
+					activityXcomVec.push_back(v.asInt());
+
+				// activityAlien
+				auto& activityAlienVec = local->getActivityAlien();
+				activityAlienVec.clear();
+				activityAlienVec.reserve(activityAlienJson.size());
+
+				for (const Json::Value& v : activityAlienJson)
+					activityAlienVec.push_back(v.asInt());
+			}
+
+			// regions
+			const Json::Value& regions = obj["regions"];
+
+			for (const Json::Value& r : regions)
+			{
+
+				const std::string type = r["type"].asString();
+				const Json::Value& activityXcomJson = r["activityXcom"];
+				const Json::Value& activityAlienJson = r["activityAlien"];
+
+				Region* local = nullptr;
+				for (auto* region : *_game->getSavedGame()->getRegions())
+				{
+					if (region->getRules()->getType() == type)
+					{
+						local = region;
+						break;
+					}
+				}
+				if (!local)
+					continue;
+
+				// activityXcom
+				auto& activityXcomVec = local->getActivityXcom();
+				activityXcomVec.clear();
+				activityXcomVec.reserve(activityXcomJson.size());
+
+				for (const Json::Value& v : activityXcomJson)
+					activityXcomVec.push_back(v.asInt());
+
+				// activityAlien
+				auto& activityAlienVec = local->getActivityAlien();
+				activityAlienVec.clear();
+				activityAlienVec.reserve(activityAlienJson.size());
+
+				for (const Json::Value& v : activityAlienJson)
+					activityAlienVec.push_back(v.asInt());
+			}
+		}
+
+	}
+
+	if (stateString == "graph_requests")
+	{
+
+		if (_game->getSavedGame() && playerInsideCoopBase == false && getServerOwner() == true)
+		{
+
+			Json::Value root;
+
+			root["state"] = "update_graphs";
+
+			// countries
+			Json::Value countries(Json::arrayValue);
+
+			for (auto* country : *_game->getSavedGame()->getCountries())
+			{
+
+				Json::Value c;
+
+				c["type"] = country->getRules()->getType();
+
+				Json::Value funding(Json::arrayValue);
+
+				for (int f : country->getFunding())
+					funding.append(f);
+
+				c["funding"] = funding;
+
+				// activityXcom
+				Json::Value activityXcom(Json::arrayValue);
+
+				for (int x : country->getActivityXcom())
+					activityXcom.append(x);
+
+				c["activityXcom"] = activityXcom;
+
+				// activityAlien
+				Json::Value activityAlien(Json::arrayValue);
+
+				for (int a : country->getActivityAlien())
+					activityAlien.append(a);
+
+				c["activityAlien"] = activityAlien;
+
+				countries.append(c);
+			}
+
+			root["countries"] = countries;
+
+			// regions
+			Json::Value regions(Json::arrayValue);
+
+			for (auto* region : *_game->getSavedGame()->getRegions())
+			{
+
+				Json::Value r;
+
+				r["type"] = region->getRules()->getType();
+
+				// activityXcom
+				Json::Value activityXcom(Json::arrayValue);
+
+				for (int x : region->getActivityXcom())
+					activityXcom.append(x);
+
+				r["activityXcom"] = activityXcom;
+
+				// activityAlien
+				Json::Value activityAlien(Json::arrayValue);
+
+				for (int a : region->getActivityAlien())
+					activityAlien.append(a);
+
+				r["activityAlien"] = activityAlien;
+
+				regions.append(r);
+			}
+
+			root["regions"] = regions;
+
+			sendTCPPacketData(root.toStyledString());
+
+		}
+
+	}
+
+	if (stateString == "monthly_report")
+	{
+
+		// income
+		// countries
+		 const Json::Value& countries = obj["countries"];
+
+		 for (const Json::Value& c : countries)
+		 {
+
+			 const std::string type = c["type"].asString();
+			 const Json::Value& fundingJson = c["funding"];
+			 const Json::Value& activityXcomJson = c["activityXcom"];
+			 const Json::Value& activityAlienJson = c["activityAlien"];
+
+			 Country* local = nullptr;
+			 for (auto* country : *_game->getSavedGame()->getCountries())
+			 {
+				 if (country->getRules()->getType() == type)
+				 {
+					 local = country;
+					 break;
+				 }
+			 }
+			 if (!local)
+				 continue;
+
+			 // funding
+			 auto& fundingVec = local->getFunding(); 
+			 fundingVec.clear();
+			 fundingVec.reserve(fundingJson.size());
+
+			 for (const Json::Value& v : fundingJson)
+				 fundingVec.push_back(v.asInt());
+
+			 // activityXcom
+			 auto& activityXcomVec = local->getActivityXcom();
+			 activityXcomVec.clear();
+			 activityXcomVec.reserve(activityXcomJson.size());
+
+			 for (const Json::Value& v : activityXcomJson)
+				 activityXcomVec.push_back(v.asInt());
+
+			 // activityAlien
+			 auto& activityAlienVec = local->getActivityAlien();
+			 activityAlienVec.clear();
+			 activityAlienVec.reserve(activityAlienJson.size());
+
+			 for (const Json::Value& v : activityAlienJson)
+				 activityAlienVec.push_back(v.asInt());
+
+		 }
+
+		 // regions
+		 const Json::Value& regions = obj["regions"];
+
+		 for (const Json::Value& r : regions)
+		 {
+
+			 const std::string type = r["type"].asString();
+			 const Json::Value& activityXcomJson = r["activityXcom"];
+			 const Json::Value& activityAlienJson = r["activityAlien"];
+
+			 Region* local = nullptr;
+			 for (auto* region : *_game->getSavedGame()->getRegions())
+			 {
+				 if (region->getRules()->getType() == type)
+				 {
+					 local = region;
+					 break;
+				 }
+			 }
+			 if (!local)
+				 continue;
+
+			  // activityXcom
+			 auto& activityXcomVec = local->getActivityXcom();
+			 activityXcomVec.clear();
+			 activityXcomVec.reserve(activityXcomJson.size());
+
+			 for (const Json::Value& v : activityXcomJson)
+				 activityXcomVec.push_back(v.asInt());
+
+			 // activityAlien
+			 auto& activityAlienVec = local->getActivityAlien();
+			 activityAlienVec.clear();
+			 activityAlienVec.reserve(activityAlienJson.size());
+
+			 for (const Json::Value& v : activityAlienJson)
+				 activityAlienVec.push_back(v.asInt());
+
+		 }
+
+		 // month
+		 int month = obj["month"].asInt();
+		 _game->getSavedGame()->getTime()->setMonthCoop(month);
+
+		 // year
+		 int year = obj["year"].asInt();
+		 _game->getSavedGame()->getTime()->setYearCoop(year);
+
+		 int fundingDiff = obj["fundingDiff"].asInt();
+		 fundingDiffCoop = fundingDiff;
+
+		 int ratingTotal = obj["ratingTotal"].asInt();
+		 ratingTotalCoop = ratingTotal;
+
+		 int lastMonthsRating = obj["lastMonthsRating"].asInt();
+		 lastMonthsRatingCoop = lastMonthsRating;
+
+		 // happyList
+		const Json::Value& happyList = obj["happyList"];
+
+		 _happyListCoop.clear();
+		 if (happyList.isArray())
+		 {
+			 _happyListCoop.reserve(happyList.size());
+			 for (Json::ArrayIndex i = 0; i < happyList.size(); ++i)
+			 {
+				 if (happyList[i].isString())
+					 _happyListCoop.push_back(happyList[i].asString());
+			 }
+		 }
+
+		 // sadList
+		 const Json::Value& sadList = obj["sadList"];
+
+		 _sadListCoop.clear();
+		 if (sadList.isArray())
+		 {
+			 _sadListCoop.reserve(sadList.size());
+			 for (Json::ArrayIndex i = 0; i < sadList.size(); ++i)
+			 {
+				 if (sadList[i].isString())
+					 _sadListCoop.push_back(sadList[i].asString());
+			 }
+		 }
+
+		 // pactList
+		 const Json::Value& pactList = obj["pactList"];
+
+		 _pactListCoop.clear();
+		 if (pactList.isArray())
+		 {
+			 _pactListCoop.reserve(pactList.size());
+			 for (Json::ArrayIndex i = 0; i < pactList.size(); ++i)
+			 {
+				 if (pactList[i].isString())
+					 _pactListCoop.push_back(pactList[i].asString());
+			 }
+		 }
+
+		 // cancelPactList
+		 const Json::Value& cancelPactList = obj["cancelPactList"];
+
+		 _cancelPactListCoop.clear();
+		 if (cancelPactList.isArray())
+		 {
+			 _cancelPactListCoop.reserve(cancelPactList.size());
+			 for (Json::ArrayIndex i = 0; i < cancelPactList.size(); ++i)
+			 {
+				 if (cancelPactList[i].isString())
+					 _cancelPactListCoop.push_back(cancelPactList[i].asString());
+			 }
+		 }
+
+		_game->getCoopMod()->show_coop_monthly_report = true;
 
 	}
 
@@ -2796,6 +3244,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				int speed = obj["crafts"][i]["speed"].asInt();
 
+				// new!
+				int shield = obj["crafts"][i]["shield"].asInt();
+				int interceptionOrder = obj["crafts"][i]["interceptionOrder"].asInt();
+				std::string craft_name = obj["crafts"][i]["craft_name"].asString();
+				int num_total_vehicles = obj["crafts"][i]["num_total_vehicles"].asInt();
+				int num_total_soldiers = obj["crafts"][i]["num_total_soldiers"].asInt();
+	
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
 
@@ -2825,6 +3280,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							{
 								craft = new Craft(rule, base, craft_id);
 
+								// weapons
+								auto& weapons = *craft->getWeapons();
+								const Json::Value& wj = obj["crafts"][i]["weapons"];
+
+								for (auto* cw : weapons)
+									delete cw;
+								weapons.clear();
+
+								for (Json::ArrayIndex w = 0; w < wj.size(); ++w)
+								{
+									const std::string type = wj[w]["type"].asString();
+									const int ammo = wj[w]["ammo"].asInt();
+
+									const RuleCraftWeapon* wRule = _game->getMod()->getCraftWeapon(type);
+									if (!wRule)
+										continue;
+
+									weapons.push_back(new CraftWeapon(const_cast<RuleCraftWeapon*>(wRule), ammo));
+								}
+
 								base->getCrafts()->push_back(craft);
 							}
 							else
@@ -2841,12 +3316,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						craft->setLongitude(lon);
 						craft->setLatitude(lat);
 
-						craft->setFuel(fuel);
+						craft->setFuelCoop(fuel);
 						craft->setDamage(damage);
 
 						craft->setSpeed(speed);
 
-						break;
+						// new!
+						craft->setShield(shield);
+						craft->setInterceptionOrder(interceptionOrder);
+						craft->setName(craft_name);
+						craft->coop_total_soldiers = num_total_soldiers;
+						craft->coop_total_vehicles = num_total_vehicles;
+
+						// weapons
+						auto& weapons = *craft->getWeapons();
+						const Json::Value& wj = obj["crafts"][i]["weapons"];
+
+						const Json::ArrayIndex count =
+							std::min<Json::ArrayIndex>((Json::ArrayIndex)weapons.size(), wj.size());
+
+						for (Json::ArrayIndex w = 0; w < count; ++w)
+						{
+							weapons[w]->setAmmo(wj[w]["ammo"].asInt());
+						}
+
 
 					}
 				
@@ -3078,9 +3571,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "click_close")
 	{
-
 		_onClickClose = true;
-
 	}
 
 	if (stateString == "endTurn")
@@ -3126,12 +3617,52 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "endPlayerTurn")
 	{
 
+		_coopEnd = 0;
+
 		_AIProgressCoop = 100;
 
 		_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 
 		// end battle
 		_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopTurn();
+
+	}
+
+	if (stateString == "update_progress")
+	{
+
+		int ret = obj["ret"].asInt();
+		_AIProgressCoop = ret;
+
+		int selected_unit_id = obj["selected_unit_id"].asInt();
+
+		bool AISecondMove = obj["AISecondMove"].asInt();
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				_AISecondMoveCoop = AISecondMove;
+
+				if (selected_unit_id != -1)
+				{
+
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						if (unit->getId() == selected_unit_id)
+						{
+
+							_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
+							break;
+						}
+					}
+				}
+
+			}
+		}
 
 	}
 
@@ -3146,8 +3677,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int selected_unit_id = obj["selected_unit_id"].asInt();
 
 		bool AISecondMove = obj["AISecondMove"].asInt();
-
-		int end = obj["end"].asInt();
 
 		if (_game->getSavedGame())
 		{
@@ -3174,22 +3703,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 				}
 				
-				if (end == 1 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
+				if (ret == 0 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
 				{
 
 					if (_coopEnd == 0)
 					{
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(1);
-						_coopEnd++;
+				
+						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
+						_coopEnd = 1;
+					
 					}
 					else if (_coopEnd == 1)
 					{
 
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
-						_coopEnd = 0;
-	
-					}
+						_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 
+					}
+					
 					_AISecondMoveCoop = false;
 
 					_game->getSavedGame()->getSavedBattle()->setSelectedUnit(0);
@@ -3418,36 +3948,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (getHost() == false)
 			{
+				
+				_isActivePlayerSync = true;
+				_isActiveAISync = false;
 
-				// if not pvp
-				if (connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)
-				{
-
-					_isActivePlayerSync = true;
-					_isActiveAISync = false;
-
-					setPlayerTurn(2);
-
-				}
-				// pvp2
-				else if (connectionTCP::_coopGamemode == 3)
-				{
-
-					_isActivePlayerSync = false;
-					_battleInit = false;
-					_isActiveAISync = true;
-
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-					
-				}
-				// pvp
-				else if(connectionTCP::_coopGamemode == 2)
-				{
-					_isActivePlayerSync = true;
-					setPlayerTurn(2);
-
-				}
+				setPlayerTurn(2);
 
 			}
 			else
@@ -3455,44 +3960,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				_isActivePlayerSync = true;
 
-				// if not pvp and pvp2
-				if (connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3)
-				{
-			
-					// Auto save before (only HOST)
-					SavedGame* newsave = new SavedGame(*_game->getSavedGame());
+				// Auto save before (only HOST)
+				SavedGame* newsave = new SavedGame(*_game->getSavedGame());
 
-					newsave->setName("coop_mission_2");
+				newsave->setName("coop_mission_2");
 
-					newsave->save("coop_mission_2.sav", _game->getMod());
+				newsave->save("coop_mission_2.sav", _game->getMod());
 
-					_battleInit = false;
-					_isActiveAISync = true;
+				_battleInit = false;
+				_isActiveAISync = true;
 
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-
-				}
-				else if (connectionTCP::_coopGamemode == 2)
-				{
-	
-					_battleInit = false;
-					_isActiveAISync = true;
-					
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-
-				}
-				else if (connectionTCP::_coopGamemode == 3)
-				{
-
-					setPlayerTurn(2);
-
-				}
+				BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+				battlestate->endTurnCoop();
 
 			}
-
-
 
 		}
 
@@ -3612,6 +4093,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_CLIENT" && onTcpHost == true)
 	{
 
+		fixCoopSave();
+
 		// coop fix bases..
 		j_markers = "";
 
@@ -3686,6 +4169,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_enable_time_sync = Options::EnableTimeSync;
 		root["enable_time_sync"] = connectionTCP::_enable_time_sync;
 
+		// reaction shoot option (PVP)
+		if (getCoopGamemode() == 2 || getCoopGamemode() == 3)
+		{
+			connectionTCP::_enable_reaction_shoot = Options::EnableReactionFirePvp;
+		}
+
+		root["enable_reaction_shoot"] = connectionTCP::_enable_time_sync;
+
+		// other player footsteps sounds
+		connectionTCP::_enable_other_player_footsteps = Options::EnableOtherPlayerFootsteps;
+		root["enable_other_player_footsteps"] = connectionTCP::_enable_other_player_footsteps;
+
+		// enable host only time speed
+		connectionTCP::_enable_host_only_time_speed = Options::EnableHostOnlyTimeSpeed;
+		root["enable_host_only_time_speed"] = connectionTCP::_enable_host_only_time_speed;
+
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -3746,6 +4245,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "COOP_READY_HOST" && onTcpHost == false)
 	{
+
+		fixCoopSave();
 
 		// coop fix bases..
 		j_markers = "";
@@ -3840,6 +4341,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// time option
 		bool enable_time_sync = obj["enable_time_sync"].asBool();
 		connectionTCP::_enable_time_sync = enable_time_sync;
+
+		// reaction shoot option
+		bool enable_reaction_shoot = obj["enable_reaction_shoot"].asBool();
+		connectionTCP::_enable_reaction_shoot = enable_reaction_shoot;
+
+		// other player footsteps sounds
+		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
+		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
+
+		// enable host only time speed
+		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
+		connectionTCP::_enable_host_only_time_speed = enable_host_only_time_speed;
+
 
 		for (Json::Value host_mod : obj["mods"])
 		{
@@ -5257,6 +5771,38 @@ void connectionTCP::updateAllCoopBases()
 		_game->getSavedGame()->getBases()->push_back(CoopBase);
 	}
 
+}
+
+void connectionTCP::fixCoopSave()
+{
+	if (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())
+	{
+		for (auto& base : *_game->getSavedGame()->getBases())
+		{
+			auto* soldiers = base->getSoldiers();
+
+			for (auto it = soldiers->begin(); it != soldiers->end();)
+			{
+				auto* soldier = *it;
+
+				// For all soldiers where coopbase is not -1, make sure their craft is null.
+				if (soldier->getCoopBase() != -1)
+				{
+					soldier->setCraft(nullptr);
+				}
+
+				// If the base coop ID matches the soldier coopbase in the save, delete the soldier.
+				if (base->_coop_base_id == soldier->getCoopBase())
+				{
+					delete soldier;
+					it = soldiers->erase(it); // Remove the pointer from the container and continue safely.
+					continue;
+				}
+
+				++it;
+			}
+		}
+	}
 }
 
 void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress)
