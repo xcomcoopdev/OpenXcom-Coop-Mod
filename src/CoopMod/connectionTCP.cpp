@@ -101,15 +101,6 @@ bool isWaitMap = true;
 // trading
 Json::Value waitedTrades;
 
-// research
-Json::Value waitedResearch;
-
-// missions
-Json::Value pendingMissions;
-
-// Clear Targets
-Json::Value pendingRemoveTargets;
-
 int connectionTCP::_coopGamemode = 0; 
 
 bool connectionTCP::_isChatActiveStatic = false;
@@ -125,6 +116,8 @@ bool connectionTCP::_enable_reaction_shoot = true;
 bool connectionTCP::_enable_other_player_footsteps = true;
 
 bool connectionTCP::_enable_host_only_time_speed = false;
+
+bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
 bool connectionTCP::_coopCampaign = false;
 
@@ -449,162 +442,6 @@ void connectionTCP::updateCoopTask()
 
 	}
 
-	// remove targets
-	// coop
-	if (getCoopStatic() && !pendingRemoveTargets.empty() && _game->getSavedGame())
-	{
-
-			if (playerInsideCoopBase == false && !_game->getSavedGame()->getSavedBattle())
-			{
-
-				for (Json::Value::ArrayIndex i = 0; i < pendingRemoveTargets.size(); ++i)
-				{
-
-					double d_lon = pendingRemoveTargets[i]["lon"].asDouble();
-					double d_lan = pendingRemoveTargets[i]["lan"].asDouble();
-
-					// mission sites
-					auto& missionSites = *_game->getSavedGame()->getMissionSites();
-
-					for (auto it = missionSites.begin(); it != missionSites.end();)
-					{
-						if ((*it)->getLongitude() == d_lon && (*it)->getLatitude() == d_lan)
-						{
-							it = missionSites.erase(it); // Removes and returns the next iterator
-						}
-						else
-						{
-							++it;
-						}
-					}
-		
-				}
-
-				pendingRemoveTargets.clear();
-			}
-		
-	}
-
-	// missions
-	// coop
-	if (getCoopStatic() && !pendingMissions.empty() && _game->getSavedGame())
-	{
-
-			if (playerInsideCoopBase == false && !_game->getSavedGame()->getSavedBattle())
-			{
-
-				for (Json::Value::ArrayIndex i = 0; i < pendingMissions.size(); ++i)
-				{
-
-					std::string str_deployment = pendingMissions[i]["deployment"].asString();
-					std::string str_rules = pendingMissions[i]["rules"].asString();
-					std::string str_race = pendingMissions[i]["race"].asString();
-					std::string str_city = pendingMissions[i]["city"].asString();
-					size_t int_time = pendingMissions[i]["time"].asUInt64();
-					double d_lon = pendingMissions[i]["lon"].asDouble();
-					double d_lat = pendingMissions[i]["lat"].asDouble();
-
-					bool isDuplicate = false;
-
-					// Check if the same coordinates already exist in the missionSite list
-					for (const auto& existingSite : *_game->getSavedGame()->getMissionSites())
-					{
-						if (existingSite->getLongitude() == d_lon && existingSite->getLatitude() == d_lat)
-						{
-							isDuplicate = true;
-							break;
-						}
-					}
-
-					// Add a new MissionSite only if no duplicate is found
-					if (!isDuplicate)
-					{
-
-						if (str_deployment == "")
-						{
-
-							std::vector<std::string> deployments = _game->getMod()->getDeploymentsList();
-
-							// Initialize the random number generator
-							std::srand(std::time(nullptr));
-
-							// Select a random index
-							int randomIndex = std::rand() % deployments.size();
-
-							// Select a random deployment
-							str_deployment = deployments[randomIndex];
-
-						}
-
-						bool found_mission = false;
-
-						for (auto* i_mission : *_game->getSavedGame()->getMissionSites())
-						{
-
-								if (i_mission->getLatitude() == d_lat && i_mission->getLongitude() == d_lon)
-								{
-									found_mission = true;
-									break;
-								}
-
-						}
-
-						if (found_mission == false)
-						{
-
-								// MISSION SITE
-								AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
-
-								MissionSite* missionSite = new MissionSite(_game->getMod()->getAlienMission(str_rules, true), deployment, nullptr);
-
-								missionSite->setLongitude(d_lon);
-								missionSite->setLatitude(d_lat);
-								missionSite->setId(_game->getSavedGame()->getId(deployment->getMarkerName()));
-								missionSite->setSecondsRemaining(100000000);
-								missionSite->setAlienRace(str_race);
-								missionSite->setDetected(true);
-								missionSite->setCity(str_city);
-
-								missionSite->setCoop(true);
-
-								_game->getSavedGame()->getMissionSites()->push_back(missionSite);
-
-								show_coop_mission_popup = missionSite->getId();
-
-						}
-						
-					}
-				}
-
-				pendingMissions.clear();
-			}
-		
-	}
-
-	// coop
-	// research
-	if (getCoopStatic() && !waitedResearch.empty())
-	{
-
-		if (_game->getSavedGame()->getSelectedBase())
-		{
-
-			if (_game->getSavedGame()->getSelectedBase()->_coopBase == false)
-			{
-
-				for (Json::Value::ArrayIndex i = 0; i < waitedResearch.size(); ++i)
-				{
-
-					std::string jsonString = waitedResearch[i].toStyledString();
-
-					syncResearch(jsonString);
-				}
-
-				waitedResearch.clear();
-			}
-		}
-	}
-
 	// coop
 	// trade
 	if (getCoopStatic() && !waitedTrades.empty())
@@ -662,18 +499,26 @@ void connectionTCP::updateCoopTask()
 	}
 
 	// disconnect from server!
-	if (onConnect == -2 && allow_cutscene == true)
+	if (onConnect == -2)
 	{
 
-		// Make sure it calls disconnectTCP, otherwise it may get stuck.
-		if (server_owner == true)
+		if (allow_cutscene == true)
 		{
-			_game->pushState(new CoopState(20));
+			// Make sure it calls disconnectTCP, otherwise it may get stuck.
+			if (server_owner == true)
+			{
+				_game->pushState(new CoopState(20));
+			}
+			else if (server_owner == false)
+			{
+				_game->pushState(new CoopState(21));
+			}
 		}
-		else if (server_owner == false)
+		else
 		{
-			_game->pushState(new CoopState(21));
-
+			// disconnect
+			connectionTCP::_coopGamemode = 0;
+			_game->getCoopMod()->disconnectTCP();
 		}
 
 	}
@@ -724,8 +569,8 @@ void connectionTCP::updateCoopTask()
 						 (stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile") &&
-					!(stateString == "endPlayerTurn" && _coopEnd == 1);
+					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov") &&
+					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
 				if (consumeNow)
 				{
@@ -1145,9 +990,9 @@ void connectionTCP::startTCPClient()
 					if (Json::parseFromStream(rb, ss, &obj, &errs))
 					{
 						if (maybeHandlePingOnClient(obj))
-							continue; // <-- lisää tämä
+							continue;
 						if (maybeHandlePongOnClient(obj))
-							continue; // tämä oli jo olemassa
+							continue;
 					}
 					if (!g_rxQ.push(std::move(message)))
 					{
@@ -1384,6 +1229,33 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	coopSession = true;
 
+	if (stateString == "calc_explode_fov")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int maxRadius = obj["maxRadius"].asInt();
+				bool coop_is_second_fov = obj["coop_is_second_fov"].asBool();
+
+				int center_tile_x = obj["center_tile_x"].asInt();
+				int center_tile_y = obj["center_tile_y"].asInt();
+				int center_tile_z = obj["center_tile_z"].asInt();
+
+
+				Position center_position = Position(center_tile_x, center_tile_y, center_tile_z);
+
+				_game->getSavedGame()->getSavedBattle()->coopExplosionCalc(center_position, maxRadius, coop_is_second_fov);
+
+			}
+
+		}
+
+	}
+
 	if (stateString == "ufo_popup")
 	{
 
@@ -1392,6 +1264,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		show_coop_ufo_popup_type = str_type;
 		show_coop_ufo_popup_race = str_race;
+
+	}
+
+	if (stateString == "mission_popup")
+	{
+
+		int mission_id = obj["mission_id"].asInt();
+
+		show_coop_mission_popup = mission_id;
 
 	}
 
@@ -1588,45 +1469,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
-	// Removes the target mission sites
-	if (stateString == "remove_target")
-	{
-		// Check directly in the loop
-		bool exists = false;
-		for (const auto& item : pendingRemoveTargets)
-		{
-			if (item == obj)
-			{
-				exists = true;
-				break; // Stop checking if found
-			}
-		}
-		if (!exists)
-		{
-			pendingRemoveTargets.append(obj);
-		}
-	}
-
-	// Adds mission sites
-	if (stateString == "mission")
-	{
-
-		// Check directly in the loop
-		bool exists = false;
-		for (const auto& item : pendingMissions)
-		{
-			if (item == obj)
-			{
-				exists = true;
-				break; // Stop checking if found
-			}
-		}
-		if (!exists)
-		{
-			pendingMissions.append(obj);
-		}
-	}
-
 	// CHANGE THE BASE NAME
 	if (stateString == "changeBaseName")
 	{
@@ -1768,6 +1610,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		waitedResearch.append(obj);
+
 	}
 
 	if (stateString == "Inventory")
@@ -1947,7 +1790,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "BattleScapeTurn")
+	if (stateString == "afterBattlescapeUnitTurn")
+	{
+
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+				{
+
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+
+					std::string jsonString = obj.toStyledString(); // Converts the entire JSON object
+
+					battlestate->turnPlayerTargetAfter(jsonString);
+				}
+			}
+		}
+
+	}
+
+	if (stateString == "turnBattlescapeUnit")
 	{
 
 		if (_game->getSavedGame())
@@ -1965,6 +1829,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				}
 			}
+		}
+
+	}
+
+	if (stateString == "place_facility")
+	{
+
+		if (playerInsideCoopBase == true)
+		{
+
+			_coopFacility.append(obj);
+
+		}
+
+	}
+
+	if (stateString == "dismantle_facility")
+	{
+
+		if (playerInsideCoopBase == true)
+		{
+
+			_deleteCoopFacility.append(obj);
+
 		}
 
 	}
@@ -2518,6 +2406,114 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
+	if (stateString == "set_smoke_tile")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int tile_pos_x = obj["tile_pos_x"].asInt();
+				int tile_pos_y = obj["tile_pos_y"].asInt();
+				int tile_pos_z = obj["tile_pos_z"].asInt();
+
+				int smoke = obj["smoke"].asInt();
+				int animation_offset = obj["animation_offset"].asInt();
+				int overlaps = obj["overlaps"].asInt();
+
+				Tile* selected_tile = _game->getSavedGame()->getSavedBattle()->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+				selected_tile->setSmokeCoop(smoke, animation_offset, overlaps);
+			}
+		}
+	}
+
+	if (stateString == "set_fire_tile")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int tile_pos_x = obj["tile_pos_x"].asInt();
+				int tile_pos_y = obj["tile_pos_y"].asInt();
+				int tile_pos_z = obj["tile_pos_z"].asInt();
+
+				int fire = obj["fire"].asInt();	
+				int animation_offset = obj["animation_offset"].asInt();
+
+				Tile* selected_tile = _game->getSavedGame()->getSavedBattle()->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+				selected_tile->setFireCoop(fire, animation_offset);
+
+			}
+		}
+
+	}
+
+	// destroy tile
+	if (stateString == "destroy_tile")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int tile_pos_x = obj["tile_pos_x"].asInt();
+				int tile_pos_y = obj["tile_pos_y"].asInt();
+				int tile_pos_z = obj["tile_pos_z"].asInt();
+
+				int tile_part = obj["tile_part"].asInt();
+				int special_tile_type = obj["special_tile_type"].asInt();
+
+				int explosive = obj["explosive"].asInt();
+				int explosive_type = obj["explosive_type"].asInt();
+
+				Tile *selected_tile = _game->getSavedGame()->getSavedBattle()->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+				selected_tile->destroyCoop((TilePart)tile_part, (SpecialTileType)special_tile_type);
+
+				selected_tile->setExplosive(explosive, explosive_type, true);
+
+			}
+
+		}
+
+	}
+
+	if (stateString == "unit_fire")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int unit_id = obj["unit_id"].asInt();
+				int fire = obj["fire"].asInt();
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getId() == unit_id)
+					{
+
+						unit->setFireCoop(fire);
+						break;
+					}
+				}
+			}
+		}
+
+	}
+
 	// hit unit
 	if (stateString == "hit_unit")
 	{
@@ -2608,8 +2604,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				for (int i = 0; i < mapSize; ++i)
 				{
 					Tile* tile = battle->getTile(i);
-					tile->setFire(0);
-					tile->setSmoke(0);
+					tile->setFireCoop(0, 0);
+					tile->setSmokeCoop(0, 0, -1);
 				}
 
 				// 2) Apply JSON data
@@ -2624,6 +2620,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int getFire = tiles[json_id]["getFire"].asInt();
 					int getSmoke = tiles[json_id]["getSmoke"].asInt();
 
+					int animation_offset = tiles[json_id]["animation_offset"].asInt();
+					int overlaps = tiles[json_id]["overlaps"].asInt();
+
 					// Direct lookup by coordinates
 					Tile* tile = battle->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
 
@@ -2631,8 +2630,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						continue;
 
 					tile->setDangerous(getDangerous);
-					tile->setFire(getFire);
-					tile->setSmoke(getSmoke);
+					tile->setFireCoop(getFire, animation_offset);
+					tile->setSmokeCoop(getSmoke, animation_offset, overlaps);
 				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -2662,7 +2661,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							bool respawn = obj["units"][i]["respawn"].asBool();
 
 							int fire = obj["units"][i]["fire"].asInt();
-							unit->setFire(fire);
+							unit->setFireCoop(fire);
 
 							unit->setRespawn(respawn);
 
@@ -2795,6 +2794,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int craft_id = obj["craft_id"].asInt();
 
 			bool end = obj["end"].asBool();
+			bool survived = obj["survived"].asBool();
 
 			for (auto& i_ufo : *_game->getSavedGame()->getUfos())
 			{
@@ -2851,7 +2851,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						i_ufo->setShotDownByCraftId(std::make_pair(craft_rule, craft_id));
 					}
 
-					if (i_ufo->isDestroyed())
+					if (i_ufo->isDestroyed() || survived == false)
 					{
 						i_ufo->_playerShotDownUfo = true;
 						i_ufo->setStatusCoop(Ufo::DESTROYED);
@@ -3250,16 +3250,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string craft_name = obj["crafts"][i]["craft_name"].asString();
 				int num_total_vehicles = obj["crafts"][i]["num_total_vehicles"].asInt();
 				int num_total_soldiers = obj["crafts"][i]["num_total_soldiers"].asInt();
-	
+
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
 
 					if (base->_coopIcon == true && base->_coop_base_id == base_id)
 					{
 
-						Craft *craft = 0;
+						Craft* craft = 0;
 
-						for (auto &i_craft : *base->getCrafts())
+						for (auto& i_craft : *base->getCrafts())
 						{
 
 							if (i_craft->getId() == craft_id && i_craft->getRules()->getType() == rule_id)
@@ -3267,7 +3267,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								craft = i_craft;
 								break;
 							}
-
 						}
 
 						// If no craft is found, create a new one.
@@ -3306,7 +3305,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							{
 								return;
 							}
-
 						}
 
 						craft->coop = true;
@@ -3339,12 +3337,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						{
 							weapons[w]->setAmmo(wj[w]["ammo"].asInt());
 						}
-
-
 					}
-				
 				}
-			
 			}
 
 			// ufos
@@ -3372,18 +3366,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				int speed = obj["ufos"][i]["speed"].asInt();
 
 				// alien mission
-				AlienMission *alien_mission = 0;
+				AlienMission* alien_mission = 0;
 
-				for (auto &i_alien_mission : _game->getSavedGame()->getAlienMissions())
+				for (auto& i_alien_mission : _game->getSavedGame()->getAlienMissions())
 				{
 
 					if (i_alien_mission->getId() == mission_id && i_alien_mission->_coop == true)
 					{
 						alien_mission = i_alien_mission;
 						break;
-
 					}
-
 				}
 
 				if (!alien_mission)
@@ -3403,19 +3395,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						alien_mission->setRegion(region, *_game->getMod());
 
 						_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
-
 					}
 					else
 					{
 						return;
 					}
-
 				}
 
 				// ufo
-				Ufo *ufo = 0;
+				Ufo* ufo = 0;
 
-				for (auto &i_ufo : *_game->getSavedGame()->getUfos())
+				for (auto& i_ufo : *_game->getSavedGame()->getUfos())
 				{
 
 					if (i_ufo->_coop_ufo_id == ufo_id && i_ufo->_coop == true)
@@ -3423,12 +3413,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						ufo = i_ufo;
 						break;
-
 					}
-
-
 				}
-
 
 				if (!ufo)
 				{
@@ -3461,13 +3447,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						ufo->_coop_ufo_id = ufo_id;
 
 						_game->getSavedGame()->getUfos()->push_back(ufo);
-
 					}
 					else
 					{
 						return;
 					}
-
 				}
 
 				ufo->setCoop(true);
@@ -3497,8 +3481,139 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				ufo->setSpeed(speed);
 
 				ufo->setSecondsRemaining(100000000);
+			}
+
+			// mission sites
+			for (int i = 0; i < obj["missions"].size(); i++)
+			{
+
+				std::string str_deployment = obj["missions"][i]["deployment"].asString();
+				std::string str_rules = obj["missions"][i]["rules"].asString();
+				std::string str_race = obj["missions"][i]["race"].asString();
+				std::string str_city = obj["missions"][i]["city"].asString();
+				size_t int_time = obj["missions"][i]["time"].asUInt64();
+				double d_lon = obj["missions"][i]["lon"].asDouble();
+				double d_lat = obj["missions"][i]["lat"].asDouble();
+				int mission_id = obj["missions"][i]["mission_id"].asInt();
+
+				MissionSite* missionSite = 0;
+
+				for (auto* i_mission : *_game->getSavedGame()->getMissionSites())
+				{
+
+					if (i_mission->_coop_mission_id == mission_id && i_mission->_coop == true)
+					{
+						missionSite = i_mission;
+						break;
+					}
+				}
+
+				if (!missionSite)
+				{
+	
+					if (str_deployment == "")
+					{
+
+						std::vector<std::string> deployments = _game->getMod()->getDeploymentsList();
+
+						// Initialize the random number generator
+						std::srand(std::time(nullptr));
+
+						// Select a random index
+						int randomIndex = std::rand() % deployments.size();
+
+						// Select a random deployment
+						str_deployment = deployments[randomIndex];
+					}
+
+					AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
+
+					// MISSION SITE
+					missionSite = new MissionSite(_game->getMod()->getAlienMission(str_rules, true), deployment, nullptr);
+	
+					missionSite->_coop_mission_id = mission_id;
+					missionSite->setId(_game->getSavedGame()->getId(deployment->getMarkerName()));
+
+					_game->getSavedGame()->getMissionSites()->push_back(missionSite);
+				}
+
+				missionSite->setLongitude(d_lon);
+				missionSite->setLatitude(d_lat);
+
+				missionSite->setSecondsRemaining(100000000);
+				missionSite->setAlienRace(str_race);
+				missionSite->setDetected(true);
+				missionSite->setCity(str_city);
+
+				missionSite->setCoop(true);
+			}
+
+			// alien bases
+			for (int i = 0; i < obj["alienbases"].size(); i++)
+			{
+
+				int alienbase_id = obj["alienbases"][i]["alienbase_id"].asInt();
+				std::string str_deployment = obj["alienbases"][i]["deployment"].asString();
+				std::string str_race = obj["alienbases"][i]["race"].asString();
+				double d_lon = obj["alienbases"][i]["lon"].asDouble();
+				double d_lat = obj["alienbases"][i]["lat"].asDouble();
+				std::string pact = obj["alienbases"][i]["pact"].asString();
+				bool discovered = obj["alienbases"][i]["discovered"].asBool();
+				int start_month = obj["alienbases"][i]["start_month"].asInt();
+
+				AlienBase *alienBase = 0;
+
+				for (auto* i_alienbase : *_game->getSavedGame()->getAlienBases())
+				{
+
+					if (i_alienbase->_coop_alienbase_id == alienbase_id && i_alienbase->_coop == true)
+					{
+						alienBase = i_alienbase;
+						break;
+					}
+				}
+
+				if (!alienBase)
+				{
+				
+					if (str_deployment == "")
+					{
+
+						std::vector<std::string> deployments = _game->getMod()->getDeploymentsList();
+
+						// Initialize the random number generator
+						std::srand(std::time(nullptr));
+
+						// Select a random index
+						int randomIndex = std::rand() % deployments.size();
+
+						// Select a random deployment
+						str_deployment = deployments[randomIndex];
+					}
+
+					AlienDeployment* deployment = _game->getMod()->getDeployment(str_deployment, true);
+
+					// ALIEN BASE
+					alienBase = new AlienBase(deployment, start_month);
+						
+					alienBase->_coop_alienbase_id = alienbase_id;
+					alienBase->setId(_game->getSavedGame()->getId(deployment->getMarkerName()));
+
+					_game->getSavedGame()->getAlienBases()->push_back(alienBase);
+
+				}
+
+				alienBase->setLongitude(d_lon);
+				alienBase->setLatitude(d_lat);
+
+				alienBase->setDiscovered(discovered);
+				alienBase->setPactCountry(pact);
+				alienBase->setAlienRace(str_race);
+
+				alienBase->_coop = true;
 
 			}
+
 
 			// remove crafts
 			std::unordered_set<std::string> keep_craft;
@@ -3524,8 +3639,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 										   if (!c->coop)
 											   return false;
 
-										   int id = c->getId();                         // c->_coop_craft_id
-										   std::string rule = c->getRules()->getType(); 
+										   int id = c->getId(); // c->_coop_craft_id
+										   std::string rule = c->getRules()->getType();
 
 										   bool remove = (keep_craft.find(std::to_string(id) + "|" + rule) == keep_craft.end());
 										   if (remove)
@@ -3554,6 +3669,57 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					// If SavedGame owns the UFOs, also free memory:
 					delete u; // <- omit if someone else owns them (e.g., smart pointers)
 					it = ufos.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+
+			// remove mission sites
+			auto& sites = *_game->getSavedGame()->getMissionSites();
+
+			std::unordered_set<int> keep_mission;
+			for (const auto& jmission : obj["missions"])
+			{
+				keep_mission.insert(jmission["mission_id"].asInt());
+			}
+
+			// 2) Remove all coop missions whose id is NOT in the keep set
+			for (auto it = sites.begin(); it != sites.end();)
+			{
+				MissionSite* s = *it;
+				if (s->_coop && keep_mission.find(s->_coop_mission_id) == keep_mission.end())
+				{
+					// If SavedGame owns the UFOs, also free memory:
+					delete s; // <- omit if someone else owns them (e.g., smart pointers)
+					it = sites.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+
+			}
+
+			// remove alienbases
+			auto& alienbases = *_game->getSavedGame()->getAlienBases();
+
+			std::unordered_set<int> keep_alienbase;
+			for (const auto& jalienbase : obj["alienbases"])
+			{
+				keep_alienbase.insert(jalienbase["alienbase_id"].asInt());
+			}
+
+			// 2) Remove all coop alienbases whose id is NOT in the keep set
+			for (auto it = alienbases.begin(); it != alienbases.end();)
+			{
+				AlienBase* ab = *it;
+				if (ab->_coop && keep_alienbase.find(ab->_coop_alienbase_id) == keep_alienbase.end())
+				{
+					// If SavedGame owns the UFOs, also free memory:
+					delete ab; // <- omit if someone else owns them (e.g., smart pointers)
+					it = alienbases.erase(it);
 				}
 				else
 				{
@@ -3617,14 +3783,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "endPlayerTurn")
 	{
 
-		_coopEnd = 0;
+		if (_game->getSavedGame())
+		{
 
-		_AIProgressCoop = 100;
+			if (_game->getSavedGame()->getSavedBattle())
+			{
 
-		_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+				_coopEnd = 0;
 
-		// end battle
-		_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopTurn();
+				_AIProgressCoop = 100;
+
+				_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+
+				// end battle
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopTurn();
+
+			}
+
+		}
 
 	}
 
@@ -3737,6 +3913,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		bool abort = obj["abort"].asBool();
+		std::string title = obj["title"].asString();
 
 		_AISecondMoveCoop = false;
 		_AIProgressCoop = 100;
@@ -3751,7 +3928,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopBattle();
 
+				_debriefing_coop_title = title;
+
 				_game->pushState(new DebriefingState);
+
 			}
 		}
 
@@ -3843,7 +4023,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					for (int i = 0; i < mapSize; ++i)
 					{
 						Tile* tile = battle->getTile(i);
-						tile->setFire(0);
+						tile->setFireCoop(0, 0);
 					}
 
 					// 2) Apply JSON data
@@ -3857,6 +4037,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						bool getDangerous = tiles[json_id]["getDangerous"].asBool();
 						int getFire = tiles[json_id]["getFire"].asInt();;
 
+						int animation_offset = tiles[json_id]["animation_offset"].asInt();
+
 						// Direct lookup by coordinates
 						Tile* tile = battle->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
 
@@ -3864,7 +4046,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							continue;
 
 						tile->setDangerous(getDangerous);
-						tile->setFire(getFire);
+						tile->setFireCoop(getFire, animation_offset);
 					}
 
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -3902,7 +4084,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								bool respawn = obj["units"][i]["respawn"].asBool();
 
 								bool fire = obj["units"][i]["fire"].asInt();
-								unit->setFire(fire);
+								unit->setFireCoop(fire);
 
 								unit->setDirection(setDirection);
 								unit->setFaceDirection(setFaceDirection);
@@ -4185,6 +4367,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_enable_host_only_time_speed = Options::EnableHostOnlyTimeSpeed;
 		root["enable_host_only_time_speed"] = connectionTCP::_enable_host_only_time_speed;
 
+		// enable XcomEquipmentAliensPVP
+		connectionTCP::_enable_xcom_equipment_aliens_pvp = Options::EnableXcomEquipmentAliensPVP;
+		root["enable_xcom_equipment_aliens_pvp"] = _enable_xcom_equipment_aliens_pvp;
+
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -4353,6 +4539,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
 		connectionTCP::_enable_host_only_time_speed = enable_host_only_time_speed;
+
+		// enable XcomEquipmentAliensPVP
+		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
+		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
 
 
 		for (Json::Value host_mod : obj["mods"])
@@ -5586,30 +5776,6 @@ ItemDamageType connectionTCP::intToItemDamageType(int type)
 	return DT_NONE;
 }
 
-void connectionTCP::syncResearch(std::string research)
-{
-
-	CoopState* window = new CoopState(99);
-	_game->pushState(window);
-
-	_game->getSavedGame()->syncResearch(research);
-}
-
-void connectionTCP::sendResearch()
-{
-
-	if (_enable_research_sync == true)
-	{
-
-		std::string json_string = _game->getSavedGame()->sendResearch();
-
-		sendTCPPacketData(json_string);
-
-	}
-
-}
-
-
 void connectionTCP::generateCraftSoldiers()
 {
 
@@ -5775,7 +5941,7 @@ void connectionTCP::updateAllCoopBases()
 
 void connectionTCP::fixCoopSave()
 {
-	if (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())
+	if (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle() && getCoopCampaign() == true)
 	{
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
@@ -5965,6 +6131,7 @@ void connectionTCP::disconnectTCP()
 
 			coopSession = true;
 			onConnect = 2;
+			_waitBC = false;
 
 		}
 		// client
@@ -5973,7 +6140,7 @@ void connectionTCP::disconnectTCP()
 
 			onConnect = -1;
 			coopSession = false;
-
+			_waitBH = false;
 
 			if (_chatMenu)
 			{

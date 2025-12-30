@@ -534,6 +534,35 @@ int Tile::getShade() const
  */
 bool Tile::destroy(TilePart part, SpecialTileType type)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return true;
+	}
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "destroy_tile";
+
+		root["tile_pos_x"] = _pos.x;
+		root["tile_pos_y"] = _pos.y;
+		root["tile_pos_z"] = _pos.z;
+
+		root["tile_part"] = (int)part;
+		root["special_tile_type"] = (int)type;
+
+		root["explosive"] = _explosive;
+		root["explosive_type"] = _explosiveType;
+		
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+	}
+
 	bool _objective = false;
 	if (_objects[part])
 	{
@@ -546,6 +575,36 @@ bool Tile::destroy(TilePart part, SpecialTileType type)
 		if (originalPart->getDieMCD())
 		{
 			MapData *dead = originalPart->getDataset()->getObject(originalPart->getDieMCD());
+			setMapData(dead, originalPart->getDieMCD(), originalMapDataSetID, dead->getObjectType());
+		}
+		if (originalPart->getExplosive())
+		{
+			setExplosive(originalPart->getExplosive(), originalPart->getExplosiveType());
+		}
+	}
+	/* check if the floor on the lowest level is gone */
+	if (part == O_FLOOR && getPosition().z == 0 && _objects[O_FLOOR] == 0)
+	{
+		/* replace with scorched earth */
+		setMapData(MapDataSet::getScorchedEarthTile(), 1, 0, O_FLOOR);
+	}
+	return _objective;
+}
+
+bool Tile::destroyCoop(TilePart part, SpecialTileType type)
+{
+	bool _objective = false;
+	if (_objects[part])
+	{
+		if (_objects[part]->isGravLift())
+			return false;
+		_objective = _objects[part]->getSpecialType() == type;
+		MapData* originalPart = _objects[part];
+		int originalMapDataSetID = _mapData->SetID[part];
+		setMapData(0, -1, -1, part);
+		if (originalPart->getDieMCD())
+		{
+			MapData* dead = originalPart->getDataset()->getObject(originalPart->getDieMCD());
 			setMapData(dead, originalPart->getDieMCD(), originalMapDataSetID, dead->getObjectType());
 		}
 		if (originalPart->getExplosive())
@@ -759,8 +818,40 @@ BattleUnit *Tile::getOverlappingUnit(const SavedBattleGame *saveBattleGame, Tile
  */
 void Tile::setFire(int fire)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return;
+	}
+
 	_fire = Clamp(fire, 0, 255);
 	_animationOffset = RNG::generate(0,3);
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "set_fire_tile";
+
+		root["tile_pos_x"] = _pos.x;
+		root["tile_pos_y"] = _pos.y;
+		root["tile_pos_z"] = _pos.z;
+
+		root["fire"] = _fire;
+		root["animation_offset"] = _animationOffset;
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+	}
+
+}
+
+void Tile::setFireCoop(int fire, int animationOffset)
+{
+	_fire = Clamp(fire, 0, 255);
+	_animationOffset = animationOffset;
 }
 
 /**
@@ -799,8 +890,47 @@ void Tile::addSmoke(int smoke)
  */
 void Tile::setSmoke(int smoke)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return;
+	}
+
 	_smoke = Clamp(smoke, 0, 255);
 	_animationOffset = RNG::generate(0,3);
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "set_smoke_tile";
+
+		root["tile_pos_x"] = _pos.x;
+		root["tile_pos_y"] = _pos.y;
+		root["tile_pos_z"] = _pos.z;
+
+		root["smoke"] = _smoke;
+		root["animation_offset"] = _animationOffset;
+		root["overlaps"] = _overlaps;
+		
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+	}
+
+}
+
+void Tile::setSmokeCoop(int smoke, int animationOffset, int overlaps)
+{
+	_smoke = Clamp(smoke, 0, 255);
+	_animationOffset = animationOffset;
+
+	if (overlaps != -1)
+	{
+		_overlaps = overlaps;
+	}
+
 }
 
 

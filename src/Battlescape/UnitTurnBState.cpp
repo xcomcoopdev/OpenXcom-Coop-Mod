@@ -52,6 +52,21 @@ UnitTurnBState::~UnitTurnBState()
  */
 void UnitTurnBState::deinit()
 {
+
+	// coop
+	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
+	{
+		Json::Value obj;
+		obj["state"] = "afterBattlescapeUnitTurn";
+
+		obj["setDirection"] = _unit->getDirection();
+		obj["setFaceDirection"] = _unit->getFaceDirection();
+		obj["unit_id"] = _unit->getId();
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+	}
+
 	// coop
 	_parent->setCoopTaskCompleted(true);
 }
@@ -109,7 +124,7 @@ void UnitTurnBState::init()
 	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true && _unit->spendTimeUnits(tu))
 	{
 		Json::Value obj;
-		obj["state"] = "BattleScapeTurn";
+		obj["state"] = "turnBattlescapeUnit";
 
 		int index = 0;
 
@@ -123,9 +138,19 @@ void UnitTurnBState::init()
 		obj["coords"]["start"]["y"] = starty;
 		obj["coords"]["start"]["z"] = startz;
 
-		int endx = _parent->getCurrentAction()->target.x;
-		int endy = _parent->getCurrentAction()->target.y;
-		int endz = _parent->getCurrentAction()->target.z;
+		int endx = _action.target.x;
+		int endy = _action.target.y;
+		int endz = _action.target.z;
+
+		bool isActionTypeNone = false;
+
+		if (_action.type == BA_NONE)
+		{
+			isActionTypeNone = true;
+		}
+
+		// new!
+		obj["isActionTypeNone"] = isActionTypeNone;
 
 		obj["coords"]["end"]["x"] = endx;
 		obj["coords"]["end"]["y"] = endy;
@@ -137,9 +162,6 @@ void UnitTurnBState::init()
 		obj["morale"] = _unit->getMorale();
 		obj["stunlevel"] = _unit->getStunlevel();
 		obj["mana"] = _unit->getMana();
-
-		obj["setDirection"] = _unit->getDirection();
-		obj["setFaceDirection"] = _unit->getFaceDirection();
 
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{

@@ -148,6 +148,8 @@ class connectionTCP
 	bool _isMainCampaignBaseDefense = false;
 	bool coop_end_turn = false;
 	bool allow_cutscene = true;
+	// research
+	Json::Value waitedResearch;
 	static bool _isChatActiveStatic;
 	void createLoopdataThread();
 	void updateCoopTask();
@@ -223,8 +225,6 @@ class connectionTCP
 	int isConnected();
 	void setConnected(int state);
 	void disconnectTCP();
-	void syncResearch(std::string);
-	void sendResearch();
 	ChatMenu* getChatMenu();
 	void setChatMenu(ChatMenu* menu);
 
@@ -241,7 +241,7 @@ class connectionTCP
 	Json::Value _coopProjectilesClient;
 	Json::Value _coopProjectilesHost;
 
-	Json::Value _coopEndPath = Json::nullValue;;
+	Json::Value _coopEndPath = Json::nullValue;
 
 	bool _coopInitDeath = false;
 	bool _coopWalkInit = false;
@@ -269,6 +269,8 @@ class connectionTCP
 	static bool _enable_other_player_footsteps;
 
 	static bool _enable_host_only_time_speed;
+
+	static bool _enable_xcom_equipment_aliens_pvp;
 
 	int walk_end_unit_id = -1;
 
@@ -312,6 +314,16 @@ class connectionTCP
 	int lastMonthsRatingCoop = -1;
 
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
+
+	Json::Value _coopFacility;
+
+	Json::Value _deleteCoopFacility;
+
+	bool show_briefing_state = false;
+
+	std::vector<Position> _trajectoryCoop;
+
+	std::string _debriefing_coop_title = "";
 
 };
 

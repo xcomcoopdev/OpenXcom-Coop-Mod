@@ -3055,8 +3055,34 @@ bool BattleUnit::reselectAllowed() const
  */
 void BattleUnit::setFire(int fire)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return;
+	}
+
 	if (_specab != SPECAB_BURNFLOOR && _specab != SPECAB_BURN_AND_EXPLODE)
 		_fire = fire;
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "unit_fire";
+
+		root["unit_id"] = _id;
+		root["fire"] = _fire;
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+	}
+
+}
+
+void BattleUnit::setFireCoop(int fire)
+{
+	_fire = fire;
 }
 
 /**

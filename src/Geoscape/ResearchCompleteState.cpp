@@ -36,7 +36,7 @@ namespace OpenXcom
  * @param bonus Pointer to bonus unlocked research.
  * @param research Pointer to the research project.
  */
-ResearchCompleteState::ResearchCompleteState(const RuleResearch *newResearch, const RuleResearch *bonus, const RuleResearch *research, const Base* base) : _research(newResearch), _bonus(bonus)
+ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool coop) : _research(newResearch), _bonus(bonus), _coop(coop)
 {
 	_screen = false;
 
@@ -87,15 +87,35 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch *newResearch, co
 		_txtResearch->setText(tr(research->getName()));
 	}
 
-
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false)
 	{
-		_game->getCoopMod()->sendResearch();
+
+		Json::Value root;
+
+		root["state"] = "research";
+		root["new_research_name"] = newResearch->getName();
+
+		root["research_name"] = "";
+
+		if (research)
+		{
+			root["research_name"] = research->getName();
+		}
+
+		root["bonus_name"] = "";
+
+		if (bonus)
+		{
+			root["bonus_name"] = bonus->getName();
+		}
+
+		root["base_lat"] = base->getLatitude();
+		root["base_lot"] = base->getLongitude();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
 	}
-
-
-
 
 }
 

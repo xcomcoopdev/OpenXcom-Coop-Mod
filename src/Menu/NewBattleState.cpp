@@ -727,6 +727,11 @@ void NewBattleState::initSave()
 void NewBattleState::btnOkClick(Action *)
 {
 
+	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
+	{
+		return;
+	}
+
 	// coop
 	if (_game->getCoopMod()->getChatMenu())
 	{
@@ -798,11 +803,6 @@ void NewBattleState::btnOkClick(Action *)
 		_game->getCoopMod()->setSelectedCraft(_craft);
 		_game->getCoopMod()->setNewBattleState(this);
 
-	}
-
-	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
-	{
-		return;
 	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());

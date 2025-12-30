@@ -831,6 +831,7 @@ void GeoscapeState::init()
 	{
 
 		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->_coopEnd = 1;
 
 		if (_game->getCoopMod()->getCoopStatic() == false)
 		{
@@ -1031,6 +1032,74 @@ void GeoscapeState::think()
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
 
+	// coop
+	// research
+	if (_game->getCoopMod()->getCoopStatic() && !_game->getCoopMod()->waitedResearch.empty())
+	{
+
+		if (_game->getSavedGame()->getSelectedBase())
+		{
+
+			if (_game->getSavedGame()->getSelectedBase()->_coopBase == false)
+			{
+
+				for (Json::Value::ArrayIndex i = 0; i < _game->getCoopMod()->waitedResearch.size(); ++i)
+				{
+
+					auto& root_research = _game->getCoopMod()->waitedResearch[i];
+
+					// new!!!
+					std::string new_research_name = root_research["new_research_name"].asString();
+					std::string research_name = root_research["research_name"].asString();
+					std::string bonus_name = root_research["bonus_name"].asString();
+
+					double base_lat = root_research["base_lat"].asDouble();
+					double base_lon = root_research["base_lon"].asDouble();
+
+					Base* selected_base = _game->getSavedGame()->getSelectedBase();
+
+					for (auto &base : *_game->getSavedGame()->getBases())
+					{
+
+						if ((base->getLatitude() == base_lat && base->getLongitude() == base_lon) && base->_coopBase == true)
+						{
+							selected_base = base;
+							break;
+						}
+					}
+
+					if (selected_base)
+					{
+
+						RuleResearch* newResearch = _game->getMod()->getResearch(new_research_name);
+
+						RuleResearch* research = 0;
+
+						if (research_name != "")
+						{
+							research = _game->getMod()->getResearch(research_name);
+						}
+
+						RuleResearch* bonus = 0;
+
+						if (bonus_name != "")
+						{
+							bonus = _game->getMod()->getResearch(bonus_name);
+						}
+
+						 _game->getSavedGame()->addFinishedResearch(research, _game->getMod(), _game->getSavedGame()->getSelectedBase());
+
+						popup(new ResearchCompleteState(newResearch, bonus, research, selected_base, true));
+
+					}
+
+
+				}
+
+				_game->getCoopMod()->waitedResearch.clear();
+			}
+		}
+	}
 
 	// coop
 	_game->getCoopMod()->setCoopCampaign(true);
@@ -1234,6 +1303,53 @@ void GeoscapeState::think()
 
 			}
 
+			int mission_index = 0;
+
+			// mission sites
+			for (auto* mission : *_game->getSavedGame()->getMissionSites())
+			{
+
+				if (mission->getCoop() == false)
+				{
+
+					root["missions"][mission_index]["mission_id"] = mission->_coop_mission_id;
+					root["missions"][mission_index]["deployment"] = mission->getDeployment()->getType();
+					root["missions"][mission_index]["rules"] = mission->getRules()->getType();
+					root["missions"][mission_index]["race"] = mission->getAlienRace();
+					root["missions"][mission_index]["city"] = mission->getCity();
+					root["missions"][mission_index]["time"] = Json::UInt64(mission->getSecondsRemaining());
+					root["missions"][mission_index]["lon"] = mission->getLongitude();
+					root["missions"][mission_index]["lat"] = mission->getLatitude();
+
+					mission_index++;
+
+				}
+
+			}
+
+			int alienbase_index = 0;
+
+			// alien bases
+			for (auto* alien_base : *_game->getSavedGame()->getAlienBases())
+			{
+
+				if (alien_base->_coop == false)
+				{
+
+					root["alienbases"][alienbase_index]["alienbase_id"] = alien_base->_coop_alienbase_id;
+					root["alienbases"][alienbase_index]["deployment"] = alien_base->getDeployment()->getType();
+					root["alienbases"][alienbase_index]["race"] = alien_base->getAlienRace();
+					root["alienbases"][alienbase_index]["pact"] = alien_base->getPactCountry();
+					root["alienbases"][alienbase_index]["discovered"] = alien_base->isDiscovered();
+					root["alienbases"][alienbase_index]["lon"] = alien_base->getLongitude();
+					root["alienbases"][alienbase_index]["lat"] = alien_base->getLatitude();
+					root["alienbases"][alienbase_index]["start_month"] = alien_base->getStartMonth();
+
+					alienbase_index++;
+
+				}
+
+			}
 
 			// send
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
@@ -1561,8 +1677,16 @@ void GeoscapeState::time5Seconds()
 		ufoHuntingAndEscorting();
 	}
 
+	// coop
+	auto bases = _game->getSavedGame()->getBases();
+	const bool noNonCoopBases = std::none_of(bases->begin(), bases->end(),
+											 [](const Base* b)
+											 {
+												 return b && !b->_coopBase;
+											 });
+
 	// Game over if there are no more bases.
-	if (_game->getSavedGame()->getBases()->empty())
+	if (_game->getSavedGame()->getBases()->empty() || (noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
 	{
 		_game->getSavedGame()->setEnding(END_LOSE);
 	}

@@ -106,7 +106,7 @@ private:
 	void applyVisibility();
 	/// Creates a string for the soldier stats table from a stat difference value
 	std::string makeSoldierString(int stat);
-public:
+  public:
 	/// Creates the Debriefing state.
 	DebriefingState();
 	/// Cleans up the Debriefing state.

@@ -72,6 +72,8 @@ public:
 	BaseFacility *getSelectedFacility() const;
 	/// Prevents any mouseover bugs on dismantling base facilities before setBase has had time to update the base.
 	void resetSelectedFacility();
+	// coop
+	void resetSelectedFacilityCoop(int fac_x, int fac_y);
 	/// Gets the X position of the currently selected square.
 	int getGridX() const;
 	/// Gets the Y position of the currently selected square.

@@ -51,6 +51,8 @@ public:
 	~BasescapeState();
 	/// Updates the base stats.
 	void init() override;
+	/// Runs the timers and handles popups.
+	void think() override;
 	/// Sets a new base to display.
 	void setBase(Base *base);
 	/// Handler for clicking the Build New Base button.

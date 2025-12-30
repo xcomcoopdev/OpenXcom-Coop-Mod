@@ -24,6 +24,7 @@
 
 #include <json/json.h>
 #include "../Engine/Game.h"
+#include <random>
 
 namespace OpenXcom
 {
@@ -35,6 +36,14 @@ MissionSite::MissionSite(const RuleAlienMission *rules, const AlienDeployment *d
 	_rules(rules), _deployment(deployment), _missionCustomDeploy(alienCustomDeploy),
 	_texture(-1), _secondsRemaining(0), _inBattlescape(false), _detected(false), _ufo(nullptr), _ufoUniqueId(-1)
 {
+
+	// coop id
+	std::random_device rd;                              // Seed
+	std::mt19937 gen(rd());                             // Mersenne Twister RNG
+	std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+	int random_number = distrib(gen);
+	_coop_mission_id = random_number;
+
 }
 
 /**
@@ -42,17 +51,7 @@ MissionSite::MissionSite(const RuleAlienMission *rules, const AlienDeployment *d
  */
 MissionSite::~MissionSite()
 {
-	// coop
-	if (connectionTCP::getCoopStatic() == true)
-	{
 
-		Json::Value root;
-		root["state"] = "remove_target";
-		root["lan"] = _lat;
-		root["lon"] = _lon;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-	}
 }
 
 /**

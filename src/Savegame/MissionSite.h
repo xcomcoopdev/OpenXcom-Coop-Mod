@@ -96,6 +96,7 @@ public:
 	int getUfoUniqueId() const { return _ufoUniqueId; }
 	// coop
 	bool _coop = false;
+	int _coop_mission_id = 0;
 	void setCoop(bool coop);
 	bool getCoop();
 };

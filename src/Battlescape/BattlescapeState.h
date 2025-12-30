@@ -131,6 +131,7 @@ private:
 	void endTurnCoop();
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
+	void turnPlayerTargetAfter(std::string str_obj);
 	void psi_attack(std::string str_obj);
 	void melee_attack(std::string str_obj);
 	void shootPlayerTarget(std::string str_obj);

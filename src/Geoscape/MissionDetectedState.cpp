@@ -98,14 +98,9 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 
 		Json::Value root;
 
-		root["state"] = "mission";
-		root["deployment"] = mission->getDeployment()->getType();
-		root["rules"] = mission->getRules()->getType();
-		root["race"] = mission->getAlienRace();
-		root["city"] = mission->getCity();
-		root["time"] = Json::UInt64(mission->getSecondsRemaining());
-		root["lon"] = mission->getLongitude();
-		root["lat"] = mission->getLatitude();
+		root["state"] = "mission_popup";
+
+		root["mission_id"] = mission->getId();
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 

@@ -19,6 +19,8 @@
 #include "AlienBase.h"
 #include "../Engine/Language.h"
 
+#include <random>
+
 namespace OpenXcom
 {
 
@@ -29,6 +31,14 @@ AlienBase::AlienBase(AlienDeployment *deployment, int startMonth) : Target(), _i
 {
 	// allow spawning hunt missions immediately after the base is created, i.e. no initial delay
 	_minutesSinceLastHuntMissionGeneration = _deployment->getHuntMissionMaxFrequency();
+
+	// coop id
+	std::random_device rd;                              // Seed
+	std::mt19937 gen(rd());                             // Mersenne Twister RNG
+	std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+	int random_number = distrib(gen);
+	_coop_alienbase_id = random_number;
+
 }
 
 /**

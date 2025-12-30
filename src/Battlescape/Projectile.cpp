@@ -142,8 +142,10 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			hitPos = Position(hitPos.x, hitPos.y, hitPos.z-1);
 		}
 
-		if (hitPos != _action.target && _action.result.empty())
+		// coop fix
+		if (hitPos != _action.target && _action.result.empty() && _action.actor->coop_action == false)
 		{
+
 			if (test == V_NORTHWALL)
 			{
 				if (hitPos.y - 1 != _action.target.y)
@@ -371,6 +373,25 @@ int Projectile::calculateThrow(double accuracy)
 		}
 
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
+
+		// coop
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
+		{
+
+			_save->getBattleGame()->getCoopMod()->_trajectoryCoop = _trajectory;
+
+		}
+
+		// coop
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false)
+		{
+
+			_trajectory = _save->getBattleGame()->getCoopMod()->_trajectoryCoop;
+
+			_save->getBattleGame()->getCoopMod()->_trajectoryCoop.clear();
+
+		}
+
 		if (forced) return O_OBJECT; //fake hit
 		Position endPoint = getPositionFromEnd(_trajectory, ItemDropVoxelOffset).toTile();
 		Tile *endTile = _save->getTile(endPoint);

@@ -62,6 +62,7 @@
 #include "../Menu/LoadGameState.h"
 #include "CraftSoldiersState.h"
 #include "../Savegame/Vehicle.h"
+#include "../Engine/Sound.h"
 
 namespace OpenXcom
 {
@@ -352,6 +353,130 @@ void BasescapeState::init()
 
 
 
+
+}
+
+void BasescapeState::think()
+{
+
+	//  coop
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value& arr = _game->getCoopMod()->_coopFacility;
+		if (!arr.empty())
+		{
+			Json::Value str_fac = arr[0];
+
+			double base_lat = str_fac["base_lat"].asDouble();
+			double base_lon = str_fac["base_lon"].asDouble();
+
+			if (_base->getLatitude() == base_lat && _base->getLongitude() == base_lon)
+			{
+
+				std::string rule = str_fac["rule"].asString();
+				int fac_x = str_fac["fac_x"].asInt();
+				int fac_y = str_fac["fac_y"].asInt();
+				int build_time = str_fac["build_time"].asInt();
+				bool buildingOver = str_fac["buildingOver"].asBool();
+				int build_cost = str_fac["build_cost"].asInt();
+
+				RuleBaseFacility* facilityRule = _game->getMod()->getBaseFacility(rule);
+
+				if (facilityRule)
+				{
+
+					BaseFacility* fac = new BaseFacility(facilityRule, _base);
+					fac->setX(fac_x);
+					fac->setY(fac_y);
+					fac->setBuildTime(build_time);
+					if (buildingOver)
+					{
+						fac->setIfHadPreviousFacility(true);
+					}
+					_base->getFacilities()->push_back(fac);
+					if (fac->getRules()->getPlaceSound() != Mod::NO_SOUND)
+					{
+						_game->getMod()->getSound("GEO.CAT", fac->getRules()->getPlaceSound())->play();
+					}
+					if (Options::allowBuildingQueue)
+					{
+						if (_view->isQueuedBuilding(facilityRule))
+							fac->setBuildTime(INT_MAX);
+						_view->reCalcQueuedBuildings();
+					}
+					_view->setBase(_base);
+					_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - build_cost);
+				}
+
+				arr.removeIndex(0, nullptr);
+
+			}
+			else if (_game->getCoopMod()->playerInsideCoopBase == false)
+			{
+				arr.removeIndex(0, nullptr);
+			}
+
+		}
+
+	}
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value& arr = _game->getCoopMod()->_deleteCoopFacility;
+
+		// Make sure all facilities are built before removing anything
+		Json::Value& arr2 = _game->getCoopMod()->_coopFacility;
+
+		if (!arr.empty() && arr2.empty())
+		{
+
+			Json::Value str_fac = arr[0];
+
+			double base_lat = str_fac["base_lat"].asDouble();
+			double base_lon = str_fac["base_lon"].asDouble();
+
+			if (_base->getLatitude() == base_lat && _base->getLongitude() == base_lon)
+			{
+
+				int fac_x = str_fac["fac_x"].asInt();
+				int fac_y = str_fac["fac_y"].asInt();
+
+				auto* facilities = _base->getFacilities();
+
+				for (auto it = facilities->begin(); it != facilities->end();)
+				{
+					auto* fac = *it;
+
+					if (fac->getX() == fac_x && fac->getY() == fac_y)
+					{
+						it = facilities->erase(it);
+						_view->resetSelectedFacilityCoop(fac_x, fac_y);
+						delete fac;
+						_view->setBase(_base);
+						if (Options::allowBuildingQueue)
+							_view->reCalcQueuedBuildings();
+						break;
+					}
+					else
+					{
+						++it;
+					}
+				}
+
+				arr.removeIndex(0, nullptr);
+			}
+			else if (_game->getCoopMod()->playerInsideCoopBase == false)
+			{
+				arr.removeIndex(0, nullptr);
+			}
+
+		}
+
+
+	}
 
 }
 

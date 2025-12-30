@@ -243,6 +243,9 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 		}
 	}
 
+	// coop
+	_game->getCoopMod()->show_briefing_state = true;
+
 }
 
 /**
@@ -250,7 +253,8 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
  */
 BriefingState::~BriefingState()
 {
-
+	// coop
+	_game->getCoopMod()->show_briefing_state = false;
 }
 
 void BriefingState::init()
@@ -345,9 +349,36 @@ void BriefingState::loadCoop()
 			}
 		}
 	}
-	
+
+	bool is_xcom_equipment_aliens_pvp = true; 
+
+	//enable_xcom_equipment_aliens_pvp
+	if (connectionTCP::_enable_xcom_equipment_aliens_pvp == false)
+	{
+
+		if (_game->getCoopMod()->getCoopGamemode() == 2)
+		{
+
+			if (_game->getCoopMod()->getHost() == false)
+			{
+				is_xcom_equipment_aliens_pvp = false;
+			}
+
+		}
+		else if (_game->getCoopMod()->getCoopGamemode() == 3)
+		{
+
+			if (_game->getCoopMod()->getHost() == true)
+			{
+				is_xcom_equipment_aliens_pvp = false;
+			}
+
+		}
+
+	}
+
 	// coop client inventoy fix
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && is_xcom_equipment_aliens_pvp == true)
 	{
 
 		BattleUnit* selected_unit = 0;
@@ -397,50 +428,60 @@ void BriefingState::loadCoop()
 					selected_base = _game->getSavedGame()->getBases()->front();
 				}
 
-				Craft* temp_craft = selected_base->getCrafts()->at(0);
+				Craft* temp_craft = 0;
+
+				if (selected_base && selected_base->getCrafts() && !selected_base->getCrafts()->empty())
+				{
+					temp_craft = selected_base->getCrafts()->front(); 
+				}
 
 				if (!temp_craft)
 				{
 					temp_craft = _game->getCoopMod()->getSelectedCraft();
 				}
 
-				auto contents = temp_craft->getExtraItems()->getContents();
-				if (contents->empty())
-					contents = temp_craft->getItems()->getContents();
-
-				if (!contents->empty())
+				if (temp_craft)
 				{
 
-					for (auto& pair : *contents)
+					auto contents = temp_craft->getExtraItems()->getContents();
+					if (contents->empty())
+						contents = temp_craft->getItems()->getContents();
+
+					if (!contents->empty())
 					{
-						const OpenXcom::RuleItem* ruleItem = pair.first;
 
-						for (auto* item : *_game->getSavedGame()->getSavedBattle()->getItems())
+						for (auto& pair : *contents)
 						{
-							if (item->getRules() == ruleItem && item->getSlot() && item->getSlot()->getType() == INV_GROUND)
+							const OpenXcom::RuleItem* ruleItem = pair.first;
+
+							for (auto* item : *_game->getSavedGame()->getSavedBattle()->getItems())
 							{
-
-								// Check if the item already exists in the tile (to avoid duplicates)
-								bool itemExists = false;
-								for (auto* existingItem : *selected_unit->getTile()->getInventory())
+								if (item->getRules() == ruleItem && item->getSlot() && item->getSlot()->getType() == INV_GROUND)
 								{
-									if (existingItem->getRules() == item->getRules() && existingItem->getId() == item->getId())
+
+									// Check if the item already exists in the tile (to avoid duplicates)
+									bool itemExists = false;
+									for (auto* existingItem : *selected_unit->getTile()->getInventory())
 									{
-										itemExists = true;
-										break;
+										if (existingItem->getRules() == item->getRules() && existingItem->getId() == item->getId())
+										{
+											itemExists = true;
+											break;
+										}
 									}
-								}
 
-								// Add the item only if it doesn't already exist in the tile
-								if (!itemExists)
-								{
+									// Add the item only if it doesn't already exist in the tile
+									if (!itemExists)
+									{
 
-									selected_unit->getTile()->addItem(item, item->getSlot());
+										selected_unit->getTile()->addItem(item, item->getSlot());
+									}
 								}
 							}
 						}
 					}
 				}
+
 			}
 		}
 

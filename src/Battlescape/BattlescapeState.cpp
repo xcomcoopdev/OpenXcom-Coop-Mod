@@ -832,6 +832,12 @@ BattlescapeState::BattlescapeState() :
 
 	}
 
+	// coop fix
+	if (_save->isPreview() == true && _game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->setPlayerTurn(2);
+	}
+
 }
 
 /**
@@ -2050,37 +2056,47 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 void BattlescapeState::EndCoopBattle()
 {
 
-	_battleGame->cancelCurrentAction();
-	_battleGame->cancelAllActions();
-
-	_battleGame->cleanupDeleted();
-
-	while (!_game->isState(this))
+	if (_game->getCoopMod()->show_briefing_state == false)
 	{
-		_game->popState();
-	}
 
-	_popups.clear();
-	_animTimer->stop();
-	_gameTimer->stop();
-	_game->popState();
+		_battleGame->cancelCurrentAction();
+		_battleGame->cancelAllActions();
+
+		_battleGame->cleanupDeleted();
+
+		while (!_game->isState(this))
+		{
+			_game->popState();
+		}
+
+		_popups.clear();
+		_animTimer->stop();
+		_gameTimer->stop();
+		_game->popState();
+
+	}
 
 }
 
 void BattlescapeState::EndCoopTurn()
 {
 
-	_battleGame->cancelCurrentAction();
-	_battleGame->cancelAllActions();
-
-	_battleGame->cleanupDeleted();
-
-	while (!_game->isState(this))
+	if (_game->getCoopMod()->show_briefing_state == false)
 	{
-		_game->popState();
-	}
+		
+		_battleGame->cancelCurrentAction();
+		_battleGame->cancelAllActions();
 
-	_popups.clear();
+		_battleGame->cleanupDeleted();
+
+		while (!_game->isState(this))
+		{
+			_game->popState();
+		}
+
+		_popups.clear();
+
+	}
 
 }
 
@@ -2536,6 +2552,8 @@ void BattlescapeState::btnEndTurnClick(Action *)
 				root["tiles"][json_index]["getDangerous"] = _save->getTile(tile_index)->getDangerous();
 				root["tiles"][json_index]["getFire"] = _save->getTile(tile_index)->getFire();
 				root["tiles"][json_index]["getSmoke"] = _save->getTile(tile_index)->getSmoke();
+
+				root["tiles"][json_index]["animation_offset"] = _save->getTile(tile_index)->getAnimationOffset();
 
 				json_index++;
 
@@ -4011,6 +4029,11 @@ void BattlescapeState::turnPlayerTarget(std::string str_obj)
 	_battleGame->turnPlayerTarget(str_obj);
 }
 
+void BattlescapeState::turnPlayerTargetAfter(std::string str_obj)
+{
+	_battleGame->turnPlayerTargetAfter(str_obj);
+}
+
 void BattlescapeState::psi_attack(std::string str_obj)
 {
 	_battleGame->psi_attack(str_obj);
@@ -4100,6 +4123,18 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 		Position new_waypoint = Position(pos_x, pos_y, pos_z);
 
 		_battleGame->getCurrentAction()->waypoints.push_back(new_waypoint);
+
+	}
+
+	// trajectory
+	for (int i = 0; i < obj["trajectory"].size(); i++)
+	{
+
+		int pos_x = obj["trajectory"][i]["pos_x"].asInt();
+		int pos_y = obj["trajectory"][i]["pos_y"].asInt();
+		int pos_z = obj["trajectory"][i]["pos_z"].asInt();
+
+		_battleGame->getCoopMod()->_trajectoryCoop.push_back(Position(pos_x, pos_y, pos_z));
 
 	}
 

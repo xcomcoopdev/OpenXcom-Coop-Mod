@@ -3837,13 +3837,37 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 				applyGravity(j);
 		}
 	}
+	// coop
+	bool coop_is_second_fov = false;
 	calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
 	calculateFOV(centetTile, maxRadius + 1, true, true);
 	if (attack.attacker && Position::distance2d(centetTile, attack.attacker->getPosition()) > maxRadius + 1)
 	{
 		// unit is away from blast but its visibility can be affected by scripts.
 		calculateFOV(centetTile, 1, false);
+
+		// coop
+		coop_is_second_fov = true;
 	}
+
+	// COOP
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true && connectionTCP::getCoopGamemode() != 2 && connectionTCP::getCoopGamemode() != 3)
+	{
+
+		Json::Value root;
+		root["state"] = "calc_explode_fov";
+
+		root["maxRadius"] = maxRadius;
+		root["coop_is_second_fov"] = coop_is_second_fov;
+
+		root["center_tile_x"] = centetTile.x;
+		root["center_tile_y"] = centetTile.y;
+		root["center_tile_z"] = centetTile.z;
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+	}
+
 }
 
 /**

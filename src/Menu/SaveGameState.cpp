@@ -189,13 +189,20 @@ void SaveGameState::think()
 		// Save the game
 		try
 		{
-			std::string backup = _filename + ".bak";
-			_game->getSavedGame()->save(backup, _game->getMod());
-			std::string fullPath = Options::getMasterUserFolder() + _filename;
-			std::string bakPath = Options::getMasterUserFolder() + backup;
-			if (!CrossPlatform::moveFile(bakPath, fullPath))
+
+			// coop
+			if (_game->getCoopMod()->getCoopStatic() == false)
 			{
-				throw Exception("Save backed up in " + backup);
+
+				std::string backup = _filename + ".bak";
+				_game->getSavedGame()->save(backup, _game->getMod());
+				std::string fullPath = Options::getMasterUserFolder() + _filename;
+				std::string bakPath = Options::getMasterUserFolder() + backup;
+				if (!CrossPlatform::moveFile(bakPath, fullPath))
+				{
+					throw Exception("Save backed up in " + backup);
+				}
+
 			}
 
 			if (_type == SAVE_IRONMAN_END)

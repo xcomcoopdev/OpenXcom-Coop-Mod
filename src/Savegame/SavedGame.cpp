@@ -387,52 +387,6 @@ void SavedGame::setMonthsPassed(int months)
 	_monthsPassed = months;
 }
 
-std::string SavedGame::sendResearch()
-{
-
-	Json::Value root;
-
-	root["state"] = "research";
-
-	int index = 0;
-
-
-	for (auto research : _discovered)
-	{
-
-		root["research"][index] = research->getName();
-
-		index++;
-
-	}
-
-	Json::FastWriter fastWriter;
-	std::string jsonString = fastWriter.write(root);
-
-	return jsonString;
-
-}
-
-void SavedGame::syncResearch(std::string research_str)
-{
-
-	Json::Value root_research;
-	Json::Reader reader;
-
-	reader.parse(research_str, root_research);
-
-	for (Json::Value research_name : root_research["research"])
-	{
-
-		std::string str_research_name = research_name.asString();
-
-		RuleResearch *research = new RuleResearch(str_research_name, 0);
-		addFinishedResearchSimple(research);
-
-	}
-
-}
-
 /**
  * Add a ResearchProject to the list of already discovered ResearchProject
  * @param research The newly found ResearchProject
@@ -919,9 +873,18 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 				 { return !b->_coopIcon; });
 
 	saveVector(writer, _waypoints, "waypoints");
-	saveVector(writer, _missionSites, "missionSites");
+
+	// coop
+	saveVectorIf(writer, _missionSites, "missionSites",
+				[](const MissionSite* ms)
+				{ return !ms->_coop; });
+
 	// Alien bases must be saved before alien missions.
-	saveVector(writer, _alienBases, "alienBases");
+	// coop
+	saveVectorIf(writer, _alienBases, "alienBases",
+				 [](const AlienBase* ab)
+				 { return !ab->_coop; });
+
 	// Missions must be saved before UFOs, but after alien bases.
 	// coop
 	saveVectorIf(writer, _activeMissions, "alienMissions",

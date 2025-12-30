@@ -2204,6 +2204,28 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 			unit->setCoop(0);
 			newUnit->setCoop(0);
 		}
+		// PVE2
+		else if (connectionTCP::getCoopGamemode() == 4)
+		{
+
+			if (connectionTCP::_isActivePlayerSync == true)
+			{
+				unit->setCoop(1);
+				newUnit->setCoop(1);
+			}
+			else
+			{
+				unit->setCoop(0);
+				newUnit->setCoop(0);
+			}
+
+			unit->convertToFaction(FACTION_PLAYER);
+			unit->setOriginalFaction(FACTION_PLAYER);
+	
+			newUnit->convertToFaction(FACTION_PLAYER);
+			newUnit->setOriginalFaction(FACTION_PLAYER);
+
+		}
 
 	}
 
@@ -2240,6 +2262,27 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 			newUnit->convertToFaction(FACTION_PLAYER);
 			newUnit->setOriginalFaction(FACTION_PLAYER);
 
+		}
+		// PVE2
+		else if (connectionTCP::getCoopGamemode() == 4)
+		{
+
+			if (connectionTCP::_isActivePlayerSync == true)
+			{
+				unit->setCoop(0);
+				newUnit->setCoop(0);
+			}
+			else
+			{
+				unit->setCoop(1);
+				newUnit->setCoop(1);
+			}
+
+			unit->convertToFaction(FACTION_PLAYER);
+			unit->setOriginalFaction(FACTION_PLAYER);
+
+			newUnit->convertToFaction(FACTION_PLAYER);
+			newUnit->setOriginalFaction(FACTION_PLAYER);
 		}
 
 	}
@@ -3507,6 +3550,22 @@ void SavedBattleGame::resetUnitHitStates()
 void SavedBattleGame::abortPathCoop()
 {
 	getPathfinding()->abortPathCoop();
+
+}
+
+void SavedBattleGame::coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov)
+{
+
+	getTileEngine()->calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
+	getTileEngine()->calculateFOV(centetTile, maxRadius + 1, true, true);
+
+	if (coop_is_second_fov == true)
+	{
+
+		// unit is away from blast but its visibility can be affected by scripts.
+		getTileEngine()->calculateFOV(centetTile, 1, false);
+
+	}
 
 }
 

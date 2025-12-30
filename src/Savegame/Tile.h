@@ -308,6 +308,8 @@ public:
 	int getShade() const;
 	/// Destroy a tile part.
 	bool destroy(TilePart part, SpecialTileType type);
+	// coop
+	bool destroyCoop(TilePart part, SpecialTileType type);
 	/// Damage a tile part.
 	bool damage(TilePart part, int power, SpecialTileType type);
 	/// Set a "virtual" explosive on this tile, to detonate later.
@@ -347,12 +349,14 @@ public:
 	BattleUnit *getOverlappingUnit(const SavedBattleGame *saveBattleGame, TileUnitOverlapping range = TUO_NORMAL) const;
 	/// Set fire, does not increment overlaps.
 	void setFire(int fire);
+	void setFireCoop(int fire, int animationOffset);
 	/// Get fire.
 	int getFire() const;
 	/// Add smoke, increments overlap.
 	void addSmoke(int smoke);
 	/// Set smoke, does not increment overlaps.
 	void setSmoke(int smoke);
+	void setSmokeCoop(int smoke, int animationOffset, int overlaps);
 	/// Get smoke.
 	int getSmoke() const;
 	/// Get flammability.

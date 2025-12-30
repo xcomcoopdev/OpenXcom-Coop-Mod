@@ -752,6 +752,9 @@ void NextTurnState::close()
 							root["tiles"][json_index]["getFire"] = _battleGame->getTile(tile_index)->getFire();
 							root["tiles"][json_index]["getSmoke"] = _battleGame->getTile(tile_index)->getSmoke();
 
+							root["tiles"][json_index]["animation_offset"] = _battleGame->getTile(tile_index)->getAnimationOffset();
+							root["tiles"][json_index]["overlaps"] = _battleGame->getTile(tile_index)->getOverlaps();
+
 							json_index++;
 						}
 

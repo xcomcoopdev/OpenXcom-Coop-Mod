@@ -979,6 +979,16 @@ void DogfightState::update()
 
 		root["end"] = _end;
 
+		bool coop_survived = true;
+
+		// if not survived?
+		if ((_ufo->getRules()->isUnmanned() || (!_state->getGlobe()->insideLand(_ufo->getLongitude(), _ufo->getLatitude()))) && _end == true)
+		{
+			coop_survived = false;
+		}
+
+		root["survived"] = coop_survived;
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}

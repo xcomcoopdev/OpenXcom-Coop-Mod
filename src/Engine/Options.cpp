@@ -576,6 +576,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
 
 }
 

@@ -160,6 +160,22 @@ void DismantleFacilityState::btnOkClick(Action *)
 		{
 			if (*facIt == _fac)
 			{
+
+				// COOP
+				if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+				{
+
+					Json::Value root;
+					root["state"] = "dismantle_facility";
+
+					root["base_lat"] = _base->getLatitude();
+					root["base_lon"] = _base->getLongitude();
+					root["fac_x"] = _fac->getX();
+					root["fac_y"] = _fac->getY();
+
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				}
+
 				_base->getFacilities()->erase(facIt);
 				// Determine if we leave behind any facilities when this one is removed
 				if (_fac->getBuildTime() == 0 && _fac->getRules()->getLeavesBehindOnSell().size() != 0)

@@ -436,6 +436,7 @@ public:
 	bool reselectAllowed() const;
 	/// Set fire.
 	void setFire(int fire);
+	void setFireCoop(int fire);
 	/// Get fire.
 	int getFire() const;
 

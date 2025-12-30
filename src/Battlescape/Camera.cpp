@@ -573,7 +573,7 @@ bool Camera::getShowAllLayers() const
  */
 bool Camera::isOnScreen(Position mapPos, const bool unitWalking, const int unitSize, const bool boundary) const
 {
-	// coop
+	// coop (pve)
 	if (connectionTCP::getCoopStatic() == true)
 	{
 		return true;

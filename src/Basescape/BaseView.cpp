@@ -150,6 +150,11 @@ void BaseView::resetSelectedFacility()
 	_selFacility = 0;
 }
 
+void BaseView::resetSelectedFacilityCoop(int fac_x, int fac_y)
+{
+	_facilities[fac_x][fac_y] = 0;
+	_selFacility = 0;
+}
 
 /**
  * Returns the X position of the grid square

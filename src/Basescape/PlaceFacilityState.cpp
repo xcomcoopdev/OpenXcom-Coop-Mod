@@ -387,6 +387,27 @@ void PlaceFacilityState::viewClick(Action *)
 			{
 				_game->popState();
 			}
+
+			// COOP
+			if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+			{
+
+				Json::Value root;
+				root["state"] = "place_facility";
+
+				root["base_lat"] = _base->getLatitude();
+				root["base_lon"] = _base->getLongitude();
+				root["rule"] = _rule->getType();
+				root["fac_x"] = fac->getX();
+				root["fac_y"] = fac->getY();
+				root["build_time"] = fac->getBuildTime();
+				root["buildingOver"] = buildingOver;
+				root["build_cost"] = _rule->getBuildCost();
+
+				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+			}
+
 		}
 	}
 }

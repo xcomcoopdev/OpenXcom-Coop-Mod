@@ -65,6 +65,20 @@ Base::Base(const Mod *mod) : Target(), _mod(mod), _scientists(0), _engineers(0),
 	_retaliationTarget(false), _retaliationMission(nullptr), _fakeUnderwater(false)
 {
 	_items = new ItemContainer();
+
+	// coop
+	if (_coop_base_id == 0)
+	{
+
+		std::random_device rd;                              // Seed
+		std::mt19937 gen(rd());                             // Mersenne Twister RNG
+		std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
+
+		int random_number = distrib(gen);
+
+		_coop_base_id = random_number;
+	}
+
 }
 
 /**

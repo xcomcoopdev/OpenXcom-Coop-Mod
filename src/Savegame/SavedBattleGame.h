@@ -672,6 +672,7 @@ public:
 
 	// coop
 	void abortPathCoop();
+	void coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov);
 };
 
 }

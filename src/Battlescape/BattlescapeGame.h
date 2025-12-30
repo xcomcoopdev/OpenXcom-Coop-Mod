@@ -175,6 +175,7 @@ public:
 	std::string getCoopWeaponHand();
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
+	void turnPlayerTargetAfter(std::string str_obj);
 	void psi_attack(std::string str_obj);
 	void melee_attack(std::string str_obj);
 	bool getHost();

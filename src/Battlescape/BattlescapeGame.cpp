@@ -300,11 +300,6 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 		if (_save->getBattleGame()->getCoopMod()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopMod()->getCoopGamemode() == 3)
 		{
 
-			if (_currentAction.run == false)
-			{
-				sound = false;
-			}
-
 			if (_currentAction.sneak == true)
 			{
 				sound = false;
@@ -345,9 +340,7 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		int endy = obj["coords"]["end"]["y"].asInt();
 		int endz = obj["coords"]["end"]["z"].asInt();
 
-		
-		int setDirection = obj["setDirection"].asInt();
-		int setFaceDirection = obj["setFaceDirection"].asInt();
+		bool isActionTypeNone = obj["isActionTypeNone"].asBool();
 
 		Position *startpos = new Position(startx, starty, startz);
 		Position *endpos = new Position(endx, endy, endz);
@@ -373,9 +366,6 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		}
 
 		unit->setPosition(*startpos);
-
-		unit->setDirection(setDirection);
-		unit->setFaceDirection(setFaceDirection);
 
 		if (getCoopMod()->_isActiveAISync == false && getCoopMod()->getCoopGamemode() != 2 && getCoopMod()->getCoopGamemode() != 3)
 		{
@@ -407,7 +397,13 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		// other
 		_save->setSelectedUnit(unit);
 		_currentAction.actor = unit;
-		_currentAction.type = BA_WALK;
+		_currentAction.type = BA_TURN;
+
+		if (isActionTypeNone == true)
+		{
+			_currentAction.type = BA_NONE;
+		}
+
 		_currentAction.targeting = false;
 
 		bool isUnitAlreadyTurn = false;
@@ -423,6 +419,66 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		{
 			statePushFront(new UnitTurnBState(this, _currentAction));
 		}
+		// door fix
+		else
+		{
+
+			if (_currentAction.type == BA_NONE)
+			{
+				// try to open a door
+				int door = _save->getTileEngine()->unitOpensDoor(unit, true);
+				if (door == 0)
+				{
+					_save->getMod()->getSoundByDepth(_save->getDepth(), Mod::DOOR_OPEN)->play(-1, getMap()->getSoundAngle(unit->getPosition())); // normal door
+				}
+				if (door == 1)
+				{
+					_save->getMod()->getSoundByDepth(_save->getDepth(), Mod::SLIDING_DOOR_OPEN)->play(-1, getMap()->getSoundAngle(unit->getPosition())); // ufo door
+				}
+				if (door == 4)
+				{
+					_currentAction.result = "STR_NOT_ENOUGH_TIME_UNITS";
+				}
+			}
+
+		}
+
+}
+
+void BattlescapeGame::turnPlayerTargetAfter(std::string obj_str)
+{
+
+	Json::Reader reader;
+	Json::Value obj;
+
+	reader.parse(obj_str, obj);
+
+	int unit_id = obj["unit_id"].asInt();
+	int setDirection = obj["setDirection"].asInt();
+	int setFaceDirection = obj["setFaceDirection"].asInt();
+
+	BattleUnit* unit = 0;
+
+	bool found_unit = false;
+
+	// unit
+	for (auto u : *_save->getUnits())
+	{
+
+		if (u->getId() == unit_id)
+		{
+			found_unit = true;
+			unit = u;
+			break;
+		}
+	}
+
+	if (found_unit == false)
+		return;
+
+	unit->abortTurn();
+	unit->setFaceDirection(setFaceDirection);
+	unit->setDirection(setDirection);
 
 }
 
@@ -477,6 +533,9 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 			break;
 		}
 	}
+
+	if (found_unit == false)
+		return;
 
 	unit->setPosition(*startpos);
 

@@ -83,6 +83,9 @@ public:
 	int getGenMissionCount() const;
 	/// Sets the number of genMissions generated so far by this base.
 	void setGenMissionCount(int newValue);
+	// coop
+	int _coop_alienbase_id = 0;
+	bool _coop = false;
 
 };
 

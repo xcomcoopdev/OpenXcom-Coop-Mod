@@ -585,6 +585,20 @@ void ProjectileFlyBState::init()
 			pos_index++;
 		}
 
+		int trajectory_index = 0;
+		for (Position &trajectory_pos : _parent->getCoopMod()->_trajectoryCoop)
+		{
+
+			obj["trajectory"][trajectory_index]["pos_x"] = trajectory_pos.x;
+			obj["trajectory"][trajectory_index]["pos_y"] = trajectory_pos.y;
+			obj["trajectory"][trajectory_index]["pos_z"] = trajectory_pos.z;
+
+			trajectory_index++;
+
+		}
+
+		_parent->getCoopMod()->_trajectoryCoop.clear();
+
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
@@ -688,6 +702,7 @@ bool ProjectileFlyBState::createNewProjectile()
 	else if (_action.weapon->getArcingShot(_action.type)) // special code for the "spit" trajectory
 	{
 		_projectileImpact = projectile->calculateThrow(BattleUnit::getFiringAccuracy(attack, _parent->getMod()) / accuracyDivider);
+
 		if (_projectileImpact != V_EMPTY && _projectileImpact != V_OUTOFBOUNDS)
 		{
 			// set the soldier in an aiming position
@@ -708,6 +723,10 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
+		
+			// coop
+			_unit->coop_no_line_fire = true;
+
 			// no line of fire
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
@@ -730,6 +749,7 @@ bool ProjectileFlyBState::createNewProjectile()
 		{
 			_projectileImpact = projectile->calculateTrajectory(BattleUnit::getFiringAccuracy(attack, _parent->getMod()) / accuracyDivider);
 		}
+
 		// coop
 		if ((_targetVoxel != TileEngine::invalid.toVoxel() || _action.actor->coop_action) && (_projectileImpact != V_EMPTY || _action.type == BA_LAUNCH))
 		{

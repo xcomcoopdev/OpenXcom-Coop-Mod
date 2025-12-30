@@ -92,6 +92,7 @@ OPT bool EnableTimeSync;
 OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;
+OPT bool EnableXcomEquipmentAliensPVP;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

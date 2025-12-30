@@ -84,8 +84,7 @@ namespace OpenXcom
  * Initializes all the elements in the Debriefing screen.
  * @param game Pointer to the core game.
  */
-DebriefingState::DebriefingState() :
-	_eventToSpawn(nullptr), _region(0), _country(0),
+DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _country(0),
 	_positiveScore(true), _destroyBase(false), _promotions(false), _showSellButton(true), _initDone(false),
 	_pageNumber(0)
 {
@@ -329,25 +328,6 @@ DebriefingState::DebriefingState() :
 		_btnTransfer->setVisible(false);
 
 	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "DebriefingState";
-
-		root["abort"] = false;
-
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-			root["abort"] = _game->getSavedGame()->getSavedBattle()->isAborted();
-		}
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}
-
 
 }
 
@@ -864,6 +844,36 @@ void DebriefingState::init()
 	{
 		_game->getMod()->playMusic(Mod::DEBRIEF_MUSIC_BAD);
 	}
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "DebriefingState";
+
+		root["abort"] = false;
+		root["title"] = _txtTitle->getText();
+
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+			root["abort"] = _game->getSavedGame()->getSavedBattle()->isAborted();
+		}
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		if (_game->getCoopMod()->_debriefing_coop_title != "")
+		{
+			_txtTitle->setText(_game->getCoopMod()->_debriefing_coop_title);
+		}
+
+	}
+
 }
 
 /**

@@ -264,15 +264,11 @@ void UnitWalkBState::think()
 			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
 			{
 
-				if (_parent->getCurrentAction()->run == false)
-				{
-					sound = false;
-				}
-
 				if (_parent->getCurrentAction()->sneak == true)
 				{
 					sound = false;
 				}
+
 			}
 
 			// coop
@@ -681,8 +677,7 @@ void UnitWalkBState::setNormalWalkSpeed()
 void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
-	// coop
-	if (((!_unit->getVisible() && (_parent->getCoopMod()->getCoopGamemode() != 2 && _parent->getCoopMod()->getCoopGamemode() != 3)) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false))
+	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false))
 		return;
 
 	Tile *tile = _unit->getTile();
