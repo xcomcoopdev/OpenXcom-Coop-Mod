@@ -2605,10 +2605,19 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		// coop
 		is_return = true;
 
-		if (_game->getCoopMod()->getHost() == false)
+		if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->getCoopGamemode() != 3)
 		{
 			_game->getCoopMod()->_isActivePlayerSync = false;
 			_game->getCoopMod()->_isActiveAISync = true;
+		}
+		// PVP2 fix
+		else if (_game->getCoopMod()->getHost() == true && _game->getCoopMod()->getCoopGamemode() == 3)
+		{
+			_game->getCoopMod()->_isActivePlayerSync = true;
+			_game->getCoopMod()->_isActiveAISync = true;
+
+			is_return = false;
+
 		}
 		
 		// pve
@@ -2649,34 +2658,6 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	// coop
 	if (allowButtons() && (is_return == false || _save->isPreview() == true))
 	{
-
-		// if not pvp
-		if (_game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3)
-		{
-
-			// do nothing
-
-		}
-		// pvp
-		else
-		{
-
-			/*
-			_save->setSideCoop(0);
-
-			_game->getCoopMod()->_isActiveAISync = true;
-
-			if (_game->getCoopMod()->getHost() == false)
-			{
-				_game->getCoopMod()->_isActivePlayerSync = false;
-			}
-			else
-			{
-				_game->getCoopMod()->_isActivePlayerSync = true;
-			}
-			*/
-
-		}
 
 		// Temporarily deactivate the touch buttons at the end of the player's turn
 		toggleTouchButtons(true, false);

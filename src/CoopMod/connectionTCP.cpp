@@ -4130,30 +4130,61 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (getHost() == false)
 			{
-				
-				_isActivePlayerSync = true;
-				_isActiveAISync = false;
 
-				setPlayerTurn(2);
+				// PVP2 fix
+				if (getCoopGamemode() == 3)
+				{
+
+					_isActivePlayerSync = false;
+
+					_battleInit = false;
+					_isActiveAISync = true;
+
+				}
+				else
+				{
+
+					_isActivePlayerSync = true;
+					_isActiveAISync = false;
+
+					setPlayerTurn(2);
+
+				}
 
 			}
 			else
 			{
 
-				_isActivePlayerSync = true;
+				// PVP2 fix
+				if (getCoopGamemode() == 3)
+				{
+					_isActivePlayerSync = true;
+					_isActiveAISync = false;
 
-				// Auto save before (only HOST)
-				SavedGame* newsave = new SavedGame(*_game->getSavedGame());
+					setPlayerTurn(2);
 
-				newsave->setName("coop_mission_2");
+				}
+				else
+				{
 
-				newsave->save("coop_mission_2.sav", _game->getMod());
+					_isActivePlayerSync = true;
 
-				_battleInit = false;
-				_isActiveAISync = true;
+					// Auto save before (only HOST)
+					SavedGame* newsave = new SavedGame(*_game->getSavedGame());
 
-				BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-				battlestate->endTurnCoop();
+					newsave->setName("coop_mission_2");
+
+					newsave->save("coop_mission_2.sav", _game->getMod());
+
+					_battleInit = false;
+					_isActiveAISync = true;
+
+					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+					battlestate->endTurnCoop();
+
+				}
+
+	
 
 			}
 
