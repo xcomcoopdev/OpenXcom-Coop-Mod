@@ -5294,7 +5294,7 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut())
+	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut() && connectionTCP::coopInventory == true && connectionTCP::_battleInit == true)
 	{
 
 		if (getHealth() <= 0)
@@ -5310,7 +5310,7 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 	}
 
 	// coop fix
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false && connectionTCP::coopInventory == true)
 	{
 		return false;
 	}

@@ -3878,6 +3878,13 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
  */
 bool TileEngine::detonate(Tile* tile, int explosive)
 {
+
+	// coop fix
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return true;
+	}
+
 	if (explosive == 0) return false; // no damage applied for this tile
 	bool objective = false;
 	Tile* tiles[9];

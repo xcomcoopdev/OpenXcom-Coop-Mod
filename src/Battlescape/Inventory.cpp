@@ -114,10 +114,8 @@ Inventory::Inventory(Game *game, int width, int height, int x, int y, bool base)
 
 
 	// coop
-	if (battleSave && _game->getCoopMod()->getCoopStatic() == true)
+	if (battleSave && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->coopInventory == true)
 	{
-		_game->getCoopMod()->coopInventory = true;
-
 		_game->getCoopMod()->syncCoopInventory();
 	}
 
@@ -250,31 +248,23 @@ void Inventory::drawGrid()
 			if (_game->getSavedGame()->getSavedBattle()->getSelectedUnit())
 			{
 
-				// coop
-				if (((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1)) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->playerInsideCoopBase == true)
+				for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
 				{
-
-					for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
+					for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
 					{
-						for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
-						{
-							SDL_Rect r;
-							r.x = x;
-							r.y = y;
-							r.w = RuleInventory::SLOT_W + 1;
-							r.h = RuleInventory::SLOT_H + 1;
-							_grid->drawRect(&r, color);
-							r.x++;
-							r.y++;
-							r.w -= 2;
-							r.h -= 2;
-							_grid->drawRect(&r, 0);
-						}
+						SDL_Rect r;
+						r.x = x;
+						r.y = y;
+						r.w = RuleInventory::SLOT_W + 1;
+						r.h = RuleInventory::SLOT_H + 1;
+						_grid->drawRect(&r, color);
+						r.x++;
+						r.y++;
+						r.w -= 2;
+						r.h -= 2;
+						_grid->drawRect(&r, 0);
 					}
-
 				}
-				
-			
 
 			}
 			
@@ -407,10 +397,6 @@ void Inventory::drawItems()
 		{
 			for (auto* groundItem : *_selUnit->getTile()->getInventory())
 			{
-
-				// coop
-				if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getHost() == true && _selUnit->getCoop() == 1 || _game->getCoopMod()->getHost() == false && _selUnit->getCoop() == 0) && _game->getCoopMod()->playerInsideCoopBase == false)
-					continue;
 
 				const Surface* frame = groundItem->getBigSprite(texture, save, _animFrame);
 				// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
@@ -547,7 +533,7 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 	{
 
 		// check coop unit
-		if ((_selUnit->getCoop() != 0 && _game->getCoopMod()->getHost() == true) || (_selUnit->getCoop() == 0 && _game->getCoopMod()->getHost() == false))
+		if ((_selUnit->getCoop() != 0 && _game->getCoopMod()->getHost() == true) || (_selUnit->getCoop() == 0 && _game->getCoopMod()->getHost() == false) && _game->getCoopMod()->coopInventory == true)
 		{
 			return;
 		}
@@ -837,9 +823,9 @@ void Inventory::mouseClick(Action *action, State *state)
 {
 	if (_game->isLeftClick(action))
 	{
-
+		
 		// coop
-		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
 			return;
 
 		if (_selUnit == 0)
@@ -1299,7 +1285,7 @@ void Inventory::mouseClick(Action *action, State *state)
 	{
 
 		// coop
-		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
 			return;
 
 		if (_selItem == 0)

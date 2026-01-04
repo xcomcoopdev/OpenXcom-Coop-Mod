@@ -246,6 +246,11 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	// coop
 	_game->getCoopMod()->show_briefing_state = true;
 
+	if (_game->getSavedGame()->getSavedBattle()->isPreview() == false)
+	{
+		_game->getCoopMod()->coopInventory = true;
+	}
+
 }
 
 /**

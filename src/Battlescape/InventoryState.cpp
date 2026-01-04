@@ -111,6 +111,8 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtPosition = new Text(70, 9, 65, 95);
 	_txtNameStatic = new Text(210, 17, 28, 6);
 	_txtName = new TextEdit(this, 210, 17, 28, 6);
+	// coop
+	_coopOwner = new Text(210, 17, 28, 18);
 	_txtTus = new Text(40, 9, 245, 24);
 	_txtWeight = new Text(70, 9, 245, 24);
 	_txtStatLine1 = new Text(70, 9, 245, 32);
@@ -154,6 +156,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	add(_btnQuickSearch, "textItem", "inventory");
 	add(_txtNameStatic, "textName", "inventory", _bg);
 	add(_txtName, "textName", "inventory", _bg);
+	add(_coopOwner, "textCoopOwner", "inventory", _bg);
 	add(_txtTus, "textTUs", "inventory", _bg);
 	add(_txtWeight, "textWeight", "inventory", _bg);
 	add(_txtStatLine1, "textStatLine1", "inventory", _bg);
@@ -202,6 +205,12 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	{
 		_txtNameStatic->setVisible(false);
 	}
+
+	// coop
+	_coopOwner->setHighContrast(true);
+	_coopOwner->setVisible(false);
+	std::string str_owner = "Owner: " + _game->getCoopMod()->getCurrentClientName();
+	_coopOwner->setText(str_owner);
 
 	_txtTus->setHighContrast(true);
 
@@ -355,6 +364,25 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 	}
 
+	if (_game->getSavedGame()->getSavedBattle()->getSelectedUnit())
+	{
+		// coop
+		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		{
+
+			_coopOwner->setVisible(true);
+
+		}
+		else if ((_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		{
+
+			_coopOwner->setVisible(false);
+
+		}
+
+	}
+
+
 
 }
 
@@ -473,6 +501,20 @@ void InventoryState::init()
 
 	_txtName->setBig();
 	_txtName->setText(unit->getName(_game->getLanguage()));
+
+	// coop
+	if ((_game->getCoopMod()->getHost() == true && unit->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && unit->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+	{
+
+		_coopOwner->setVisible(true);
+	
+	}
+	else if ((_game->getCoopMod()->getHost() == false && unit->getCoop() == 1) || (_game->getCoopMod()->getHost() == true && unit->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+	{
+
+		_coopOwner->setVisible(false);
+
+	}
 
 	_btnLinks->setVisible(Options::oxceLinks);
 

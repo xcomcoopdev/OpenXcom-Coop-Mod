@@ -210,7 +210,7 @@ class connectionTCP
 	bool coopMissionEnd = false; // is the co-op mission completed?
 	Json::Value _jsonTargets, _jsonDamages, _jsonInventory;
 	void syncCoopInventory();
-	bool coopInventory = false;
+	static bool coopInventory;
 	int _pathLock = -1;
 	void setPathLock(int lock);
 	bool _waitBC = false; // is the client ready in battle?

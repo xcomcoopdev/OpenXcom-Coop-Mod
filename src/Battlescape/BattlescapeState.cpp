@@ -2620,32 +2620,6 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 		}
 		
-		// pve
-		/*
-		if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 4)
-		{
-			is_return = true;
-
-			if (_game->getCoopMod()->getHost() == false)
-			{
-				_game->getCoopMod()->_isActivePlayerSync = false;
-				_game->getCoopMod()->_isActiveAISync = true;
-			}
-
-		}
-
-		// pvp
-		if (_game->getCoopMod()->getHost() == true && (_game->getCoopMod()->getCoopGamemode() == 2))
-		{
-			is_return = true;
-		}
-
-		if (_game->getCoopMod()->getHost() == false && (_game->getCoopMod()->getCoopGamemode() == 3))
-		{
-			is_return = true;
-		}
-		*/
-
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 

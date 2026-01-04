@@ -125,6 +125,8 @@ bool connectionTCP::_battleInit = false;
 
 bool connectionTCP::playerInsideCoopBase = false;
 
+bool connectionTCP::coopInventory = false;
+
 std::string current_ping = "";
 
 connectionTCP::connectionTCP(Game* game) : _game(game)
@@ -6214,6 +6216,8 @@ void connectionTCP::disconnectTCP()
 
 		_battleWindow = false;
 		_battleInit = false;
+
+		coopInventory = false;
 
 		if (_game->getSavedGame())
 		{

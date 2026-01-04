@@ -954,6 +954,8 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->_onClickClose = false;
 
+		_game->getCoopMod()->coopInventory = false;
+
 		_game->getCoopMod()->setPlayerTurn(0);
 
 		if (_game->getCoopMod()->coopFunds != 0)

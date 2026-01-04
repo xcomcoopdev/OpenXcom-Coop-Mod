@@ -303,6 +303,8 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 	{
 		_game->getCoopMod()->coopMissionEnd = true;
 
+		_game->getCoopMod()->coopInventory = false;
+
 		// fix
 		_game->getCoopMod()->_coop_task_completed = true;
 		_game->getCoopMod()->playerInsideCoopBase = false;
