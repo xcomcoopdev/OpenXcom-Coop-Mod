@@ -11,6 +11,7 @@ Makefile
 Makefile.in
 depcomp
 compile
+.deps/
 *.tar.gz
 *.tar.xz
 openxcom
