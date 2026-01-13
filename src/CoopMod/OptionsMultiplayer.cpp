@@ -119,7 +119,7 @@ OptionsMultiplayerState::OptionsMultiplayerState(OptionsOrigin origin) : Options
 	
 		if (optionInfo.category() == "STR_GENERAL")
 		{
-			_settingsGeneral[optionInfo.owner()].push_back(optionInfo);
+			_settingsControls[optionInfo.owner()].push_back(optionInfo);
 		}
 		else if (optionInfo.category() == "STR_GEOSCAPE")
 		{
@@ -132,6 +132,10 @@ OptionsMultiplayerState::OptionsMultiplayerState(OptionsOrigin origin) : Options
 		else if (optionInfo.category() == "STR_BATTLESCAPE")
 		{
 			_settingsBattle[optionInfo.owner()].push_back(optionInfo);
+		}
+		else if (optionInfo.category() == "STR_AI")
+		{
+			_settingsGeneral[optionInfo.owner()].push_back(optionInfo);
 		}
 
 	}
@@ -204,6 +208,8 @@ void OptionsMultiplayerState::updateList()
 {
 	OptionOwner idx = OPTION_OTHER;
 
+	_offsetControlsMin = -1;
+	_offsetControlsMax = -1;
 	_offsetGeneralMin = -1;
 	_offsetGeneralMax = -1;
 	_offsetGeoMin = -1;
@@ -219,13 +225,29 @@ void OptionsMultiplayerState::updateList()
 
 	int row = -1;
 
-	if (_settingsGeneral[idx].size() > 0)
+	if (_settingsControls[idx].size() > 0)
 	{
 		_lstOptions->addRow(2, tr("Controls").c_str(), "");
 		row++;
 		_offsetGeneralMin = row;
 		_lstOptions->setCellColor(_offsetGeneralMin, 0, _colorGroup);
-		addControls(_settingsGeneral[idx]);
+		addControls(_settingsControls[idx]);
+		row += _settingsControls[idx].size();
+		_offsetGeneralMax = row;
+	}
+
+	if (_settingsGeneral[idx].size() > 0)
+	{
+		if (row > -1)
+		{
+			_lstOptions->addRow(2, "", "");
+			row++;
+		}
+		_lstOptions->addRow(2, tr("STR_GENERAL").c_str(), "");
+		row++;
+		_offsetGeneralMin = row;
+		_lstOptions->setCellColor(_offsetGeneralMin, 0, _colorGroup);
+		addSettings(_settingsGeneral[idx]);
 		row += _settingsGeneral[idx].size();
 		_offsetGeneralMax = row;
 	}
@@ -277,7 +299,7 @@ void OptionsMultiplayerState::updateList()
 		row += _settingsBattle[idx].size();
 		_offsetBattleMax = row;
 	}
-	
+
 }
 
 /**
@@ -346,9 +368,9 @@ OptionInfo* OptionsMultiplayerState::getSetting(size_t sel)
 	int selInt = sel;
 	OptionOwner idx = OPTION_OTHER;
 
-	if (selInt > _offsetGeneralMin && selInt <= _offsetGeneralMax)
+	if (selInt > _offsetControlsMin && selInt <= _offsetControlsMax)
 	{
-		return &_settingsGeneral[idx][selInt - 1 - _offsetGeneralMin];
+		return &_settingsControls[idx][selInt - 1 - _offsetControlsMin];
 	}
 	else if (selInt > _offsetGeoMin && selInt <= _offsetGeoMax)
 	{
@@ -362,9 +384,9 @@ OptionInfo* OptionsMultiplayerState::getSetting(size_t sel)
 	{
 		return &_settingsBattle[idx][selInt - 1 - _offsetBattleMin];
 	}
-	else if (selInt > _offsetAIMin && selInt <= _offsetAIMax)
+	else if (selInt > _offsetGeneralMin && selInt <= _offsetGeneralMax)
 	{
-		return &_settingsAI[idx][selInt - 1 - _offsetAIMin];
+		return &_settingsGeneral[idx][selInt - 1 - _offsetGeneralMin];
 	}
 	else
 	{

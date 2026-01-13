@@ -2571,6 +2571,14 @@ void BattlescapeState::btnEndTurnClick(Action *)
 				root["units"][index]["pos_x"] = unit->getPosition().x;
 				root["units"][index]["pos_y"] = unit->getPosition().y;
 				root["units"][index]["pos_z"] = unit->getPosition().z;
+	
+				// resetTimeUnitsOnTurnChangePVP
+				if (_game->getCoopMod()->getCoopGamemode() == 2 && connectionTCP::_reset_timeunits_onturnchange_pvp == true && unit->getCoop() == 1)
+				{
+
+					unit->resetTimeUnitsAndEnergy();
+
+				}
 
 				root["units"][index]["time"] = unit->getTimeUnits();
 				root["units"][index]["health"] = unit->getHealth();
@@ -2581,6 +2589,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 				root["units"][index]["setDirection"] = unit->getDirection();
 				root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
+
 
 				// motions points (fix)
 				root["units"][index]["motionpoints"] = unit->getMotionPoints();

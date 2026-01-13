@@ -36,8 +36,6 @@
 #include "../Mod/RuleRegion.h"
 #include "../Savegame/Region.h"
 
-#include "CrashHandler.h"
-
 #include "../Mod/RuleCraftWeapon.h"
 #include "../Savegame/CraftWeapon.h"
 
@@ -118,6 +116,8 @@ bool connectionTCP::_enable_other_player_footsteps = true;
 bool connectionTCP::_enable_host_only_time_speed = false;
 
 bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
+
+bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
 
 bool connectionTCP::_coopCampaign = false;
 
@@ -3230,6 +3230,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (_game->getSavedGame() && playerInsideCoopBase == false)
 		{
 
+			// bases
+			for (int i = 0; i < obj["bases"].size(); i++)
+			{
+
+				int coopbase_id = obj["bases"][i]["coopbase_id"].asInt();
+				int range_coop = obj["bases"][i]["range_coop"].asInt();
+
+				for (auto &temp_base : *_game->getSavedGame()->getBases())
+				{
+
+					if (temp_base->_coopIcon == true && temp_base->_coop_base_id == coopbase_id)
+					{
+
+						temp_base->_range_coop = range_coop;
+
+						break;
+					}
+
+				}
+
+			}
+
 			// crafts
 			for (int i = 0; i < obj["crafts"].size(); i++)
 			{
@@ -4100,8 +4122,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								unit->setRespawn(respawn);
 								unit->setStunlevelCoop(stunlevel);
-
-								
+					
 								const Json::Value& fatalArray = obj["units"][i]["fatalWounds"];
 
 								for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
@@ -4124,6 +4145,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								break;
 							}
 						}
+					}
+
+				}
+				// PVP2
+				else if (getHost() == true && getCoopGamemode() == 3 && connectionTCP::_reset_timeunits_onturnchange_pvp == true)
+				{
+
+					for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+
+						if (unit->getCoop() == 0)
+						{
+
+							unit->resetTimeUnitsAndEnergy();
+
+						}
+
 					}
 
 				}
@@ -4404,6 +4442,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = Options::EnableXcomEquipmentAliensPVP;
 		root["enable_xcom_equipment_aliens_pvp"] = _enable_xcom_equipment_aliens_pvp;
 
+		// resetTimeUnitsOnTurnChangePVP
+		connectionTCP::_reset_timeunits_onturnchange_pvp = Options::resetTimeUnitsOnTurnChangePVP;
+		root["reset_timeunits_onturnchange_pvp"] = _reset_timeunits_onturnchange_pvp;
+
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -4442,7 +4484,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		root["battle"] = inBattle;
 
-		sendTCPPacketData(root.toStyledString().c_str());
+		sendTCPPacketData(root.toStyledString());
 
 		// RESET ALL SOLDIERS OUT OF THE BASES (HAPPENS ONCE IN AN ERROR SITUATION)
 		for (auto* base : *_game->getSavedGame()->getBases())
@@ -4577,6 +4619,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
 
+		// resetTimeUnitsOnTurnChangePVP
+		bool reset_timeunits_onturnchange_pvp = obj["reset_timeunits_onturnchange_pvp"].asBool();
+		connectionTCP::_reset_timeunits_onturnchange_pvp = reset_timeunits_onturnchange_pvp;
+
 
 		for (Json::Value host_mod : obj["mods"])
 		{
@@ -4661,6 +4707,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["lon"] = base->getLongitude();
 				markers["markers"][index]["lan"] = base->getLatitude();
 
+				// new!!!
+				markers["markers"][index]["range_coop"] = base->_range_coop;
+
 				markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 				markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
 				markers["markers"][index]["getAvailableLaboratories"] = base->getAvailableLaboratories();
@@ -4676,8 +4725,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		sendTCPPacketData(markers.toStyledString());
-
-		
 
 		// RESET ALL SOLDIERS OUT OF THE BASES(HAPPENS ONCE IN AN ERROR SITUATION)
 		for (auto* base : *_game->getSavedGame()->getBases())
@@ -4735,6 +4782,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
 
+			// new!!!
+			int range_coop = marker["range_coop"].asInt();
+			
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
 
@@ -4751,6 +4801,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->setScientists(getAvailableScientists);
 
 			CoopBase->_coop_base_id = coopbaseid;
+
+			// new!!!
+			CoopBase->_range_coop = range_coop;
 
 			std::string base_name = marker["base"].asString();
 			CoopBase->setName(base_name);
@@ -4792,6 +4845,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
 
+				// new!!!
+				markers["markers"][index]["range_coop"] = base->_range_coop;
+
 				index++;
 			}
 		}
@@ -4818,6 +4874,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int getAvailableTraining = obj["markers"]["getAvailableTraining"].asInt();
 		int getAvailableWorkshops = obj["markers"]["getAvailableWorkshops"].asInt();
 
+		// new!!!
+		int range_coop = obj["markers"]["range_coop"].asInt();
+
 		double lon = std::stod(s_lon);
 		double lan = std::stod(s_lan);
 
@@ -4840,6 +4899,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopBase->_coopIcon = true;
 
 		CoopBase->_coop_base_id = coopbaseid;
+
+		CoopBase->_range_coop = range_coop;
 
 		CoopBase->setLongitude(lon);
 		CoopBase->setLatitude(lan);
@@ -4884,6 +4945,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
+
+				// new!!!
+				markers["markers"][index]["range_coop"] = base->_range_coop;
 
 				index++;
 			}
@@ -4939,6 +5003,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
 
+			// new!!!
+			int range_coop = marker["range_coop"].asInt();
+
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
 
@@ -4972,6 +5039,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->setScientists(getAvailableScientists);
 
 			CoopBase->_coop_base_id = coopbaseid;
+
+			CoopBase->_range_coop = range_coop;
 
 			CoopBase->setName(base_name);
 
@@ -5019,6 +5088,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
 
+			// new!!!
+			int range_coop = marker["range_coop"].asInt();
+
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
 
@@ -5053,6 +5125,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
+			CoopBase->_range_coop = range_coop;
+
 			CoopBase->setName(base_name);
 
 			CoopBase->isCoopBase(true);
@@ -5077,6 +5151,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_CLIENT_TRUE" && onTcpHost == false)
 	{
+
+		_game->getCoopMod()->load_state = "Synchronization finished";
 
 		bool target = obj["target"].asBool();
 
@@ -5147,6 +5223,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string jsonData = "{\"state\" : \"SEND_FILE_CLIENT\"}";
 
 		sendTCPPacketData(jsonData);
+
+		_game->getCoopMod()->load_state = "Requesting map data";
+
 	}
 
 	if (stateString == "SEND_FILE_CLIENT_SAVE" && onTcpHost == true)
@@ -5206,6 +5285,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// INFORMATION FROM CLIENT TO HOST ABOUT MAP LOADING
 	if (stateString == "SEND_FILE_HOST" && onTcpHost == false)
 	{
+
+		_game->getCoopMod()->load_state = "Sending base data";  
+
 		sendFileHost = true;
 	}
 
@@ -5495,6 +5577,8 @@ void connectionTCP::sendMissionFile()
 				_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
 
 			}
+
+			_game->getCoopMod()->load_state = "Saving";
 
 			Json::Value obj;
 			obj["state"] = "SEND_FILE_HOST_TRUE";

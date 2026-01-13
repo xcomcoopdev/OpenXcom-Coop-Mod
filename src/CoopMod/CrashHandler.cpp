@@ -1,11 +1,14 @@
 #include "CrashHandler.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <exception>
 #include <sstream>
+#include <string>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -73,6 +76,7 @@ extern "C"
 namespace
 {
 char g_logDir[1024] = {0};
+std::atomic<unsigned> g_fileSeq{0};
 
 #ifdef _WIN32
 void initLogDir()
@@ -116,34 +120,66 @@ void initLogDir()
 }
 #endif
 
+static void localtime_safe(std::time_t t, std::tm& outTm)
+{
+#ifdef _WIN32
+	localtime_s(&outTm, &t);
+#else
+	localtime_r(&t, &outTm);
+#endif
+}
+
 FILE* openCrashFile()
 {
 	initLogDir();
 
-	std::time_t now = std::time(nullptr);
-	std::tm* lt = std::localtime(&now);
+	// Use millisecond timestamp + sequence to avoid collisions (and repeated headers in the same file).
+	const auto now = std::chrono::system_clock::now();
+	const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+
+	const std::time_t tt = std::chrono::system_clock::to_time_t(now);
+	std::tm lt{};
+	localtime_safe(tt, lt);
+
+	const unsigned seq = g_fileSeq.fetch_add(1, std::memory_order_relaxed);
 
 	char filePath[1400];
+
 #ifdef _WIN32
-	std::snprintf(filePath, sizeof(filePath),
-				  "%s\\crash_%04d%02d%02d_%02d%02d%02d.log",
-				  g_logDir,
-				  lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
-				  lt->tm_hour, lt->tm_min, lt->tm_sec);
+	std::snprintf(
+		filePath,
+		sizeof(filePath),
+		"%s\\crash_%04d%02d%02d_%02d%02d%02d_%03lld_%u.log",
+		g_logDir,
+		lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+		lt.tm_hour, lt.tm_min, lt.tm_sec,
+		(long long)ms.count(),
+		seq);
 #else
-	std::snprintf(filePath, sizeof(filePath),
-				  "%s/crash_%04d%02d%02d_%02d%02d%02d.log",
-				  g_logDir,
-				  lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
-				  lt->tm_hour, lt->tm_min, lt->tm_sec);
+	std::snprintf(
+		filePath,
+		sizeof(filePath),
+		"%s/crash_%04d%02d%02d_%02d%02d%02d_%03lld_%u.log",
+		g_logDir,
+		lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+		lt.tm_hour, lt.tm_min, lt.tm_sec,
+		(long long)ms.count(),
+		seq);
 #endif
 
 	FILE* f = std::fopen(filePath, "a");
 	if (!f)
 		return nullptr;
 
-	std::fprintf(f, "==== Crash ====\n");
-	std::fprintf(f, "Time: %s", std::asctime(lt));
+	char timeBuf[64];
+#ifdef _WIN32
+	std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", &lt);
+#else
+	std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", &lt);
+#endif
+
+	std::fprintf(f, "==== Crash/Log ====\n");
+	std::fprintf(f, "Time: %s.%03lld\n", timeBuf, (long long)ms.count());
 	return f;
 }
 
@@ -200,25 +236,66 @@ std::string formatAddress(void* addr)
 	return oss.str();
 }
 
+static bool isErrorSeverity(DWORD code)
+{
+	// NTSTATUS severity: 00=success, 01=informational, 10=warning, 11=error
+	return ((code >> 30) == 3);
+}
+
+static bool isNoiseException(DWORD code)
+{
+	switch (code)
+	{
+	case 0x40010006:
+		return true; // DBG_PRINTEXCEPTION_C (OutputDebugString / DBGPRINT)
+	case 0x406D1388:
+		return true; // MSVC thread naming exception
+	case 0x80000003:
+		return true; // breakpoint
+	case 0x80000004:
+		return true; // single-step
+	default:
+		return false;
+	}
+}
+
 LONG WINAPI vectoredHandler(PEXCEPTION_POINTERS info)
 {
+	const DWORD code = info->ExceptionRecord->ExceptionCode;
+
+	// IMPORTANT: Don't treat debug/info/warning exceptions as crashes.
+	// VEH sees *everything* (first-chance too).
+	if (isNoiseException(code) || !isErrorSeverity(code))
+		return EXCEPTION_CONTINUE_SEARCH;
+
 	FILE* f = openCrashFile();
 	if (f)
 	{
 		void* addr = info->ExceptionRecord->ExceptionAddress;
-		DWORD code = info->ExceptionRecord->ExceptionCode;
-
 		std::string addrStr = formatAddress(addr);
 
-		std::fprintf(
-			f,
-			"SEH exception. Code = 0x%08lX at %s\n",
-			code,
-			addrStr.c_str());
+		std::fprintf(f, "SEH exception (VEH). Code = 0x%08lX at %s\n", code, addrStr.c_str());
 		std::fclose(f);
 	}
 
 	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG WINAPI unhandledFilter(PEXCEPTION_POINTERS info)
+{
+	// This runs when the process is actually going to crash (unhandled exception).
+	FILE* f = openCrashFile();
+	if (f)
+	{
+		const DWORD code = info->ExceptionRecord->ExceptionCode;
+		void* addr = info->ExceptionRecord->ExceptionAddress;
+
+		std::string addrStr = formatAddress(addr);
+		std::fprintf(f, "UNHANDLED SEH. Code = 0x%08lX at %s\n", code, addrStr.c_str());
+		std::fclose(f);
+	}
+
+	return EXCEPTION_EXECUTE_HANDLER;
 }
 
 #else  // POSIX side
@@ -299,6 +376,7 @@ void terminateHandler()
 	std::fclose(f);
 	std::abort();
 }
+
 } // anonymous namespace
 
 namespace CrashHandler
@@ -309,11 +387,17 @@ void install()
 
 #ifdef _WIN32
 	initSymbols();
+
+	// Log only real crashes as "unhandled"
+	SetUnhandledExceptionFilter(unhandledFilter);
+
+	// Optional: keep VEH for extra visibility, but now filtered (won't spam with 0x40010006).
 	AddVectoredExceptionHandler(1, vectoredHandler);
 #else
 	signal(SIGSEGV, signalHandler);
 	signal(SIGABRT, signalHandler);
 #endif
+
 	std::set_terminate(terminateHandler);
 }
 
@@ -322,10 +406,13 @@ void log(const std::string& message)
 	FILE* f = openCrashFile();
 	if (!f)
 		return;
+
 	std::fprintf(f, "%s\n", message.c_str());
+
 #ifndef _WIN32
 	writeStackTrace(f);
 #endif
+
 	std::fclose(f);
 }
 }

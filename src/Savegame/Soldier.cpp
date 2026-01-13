@@ -60,7 +60,11 @@ std::string Soldier::getCoopName()
 }
 void Soldier::setCoopName(std::string name)
 {
-	_coopname = name;
+	if (name != "" && _coopname == "")
+	{
+		_coopname = name;
+	}
+
 }
 std::string Soldier::coopSoldierID()
 {
@@ -330,9 +334,20 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	if (_dailyDogfightExperienceCache.firing > 0 || _dailyDogfightExperienceCache.reactions > 0 || _dailyDogfightExperienceCache.bravery > 0)
 		writer.write("dailyDogfightExperienceCache", _dailyDogfightExperienceCache);
 	writer.write("rank", _rank);
-	// coop
-	if (_craft && connectionTCP::playerInsideCoopBase == false)
-		_craft->saveId(writer["craft"]);
+	if (_craft)
+	{
+		// coop
+		Base* base = _craft->getBase();
+		if (base && base->_coopBase == true)
+		{
+			// do nothing
+		}
+		else
+		{
+			_craft->saveId(writer["craft"]);
+		}
+
+	}
 	writer.write("gender", _gender);
 	writer.write("look", _look);
 	writer.write("lookVariant", _lookVariant);

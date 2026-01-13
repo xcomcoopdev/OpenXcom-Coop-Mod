@@ -2303,7 +2303,17 @@ void DebriefingState::reequipCraft(Base *base, Craft *craft, bool vehicleItemsCa
 	ItemContainer craftVehicles;
 	for (auto* vehicle : *craft->getVehicles())
 	{
-		craftVehicles.addItem(vehicle->getRules());
+
+		// coop fix
+		if (vehicle->getCoopCraft() == -1)
+		{
+			craftVehicles.addItem(vehicle->getRules());
+		}
+		else
+		{
+			base->getStorageItems()->removeItem(vehicle->getRules());
+		}
+
 	}
 
 	// Now we know how many vehicles (separated by types) we have to read

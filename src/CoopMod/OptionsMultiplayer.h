@@ -39,14 +39,16 @@ class OptionsMultiplayerState : public OptionsBaseState
 	TextList *_lstOptions;
 	bool _isTFTD;
 	Uint8 _colorGroup, _greyedOutColor;
-	std::vector<OptionInfo> _settingsGeneral[OPTION_OWNER_MAX];
+	std::vector<OptionInfo> _settingsControls[OPTION_OWNER_MAX];
 	std::vector<OptionInfo> _settingsGeo[OPTION_OWNER_MAX];
 	std::vector<OptionInfo> _settingsBase[OPTION_OWNER_MAX];
 	std::vector<OptionInfo> _settingsBattle[OPTION_OWNER_MAX];
-	std::vector<OptionInfo> _settingsAI[OPTION_OWNER_MAX];
+	std::vector<OptionInfo> _settingsGeneral[OPTION_OWNER_MAX];
 
 	int _offsetGeneralMin = -1;
 	int _offsetGeneralMax = -1;
+	int _offsetControlsMin = -1;
+	int _offsetControlsMax = -1;
 	int _offsetGeoMin = -1;
 	int _offsetGeoMax = -1;
 	int _offsetBaseMin = -1;

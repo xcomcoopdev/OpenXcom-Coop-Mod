@@ -1248,6 +1248,17 @@ void Globe::drawRadars()
 						if (tr < MAX_DRAW_RADAR_CIRCLE_RADIUS && tr > range) range = tr;
 					}
 				}
+
+				// coop
+				if (xbase->_coopBase == false)
+				{
+					xbase->_range_coop = range;
+				}
+				if (xbase->_range_coop != 0 && xbase->_coopBase == true)
+				{
+					range = xbase->_range_coop;
+				}
+	
 				range = Nautical(range);
 
 				if (range>0) drawGlobeCircle(lat,lon,range,48);

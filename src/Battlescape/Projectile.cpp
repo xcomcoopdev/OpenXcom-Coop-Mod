@@ -216,10 +216,18 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			max_shots = conf->shots;
 		}
 
+		bool accuracyLossCoop = false;
+		double accuracyLossCoopValue = 0;
+
 		for (int i = 0; i < max_shots; ++i)
 		{
 
-			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine);
+			if (i > 0)
+			{
+				accuracyLossCoop = true;
+			}
+
+			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine, accuracyLossCoop, &accuracyLossCoopValue);
 
 			Json::Value projectile(Json::objectValue);
 
@@ -416,7 +424,7 @@ int Projectile::calculateThrow(double accuracy)
  * @param keepRange Whether range affects accuracy.
  * @param extendLine should this line get extended to maximum distance?
  */
-void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine)
+void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop, double *accuracyLossCoopValue)
 {
 
 	// coop
@@ -529,6 +537,7 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 
 		double distance = realDistance / 16; // distance in tiles, but still fractional
 		double accuracyLoss = 0.0;
+
 		if (distance > upperLimit)
 		{
 			accuracyLoss = (dropoff * (distance - upperLimit)) / 100;
@@ -537,7 +546,18 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 		{
 			accuracyLoss = (dropoff * (lowerLimit - distance)) / 100;
 		}
+
+		// coop fix
+		if (accuracyLossCoopValue)
+		{
+			if (accuracyLossCoop)
+				accuracyLoss = *accuracyLossCoopValue;
+			else
+				*accuracyLossCoopValue = accuracyLoss;
+		}
+
 		accuracy = std::max(0.0, accuracy - accuracyLoss);
+
 	}
 
 	int xDist = abs(origin.x - target->x);

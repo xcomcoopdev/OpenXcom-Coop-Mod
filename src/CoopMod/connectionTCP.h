@@ -39,8 +39,11 @@
 #include "Profile.h"
 #include "ChatMenu.h"
 
+#include "../Engine/Options.h"
+
 #include "../Savegame/Ufo.h"
 
+#include "CrashHandler.h" // coop
 
 #include <algorithm> // clamp, minmax
 #include <cmath>     // round
@@ -57,6 +60,12 @@ inline void DebugLog(const std::string& msg)
 #else
 	std::fprintf(stderr, "%s\n", msg.c_str());
 #endif
+
+	if (OpenXcom::Options::logInfoToFile && OpenXcom::Options::debugMode)
+	{
+		CrashHandler::log(msg);
+	}
+
 }
 
 inline void DebugLog(const char* msg)
@@ -272,6 +281,8 @@ class connectionTCP
 
 	static bool _enable_xcom_equipment_aliens_pvp;
 
+	static bool _reset_timeunits_onturnchange_pvp;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -324,6 +335,8 @@ class connectionTCP
 	std::vector<Position> _trajectoryCoop;
 
 	std::string _debriefing_coop_title = "";
+
+	std::string load_state = "Please wait";
 
 };
 

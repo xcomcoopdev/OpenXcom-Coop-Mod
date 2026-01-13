@@ -664,6 +664,18 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	int detectionChance = 0;
 	UfoDetection detectionType = DETECTION_NONE;
 
+	// coop
+	if (_coopBase == true)
+	{
+		radar_max_range = _range_coop;
+
+		if (_range_coop >= distance)
+		{
+			radar_chance = 1;
+		}
+
+	}
+
 	if (alreadyTracked)
 	{
 		if (hyperwave || hyperwave_chance > 0)
@@ -2732,6 +2744,11 @@ std::vector<Craft*>::iterator Base::removeCraft(Craft *craft, bool unload)
 		}
 	}
 	return c;
+}
+
+ItemContainer* Base::getItemsCoop()
+{
+	return _items;
 }
 
 }

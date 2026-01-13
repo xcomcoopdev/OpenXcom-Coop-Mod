@@ -262,7 +262,9 @@ CoopState::CoopState(int state)
 
 		}
 
-		_txtTitle->setText("Please wait...");
+		_game->getCoopMod()->load_state = "Please wait";
+
+		_txtTitle->setText(_game->getCoopMod()->load_state + "...");
 
 		_btnBack->setText("Disconnect");
 		_btnBack->setVisible(true);
@@ -502,17 +504,17 @@ void CoopState::think()
 
 			if (state_counter == 0)
 			{
-				_txtTitle->setText("Please wait.");
+				_txtTitle->setText(_game->getCoopMod()->load_state + ".");
 				state_counter = 1;
 			}
 			else if (state_counter == 1)
 			{
-				_txtTitle->setText("Please wait..");
+				_txtTitle->setText(_game->getCoopMod()->load_state + "..");
 				state_counter = 2;
 			}
 			else if (state_counter == 2)
 			{
-				_txtTitle->setText("Please wait...");
+				_txtTitle->setText(_game->getCoopMod()->load_state + "...");
 				state_counter = 0;
 			}
 
@@ -809,10 +811,14 @@ void CoopState::loadWorld()
 						for (auto& vehicle : *client_craft->getVehicles())
 						{
 
-							if (selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && (vehicle->getCoopBase() == selected_base->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
+							// check if this vehicle item exists in the base inventory
+							int vehicle_count = selected_base->getItemsCoop()->getItem(vehicle->getRules());
+						
+							if ((selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && vehicle->getCoopBase() == selected_base->_coop_base_id && (vehicle_count > 0)) || _game->getCoopMod()->getCoopCampaign() == false)
 							{
 
 								selected_craft->makeCoopVehicle(vehicle);
+
 							}
 						}
 					}
@@ -907,7 +913,32 @@ void CoopState::loadWorld()
 					// clear all vehicles and soldiers from the base
 					newbase->getSoldiers()->clear();
 
+					for (auto &temp_craft : *newbase->getCrafts())
+					{
+				
+						auto& vehicles = *temp_craft->getVehicles();
+
+						for (auto it = vehicles.begin(); it != vehicles.end();)
+						{
+							Vehicle* temp_vehicle = *it;
+
+							const RuleItem* rule = temp_vehicle->getRules();
+							newbase->getItemsCoop()->addItem(rule);
+
+							if (rule->getVehicleClipAmmo())
+							{
+								newbase->getItemsCoop()->addItem(rule->getVehicleClipAmmo(), rule->getVehicleClipsLoaded());
+							}
+
+							it = vehicles.erase(it);
+							delete temp_vehicle;
+						}
+				
+					}
+
 					newbase->getVehicles()->clear();
+
+					newbase->cleanupDefenses(false);
 
 					for (auto* unit_base : *oldsave->getBases())
 					{
@@ -926,7 +957,27 @@ void CoopState::loadWorld()
 									if (old_vehicle->getCoopBase() == newbase->_coop_base_id && new_craft->getType() == old_vehicle->getCoopCraftType() && new_craft->getId() == old_vehicle->getCoopCraft())
 									{
 
-										new_craft->getVehicles()->push_back(old_vehicle->clone());
+										// check if this vehicle item exists in the base inventory
+										int vehicle_count = newbase->getItemsCoop()->getItem(old_vehicle->getRules());
+
+										if (vehicle_count > 0)
+										{
+
+											Vehicle* deep_vehicle = old_vehicle->clone();
+
+											new_craft->getVehicles()->push_back(deep_vehicle);
+
+											const RuleItem* v_rule = deep_vehicle->getRules();
+
+											newbase->getItemsCoop()->removeItem(v_rule);
+
+											const RuleItem* ammo = v_rule->getVehicleClipAmmo();
+											int ammoPerVehicle = v_rule->getVehicleClipsLoaded();
+
+											newbase->getItemsCoop()->removeItem(ammo, ammoPerVehicle);
+
+										}
+
 
 										break;
 
@@ -937,9 +988,7 @@ void CoopState::loadWorld()
 							}
 
 						}
-
-
-					
+						
 						// soldiers
 						for (auto& soldier : *unit_base->getSoldiers())
 						{

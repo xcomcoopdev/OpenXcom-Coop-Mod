@@ -362,6 +362,9 @@ public:
 	const Texture* getGlobeTexture() const { return _globeTexture; }
 	/// Sets the base's globe texture.
 	void setGlobeTexture(const Texture* globeTexture) { _globeTexture = globeTexture; }
+	// coop
+	ItemContainer* getItemsCoop();
+	int _range_coop = 0;
 };
 
 }

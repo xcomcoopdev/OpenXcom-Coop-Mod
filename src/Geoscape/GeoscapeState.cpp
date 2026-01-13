@@ -1175,6 +1175,7 @@ void GeoscapeState::think()
 			root["state"] = "target_positions";
 
 			int craft_index = 0;
+			int base_index = 0;
 
 			// crafts
 			for (auto* base : *_game->getSavedGame()->getBases())
@@ -1182,6 +1183,12 @@ void GeoscapeState::think()
 
 				if (base->_coopBase == false)
 				{
+
+					// new!!!
+					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
+					root["bases"][base_index]["range_coop"] = base->_range_coop;
+
+					base_index++;
 
 					for (auto* craft : *base->getCrafts())
 					{

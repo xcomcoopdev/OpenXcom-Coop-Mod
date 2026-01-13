@@ -91,7 +91,7 @@ private:
 	bool isReversed() const;
 	/// adds a cloud of particles at the projectile's location
 	void addVaporCloud();
-	void applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine);
+	void applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop = false, double* accuracyLossCoopValue = 0);
 };
 
 }

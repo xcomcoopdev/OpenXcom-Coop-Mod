@@ -93,6 +93,9 @@ OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;
 OPT bool EnableXcomEquipmentAliensPVP;
+OPT bool resetTimeUnitsOnTurnChangePVP;
+OPT bool debugMode;
+OPT bool logInfoToFile;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

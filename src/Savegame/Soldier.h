@@ -94,7 +94,7 @@ private:
 	// coop
 	int _coopbase = -1;
 	int _coopcraft = -1;
-	std::string _coopname;
+	std::string _coopname = "";
 	std::string _coopcraft_type;
   public:
 	void setCoopCraft(int craft);
