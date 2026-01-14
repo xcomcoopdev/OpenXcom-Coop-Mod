@@ -652,6 +652,9 @@ void NextTurnState::close()
 						root["units"][index]["setDirection"] = unit->getDirection();
 						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
 
+						root["units"][index]["setTurretDirection"] = unit->getTurretDirection();
+						root["units"][index]["setTurretToDirection"] = unit->getTurretToDirection();
+
 						// motions points (fix)
 						root["units"][index]["motionpoints"] = unit->getMotionPoints();
 

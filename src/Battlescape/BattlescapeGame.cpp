@@ -457,6 +457,9 @@ void BattlescapeGame::turnPlayerTargetAfter(std::string obj_str)
 	int setDirection = obj["setDirection"].asInt();
 	int setFaceDirection = obj["setFaceDirection"].asInt();
 
+	int setTurretDirection = obj["setTurretDirection"].asInt();
+	int setTurretToDirection = obj["setTurretToDirection"].asInt();
+
 	BattleUnit* unit = 0;
 
 	bool found_unit = false;
@@ -479,6 +482,9 @@ void BattlescapeGame::turnPlayerTargetAfter(std::string obj_str)
 	unit->abortTurn();
 	unit->setFaceDirection(setFaceDirection);
 	unit->setDirection(setDirection);
+
+	unit->setDirectionTurretCoop(setTurretDirection);
+	unit->setTurretToDirectionCoop(setTurretToDirection);
 
 }
 

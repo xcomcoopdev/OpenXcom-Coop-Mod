@@ -365,6 +365,7 @@ public:
 	// coop
 	ItemContainer* getItemsCoop();
 	int _range_coop = 0;
+	int _range_detection = 0;
 };
 
 }

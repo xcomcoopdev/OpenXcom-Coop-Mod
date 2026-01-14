@@ -270,6 +270,10 @@ public:
 	void setDirection(int direction);
 	/// Sets the unit's face direction (only used by strafing moves)
 	void setFaceDirection(int direction);
+	// coop
+	void setDirectionTurretCoop(int direction);
+	// coop
+	void setTurretToDirectionCoop(int direction);
 	/// Gets the unit's direction.
 	int getDirection() const;
 	/// Gets the unit's face direction (only used by strafing moves)

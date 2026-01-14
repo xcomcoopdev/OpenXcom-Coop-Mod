@@ -253,7 +253,6 @@ CoopState::CoopState(int state)
 				{
 
 					soldier->setCoopBase(-1);
-					soldier->setCoopName("");
 					soldier->setCoopCraft(-1);
 					soldier->setCoopCraftType("");
 				}

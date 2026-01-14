@@ -1382,6 +1382,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int setDirection = obj["setDirection"].asInt();
 		int setFaceDirection = obj["setFaceDirection"].asInt();
 
+		int setTurretDirection = obj["setTurretDirection"].asInt();
+		int setTurretToDirection = obj["setTurretToDirection"].asInt();
+
 		BattleUnit *selected_unit = 0;
 
 		// abort path
@@ -1403,6 +1406,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						selected_unit = unit;
 						unit->setDirection(setDirection);
 						unit->setFaceDirection(setFaceDirection);
+
+						unit->setDirectionTurretCoop(setTurretDirection);
+						unit->setTurretToDirectionCoop(setTurretToDirection);
+
 						_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(x, y, z, unit);
 
 						break;
@@ -2660,6 +2667,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int setDirection = obj["units"][i]["setDirection"].asInt();
 							int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
 
+							int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
+							int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
+
 							bool respawn = obj["units"][i]["respawn"].asBool();
 
 							int fire = obj["units"][i]["fire"].asInt();
@@ -2669,6 +2679,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							unit->setDirection(setDirection);
 							unit->setFaceDirection(setFaceDirection);
+
+							unit->setDirectionTurretCoop(setTurretDirection);
+							unit->setTurretToDirectionCoop(setTurretToDirection);
 
 							unit->setMotionPointsCoop(motionpoints);
 							unit->setTimeUnits(time);
@@ -3236,6 +3249,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				int coopbase_id = obj["bases"][i]["coopbase_id"].asInt();
 				int range_coop = obj["bases"][i]["range_coop"].asInt();
+				int range_detection = obj["bases"][i]["range_detection"].asInt();
 
 				for (auto &temp_base : *_game->getSavedGame()->getBases())
 				{
@@ -3244,6 +3258,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					{
 
 						temp_base->_range_coop = range_coop;
+						temp_base->_range_detection = range_detection;
 
 						break;
 					}
@@ -4105,6 +4120,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								int setDirection = obj["units"][i]["setDirection"].asInt();
 								int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
 
+								int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
+								int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
+
 								bool respawn = obj["units"][i]["respawn"].asBool();
 
 								bool fire = obj["units"][i]["fire"].asInt();
@@ -4112,6 +4130,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								unit->setDirection(setDirection);
 								unit->setFaceDirection(setFaceDirection);
+
+								unit->setDirectionTurretCoop(setTurretDirection);
+								unit->setTurretToDirectionCoop(setTurretToDirection);
 
 								unit->setMotionPointsCoop(motionpoints);
 								unit->setTimeUnits(time);

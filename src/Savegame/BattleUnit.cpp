@@ -1013,6 +1013,16 @@ void BattleUnit::setFaceDirection(int direction)
 	_faceDirection = direction;
 }
 
+void BattleUnit::setDirectionTurretCoop(int direction)
+{
+	_directionTurret = direction;
+}
+
+void BattleUnit::setTurretToDirectionCoop(int direction)
+{
+	_toDirectionTurret = direction;
+}
+
 /**
  * Gets the BattleUnit's (horizontal) direction.
  * @return horizontal direction

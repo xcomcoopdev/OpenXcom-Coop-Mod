@@ -1029,7 +1029,8 @@ void DebriefingState::btnOkClick(Action *)
 				}
 			}
 
-			if (Options::storageLimitsEnforced && _base->storesOverfull())
+			// coop fix
+			if (Options::storageLimitsEnforced && _base->storesOverfull() && (_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false))
 			{
 				_game->pushState(new SellState(_base, 0, OPT_BATTLESCAPE));
 				_game->pushState(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(_base->getName()), _palette, _game->getMod()->getInterface("debriefing")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("debriefing")->getElement("errorPalette")->color));

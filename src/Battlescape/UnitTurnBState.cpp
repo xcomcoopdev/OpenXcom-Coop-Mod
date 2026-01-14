@@ -61,6 +61,10 @@ void UnitTurnBState::deinit()
 
 		obj["setDirection"] = _unit->getDirection();
 		obj["setFaceDirection"] = _unit->getFaceDirection();
+
+		obj["setTurretDirection"] = _unit->getTurretDirection();
+		obj["setTurretToDirection"] = _unit->getTurretToDirection();
+
 		obj["unit_id"] = _unit->getId();
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());

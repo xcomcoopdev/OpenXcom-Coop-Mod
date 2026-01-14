@@ -1188,6 +1188,15 @@ void GeoscapeState::think()
 					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
 					root["bases"][base_index]["range_coop"] = base->_range_coop;
 
+					int range_detection = base->getShortRangeDetection();
+
+					if (range_detection == 0)
+					{
+						range_detection = base->getLongRangeDetection();
+					}
+
+					root["bases"][base_index]["range_detection"] = range_detection;
+
 					base_index++;
 
 					for (auto* craft : *base->getCrafts())

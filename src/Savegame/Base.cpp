@@ -671,7 +671,7 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 
 		if (_range_coop >= distance)
 		{
-			radar_chance = 1;
+			radar_chance = _range_detection;
 		}
 
 	}
