@@ -53,8 +53,6 @@
 namespace OpenXcom
 {
 
-std::vector<Soldier*> base__oldsoldiers2;
-
 /**
  * Initializes all the elements in the Craft Soldiers screen.
  * @param game Pointer to the core game.
@@ -209,7 +207,7 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	{
 		std::vector<Soldier*> coopSoldiers;
 
-		base__oldsoldiers2 = *_base->getSoldiers();
+		_base->base_oldsoldiers2 = *_base->getSoldiers();
 
 		for (auto* soldier : *_base->getSoldiers())
 		{
@@ -340,7 +338,7 @@ void CraftSoldiersState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 		// coop
-		*_base->getSoldiers() = base__oldsoldiers2;
+		*_base->getSoldiers() = _base->base_oldsoldiers2;
 	}
 
 	_game->popState();

@@ -96,6 +96,7 @@ OPT bool EnableXcomEquipmentAliensPVP;
 OPT bool resetTimeUnitsOnTurnChangePVP;
 OPT bool debugMode;
 OPT bool logInfoToFile;
+OPT bool debugCoopMenu;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

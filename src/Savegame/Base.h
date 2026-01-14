@@ -366,6 +366,8 @@ public:
 	ItemContainer* getItemsCoop();
 	int _range_coop = 0;
 	int _range_detection = 0;
+	std::vector<Soldier*> base_oldsoldiers;
+	std::vector<Soldier*> base_oldsoldiers2;
 };
 
 }

@@ -51,8 +51,6 @@
 namespace OpenXcom
 {
 
-std::vector<Soldier*> base_oldsoldiers;
-
 /**
  * Initializes all the elements in the Soldiers screen.
  * @param game Pointer to the core game.
@@ -252,7 +250,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 	{
 		std::vector<Soldier*> coopSoldiers;
 
-		base_oldsoldiers = *_base->getSoldiers();
+		_base->base_oldsoldiers = *_base->getSoldiers();
 
 		for (auto* soldier : *_base->getSoldiers())
 		{
@@ -749,10 +747,10 @@ void SoldiersState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
 	{
 		// coop
-		_filteredListOfSoldiers = base_oldsoldiers;
-		*_base->getSoldiers() = base_oldsoldiers;
+		_filteredListOfSoldiers = _base->base_oldsoldiers;
+		*_base->getSoldiers() = _base->base_oldsoldiers;
 
-		base_oldsoldiers.clear();
+		_base->base_oldsoldiers.clear();
 
 	}
 

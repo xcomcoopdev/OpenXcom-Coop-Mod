@@ -81,6 +81,8 @@ private:
 	connectionTCP* getCoopMod();
 	/// Cleans up all the game's resources and shuts down SDL.
 	~Game();
+	// coop
+	std::list<State*> getStatesCoop();
 	/// Starts the game's state machine.
 	void run();
 	/// Quits the game.

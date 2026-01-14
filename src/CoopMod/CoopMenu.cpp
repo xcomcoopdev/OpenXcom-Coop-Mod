@@ -844,6 +844,12 @@ void CoopMenu::disconnect(Action *action)
 		}
 	}
 
+	// coop
+	if (Options::debugCoopMenu == true)
+	{
+		Options::debugCoopMenu = false;
+	}
+
 }
 
 
@@ -854,7 +860,32 @@ void CoopMenu::disconnect(Action *action)
 void CoopMenu::btnCancelClick(Action *)
 {
 
-	_game->popState();
+	if (Options::debugCoopMenu == false)
+	{
+
+		_game->popState();
+
+	}
+	else
+	{
+
+		for (auto* state : _game->getStatesCoop())
+		{
+			if (!state)
+				continue;
+
+			auto* coop = _game->getCoopMod();
+
+			const std::string msg =
+				std::string("state: ") + typeid(*state).name() +
+				" | session: " + std::string(coop->isCoopSession() ? "true" : "false") +
+				" | connected: " + std::to_string(coop->isConnected()) +
+				" | host: " + std::string(coop->getHost() ? "true" : "false");
+
+			DebugLog(msg);
+		}
+
+	}
 
 
 }

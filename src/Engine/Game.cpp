@@ -142,6 +142,11 @@ Game::~Game()
 	SDL_Quit();
 }
 
+std::list<State*> Game::getStatesCoop()
+{
+	return _states;
+}
+
 /**
  * The state machine takes care of passing all the events from SDL to the
  * active state, running any code within and blitting all the states and

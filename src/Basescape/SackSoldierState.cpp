@@ -183,6 +183,28 @@ void SackSoldierState::btnOkClick(Action *)
 		_base->getStorageItems()->addItem(soldier->getArmor()->getStoreItem());
 	}
 	_base->getSoldiers()->erase(_base->getSoldiers()->begin() + _soldierId);
+
+	// coop fix
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		if (!_base->base_oldsoldiers.empty())
+		{
+
+			_base->base_oldsoldiers.erase(_base->base_oldsoldiers.begin() + _soldierId);
+
+		}
+
+		if (!_base->base_oldsoldiers2.empty())
+		{
+
+			_base->base_oldsoldiers2.erase(_base->base_oldsoldiers2.begin() + _soldierId);
+
+		}
+
+
+	}
+
 	delete soldier;
 
 	_game->popState();
