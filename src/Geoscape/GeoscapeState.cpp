@@ -1554,7 +1554,7 @@ void GeoscapeState::timeAdvance()
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true)
 	{
 
 		timeSpan = 1;

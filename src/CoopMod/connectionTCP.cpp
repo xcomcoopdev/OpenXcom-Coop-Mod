@@ -4501,7 +4501,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			connectionTCP::_enable_reaction_shoot = Options::EnableReactionFirePvp;
 		}
 
-		root["enable_reaction_shoot"] = connectionTCP::_enable_time_sync;
+		// reaction shoot
+		root["enable_reaction_shoot"] = connectionTCP::_enable_reaction_shoot;
 
 		// other player footsteps sounds
 		connectionTCP::_enable_other_player_footsteps = Options::EnableOtherPlayerFootsteps;
