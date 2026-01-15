@@ -552,18 +552,36 @@ void connectionTCP::updateCoopTask()
 
 			try
 			{
+
 				Json::CharReaderBuilder rb;
+				std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+
 				Json::Value obj;
 				std::string errs;
-				std::istringstream ss(jsonStr);
-				if (!Json::parseFromStream(rb, ss, &obj, &errs))
+
+				const char* begin = jsonStr.data();
+				const char* end = begin + jsonStr.size();
+
+				if (!reader->parse(begin, end, &obj, &errs))
 				{
-					DebugLog(("JSON parse error: " + errs + "\n").c_str());
+					DebugLog(std::string("JSON parse error: ") + errs + "\n");
 					continue; // drop malformed
 				}
 
 				const std::string stateString = obj.get("state", "defaultState").asString();
 				const int fromId = obj.get("from", -1).asInt();
+
+				// debug mode
+				if (Options::logPacketMessages == true && Options::logInfoToFile == true)
+				{
+				
+					std::string str_debug =
+						std::string("task completed: ") + (_coop_task_completed ? "true" : "false") +
+						"   packet name: " + stateString +
+						"   packet data: " + obj.toStyledString();
+
+					DebugLog(str_debug);
+				}
 
 				// Make operator precedence explicit:
 				const bool consumeNow =
@@ -966,40 +984,61 @@ void connectionTCP::startTCPClient()
 			// ---- Parse frames ----
 			while (recvBuffer.size() >= 4)
 			{
-				uint32_t msgLen;
-				std::memcpy(&msgLen, recvBuffer.data(), 4);
-				msgLen = SDL_SwapBE32(msgLen);
-				if (msgLen > kMaxMsgLen)
+
+				uint32_t msgLenNet = 0;
+				std::memcpy(&msgLenNet, recvBuffer.data(), 4);
+				uint32_t msgLen = SDL_SwapBE32(msgLenNet);
+
+				if (msgLen == 0 || msgLen > kMaxMsgLen)
 				{
-					DebugLog("Client: message too large, disconnecting\n");
+					DebugLog("Client: invalid message size, disconnecting\n");
 					onConnect = -3;
 					onceTime = false;
 					goto client_cleanup;
 				}
-				if (recvBuffer.size() < 4 + msgLen)
+
+				const size_t need = 4ull + static_cast<size_t>(msgLen);
+				if (recvBuffer.size() < need)
 					break;
 
-				std::string message(recvBuffer.begin() + 4, recvBuffer.begin() + 4 + msgLen);
-				recvBuffer.erase(recvBuffer.begin(), recvBuffer.begin() + 4 + msgLen);
+				std::string message(
+					reinterpret_cast<const char*>(recvBuffer.data() + 4),
+					static_cast<size_t>(msgLen));
+
+				recvBuffer.erase(recvBuffer.begin(), recvBuffer.begin() + need);
 
 				if (!message.empty())
 				{
-					// Handle PONG internally, push others to RX queue for the game thread
+
+					// Handle PING/PONG internally, push others to RX queue for the game thread
 					Json::CharReaderBuilder rb;
+					std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+
 					Json::Value obj;
 					std::string errs;
-					std::istringstream ss(message);
-					if (Json::parseFromStream(rb, ss, &obj, &errs))
+
+					const char* begin = message.data();
+					const char* end = begin + message.size();
+
+					if (reader->parse(begin, end, &obj, &errs))
 					{
 						if (maybeHandlePingOnClient(obj))
 							continue;
+
 						if (maybeHandlePongOnClient(obj))
 							continue;
 					}
+					else
+					{
+						DebugLog(std::string("JSON parse failed: ") + errs + "\n");
+						continue; // drop invalid JSON
+					}
+
 					if (!g_rxQ.push(std::move(message)))
 					{
 						DebugLog("RX queue full, dropping message\n");
 					}
+
 				}
 			}
 		}
@@ -1154,12 +1193,13 @@ void connectionTCP::startTCPHost()
 			// Parse frames
 			while (clientSock && recvBuffer.size() >= 4)
 			{
-				uint32_t msgLen;
-				std::memcpy(&msgLen, recvBuffer.data(), 4);
-				msgLen = SDL_SwapBE32(msgLen);
-				if (msgLen > kMaxMsgLen)
+				uint32_t msgLenNet = 0;
+				std::memcpy(&msgLenNet, recvBuffer.data(), 4);
+				uint32_t msgLen = SDL_SwapBE32(msgLenNet);
+
+				if (msgLen == 0 || msgLen > kMaxMsgLen)
 				{
-					DebugLog("Host: message too large, drop client\n");
+					DebugLog("Host: invalid message size, drop client\n");
 					onConnect = -3;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
@@ -1167,32 +1207,44 @@ void connectionTCP::startTCPHost()
 					recvBuffer.clear();
 					break;
 				}
-				if (recvBuffer.size() < 4 + msgLen)
+
+				const size_t need = 4ull + static_cast<size_t>(msgLen);
+				if (recvBuffer.size() < need)
 					break;
 
-				std::string message(recvBuffer.begin() + 4, recvBuffer.begin() + 4 + msgLen);
-				recvBuffer.erase(recvBuffer.begin(), recvBuffer.begin() + 4 + msgLen);
+				std::string message(
+					reinterpret_cast<const char*>(recvBuffer.data() + 4),
+					static_cast<size_t>(msgLen));
+
+				recvBuffer.erase(recvBuffer.begin(), recvBuffer.begin() + need);
 
 				if (!message.empty())
 				{
 					Json::CharReaderBuilder rb;
+					std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+
 					Json::Value obj;
 					std::string errs;
-					std::istringstream ss(message);
-					if (Json::parseFromStream(rb, ss, &obj, &errs))
+
+					const char* begin = message.data();
+					const char* end = begin + message.size();
+
+					if (reader->parse(begin, end, &obj, &errs))
 					{
-						// 1) Jos tuli PING clientiltä → vastaa heti PONGilla (sinulla oli tämä jo)
 						if (maybeHandlePingOnHost(obj))
 							continue;
 
-						// 2) Jos tuli PONG (vastauksena hostin omaan PINGiin) → laske ja loggaa
 						if (maybeHandlePongOnHost(obj))
 							continue;
 					}
-					if (!g_rxQ.push(std::move(message)))
+					else
 					{
-						DebugLog("RX queue full, dropping message\n");
+						DebugLog(std::string("Host: JSON parse failed: ") + errs + "\n");
+						continue; // drop invalid JSON
 					}
+
+					if (!g_rxQ.push(std::move(message)))
+						DebugLog("RX queue full, dropping message\n");
 				}
 			}
 		}

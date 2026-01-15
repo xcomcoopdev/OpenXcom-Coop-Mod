@@ -581,6 +581,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugCoopMenu", &debugCoopMenu, false, "Enable COOP Menu Debug Mode", "STR_AI"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 
 }
 

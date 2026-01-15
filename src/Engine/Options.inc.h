@@ -97,6 +97,7 @@ OPT bool resetTimeUnitsOnTurnChangePVP;
 OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool debugCoopMenu;
+OPT bool logPacketMessages;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
