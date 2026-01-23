@@ -71,7 +71,7 @@ private:
 	RuleInventory *getSlotInPosition(int *x, int *y) const;
 	/// Play a sound.
 	void playSound(int sound);
-public:
+  public:
 	/// Creates a new inventory view at the specified position and size.
 	Inventory(Game *game, int width, int height, int x = 0, int y = 0, bool base = false);
 	/// Cleans up the inventory.
@@ -132,6 +132,11 @@ public:
 	void animate();
 	/// Get current animation frame for inventory.
 	int getAnimFrame() const { return _animFrame; }
+
+	// coop
+	RuleInventory *getInventorySlotGroundCoop();
+	// coop
+	bool hasCoopItem(BattleUnit* unit, const BattleItem* item);
 };
 
 }

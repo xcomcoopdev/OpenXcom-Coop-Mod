@@ -5548,6 +5548,26 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 			obj["isFuseEnabled"] = item->isFuseEnabled();
 			obj["getAmmoQuantity"] = item->getAmmoQuantity();
 
+			// new!!!
+			obj["coopbase"] = _save->getBattleGame()->getCoopMod()->playerInsideCoopBase;
+			obj["slot_type"] = _save->getBattleGame()->getCoopMod()->InventoryTypeToInt(INV_GROUND);
+			obj["other_coop_inventory"] = _save->getBattleGame()->getCoopMod()->coopInventory;
+			obj["item_type"] = item->getRules()->getType();
+
+
+			obj["item_slot_type"] = 2;
+			if (item->getSlot())
+			{
+				obj["item_slot_type"] = _save->getBattleGame()->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+			}
+
+			obj["coopItems"] = Json::nullValue;
+			obj["coop_item_id"] = item->getCoopID();
+
+			obj["coopbase_id"] = -1;
+			obj["craft_id"] = -1;
+			obj["craft_type"] = "";
+
 			obj["slot_ammo"] = 0;
 
 			// fix

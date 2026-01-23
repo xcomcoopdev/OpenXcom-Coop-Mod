@@ -112,13 +112,11 @@ Inventory::Inventory(Game *game, int width, int height, int x, int y, bool base)
 	_xMax = 0;
 	_occupiedSlotsCache.resize(_groundSlotsY, std::vector<char>(_groundSlotsX * 2, false));
 
-
 	// coop
-	if (battleSave && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->coopInventory == true)
+	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
 		_game->getCoopMod()->syncCoopInventory();
 	}
-
 
 }
 
@@ -529,8 +527,13 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
 void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
 {
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleState() && _game->getCoopMod()->playerInsideCoopBase == false)
+	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
+
+		if (!_selUnit)
+		{
+			return;
+		}
 
 		// check coop unit
 		if ((_selUnit->getCoop() != 0 && _game->getCoopMod()->getHost() == true) || (_selUnit->getCoop() == 0 && _game->getCoopMod()->getHost() == false) && _game->getCoopMod()->coopInventory == true)
@@ -544,50 +547,128 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 			return;
 		}
 
-		Json::Value obj;
-		obj["state"] = "Inventory";
-		obj["item_name"] = item->getRules()->getName();
-		obj["inv_id"] = slot->getId();
-		obj["inv_x"] = x;
-		obj["inv_y"] = y;
-		obj["slot_x"] = item->getSlotX();
-		obj["slot_y"] = item->getSlotY();
-		obj["unit_id"] = _selUnit->getId();
-		obj["item_id"] = item->getId();
-		obj["move_cost"] = item->getMoveToCost(slot);
+		bool send = true;
 
-		obj["getHealQuantity"] = item->getHealQuantity();
-		obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
-		obj["getStimulantQuantity"] = item->getStimulantQuantity();
-		obj["getFuseTimer"] = item->getFuseTimer();
-		obj["getXCOMProperty"] = item->getXCOMProperty();
-		obj["isAmmo"] = item->isAmmo();
-		obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
-		obj["isFuseEnabled"] = item->isFuseEnabled();
-		obj["getAmmoQuantity"] = item->getAmmoQuantity();
-
-		obj["slot_ammo"] = 0;
-
-		// fix
-		if (_selItem)
+		// coop fix
+		if (item && slot && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->getCoopCampaign() == true)
 		{
-			obj["sel_item_name"] = _selItem->getRules()->getName();
-			obj["sel_item_id"] = _selItem->getId();
-		}
-		else
-		{
-			obj["sel_item_name"] = "";
-			obj["sel_item_id"] = -1;
+
+			if (item->getSlot()->getType() == INV_GROUND && slot->getType() == INV_GROUND)
+			{
+				send = false;
+			}
+			else
+			{
+
+				bool coopItem = hasCoopItem(_selUnit, item);
+
+				if (coopItem && _game->getCoopMod()->playerInsideCoopBase == true)
+				{
+					return;
+				}
+
+			}
+
 		}
 
-		obj["tile_x"] = -1;
-		obj["tile_y"] = -1;
-		obj["tile_z"] = -1;
+		// send packet message
+		if (send)
+		{
+			
+			Json::Value obj;
+			obj["state"] = "Inventory";
+			obj["item_name"] = item->getRules()->getName();
+			obj["inv_id"] = slot->getId();
+			obj["inv_x"] = x;
+			obj["inv_y"] = y;
+			obj["slot_x"] = item->getSlotX();
+			obj["slot_y"] = item->getSlotY();
+			obj["unit_id"] = _selUnit->getId();
+			obj["item_id"] = item->getId();
+			obj["move_cost"] = item->getMoveToCost(slot);
 
-		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+			obj["getHealQuantity"] = item->getHealQuantity();
+			obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
+			obj["getStimulantQuantity"] = item->getStimulantQuantity();
+			obj["getFuseTimer"] = item->getFuseTimer();
+			obj["getXCOMProperty"] = item->getXCOMProperty();
+			obj["isAmmo"] = item->isAmmo();
+			obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
+			obj["isFuseEnabled"] = item->isFuseEnabled();
+			obj["getAmmoQuantity"] = item->getAmmoQuantity();
+
+			// new!!!
+			obj["coopbase"] = _game->getCoopMod()->playerInsideCoopBase;
+			obj["slot_type"] = _game->getCoopMod()->InventoryTypeToInt(slot->getType());
+			obj["other_coop_inventory"] = _game->getCoopMod()->coopInventory;
+			obj["item_type"] = item->getRules()->getType();
+
+			obj["item_slot_type"] = 2;
+			if (item->getSlot())
+			{
+				obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+			}
+
+			obj["coopbase_id"] = -1;
+			obj["craft_id"] = -1;
+			obj["craft_type"] = "";
+			obj["coopItems"] = Json::nullValue;
+			obj["coop_item_id"] = item->getCoopID();
+
+			if (_selUnit->getGeoscapeSoldier() && _game->getCoopMod()->getCoopCampaign() == true  && _game->getCoopMod()->coopInventory == false)
+			{
+
+				if (_selUnit->getGeoscapeSoldier()->getCraft())
+				{
+
+					if (_selUnit->getGeoscapeSoldier()->getCraft()->getBase())
+					{
+
+						obj["coopbase_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
+
+						//  save items
+						_game->getSavedGame()->getSavedBattle()->moveBaseCoopInventorySave(_selUnit->getGeoscapeSoldier()->getCraft()->getBase(), _selUnit->getGeoscapeSoldier()->getCraft(), item, _game->getCoopMod()->InventoryTypeToInt(slot->getType()));
+
+						int item_index = 0;
+						for (auto& coopItem : _selUnit->getGeoscapeSoldier()->getCraft()->getCoopItems())
+						{
+
+							obj["coopItems"][item_index]["id"] = coopItem.id;
+							obj["coopItems"][item_index]["type"] = coopItem.type;
+							obj["coopItems"][item_index]["owner"] = coopItem.owner;
+
+							item_index++;
+						}
+
+					}
+
+					obj["craft_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getId();
+					obj["craft_type"] = _selUnit->getGeoscapeSoldier()->getCraft()->getType();
+				}
+			}
+
+			obj["slot_ammo"] = 0;
+
+			// fix
+			if (_selItem)
+			{
+				obj["sel_item_name"] = _selItem->getRules()->getName();
+				obj["sel_item_id"] = _selItem->getId();
+			}
+			else
+			{
+				obj["sel_item_name"] = "";
+				obj["sel_item_id"] = -1;
+			}
+
+			obj["tile_x"] = -1;
+			obj["tile_y"] = -1;
+			obj["tile_z"] = -1;
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+		}
 
 	}
-
 
 	_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(_selUnit->getTile(), _selUnit, item, slot, x, y);
 }
@@ -717,20 +798,6 @@ void Inventory::think()
 	_warning->think();
 	_animTimer->think(0,this);
 
-	// coop inv reset
-	if (_game->getCoopMod()->getCoopStatic())
-	{
-
-		if (_game->getCoopMod()->resetCoopInventory == true)
-		{
-			_game->getCoopMod()->resetCoopInventory = false;
-
-			//arrangeGround(1);
-
-		}
-
-	}
-
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && getSelectedItem() == nullptr))
 	{
@@ -845,6 +912,7 @@ void Inventory::mouseClick(Action *action, State *state)
 				BattleItem *item = _selUnit->getItem(slot, x, y);
 				if (item != 0)
 				{
+
 					if (_game->isShiftPressed())
 					{
 						bool quickUnload = false;
@@ -1050,7 +1118,7 @@ void Inventory::mouseClick(Action *action, State *state)
 					x += _groundOffset;
 				}
 				BattleItem *item = _selUnit->getItem(slot, x, y);
-
+			
 				bool canStack = slot->getType() == INV_GROUND && canBeStacked(item, _selItem);
 
 				// Check if this inventory section supports the item
@@ -1208,6 +1276,42 @@ void Inventory::mouseClick(Action *action, State *state)
 
 										obj["slot_ammo"] = slotAmmo;
 
+										// new!!!
+										obj["coopbase"] = _game->getCoopMod()->playerInsideCoopBase;
+										obj["slot_type"] = _game->getCoopMod()->InventoryTypeToInt(slot->getType());
+										obj["other_coop_inventory"] = _game->getCoopMod()->coopInventory;
+										obj["item_type"] = item->getRules()->getType();
+				
+										obj["item_slot_type"] = 2;
+										if (item->getSlot())
+										{
+											obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+										}
+
+										obj["coopbase_id"] = -1;
+										obj["craft_id"] = -1;
+										obj["craft_type"] = "";
+										obj["coopItems"] = Json::nullValue;
+										obj["coop_item_id"] = item->getCoopID();
+
+										if (_selUnit->getGeoscapeSoldier())
+										{
+
+											if (_selUnit->getGeoscapeSoldier()->getCraft())
+											{
+
+												if (_selUnit->getGeoscapeSoldier()->getCraft()->getBase())
+												{
+
+													obj["coopbase_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
+					
+												}
+
+												obj["craft_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getId();
+												obj["craft_type"] = _selUnit->getGeoscapeSoldier()->getCraft()->getType();
+											}
+										}
+
 										// fix
 										if (_selItem)
 										{
@@ -1263,6 +1367,7 @@ void Inventory::mouseClick(Action *action, State *state)
 				{
 					x += _groundOffset;
 					BattleItem *item = _selUnit->getItem(slot, x, y);
+	
 					if (canBeStacked(item, _selItem))
 					{
 						if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
@@ -1306,6 +1411,7 @@ void Inventory::mouseClick(Action *action, State *state)
 						BattleItem *item = _selUnit->getItem(slot, x, y);
 						if (item != 0)
 						{
+			
 							const BattleFuseType fuseType = item->getRules()->getFuseTimerType();
 							if (fuseType != BFT_NONE)
 							{
@@ -1992,6 +2098,11 @@ void Inventory::animate()
 	drawSelectedItem();
 }
 
+RuleInventory* Inventory::getInventorySlotGroundCoop()
+{
+	return _inventorySlotGround;
+}
+
 /**
  * Play a sound.
  */
@@ -2001,6 +2112,46 @@ void Inventory::playSound(int sound)
 	{
 		_game->getMod()->getSoundByDepth(_depth, sound)->play();
 	}
+}
+
+bool Inventory::hasCoopItem(BattleUnit* unit, const BattleItem* item)
+{
+
+	if (_game->getCoopMod()->getCoopStatic() == false)
+		return false;
+
+	if (!unit || !item)
+		return false;
+
+	if (_game->getCoopMod()->coopInventory != false)
+		return false;
+
+	if (_game->getCoopMod()->getCoopCampaign() != true)
+		return false;
+
+	auto* geo = unit->getGeoscapeSoldier();
+	if (!geo)
+		return false;
+
+	auto* craft = geo->getCraft();
+	if (!craft)
+		return false;
+
+	auto* base = craft->getBase();
+	if (!base)
+		return false;
+
+	for (const auto& ci : craft->getCoopItems())
+	{
+
+		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_coopBase)
+		{
+			return true;
+		}
+
+	}
+
+	return false;
 }
 
 }

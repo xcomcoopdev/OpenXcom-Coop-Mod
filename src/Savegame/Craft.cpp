@@ -141,6 +141,9 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 	reader.tryRead("damage", _damage);
 	reader.tryRead("shield", _shield);
 
+	// coop
+	reader.tryRead("coopItems", _coopItems);
+
 	int j = 0;
 	for (const auto& weaponsReader : reader["weapons"].children())
 	{
@@ -362,6 +365,14 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 		writer.write("excessFuel", _excessFuel);
 	writer.write("damage", _damage);
 	writer.write("shield", _shield);
+	// coop
+	if (!_coopItems.empty() && _base)
+	{
+		if (_base->_coopBase == false)
+		{
+			writer.write("coopItems", _coopItems);
+		}
+	}
 	writer.write("weapons", _weapons,
 		[](YAML::YamlNodeWriter& vectorWriter, CraftWeapon* w)
 		{
@@ -644,6 +655,11 @@ std::vector<CraftWeapon*> *Craft::getWeapons()
 ItemContainer *Craft::getItems()
 {
 	return _items;
+}
+
+std::vector<CoopItem>& Craft::getCoopItems()
+{
+	return _coopItems;
 }
 
 /**
@@ -2446,6 +2462,27 @@ void write(ryml::NodeRef* n, VehicleDeploymentData const& val)
 	writer.write("pos", val.pos);
 	writer.write("dir", val.dir);
 	// writer.write("used", val.used); // not needed
+}
+
+bool read(ryml::ConstNodeRef const& n, CoopItem* val)
+{
+	YAML::YamlNodeReader reader(n);
+	if (!reader.isMap())
+		return false;
+	reader.tryRead("id", val->id);
+	reader.tryRead("name", val->type);
+	reader.tryRead("owner", val->owner);
+	return true;
+}
+
+void write(ryml::NodeRef* n, CoopItem const& val)
+{
+	YAML::YamlNodeWriter writer(*n);
+	writer.setAsMap();
+	writer.setFlowStyle();
+	writer.write("id", val.id);
+	writer.write("name", val.type);
+	writer.write("owner", val.owner);
 }
 
 }

@@ -1271,6 +1271,16 @@ bool BattleItem::isAmmo() const
 	return _isAmmo;
 }
 
+void BattleItem::setCoopID(int id)
+{
+	_coopID = id;
+}
+
+int BattleItem::getCoopID() const
+{
+	return _coopID;
+}
+
 
 ////////////////////////////////////////////////////////////
 //					Script binding

@@ -100,6 +100,8 @@ private:
 	void setCoopCraft(int craft);
 	int getCoopCraft() const;
 	void setCoopCraftType(std::string type);
+	void setRecentlyPromotedCoop(int recentlyPromoted);
+	int getRecentlyPromotedCoop();
 	std::string getCoopCraftType() const;
 	std::string _cooptype = "none";
 	void setCoopBase(int coopbase);

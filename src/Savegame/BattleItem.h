@@ -48,6 +48,8 @@ class BattleItem
 {
 private:
 	int _id;
+	// coop
+	int _coopID;
 	const RuleItem *_rules;
 	BattleUnit *_owner, *_previousOwner;
 	BattleUnit *_unit;
@@ -233,6 +235,9 @@ public:
 	void setIsAmmo(bool ammo);
 	/// Checks a flag on the item to see if it's a clip in a weapon or not.
 	bool isAmmo() const;
+	// coop
+	void setCoopID(int id);
+	int getCoopID() const;
 };
 
 }

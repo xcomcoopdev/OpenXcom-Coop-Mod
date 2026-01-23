@@ -68,6 +68,9 @@ static const int _templateBtnX = 288;
 static const int _createTemplateBtnY = 90;
 static const int _applyTemplateBtnY  = 113;
 
+// coop
+std::string coopItemText = "";
+
 /**
  * Initializes all the elements in the Inventory screen.
  * @param game Pointer to the core game.
@@ -120,6 +123,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtStatLine3 = new Text(70, 9, 245, 48);
 	_txtStatLine4 = new Text(70, 9, 245, 56);
 	_txtItem = new Text(160, 9, 128, 140);
+	_txtCoopItem = new Text(160, 9, 28, 140);
 	_txtAmmo = new Text(66, 24, 254, 64);
 	_btnOk = new BattlescapeButton(35, 22, 237, 1);
 	_btnPrev = new BattlescapeButton(23, 22, 273, 1);
@@ -164,6 +168,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	add(_txtStatLine3, "textStatLine3", "inventory", _bg);
 	add(_txtStatLine4, "textStatLine4", "inventory", _bg);
 	add(_txtItem, "textItem", "inventory", _bg);
+	add(_txtCoopItem, "textItem", "inventory", _bg);
 	add(_txtAmmo, "textAmmo", "inventory", _bg);
 	add(_btnOk, "buttonOK", "inventory", _bg);
 	add(_btnPrev, "buttonPrev", "inventory", _bg);
@@ -225,6 +230,9 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtStatLine4->setHighContrast(true);
 
 	_txtItem->setHighContrast(true);
+	// coop
+	coopItemText = "Equipped by " + _game->getCoopMod()->getCurrentClientName();
+	_txtCoopItem->setHighContrast(true);
 
 	_txtAmmo->setAlign(ALIGN_CENTER);
 	_txtAmmo->setHighContrast(true);
@@ -355,7 +363,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtStatLine4->setVisible(Options::showMoreStatsInInventoryView && !_tu);
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->coopInventory == true)
 	{
 
 		_btnCreateTemplate->setVisible(false);
@@ -364,20 +372,94 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 	}
 
-	if (_game->getSavedGame()->getSavedBattle()->getSelectedUnit())
+	if (_battleGame->getSelectedUnit())
 	{
 		// coop
-		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		if ((_game->getCoopMod()->getHost() == true && _battleGame->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _battleGame->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
 		{
 
 			_coopOwner->setVisible(true);
 
 		}
-		else if ((_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		else if ((_game->getCoopMod()->getHost() == false && _battleGame->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == true && _battleGame->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
 		{
 
 			_coopOwner->setVisible(false);
 
+		}
+		
+		// coop base
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
+		{
+
+			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
+			{
+
+				if (_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft())
+				{
+
+					if (_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getBase())
+					{
+
+						Json::Value root;
+						root["state"] = "request_coop_items";
+
+						root["coopbase_id"] = _battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
+						root["craft_id"] = _battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getId();
+						root["craft_type"] = _battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getRules()->getType();
+
+						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+					}
+
+				}
+
+			}
+
+		}
+
+		// coop base
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == false)
+		{
+
+			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
+			{
+
+				if (_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft())
+				{
+
+					if (_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getBase())
+					{
+
+						auto& coopItems = _battleGame->getSelectedUnit()
+											  ->getGeoscapeSoldier()
+											  ->getCraft()
+											  ->getCoopItems();
+
+						// Remove all owned items (owner == true)
+						coopItems.erase(
+							std::remove_if(coopItems.begin(), coopItems.end(),
+										   [](const CoopItem& x)
+										   {
+											   return x.owner == true;
+										   }),
+							coopItems.end());
+
+						// Re-add owned items from current battle items (non-ground)
+						for (auto* item : *_battleGame->getItems())
+						{
+							if (!item || !item->getSlot())
+								continue;
+
+							if (item->getSlot()->getType() == INV_GROUND)
+								continue;
+
+							coopItems.push_back({item->getCoopID(), item->getRules()->getType(), true});
+						}
+
+					}
+				}
+			}
 		}
 
 	}
@@ -558,6 +640,7 @@ void InventoryState::init()
 			// reset armor tooltip
 			_currentTooltip = "";
 			_txtItem->setText("");
+			_txtCoopItem->setText("");
 
 			// reload done
 			_reloadUnit = false;
@@ -1202,6 +1285,7 @@ void InventoryState::btnOkClick(Action*)
 	if (_inv->getSelectedItem() != 0)
 		return;
 	_game->popState();
+
 	if (!_tu)
 	{
 		if (_base || !Options::oxceAlternateCraftEquipmentManagement)
@@ -1298,6 +1382,7 @@ void InventoryState::btnUnloadClick(Action *)
 	if (_inv->unload(false))
 	{
 		_txtItem->setText("");
+		_txtCoopItem->setText("");
 		_txtAmmo->setText("");
 		_selAmmo->clear();
 		updateStats();
@@ -1394,6 +1479,18 @@ void InventoryState::_createInventoryTemplate(std::vector<EquipmentLayoutItem*> 
 	// also work as expected if inventory is modified after 'create' is clicked
 	for (const auto* bi : *_battleGame->getSelectedUnit()->getInventory())
 	{
+
+		// coop
+		if (_inv)
+		{
+
+			bool coopItem = _inv->hasCoopItem(_battleGame->getSelectedUnit(), bi);
+
+			if (coopItem)
+				continue;
+
+		}
+
 		// skip fixed items
 		if (bi->getRules()->isFixed())
 		{
@@ -1658,8 +1755,11 @@ void InventoryState::_applyInventoryTemplate(std::vector<EquipmentLayoutItem*> &
 			continue;
 		}
 
+		//coop
+		bool coopItem = _inv->hasCoopItem(unit, matchedWeapon);
+
 		// check if the slot is not occupied already (e.g. by a fixed weapon)
-		if (matchedWeapon && !_inv->overlapItems(
+		if (!coopItem && matchedWeapon && !_inv->overlapItems(
 			unit,
 			matchedWeapon,
 			equipmentLayoutItem->getSlot(),
@@ -2048,10 +2148,34 @@ void InventoryState::invMouseOver(Action *)
 			ss << item->getTotalWeight();
 			ss << "]";
 			_txtItem->setText(ss.str().c_str());
+
+			// coop
+			if (_inv)
+			{
+				bool coopItem = _inv->hasCoopItem(_battleGame->getSelectedUnit(), item);
+
+				if (coopItem)
+				{
+					_txtCoopItem->setText(coopItemText);
+				}
+
+			}
+
 		}
 		else
 		{
 			_txtItem->setText(itemName);
+
+			// coop
+			if (_inv)
+			{
+				bool coopItem = _inv->hasCoopItem(_battleGame->getSelectedUnit(), item);
+
+				if (coopItem)
+				{
+					_txtCoopItem->setText(coopItemText);
+				}
+			}
 		}
 
 		_selAmmo->clear();
@@ -2082,6 +2206,7 @@ void InventoryState::invMouseOver(Action *)
 		if (_currentTooltip.empty())
 		{
 			_txtItem->setText("");
+			_txtCoopItem->setText("");
 		}
 		_txtAmmo->setText("");
 		_selAmmo->clear();
@@ -2096,6 +2221,7 @@ void InventoryState::invMouseOver(Action *)
 void InventoryState::invMouseOut(Action *)
 {
 	_txtItem->setText("");
+	_txtCoopItem->setText("");
 	_txtAmmo->setText("");
 	_selAmmo->clear();
 	_inv->setMouseOverItem(0);
@@ -2232,6 +2358,43 @@ void InventoryState::handle(Action *action)
  */
 void InventoryState::think()
 {
+
+	// coop
+	if (connectionTCP::moveCoopItems == true && _battleGame)
+	{
+
+		if (_battleGame->getSelectedUnit())
+		{
+
+			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
+			{
+
+				moveCoopItemsToGround(_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft(), _battleGame->getSelectedUnit());
+
+				connectionTCP::moveCoopItems = false;
+
+			}
+
+		}
+
+	}
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_selectedItemID != -1 && _game->getCoopMod()->_selectedItemType != "" && _inv && _inv->getSelectedItem())
+	{
+
+		if (_inv->getSelectedItem()->getId() == _game->getCoopMod()->_selectedItemID && _inv->getSelectedItem()->getRules()->getType() == _game->getCoopMod()->_selectedItemType)
+		{
+
+			_inv->setSelectedItem(0);
+
+		}
+
+		_game->getCoopMod()->_selectedItemID = -1;
+		_game->getCoopMod()->_selectedItemType = "";
+
+	}
+
 	if (_mouseHoverItem)
 	{
 		int anim = _inv->getAnimFrame();
@@ -2328,6 +2491,7 @@ void InventoryState::txtTooltipInExtraOK(Action *action)
 		}
 
 		_txtItem->setText(ss.str().c_str());
+
 	}
 }
 
@@ -2357,6 +2521,7 @@ void InventoryState::txtTooltipOut(Action *action)
 		{
 			_currentTooltip = "";
 			_txtItem->setText("");
+			_txtCoopItem->setText("");
 		}
 	}
 }
@@ -2412,8 +2577,71 @@ void InventoryState::txtArmorTooltipOut(Action *action)
 		{
 			_currentTooltip = "";
 			_txtItem->setText("");
+			_txtCoopItem->setText("");
 		}
 	}
+}
+
+void InventoryState::moveCoopItemsToGround(Craft* craft, BattleUnit* unit)
+{
+
+	if (craft && _inv && _game->getCoopMod()->getCoopCampaign() == true && unit)
+	{
+
+		if (!craft->getBase())
+			return;
+
+		if (craft->getBase()->_coopBase == false)
+			return;
+
+		std::vector<const BattleItem*> checkedItems;
+
+		auto isChecked = [&](const BattleItem* p)
+		{
+			return std::find(checkedItems.begin(), checkedItems.end(), p) != checkedItems.end();
+		};
+
+		for (const auto& coopItem : craft->getCoopItems())
+		{
+
+			if (coopItem.owner != craft->getBase()->_coopBase)
+				continue;
+
+			for (auto &item : *_game->getSavedGame()->getSavedBattle()->getItems())
+			{
+
+				if (isChecked(item))
+					continue;
+
+				if (!item->getSlot())
+					continue;
+
+				if (item->getSlot()->getType() != INV_GROUND)
+				{
+
+					bool coopItem = _inv->hasCoopItem(unit, item);
+
+					if (coopItem)
+					{
+
+						const RuleInventory* newSlot = _inv->getInventorySlotGroundCoop();
+						_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(
+							item->getOwner()->getTile(), item->getOwner(), item, newSlot, 0, 0);
+
+						checkedItems.push_back(item);
+
+						break;
+
+					}
+
+				}
+
+			}
+
+		}
+
+	}
+
 }
 
 void InventoryState::updateTemplateButtons(bool isVisible)

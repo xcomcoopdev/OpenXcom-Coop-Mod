@@ -71,6 +71,14 @@ struct VehicleDeploymentData
 	VehicleDeploymentData() : pos(-1, -1, -1), dir(0), used(false) { }
 };
 
+// coop
+struct CoopItem
+{
+	int id;
+	std::string type;
+	bool owner;
+};
+
 /**
  * Represents a craft stored in a base.
  * Contains variable info about a craft like
@@ -92,6 +100,8 @@ private:
 	int _fuel, _excessFuel, _damage, _shield, _interceptionOrder, _takeoff;
 	std::vector<CraftWeapon*> _weapons;
 	ItemContainer *_items;
+	// coop
+	std::vector<CoopItem> _coopItems;
 	ItemContainer *_tempSoldierItems;
 	ItemContainer *_tempExtraItems;
 	std::vector<Vehicle*> _vehicles;
@@ -171,6 +181,8 @@ public:
 	std::vector<CraftWeapon*> *getWeapons();
 	/// Gets the craft's items.
 	ItemContainer *getItems();
+	// coop
+	std::vector<CoopItem>& getCoopItems();
 	/// Gets the craft's items equipped by the soldiers.
 	ItemContainer* getSoldierItems();
 	/// Gets the craft's items not equipped by the soldiers.
@@ -383,10 +395,15 @@ public:
 	bool coop = false;
 	int coop_total_vehicles = -1;
 	int coop_total_soldiers = -1;
+
 };
 
 // helper overloads for (de)serialization
 bool read(ryml::ConstNodeRef const& n, VehicleDeploymentData* val);
 void write(ryml::NodeRef* n, VehicleDeploymentData const& val);
+
+// coop
+bool read(ryml::ConstNodeRef const& n, CoopItem* val);
+void write(ryml::NodeRef* n, CoopItem const& val);
 
 }

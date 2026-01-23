@@ -448,7 +448,7 @@ public:
 	/// Create new special built-in item for unit.
 	BattleItem *createItemForUnitSpecialBuiltin(const RuleItem *rule, BattleUnit *unit);
 	/// Create new item for tile.
-	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr);
+	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr, int coopID = 0);
 	/// Create new item for tile.
 	BattleItem *createItemForTile(const std::string& type, Tile *tile);
 	/// Create new temporary item.
@@ -673,6 +673,8 @@ public:
 	// coop
 	void abortPathCoop();
 	void coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov);
+	bool moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type, int item_slot_type, std::string str_coop_items);
+	void moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem* item, int slot_type_int);
 };
 
 }

@@ -831,7 +831,16 @@ void DebriefingState::init()
 		}
 	}
 
-	if (Options::oxceAutomaticPromotions)
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		_promotions = _game->getCoopMod()->_coop_promotions;
+
+	}
+
+	// coop
+	if (Options::oxceAutomaticPromotions && ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true) || (_game->getCoopMod()->getCoopStatic() == false)))
 	{
 		_promotions = _game->getSavedGame()->handlePromotions(participants, _game->getMod());
 	}
@@ -856,6 +865,19 @@ void DebriefingState::init()
 
 		root["abort"] = false;
 		root["title"] = _txtTitle->getText();
+		root["promotions"] = _promotions;
+
+		int soldier_index = 0;
+		for (auto &soldier : participants)
+		{
+
+			root["soldiers"][soldier_index]["coopname"] = soldier->getCoopName();
+			root["soldiers"][soldier_index]["rank"] = _game->getCoopMod()->SoldierRanktoInt(soldier->getRank());
+			root["soldiers"][soldier_index]["promoted"] = soldier->getRecentlyPromotedCoop();
+
+			soldier_index++;
+
+		}
 
 		if (_game->getSavedGame()->getSavedBattle())
 		{

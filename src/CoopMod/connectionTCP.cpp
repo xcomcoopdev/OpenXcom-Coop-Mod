@@ -127,6 +127,8 @@ bool connectionTCP::playerInsideCoopBase = false;
 
 bool connectionTCP::coopInventory = false;
 
+bool connectionTCP::moveCoopItems = false;
+
 std::string current_ping = "";
 
 connectionTCP::connectionTCP(Game* game) : _game(game)
@@ -682,15 +684,56 @@ void connectionTCP::syncCoopInventory()
 		int tile_y = _jsonInventory[i]["tile_y"].asInt();
 		int tile_z = _jsonInventory[i]["tile_z"].asInt();
 
-		if (_game->getSavedGame()->getSavedBattle()->getBattleState())
+		// new!!!
+		bool coopbase = _jsonInventory[i]["coopbase"].asBool();
+		bool other_coop_inventory = _jsonInventory[i]["other_coop_inventory"].asBool();
+		int coopbase_id = _jsonInventory[i]["coopbase_id"].asInt();
+		int craft_id = _jsonInventory[i]["craft_id"].asInt();
+		std::string craft_type = _jsonInventory[i]["craft_type"].asString();
+		int slot_type_int = _jsonInventory[i]["slot_type"].asInt();
+		std::string item_type = _jsonInventory[i]["item_type"].asString();
+		int item_slot_type = _jsonInventory[i]["item_slot_type"].asInt();
+
+		const auto& arr = _jsonInventory[i]["coopItems"];
+		int coop_item_id = _jsonInventory[i]["coop_item_id"].asInt();
+
+		// battle
+		if (coopInventory == true && _game->getSavedGame()->getSavedBattle()->getBattleState())
 		{
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+
+			if (other_coop_inventory == true)
+			{
+
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+
+				_jsonInventory[i] = {};
+			}
 		}
+		// base
+		else if (other_coop_inventory == false)
+		{
 
-		resetCoopInventory = true;
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				bool found = false;
 
-		_jsonInventory[i] = {};
+				std::string coopItems = "";
+
+				if (!arr.isNull())
+				{
+					coopItems = arr.toStyledString();
+				}
+
+				found = _game->getSavedGame()->getSavedBattle()->moveBaseCoopInventory(item_type, coop_item_id, coopbase_id, craft_id, craft_type, slot_type_int, item_slot_type, arr.toStyledString());
+
+				if (found)
+				{
+					_jsonInventory[i] = {};
+				}
+			}
+		}
 	}
+
 }
 
 std::vector<std::string> splitVector(std::string s, std::string delimiter)
@@ -1674,8 +1717,146 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "request_coop_items")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			int coopbase_id = obj["coopbase_id"].asInt();
+			int craft_id = obj["craft_id"].asInt();
+			std::string craft_type = obj["craft_type"].asString();
+
+			Base* current_base = 0;
+			Craft* current_craft = 0;
+
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coop_base_id == coopbase_id)
+				{
+					current_base = base;
+
+					for (auto& craft : *base->getCrafts())
+					{
+
+						if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
+						{
+							current_craft = craft;
+							break;
+						}
+					}
+
+					break;
+				}
+			}
+
+			if (current_base && current_craft)
+			{
+
+				auto& coopItems = current_craft->getCoopItems();
+
+				// save
+				Json::Value obj;
+				obj["state"] = "save_coop_items";
+
+				obj["coopbase_id"] = coopbase_id;
+				obj["craft_id"] = craft_id;
+				obj["craft_type"] = craft_type;
+
+				int item_index = 0;
+				for (auto& coopItem : coopItems)
+				{
+
+					obj["coopItems"][item_index]["id"] = coopItem.id;
+					obj["coopItems"][item_index]["type"] = coopItem.type;
+					obj["coopItems"][item_index]["owner"] = coopItem.owner;
+
+					item_index++;
+				}
+
+				sendTCPPacketData(obj.toStyledString());
+
+			}
+
+		}
+
+
+
+	}
+
+	if (stateString == "save_coop_items")
+	{
+
+		if (_game->getSavedGame())
+		{
+		
+			int coopbase_id = obj["coopbase_id"].asInt();
+			int craft_id = obj["craft_id"].asInt();
+			std::string craft_type = obj["craft_type"].asString();
+
+			Base *current_base = 0;
+			Craft* current_craft = 0;
+
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coop_base_id == coopbase_id)
+				{
+					current_base = base;
+
+					for (auto& craft : *base->getCrafts())
+					{
+
+						if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
+						{
+							current_craft = craft;
+							break;
+						}
+
+					}
+
+					break;
+
+				}
+
+			}
+
+			if (current_base && current_craft)
+			{
+
+				const auto& arr = obj["coopItems"];
+				auto& coopItems = current_craft->getCoopItems();
+
+				std::vector<CoopItem> newItems;
+
+				newItems.reserve(arr.size());
+
+				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+				{
+					const auto& it = arr[i];
+
+					int item_id = it["id"].asInt();
+					std::string item_type = it["type"].asString();
+					bool item_owner = it["owner"].asBool();
+
+					newItems.push_back({item_id, item_type, item_owner});
+				}
+
+				// overwrite
+				coopItems.swap(newItems);
+
+				connectionTCP::moveCoopItems = true;
+
+			}
+
+		}
+
+	}
+
 	if (stateString == "Inventory")
 	{
+
 		std::string inv_id = obj["inv_id"].asString();
 		int inv_x = obj["inv_x"].asInt();
 		int inv_y = obj["inv_y"].asInt();
@@ -1707,18 +1888,66 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int tile_y = obj["tile_y"].asInt();
 		int tile_z = obj["tile_z"].asInt();
 
+		// new!!!
+		bool coopbase = obj["coopbase"].asBool();
+		bool other_coop_inventory = obj["other_coop_inventory"].asBool();
+		int coopbase_id = obj["coopbase_id"].asInt();
+		int craft_id = obj["craft_id"].asInt();
+		std::string craft_type = obj["craft_type"].asString();
+		int slot_type_int = obj["slot_type"].asInt();
+		std::string item_type = obj["item_type"].asString();
+		int item_slot_type = obj["item_slot_type"].asInt();
+
+		const auto& arr = obj["coopItems"];
+		int coop_item_id = obj["coop_item_id"].asInt();
+
+		// battle
 		if (coopInventory == true && _game->getSavedGame()->getSavedBattle())
 		{
 
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+			if (other_coop_inventory == true)
+			{
 
-			resetCoopInventory = true;
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+
+			}
+	
+		}
+		// base
+		else if (other_coop_inventory == false)
+		{
+
+			bool found = false;
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				std::string coopItems = "";
+
+				if (!arr.isNull())
+				{
+
+					coopItems = arr.toStyledString();
+
+				}
+
+				found = _game->getSavedGame()->getSavedBattle()->moveBaseCoopInventory(item_type, coop_item_id, coopbase_id, craft_id, craft_type, slot_type_int, item_slot_type, coopItems);
+
+			}
+
+			if (found == false)
+			{
+				// later...
+				_jsonInventory.append(obj);
+			}
+
 		}
 		else
 		{
 			// later...
 			_jsonInventory.append(obj);
 		}
+
 	}
 
 	if (stateString == "GamePausedON")
@@ -4005,6 +4234,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		bool abort = obj["abort"].asBool();
 		std::string title = obj["title"].asString();
+		bool promotions = obj["promotions"].asBool();
 
 		_AISecondMoveCoop = false;
 		_AIProgressCoop = 100;
@@ -4020,6 +4250,34 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getSavedGame()->getSavedBattle()->getBattleState()->EndCoopBattle();
 
 				_debriefing_coop_title = title;
+
+				_coop_promotions = promotions;
+
+				for (int i = 0; i < obj["soldiers"].size(); i++)
+				{
+
+					std::string coopname = obj["soldiers"][i]["coopname"].asString();
+					int rank_int = obj["soldiers"][i]["rank"].asInt();
+					int promoted = obj["soldiers"][i]["promoted"].asInt();
+
+					for (auto& base : *_game->getSavedGame()->getBases())
+					{
+
+						for (auto& soldier : *base->getSoldiers())
+						{
+
+							if (soldier->getCoopName() == coopname && coopname != "")
+							{
+								soldier->setCoopRank(intToSoldierRank(rank_int));
+								soldier->setRecentlyPromotedCoop(promoted);
+
+								break;
+							}
+						}
+
+					}
+
+				}
 
 				_game->pushState(new DebriefingState);
 
@@ -4696,7 +4954,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// resetTimeUnitsOnTurnChangePVP
 		bool reset_timeunits_onturnchange_pvp = obj["reset_timeunits_onturnchange_pvp"].asBool();
 		connectionTCP::_reset_timeunits_onturnchange_pvp = reset_timeunits_onturnchange_pvp;
-
 
 		for (Json::Value host_mod : obj["mods"])
 		{
@@ -5965,6 +6222,62 @@ ItemDamageType connectionTCP::intToItemDamageType(int type)
 		return DAMAGE_TYPES;
 
 	return DT_NONE;
+}
+
+int connectionTCP::InventoryTypeToInt(InventoryType type)
+{
+	if (type == INV_SLOT)
+		return 0;
+	if (type == INV_HAND)
+		return 1;
+	if (type == INV_GROUND)
+		return 2;
+	return 2;
+}
+
+InventoryType connectionTCP::intToInventoryType(int type)
+{
+	if (type == 0)
+		return INV_SLOT;
+	if (type == 1)
+		return INV_HAND;
+	if (type == 2)
+		return INV_GROUND;
+	return INV_GROUND;
+}
+
+int connectionTCP::SoldierRanktoInt(SoldierRank rank)
+{
+	if (rank == RANK_ROOKIE)
+		return 0;
+	if (rank == RANK_SQUADDIE)
+		return 1;
+	if (rank == RANK_SERGEANT)
+		return 2;
+	if (rank == RANK_CAPTAIN)
+		return 3;
+	if (rank == RANK_COLONEL)
+		return 4;
+	if (rank == RANK_COMMANDER)
+		return 5;
+	return 0;
+}
+
+SoldierRank connectionTCP::intToSoldierRank(int rank)
+{
+	if (rank == 0)
+		return RANK_ROOKIE;
+	if (rank == 1)
+		return RANK_SQUADDIE;
+	if (rank == 2)
+		return RANK_SERGEANT;
+	if (rank == 3)
+		return RANK_CAPTAIN;
+	if (rank == 4)
+		return RANK_COLONEL;
+	if (rank == 5)
+		return RANK_COMMANDER;
+	return RANK_ROOKIE;
 }
 
 void connectionTCP::generateCraftSoldiers()

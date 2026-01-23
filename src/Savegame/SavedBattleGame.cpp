@@ -2062,11 +2062,13 @@ BattleItem *SavedBattleGame::createItemForTile(const std::string& type, Tile *ti
 /**
  * Create new item for tile;
  */
-BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor)
+BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor, int coopID)
 {
 	// Note: this is allowed also in preview mode; for items spawned from map blocks (and friendly units spawned from such items)
 
 	BattleItem *item = new BattleItem(rule, getCurrentItemId());
+	// coop
+	item->setCoopID(coopID);
 	if (tile)
 	{
 		RuleInventory *ground = _rule->getInventoryGround();
@@ -3565,6 +3567,447 @@ void SavedBattleGame::coopExplosionCalc(Position centetTile, int maxRadius, bool
 		// unit is away from blast but its visibility can be affected by scripts.
 		getTileEngine()->calculateFOV(centetTile, 1, false);
 
+	}
+
+}
+
+bool SavedBattleGame::moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type_int, int item_slot_type_int, std::string str_coop_items)
+{
+
+	if (connectionTCP::_coopCampaign == false)
+	{
+		return true;
+	}
+
+	auto* save = getGeoscapeSave();
+
+	if (!save)
+		return false;
+
+
+	Craft* current_craft = 0;
+	Base* current_base = 0;
+
+	// BASE
+	for (auto& base : *save->getBases())
+	{
+
+		if (base->_coop_base_id == coopbase_id)
+		{
+
+			current_base = base;
+
+			for (auto& craft : *base->getCrafts())
+			{
+
+				if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
+				{
+					current_craft = craft;
+					break;
+				}
+			}
+
+			break;
+
+		}
+	}
+
+	if (current_craft && current_base)
+	{
+
+		if (current_base->_coopBase == true)
+		{
+
+			auto& coopItems = current_craft->getCoopItems();
+
+			if (str_coop_items != "")
+			{
+
+				Json::Reader reader;
+				Json::Value arr;
+
+				reader.parse(str_coop_items, arr);
+
+				std::vector<CoopItem> newItems;
+
+				newItems.reserve(arr.size());
+
+				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+				{
+					const auto& it = arr[i];
+
+					int item_id = it["id"].asInt();
+					std::string item_type = it["type"].asString();
+					bool item_owner = it["owner"].asBool();
+
+					newItems.push_back({item_id, item_type, item_owner});
+				}
+
+				// overwrite
+				coopItems.swap(newItems);
+
+			}
+			else
+			{
+
+				coopItems.clear();
+
+			}
+
+			connectionTCP::moveCoopItems = true;
+
+			return true;
+
+
+		}
+		else
+		{
+
+			InventoryType slot_type = INV_GROUND;
+
+			if (slot_type_int == 0)
+			{
+				slot_type = INV_SLOT;
+			}
+			else if (slot_type_int == 1)
+			{
+				slot_type = INV_HAND;
+			}
+			else if (slot_type_int == 2)
+			{
+				slot_type = INV_GROUND;
+			}
+			else
+			{
+				slot_type = INV_GROUND;
+			}
+
+			
+			InventoryType item_slot_type = INV_GROUND;
+
+			if (item_slot_type_int == 0)
+			{
+				item_slot_type = INV_SLOT;
+			}
+			else if (item_slot_type_int == 1)
+			{
+				item_slot_type = INV_HAND;
+			}
+			else if (item_slot_type_int == 2)
+			{
+				item_slot_type = INV_GROUND;
+			}
+			else
+			{
+				item_slot_type_int = INV_GROUND;
+			}
+
+			if (slot_type == INV_GROUND && item_slot_type == INV_GROUND)
+			{
+				return true;
+			}
+
+			BattleItem *current_item = 0;
+
+			for (auto& item : *getItems())
+			{
+
+				if (item->getCoopID() == coop_item_id && item->getRules()->getType() == item_type)
+				{
+
+					current_item = item;
+					break;
+				}
+
+			}
+
+			if (!current_item)
+				return true;
+
+			auto& coopItems = current_craft->getCoopItems();
+
+			// show item
+			if (slot_type == INV_GROUND)
+			{
+
+				auto it = std::find_if(coopItems.begin(), coopItems.end(),
+									   [&](const CoopItem& x)
+									   { return x.id == current_item->getCoopID() && x.type == current_item->getRules()->getType() && x.owner == false; });
+
+				if (it != coopItems.end())
+					coopItems.erase(it);
+			}
+			// hide item
+			else
+			{
+
+				// delete ONE matching item where owner == true
+				for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
+				{
+					if (it->id == current_item->getCoopID() &&
+						it->type == current_item->getRules()->getType() &&
+						it->owner == true)
+					{
+						coopItems.erase(it);
+						break;
+					}
+				}
+
+				// exists?
+				bool item_exists = false;
+				for (const auto& ci : coopItems)
+				{
+					if (ci.id == current_item->getCoopID() &&
+						ci.type == current_item->getRules()->getType() &&
+						ci.owner == true)
+					{
+						item_exists = true;
+						break;
+					}
+				}
+
+				if (!item_exists)
+				{
+					coopItems.push_back({current_item->getCoopID(), current_item->getRules()->getType(), false});
+				}
+			}
+
+			auto* items = getItems();
+
+			// Count how many items of this type actually exist in 'items'
+			int allowed = 0;
+			for (auto* it : *items)
+			{
+				if (it && it->getRules()->getType() == current_item->getRules()->getType())
+					++allowed;
+			}
+
+			// Count how many coopItems of this type we currently have
+			int have = 0;
+			for (const auto& x : coopItems)
+			{
+				if (x.type == current_item->getRules()->getType())
+					++have;
+			}
+
+			int extra = have - allowed;
+			if (extra > 0)
+			{
+
+					// Remove extras by prioritizing owner == true
+					coopItems.erase(
+						std::remove_if(coopItems.begin(), coopItems.end(),
+									   [&](const CoopItem& x)
+									   {
+										   if (extra <= 0)
+											   return false;
+
+										   if (x.type == current_item->getRules()->getType() && x.owner == true)
+										   {
+											   --extra;
+											   return true; // remove
+										   }
+										   return false; // keep
+									   }),
+						coopItems.end());
+
+					// If still extra left, remove remaining extras regardless of owner
+					if (extra > 0)
+					{
+						coopItems.erase(
+							std::remove_if(coopItems.begin(), coopItems.end(),
+										   [&](const CoopItem& x)
+										   {
+											   if (extra <= 0)
+												   return false;
+
+											   if (x.type == current_item->getRules()->getType())
+											   {
+												   --extra;
+												   return true; // remove
+											   }
+											   return false; // keep
+										   }),
+							coopItems.end());
+					}
+
+				}
+
+				// save
+				Json::Value obj;
+				obj["state"] = "save_coop_items";
+
+				obj["coopbase_id"] = coopbase_id;
+				obj["craft_id"] = craft_id;
+				obj["craft_type"] = craft_type;
+
+				int item_index = 0;
+				for (auto& coopItem : coopItems)
+				{
+
+					obj["coopItems"][item_index]["id"] = coopItem.id;
+					obj["coopItems"][item_index]["type"] = coopItem.type;
+					obj["coopItems"][item_index]["owner"] = coopItem.owner;
+
+					item_index++;
+				}
+
+				connectionTCP::sendTCPPacketStaticData2(obj.toStyledString());
+
+				return true;
+
+		}
+
+	}
+
+	return false;
+	
+}
+
+void SavedBattleGame::moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem *item, int slot_type_int)
+{
+
+	if (base && craft && item)
+	{
+
+		if (connectionTCP::_coopCampaign == false)
+		{
+			return;
+		}
+
+		if (base->_coopBase == true)
+		{
+			return;
+		}
+
+		InventoryType slot_type = INV_GROUND;
+
+		if (slot_type_int == 0)
+		{
+			slot_type = INV_SLOT;
+		}
+		else if (slot_type_int == 1)
+		{
+			slot_type = INV_HAND;
+		}
+		else if (slot_type_int == 2)
+		{
+			slot_type = INV_GROUND;
+		}
+		else
+		{
+			slot_type = INV_GROUND;
+		}
+
+		auto& coopItems = craft->getCoopItems();
+
+		// show item
+		if (slot_type == INV_GROUND)
+		{
+
+			auto it = std::find_if(coopItems.begin(), coopItems.end(),
+									[&](const CoopItem& x)
+								   { return x.id == item->getCoopID() && x.type == item->getRules()->getType() && x.owner == true; });
+
+			if (it != coopItems.end())
+				coopItems.erase(it);
+		}
+		// hide item
+		else
+		{
+
+			// delete ONE matching item where owner == false
+			for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
+			{
+				if (it->id == item->getCoopID() &&
+					it->type == item->getRules()->getType() &&
+					it->owner == false)
+				{
+					coopItems.erase(it);
+					break;
+				}
+			}
+
+			// exists?
+			bool item_exists = false;
+			for (const auto& ci : coopItems)
+			{
+				if (ci.id == item->getCoopID() &&
+					ci.type == item->getRules()->getType() &&
+					ci.owner == true)
+				{
+					item_exists = true;
+					break;
+				}
+			}
+
+			if (!item_exists)
+			{
+				coopItems.push_back({item->getCoopID(), item->getRules()->getType(), true});
+			}
+
+	
+		}
+
+		auto* items = getItems();
+
+		// Count how many items of this type actually exist in 'items'
+		int allowed = 0;
+		for (auto* it : *items)
+		{
+			if (it && it->getRules()->getType() == item->getRules()->getType())
+				++allowed;
+		}
+
+		// Count how many coopItems of this type we currently have
+		int have = 0;
+		for (const auto& x : coopItems)
+		{
+			if (x.type == item->getRules()->getType())
+				++have;
+		}
+
+		int extra = have - allowed;
+		if (extra <= 0)
+			return;
+
+		// Remove extras by prioritizing owner == true
+		coopItems.erase(
+			std::remove_if(coopItems.begin(), coopItems.end(),
+							[&](const CoopItem& x)
+							{
+								if (extra <= 0)
+									return false;
+
+								if (x.type == item->getRules()->getType() && x.owner == true)
+								{
+									--extra;
+									return true; // remove
+								}
+								return false; // keep
+							}),
+			coopItems.end());
+
+		// If still extra left, remove remaining extras regardless of owner
+		if (extra > 0)
+		{
+			coopItems.erase(
+				std::remove_if(coopItems.begin(), coopItems.end(),
+								[&](const CoopItem& x)
+								{
+									if (extra <= 0)
+										return false;
+
+									if (x.type == item->getRules()->getType())
+									{
+										--extra;
+										return true; // remove
+									}
+									return false; // keep
+								}),
+				coopItems.end());
+		}
+		
 	}
 
 }

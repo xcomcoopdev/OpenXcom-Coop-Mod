@@ -42,8 +42,10 @@
 #include "../Engine/Options.h"
 
 #include "../Savegame/Ufo.h"
+#include "../Mod/RuleInventory.h"
 
 #include "CrashHandler.h" // coop
+
 
 #include <algorithm> // clamp, minmax
 #include <cmath>     // round
@@ -226,7 +228,6 @@ class connectionTCP
 	bool _waitBH = false; // is the host ready in battle?
 	bool _battleWindow = false; // end turn screen
 	static bool _battleInit; // when both have joined and are ready for battle, initialize
-	bool resetCoopInventory = false;
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
 	void sendFile();
@@ -245,6 +246,10 @@ class connectionTCP
 	ItemDamageRandomType intToItemDamageRandomType(int type);
 	int ItemDamageTypeToInt(ItemDamageType type);
 	ItemDamageType intToItemDamageType(int type);
+	int InventoryTypeToInt(InventoryType type);
+	InventoryType intToInventoryType(int type);
+	int SoldierRanktoInt(SoldierRank rank);
+	SoldierRank intToSoldierRank(int rank);
 
 	// coop projectiles
 	Json::Value _coopProjectilesClient;
@@ -337,6 +342,13 @@ class connectionTCP
 	std::string _debriefing_coop_title = "";
 
 	std::string load_state = "Please wait";
+
+	static bool moveCoopItems;
+
+	int _selectedItemID = -1;
+	std::string _selectedItemType = "";
+
+	bool _coop_promotions = false;
 
 };
 

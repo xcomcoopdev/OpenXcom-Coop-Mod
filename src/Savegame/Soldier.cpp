@@ -923,6 +923,16 @@ void Soldier::setCoopCraftType(std::string type)
 	_coopcraft_type = type;
 }
 
+void Soldier::setRecentlyPromotedCoop(int recentlyPromoted)
+{
+	_recentlyPromoted = recentlyPromoted;
+}
+
+int Soldier::getRecentlyPromotedCoop()
+{
+	return _recentlyPromoted;
+}
+
 std::string Soldier::getCoopCraftType() const
 {
 	return _coopcraft_type;

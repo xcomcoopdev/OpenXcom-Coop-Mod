@@ -396,8 +396,6 @@ int Projectile::calculateThrow(double accuracy)
 
 			_trajectory = _save->getBattleGame()->getCoopMod()->_trajectoryCoop;
 
-			_save->getBattleGame()->getCoopMod()->_trajectoryCoop.clear();
-
 		}
 
 		if (forced) return O_OBJECT; //fake hit

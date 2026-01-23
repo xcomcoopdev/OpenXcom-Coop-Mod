@@ -809,8 +809,11 @@ void ProjectileFlyBState::deinit()
 	// coop
 	_parent->getCoopMod()->_coop_task_completed = true;
 	_parent->getCoopMod()->_coopInitDeath = false;
+	// coop fix
+	_parent->getCoopMod()->_trajectoryCoop.clear();
 
 	_parent->getMap()->setFollowProjectile(true); // turn back on when done shooting
+
 }
 
 /**

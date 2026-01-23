@@ -4289,6 +4289,9 @@ void BattlescapeState::moveCoopInventory(std::string sel_item_name, std::string 
 	if (currentItem)
 	{
 
+		_game->getCoopMod()->_selectedItemID = currentItem->getId();
+		_game->getCoopMod()->_selectedItemType = currentItem->getRules()->getType();
+
 		if (unit)
 		{
 			unit->spendTimeUnits(move_cost);

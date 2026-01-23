@@ -45,7 +45,7 @@ class InventoryState : public State
 {
 private:
 	Surface *_bg, *_soldier;
-	Text *_txtItem, *_txtAmmo, *_txtWeight, *_txtTus, *_txtStatLine1, *_txtStatLine2, *_txtStatLine3, *_txtStatLine4, *_txtPosition;
+	Text *_txtItem, *_txtCoopItem, *_txtAmmo, *_txtWeight, *_txtTus, *_txtStatLine1, *_txtStatLine2, *_txtStatLine3, *_txtStatLine4, *_txtPosition;
 	Text *_txtNameStatic;
 	TextEdit *_txtName;
 	// coo
@@ -160,6 +160,9 @@ public:
 	void txtArmorTooltipIn(Action *action);
 	/// Handler for hiding armor tooltip.
 	void txtArmorTooltipOut(Action *action);
+
+	// coop
+	void moveCoopItemsToGround(Craft* craft, BattleUnit *unit);
 
 private:
 	/// Update the visibility and icons for the template buttons.

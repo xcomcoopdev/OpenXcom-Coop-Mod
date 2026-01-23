@@ -66,6 +66,9 @@
 namespace OpenXcom
 {
 
+// coop
+static std::unordered_map<std::string, int> perTypeCount;
+
 /**
  * Sets up a BattlescapeGenerator.
  * @param game pointer to Game object.
@@ -83,6 +86,10 @@ BattlescapeGenerator::BattlescapeGenerator(Game *game) :
 		_allowAutoLoadout = false;
 	}
 	_inventorySlotGround = _game->getMod()->getInventoryGround();
+
+	// coop
+	perTypeCount.clear();
+
 }
 
 /**
@@ -1262,10 +1269,20 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 			}
 			else
 			{
+
+				// coop
+				int coopCount = perTypeCount[pair.first->getType()];
+
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile);
+					_save->createItemForTile(pair.first, _craftInventoryTile, nullptr, coopCount);
+					// coop
+					coopCount++;
 				}
+
+				// coop
+				perTypeCount[pair.first->getType()] = coopCount;
+
 			}
 		}
 	}
@@ -1368,6 +1385,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 	// auto-equip soldiers (only soldiers without layout) and clean up moved items
 	autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
+
 }
 
 void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod *mod, std::vector<BattleItem*> *craftInv,
