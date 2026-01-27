@@ -1383,8 +1383,17 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	// refresh list
 	tempItemList = *_craftInventoryTile->getInventory();
 
-	// auto-equip soldiers (only soldiers without layout) and clean up moved items
-	autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == false)
+	{
+		// auto-equip soldiers (only soldiers without layout) and clean up moved items
+		autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
+	}
+	else if (_base && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true)
+	{
+		// auto-equip soldiers (only soldiers without layout) and clean up moved items
+		autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
+	}
 
 }
 

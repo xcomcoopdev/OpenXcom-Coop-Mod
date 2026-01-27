@@ -350,6 +350,8 @@ class connectionTCP
 
 	bool _coop_promotions = false;
 
+	int _hasHitUnit = -1;
+
 };
 
 }

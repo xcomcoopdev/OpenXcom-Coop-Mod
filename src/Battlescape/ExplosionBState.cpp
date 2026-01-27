@@ -35,6 +35,9 @@
 namespace OpenXcom
 {
 
+// coop
+bool coopTaskCompleted = false;
+
 /**
  * Sets up an ExplosionBState.
  * @param parent Pointer to the BattleScape.
@@ -379,6 +382,15 @@ void ExplosionBState::init()
  */
 void ExplosionBState::think()
 {
+
+	//  coop
+	if (coopTaskCompleted && _parent->getCoopMod()->_hasHitUnit == -1)
+	{
+		coopTaskCompleted = false;
+		_parent->popState();
+		return;
+	}
+
 	if (!_parent->getMap()->getBlastFlash())
 	{
 		if (_parent->getMap()->getExplosions()->empty())
@@ -469,7 +481,15 @@ void ExplosionBState::explode()
 		_parent->getSave()->removeItem(_attack.damage_item);
 	}
 
-	_parent->popState();
+	// coop
+	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == 1)
+	{
+		coopTaskCompleted = true;
+	}
+	else
+	{
+		_parent->popState();
+	}
 
 	// check for terrain explosions
 	Tile *t = save->getTileEngine()->checkForTerrainExplosions();

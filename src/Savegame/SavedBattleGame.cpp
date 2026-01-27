@@ -1102,6 +1102,14 @@ void SavedBattleGame::setSideCoop(int side)
 	_side = (UnitFaction)side;
 }
 
+void SavedBattleGame::itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems)
+{
+	if (_tileEngine)
+	{
+		_tileEngine->itemDropInventory(t, unit, unprimeItems, deleteFixedItems);
+	}
+}
+
 /**
  * Test if weapon is usable by unit.
  * @param weapon

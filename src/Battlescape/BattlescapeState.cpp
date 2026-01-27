@@ -1423,6 +1423,8 @@ void BattlescapeState::think()
 				_game->getCoopMod()->_waitBC = false;
 				_game->getCoopMod()->_waitBH = false;
 
+				_game->getCoopMod()->_hasHitUnit = -1;
+
 				_game->getCoopMod()->_isActiveAISync = false;
 
 				_battleGame->cancelAllActions();
@@ -4215,7 +4217,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 }
 
-void BattlescapeState::moveCoopInventory(std::string sel_item_name, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int slot_ammo, int sel_item_id, int tile_x, int tile_y, int tile_z)
+void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int tile_x, int tile_y, int tile_z, bool tu, int sel_item_id, std::string sel_item_type, bool unload_weapon)
 {
 
 	if (!_battleGame)
@@ -4292,7 +4294,7 @@ void BattlescapeState::moveCoopInventory(std::string sel_item_name, std::string 
 		_game->getCoopMod()->_selectedItemID = currentItem->getId();
 		_game->getCoopMod()->_selectedItemType = currentItem->getRules()->getType();
 
-		if (unit)
+		if (unit && tu == true)
 		{
 			unit->spendTimeUnits(move_cost);
 		}
@@ -4307,33 +4309,98 @@ void BattlescapeState::moveCoopInventory(std::string sel_item_name, std::string 
 		currentItem->setAmmoQuantity(getAmmoQuantity);
 
 		// weapon reload
-		if (isWeaponWithAmmo == true && sel_item_name != "" && sel_item_id != -1)
+		if (isWeaponWithAmmo == true && ammos_str != "")
 		{
 
-			BattleItem *childItem = 0;
+			Json::Reader reader;
+			Json::Value ammos;
 
-			// clip
-			for (auto &items : *_save->getItems())
+			reader.parse(ammos_str, ammos);
+
+			for (Json::ArrayIndex json_slot = 0; json_slot < ammos.size(); ++json_slot)
 			{
-				if (items->getRules()->getName() == sel_item_name && items->getId() == sel_item_id)
+
+				int ammo_id = ammos[json_slot]["ammo_id"].asInt();
+				std::string ammo_type = ammos[json_slot]["ammo_type"].asString();
+
+				if (ammo_id != -1 && ammo_type != "")
 				{
-					childItem = items;
+
+					BattleItem* childItem = 0;
+
+					// clip
+					for (auto& items : *_save->getItems())
+					{
+						if (items->getRules()->getType() == ammo_type && items->getId() == ammo_id)
+						{
+							childItem = items;
+							break;
+						}
+					}
+
+					if (childItem)
+					{
+
+						// Check if there is ammo
+						if (currentItem->getAmmoForSlot(json_slot))
+						{
+							currentItem->setAmmoForSlot(json_slot, nullptr);
+						}
+
+						currentItem->setAmmoForSlot(json_slot, childItem);
+
+					}
+
+				}
+				else
+				{
+
+					currentItem->setAmmoForSlot(json_slot, nullptr);
+
+				}
+
+			}
+
+		}
+
+		// unload
+		if (isWeaponWithAmmo == false && unload_weapon == true && sel_item_id != -1 && sel_item_type != "")
+		{
+		
+			BattleItem* selectedItem = 0;
+
+			for (auto& items : *_save->getItems())
+			{
+				if (items->getRules()->getType() == sel_item_type && items->getId() == sel_item_id)
+				{
+					selectedItem = items;
 					break;
 				}
 			}
 
-			if (childItem)
+			if (selectedItem)
 			{
 
-				// Check if there is no ammo (fix)
-				if (!currentItem->getAmmoForSlot(slot_ammo))
+				for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
 				{
 
-					currentItem->setAmmoForSlot(slot_ammo, childItem);
+					BattleItem* ammo = selectedItem->getAmmoForSlot(slot);
 
+					if (ammo)
+					{
+
+						if (ammo == currentItem)
+						{
+
+							selectedItem->setAmmoForSlot(slot, nullptr);
+
+						}
+
+					}
 				}
-			
+
 			}
+
 
 
 		}

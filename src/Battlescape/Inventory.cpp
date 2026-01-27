@@ -524,7 +524,7 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
  * @param x X position in slot.
  * @param y Y position in slot.
  */
-void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
+void Inventory::moveItem(BattleItem* item, const RuleInventory* slot, int x, int y, bool unloadWeaponCoop)
 {
 	// COOP
 	if (_game->getCoopMod()->getCoopStatic() == true)
@@ -585,7 +585,8 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 			obj["slot_y"] = item->getSlotY();
 			obj["unit_id"] = _selUnit->getId();
 			obj["item_id"] = item->getId();
-			obj["move_cost"] = item->getMoveToCost(slot);
+
+			obj["move_cost"] = 0;
 
 			obj["getHealQuantity"] = item->getHealQuantity();
 			obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
@@ -607,6 +608,7 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 			if (item->getSlot())
 			{
 				obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+				obj["move_cost"] = item->getMoveToCost(slot);
 			}
 
 			obj["coopbase_id"] = -1;
@@ -647,18 +649,33 @@ void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int
 				}
 			}
 
-			obj["slot_ammo"] = 0;
+			obj["ammos"] = Json::nullValue;
+			obj["tu"] = _tu;
 
-			// fix
+			obj["unload_weapon"] = unloadWeaponCoop;
+			obj["sel_item_id"] = -1;
+			obj["sel_item_type"] = "";
 			if (_selItem)
 			{
-				obj["sel_item_name"] = _selItem->getRules()->getName();
 				obj["sel_item_id"] = _selItem->getId();
+				obj["sel_item_type"] = _selItem->getRules()->getType();
 			}
-			else
+
+			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
 			{
-				obj["sel_item_name"] = "";
-				obj["sel_item_id"] = -1;
+
+				BattleItem* ammo = item->getAmmoForSlot(slot);
+
+				if (ammo)
+				{
+					obj["ammos"][slot]["ammo_id"] = ammo->getId();
+					obj["ammos"][slot]["ammo_type"] = ammo->getRules()->getType();
+				}
+				else
+				{
+					obj["ammos"][slot]["ammo_id"] = -1;
+					obj["ammos"][slot]["ammo_type"] = "";
+				}
 			}
 
 			obj["tile_x"] = -1;
@@ -1262,7 +1279,7 @@ void Inventory::mouseClick(Action *action, State *state)
 										obj["slot_y"] = item->getSlotY();
 										obj["unit_id"] = _selUnit->getId();
 										obj["item_id"] = item->getId();
-										obj["move_cost"] = tuCost;
+										obj["move_cost"] = 0;
 
 										obj["getHealQuantity"] = item->getHealQuantity();
 										obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
@@ -1274,8 +1291,6 @@ void Inventory::mouseClick(Action *action, State *state)
 										obj["isFuseEnabled"] = item->isFuseEnabled();
 										obj["getAmmoQuantity"] = item->getAmmoQuantity();
 
-										obj["slot_ammo"] = slotAmmo;
-
 										// new!!!
 										obj["coopbase"] = _game->getCoopMod()->playerInsideCoopBase;
 										obj["slot_type"] = _game->getCoopMod()->InventoryTypeToInt(slot->getType());
@@ -1286,6 +1301,7 @@ void Inventory::mouseClick(Action *action, State *state)
 										if (item->getSlot())
 										{
 											obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+											obj["move_cost"] = tuCost;
 										}
 
 										obj["coopbase_id"] = -1;
@@ -1312,18 +1328,34 @@ void Inventory::mouseClick(Action *action, State *state)
 											}
 										}
 
-										// fix
+										obj["ammos"] = Json::nullValue;
+										obj["tu"] = _tu;
+
+										obj["unload_weapon"] = false;
+										obj["sel_item_id"] = -1;
+										obj["sel_item_type"] = "";
 										if (_selItem)
 										{
-											obj["sel_item_name"] = _selItem->getRules()->getName();
 											obj["sel_item_id"] = _selItem->getId();
-										}
-										else
-										{
-											obj["sel_item_name"] = "";
-											obj["sel_item_id"] = -1;
+											obj["sel_item_type"] = _selItem->getRules()->getType();
 										}
 
+										for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+										{
+
+											BattleItem* ammo = item->getAmmoForSlot(slot);
+
+											if (ammo)
+											{
+												obj["ammos"][slot]["ammo_id"] = ammo->getId();
+												obj["ammos"][slot]["ammo_type"] = ammo->getRules()->getType();
+											}
+											else
+											{
+												obj["ammos"][slot]["ammo_id"] = -1;
+												obj["ammos"][slot]["ammo_type"] = "";
+											}
+										}
 
 										_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 
@@ -1696,11 +1728,11 @@ bool Inventory::unload(bool quickUnload)
 			auto* oldAmmo = _selItem->setAmmoForSlot(slotForAmmoUnload, nullptr);
 			if (SecondFreeHand != nullptr)
 			{
-				moveItem(oldAmmo, SecondFreeHand, 0, 0); // 2.
+				moveItem(oldAmmo, SecondFreeHand, 0, 0, true); // 2. (coop)
 			}
 			else
 			{
-				moveItem(oldAmmo, _inventorySlotGround, 0, 0); // 2. + 3.
+				moveItem(oldAmmo, _inventorySlotGround, 0, 0, true); // 2. + 3.  // (coop)
 				arrangeGround();
 			}
 		}

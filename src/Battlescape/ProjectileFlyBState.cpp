@@ -75,6 +75,7 @@ void ProjectileFlyBState::init()
 	// coop
 	_parent->getCoopMod()->_coop_task_completed = false;
 	_parent->getCoopMod()->_coopInitDeath = true;
+	_parent->getCoopMod()->_hasHitUnit = -1;
 
 	BattleItem *weapon = _action.weapon;
 
@@ -814,6 +815,16 @@ void ProjectileFlyBState::deinit()
 
 	_parent->getMap()->setFollowProjectile(true); // turn back on when done shooting
 
+	// coop
+	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == true)
+	{
+
+		Json::Value obj;
+		obj["state"] = "hasHitUnit";
+
+		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+
 }
 
 /**
@@ -844,6 +855,18 @@ void ProjectileFlyBState::think()
 				_parent->getMap()->getCamera()->setMapOffset(_action.cameraPosition);
 				_parent->getMap()->invalidate();
 			}
+
+			// coop
+			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == true)
+			{
+
+				Json::Value obj;
+				obj["state"] = "hasHitUnit";
+
+				_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+			}
+
 		}
 		else
 		{
@@ -1185,6 +1208,25 @@ void ProjectileFlyBState::projectileHitUnit(Position pos)
 {
 	BattleUnit *victim = _parent->getSave()->getTile(pos.toTile())->getOverlappingUnit(_parent->getSave());
 	BattleUnit *targetVictim = _parent->getSave()->getTile(_action.target)->getUnit(); // Who we were aiming at (not necessarily who we hit)
+
+	// coop
+	if (victim && _parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == -1)
+	{
+
+		if (_action.weapon && _action.type)
+		{
+
+			auto* conf = _action.weapon->getActionConf(_action.type);
+
+			if (conf->shots > 1)
+			{
+				_parent->getCoopMod()->_hasHitUnit = 1;
+			}
+
+		}
+
+	}
+
 	if (victim && !victim->isOut())
 	{
 		victim->getStatistics()->hitCounter++;

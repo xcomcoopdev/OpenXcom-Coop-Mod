@@ -126,7 +126,7 @@ private:
 	void coopCancelAction();
 	int getCurrentTurn();
 	void setCurrentTurn(int turn);
-	void moveCoopInventory(std::string sel_item_name, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int slot_ammo, int sel_item_id, int tile_x, int tile_y, int tile_z);
+	void moveCoopInventory(std::string ammos, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int tile_x, int tile_y, int tile_z, bool tu, int sel_item_id, std::string sel_item_type, bool unload_weapon);
 	void toggeCoopKneel(int id);
 	void endTurnCoop();
 	void movePlayerTarget(std::string obj);

@@ -591,7 +591,7 @@ void connectionTCP::updateCoopTask()
 						 (stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov") &&
+					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString  == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
 				if (consumeNow)
@@ -672,13 +672,7 @@ void connectionTCP::syncCoopInventory()
 		int isFuseEnabled = _jsonInventory[i]["isFuseEnabled"].asBool();
 		int getAmmoQuantity = _jsonInventory[i]["getAmmoQuantity"].asInt();
 
-		int slot_ammo = _jsonInventory[i]["slot_ammo"].asInt();
-
-		int sel_item_id = _jsonInventory[i]["sel_item_id"].asInt();
-
 		std::string item_name = _jsonInventory[i]["item_name"].asString();
-
-		std::string sel_item_name = _jsonInventory[i]["sel_item_name"].asString();
 
 		int tile_x = _jsonInventory[i]["tile_x"].asInt();
 		int tile_y = _jsonInventory[i]["tile_y"].asInt();
@@ -696,6 +690,13 @@ void connectionTCP::syncCoopInventory()
 
 		const auto& arr = _jsonInventory[i]["coopItems"];
 		int coop_item_id = _jsonInventory[i]["coop_item_id"].asInt();
+		const auto& ammosArr = _jsonInventory[i]["ammos"];
+		bool tu = _jsonInventory[i]["tu"].asBool();
+
+		int sel_item_id = _jsonInventory[i]["sel_item_id"].asInt();
+		std::string sel_item_type = _jsonInventory[i]["sel_item_type"].asString();
+
+		bool unload_weapon = _jsonInventory[i]["unload_weapon"].asBool();
 
 		// battle
 		if (coopInventory == true && _game->getSavedGame()->getSavedBattle()->getBattleState())
@@ -704,7 +705,15 @@ void connectionTCP::syncCoopInventory()
 			if (other_coop_inventory == true)
 			{
 
-				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+				std::string ammos = "";
+
+				if (!ammosArr.isNull())
+				{
+
+					ammos = ammosArr.toStyledString();
+				}
+
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(ammos, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, tile_x, tile_y, tile_z, tu, sel_item_id, sel_item_type, unload_weapon);
 
 				_jsonInventory[i] = {};
 			}
@@ -1876,13 +1885,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int isFuseEnabled = obj["isFuseEnabled"].asBool();
 		int getAmmoQuantity = obj["getAmmoQuantity"].asInt();
 
-		int slot_ammo = obj["slot_ammo"].asInt();
-
 		std::string item_name = obj["item_name"].asString();
-
-		std::string sel_item_name = obj["sel_item_name"].asString();
-
-		int sel_item_id = obj["sel_item_id"].asInt();
 
 		int tile_x = obj["tile_x"].asInt();
 		int tile_y = obj["tile_y"].asInt();
@@ -1898,8 +1901,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string item_type = obj["item_type"].asString();
 		int item_slot_type = obj["item_slot_type"].asInt();
 
-		const auto& arr = obj["coopItems"];
+		const auto& coopItemsArr = obj["coopItems"];
 		int coop_item_id = obj["coop_item_id"].asInt();
+		const auto& ammosArr = obj["ammos"];
+		bool tu = obj["tu"].asBool();
+
+		int sel_item_id = obj["sel_item_id"].asInt();
+		std::string sel_item_type = obj["sel_item_type"].asString();
+
+		bool unload_weapon = obj["unload_weapon"].asBool();
 
 		// battle
 		if (coopInventory == true && _game->getSavedGame()->getSavedBattle())
@@ -1907,8 +1917,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (other_coop_inventory == true)
 			{
+			
+				std::string ammos = "";
 
-				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(sel_item_name, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, slot_ammo, sel_item_id, tile_x, tile_y, tile_z);
+				if (!ammosArr.isNull())
+				{
+
+					ammos = ammosArr.toStyledString();
+				}
+
+				_game->getSavedGame()->getSavedBattle()->getBattleState()->moveCoopInventory(ammos, item_name, inv_id, inv_x, inv_y, unit_id, item_id, move_cost, slot_x, slot_y, getHealQuantity, getPainKillerQuantity, getStimulantQuantity, getFuseTimer, getXCOMProperty, isAmmo, isWeaponWithAmmo, isFuseEnabled, getAmmoQuantity, tile_x, tile_y, tile_z, tu, sel_item_id, sel_item_type, unload_weapon);
 
 			}
 	
@@ -1924,10 +1942,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				std::string coopItems = "";
 
-				if (!arr.isNull())
+				if (!coopItemsArr.isNull())
 				{
 
-					coopItems = arr.toStyledString();
+					coopItems = coopItemsArr.toStyledString();
 
 				}
 
@@ -2687,13 +2705,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							{
 								unit->setCoopStatus(STATUS_DEAD);
 							}
-					
+			
 					}
 
 
 				}
 			}
 		}
+
+		// Make sure the Battlescape does not get stuck...
+		_hasHitUnit = -1;
+
 	}
 
 	if (stateString == "set_smoke_tile")
@@ -2801,6 +2823,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 		}
+
+	}
+
+	if (stateString == "hasHitUnit")
+	{
+
+		// make sure a new projectile is not created immediately when a unit is hit
+		_hasHitUnit = -1;
 
 	}
 
@@ -5015,7 +5045,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// DISPLAY THE CLIENT PLAYER'S BASE
 		_game->popState();
 
-		_game->pushState(new Profile(clientInBattle, 0, inBattle));
+		_game->pushState(new Profile(clientInBattle, inBattle));
 
 		// if neither the client nor the host is in battle, then create base icons
 
@@ -5082,7 +5112,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		bool inBattle = obj["battle"].asBool();
 
 		// show host profile
-		_game->pushState(new Profile(false, 0, inBattle));
+		_game->pushState(new Profile(false, inBattle));
 
 		Json::Value m_markers;
 		Json::Reader reader;
@@ -6680,6 +6710,7 @@ void connectionTCP::disconnectTCP()
 		onceTime = false;
 
 		isWaitMap = true;
+		_hasHitUnit = -1;
 
 		_game->getCoopMod()->pve2_init = false;
 

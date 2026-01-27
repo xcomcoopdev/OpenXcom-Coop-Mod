@@ -5559,6 +5559,7 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 			if (item->getSlot())
 			{
 				obj["item_slot_type"] = _save->getBattleGame()->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
+				obj["move_cost"] = 0;
 			}
 
 			obj["coopItems"] = Json::nullValue;
@@ -5568,11 +5569,12 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 			obj["craft_id"] = -1;
 			obj["craft_type"] = "";
 
-			obj["slot_ammo"] = 0;
-
-			// fix
-			obj["sel_item_name"] = "";
 			obj["sel_item_id"] = -1;
+			obj["sel_item_type"] = "";
+
+			obj["ammos"] = Json::nullValue;
+			obj["unload_weapon"] = false;
+			obj["tu"] = false;
 
 			// new
 			obj["tile_x"] = p.x;

@@ -391,6 +391,7 @@ public:
 	UnitFaction getSide() const;
 	// coop
 	void setSideCoop(int side);
+	void itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems);
 	/// Can unit use that weapon?
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.

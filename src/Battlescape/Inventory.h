@@ -66,7 +66,7 @@ private:
 	/// Clear all occupied slots markers.
 	std::vector<std::vector<char>>* clearOccupiedSlotsCache();
 	/// Moves an item to a specified slot.
-	void moveItem(BattleItem *item, const RuleInventory *slot, int x, int y);
+	void moveItem(BattleItem *item, const RuleInventory *slot, int x, int y, bool unloadWeaponCoop = false);
 	/// Gets the slot in the specified position.
 	RuleInventory *getSlotInPosition(int *x, int *y) const;
 	/// Play a sound.
