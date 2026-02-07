@@ -84,6 +84,7 @@ Soldier::Soldier(RuleSoldier *rules, Armor *armor, int nationality, int id) :
 	_armor(armor), _replacedArmor(0), _transformedArmor(0), _personalEquipmentArmor(nullptr), _death(0), _diary(new SoldierDiary()),
 	_corpseRecovered(false)
 {
+
 	if (id != 0)
 	{
 		UnitStats minStats = rules->getMinStats();
@@ -148,6 +149,8 @@ Soldier::Soldier(RuleSoldier *rules, Armor *armor, int nationality, int id) :
 		}
 	}
 	_lookVariant = RNG::seedless(0, RuleSoldier::LookVariantMax - 1);
+	// coop fix
+	setCoopName(_name);
 }
 
 /**
@@ -1023,6 +1026,12 @@ UnitStats *Soldier::getCurrentStatsEditable()
 {
 	return &_currentStats;
 }
+
+void Soldier::setCurrentStatsEditableCoop(UnitStats& stats)
+{
+	_currentStats = stats;
+}
+
 const UnitStats* Soldier::getCurrentStats() const
 {
 	return &_currentStats;

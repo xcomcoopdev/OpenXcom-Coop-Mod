@@ -1383,18 +1383,9 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	// refresh list
 	tempItemList = *_craftInventoryTile->getInventory();
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == false)
-	{
-		// auto-equip soldiers (only soldiers without layout) and clean up moved items
-		autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
-	}
-	else if (_base && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true)
-	{
-		// auto-equip soldiers (only soldiers without layout) and clean up moved items
-		autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
-	}
-
+	// auto-equip soldiers (only soldiers without layout) and clean up moved items
+	autoEquip(*_save->getUnits(), _game->getMod(), &tempItemList, ground, _worldShade, _allowAutoLoadout, false);
+	
 }
 
 void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod *mod, std::vector<BattleItem*> *craftInv,
@@ -1448,6 +1439,17 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod *mod, s
 						{
 							continue;
 						}
+
+						// coop
+						bool coopItem = bu->hasCoopItem(bi);
+
+						if (coopItem)
+						{
+							iter = craftInv->erase(iter);
+							add = false;
+							break;
+						}
+
 						// let's not be greedy, we'll only take a second extra clip
 						// if everyone else has had a chance to take a first.
 						bool allowSecondClip = (pass == 3);
@@ -1455,6 +1457,62 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod *mod, s
 						{
 							iter = craftInv->erase(iter);
 							add = false;
+
+							// coop
+							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true)
+							{
+
+								if (bu)
+								{
+
+									if (bu->getGeoscapeSoldier())
+									{
+
+										if (bu->getGeoscapeSoldier()->getCraft())
+										{
+
+											if (bu->getGeoscapeSoldier()->getCraft()->getBase())
+											{
+
+												Json::Value root;
+												root["state"] = "add_coop_item";
+
+												root["coopbase_id"] = bu->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
+												root["craft_id"] = bu->getGeoscapeSoldier()->getCraft()->getId();
+												root["craft_type"] = bu->getGeoscapeSoldier()->getCraft()->getType();
+
+												root["item_coop_id"] = bi->getCoopID();
+												root["item_type"] = bi->getRules()->getType();
+												root["coopbase"] = bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase;
+
+												connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+
+												// exists?
+												bool item_exists = false;
+												for (const auto& ci : bu->getGeoscapeSoldier()->getCraft()->getCoopItems())
+												{
+													if (ci.id == bi->getCoopID() &&
+														ci.type == bi->getRules()->getType() &&
+														ci.owner == !bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase)
+													{
+														item_exists = true;
+														break;
+													}
+												}
+
+												if (!item_exists)
+												{
+													bu->getGeoscapeSoldier()->getCraft()->getCoopItems().push_back({bi->getCoopID(), bi->getRules()->getType(), !bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase});
+												}
+
+											}
+
+										}
+									}
+								}
+
+							}
+
 							break;
 						}
 					}
@@ -1970,6 +2028,7 @@ BattleUnit *BattlescapeGenerator::addCivilian(Unit *rules, int nodeRank)
  */
 bool BattlescapeGenerator::placeItemByLayout(BattleItem *item, const std::vector<BattleItem*> &itemList)
 {
+
 	if (item->getSlot() == _inventorySlotGround)
 	{
 		// find the first soldier with a matching layout-slot
@@ -1979,6 +2038,20 @@ bool BattlescapeGenerator::placeItemByLayout(BattleItem *item, const std::vector
 			if (!unit->getGeoscapeSoldier() || unit->getGeoscapeSoldier()->getEquipmentLayout()->empty())
 			{
 				continue;
+			}
+
+
+			// coop fix
+			if (_baseInventory)
+			{
+
+				bool coopItem = unit->hasCoopItem(item);
+
+				if (coopItem)
+				{
+					return false;
+				}
+
 			}
 
 			// find the first matching layout-slot which is not already occupied

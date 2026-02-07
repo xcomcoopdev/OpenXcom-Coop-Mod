@@ -87,6 +87,8 @@ std::string tcpPlayerName = "Player";
 
 int onConnect = -1; // -1 = connect lost, 0 = client cant connect, -2 = disconnect, 1 = connected, -3 = server error, 2 = waiting for player
 
+bool clearPackets = false;
+
 // trigger the event once
 bool onceTime = false;
 
@@ -420,6 +422,13 @@ void connectionTCP::loopData()
 	}
 }
 
+void connectionTCP::clearAllReceivedTCPPackets()
+{
+
+	clearPackets = true;
+
+}
+
 void connectionTCP::createLoopdataThread()
 {
 
@@ -650,6 +659,7 @@ void connectionTCP::updateCoopTask()
 void connectionTCP::syncCoopInventory()
 {
 
+	// inventory
 	for (int i = 0; i < _jsonInventory.size(); i++)
 	{
 
@@ -742,6 +752,74 @@ void connectionTCP::syncCoopInventory()
 			}
 		}
 	}
+
+	// added items
+	for (int i = 0; i < jsonAddedCoopItems.size(); i++)
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			int coopbase_id = jsonAddedCoopItems[i]["coopbase_id"].asInt();
+			int craft_id = jsonAddedCoopItems[i]["craft_id"].asInt();
+			std::string craft_type = jsonAddedCoopItems[i]["craft_type"].asString();
+
+			Base* current_base = 0;
+			Craft* current_craft = 0;
+
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coop_base_id == coopbase_id)
+				{
+					current_base = base;
+
+					for (auto& craft : *base->getCrafts())
+					{
+
+						if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
+						{
+							current_craft = craft;
+							break;
+						}
+					}
+
+					break;
+				}
+			}
+
+			if (current_base && current_craft)
+			{
+
+				auto& coopItems = current_craft->getCoopItems();
+
+				int item_coop_id = jsonAddedCoopItems[i]["item_coop_id"].asInt();
+				bool coopbase = jsonAddedCoopItems[i]["coopbase"].asInt();
+				std::string item_type = jsonAddedCoopItems[i]["item_type"].asString();
+
+				// exists?
+				bool item_exists = false;
+				for (const auto& ci : coopItems)
+				{
+					if (ci.id == item_coop_id &&
+						ci.type == item_type &&
+						ci.owner == !coopbase)
+					{
+						item_exists = true;
+						break;
+					}
+				}
+
+				if (!item_exists)
+				{
+					coopItems.push_back({item_coop_id, item_type, !coopbase});
+
+					_jsonInventory[i] = {};
+				}
+			}
+		}
+	}
+
 
 }
 
@@ -936,6 +1014,41 @@ static inline bool maybeHandlePongOnClient(const Json::Value& obj)
 	return false;
 }
 
+// Clears all received packets (client/host):
+// - recvBuffer: partially received framed bytes
+// - g_rxQ: already-parsed JSON messages waiting for the game thread
+// - socket: any bytes already waiting in the TCP socket are read and dropped (non-blocking)
+static inline void clearAllReceivedPackets(TCPsocket sock,
+											SDLNet_SocketSet socketSet,
+											std::vector<char>& recvBuffer)
+{
+	// Drop partially received framed bytes
+	recvBuffer.clear();
+
+	// Drop already parsed messages waiting for the game thread
+	std::string drop;
+	while (g_rxQ.pop(drop))
+	{
+		// intentionally empty
+	}
+
+	// Drop bytes already waiting in the TCP socket (non-blocking)
+	if (sock && socketSet)
+	{
+		for (;;)
+		{
+			int ready = SDLNet_CheckSockets(socketSet, 0);
+			if (ready <= 0 || !SDLNet_SocketReady(sock))
+				break;
+
+			char buf[16 * 1024];
+			int bytes = SDLNet_TCP_Recv(sock, buf, sizeof(buf));
+			if (bytes <= 0)
+				break; // disconnected or error (caller handles disconnect)
+		}
+	}
+}
+
 // ===== Client thread =====
 void connectionTCP::startTCPClient()
 {
@@ -984,6 +1097,13 @@ void connectionTCP::startTCPClient()
 
 	for (;;)
 	{
+
+		if (clearPackets == true)
+		{
+			clearPackets = false;
+			clearAllReceivedPackets(sock, socketSet, recvBuffer);
+		}
+
 		if (onConnect == -1)
 			break;
 
@@ -1006,6 +1126,7 @@ void connectionTCP::startTCPClient()
 				if (!sendAll(sock, out.data(), (int)out.size()))
 				{
 					DebugLog("DISCONNECT CLIENT: SEND\n");
+					clearAllReceivedPackets(sock, socketSet, recvBuffer);
 					onConnect = -2;
 					onceTime = false;
 					break;
@@ -1024,6 +1145,7 @@ void connectionTCP::startTCPClient()
 				if (bytes <= 0)
 				{
 					DebugLog("DISCONNECT CLIENT: RECV\n");
+					clearAllReceivedPackets(sock, socketSet, recvBuffer);
 					onConnect = -2;
 					onceTime = false;
 					goto client_cleanup;
@@ -1044,6 +1166,7 @@ void connectionTCP::startTCPClient()
 				if (msgLen == 0 || msgLen > kMaxMsgLen)
 				{
 					DebugLog("Client: invalid message size, disconnecting\n");
+					clearAllReceivedPackets(sock, socketSet, recvBuffer);
 					onConnect = -3;
 					onceTime = false;
 					goto client_cleanup;
@@ -1170,11 +1293,25 @@ void connectionTCP::startTCPHost()
 
 	for (;;)
 	{
+
+		if (clearPackets == true)
+		{
+			clearPackets = false;
+			clearAllReceivedPackets(clientSock, socketSet, recvBuffer);
+		}
+
 		if (onConnect == -1)
+		{
+			clearAllReceivedPackets(clientSock, socketSet, recvBuffer);
 			break;
+		}
+	
 
 		if (_hostStop)
+		{
+			clearAllReceivedPackets(clientSock, socketSet, recvBuffer);
 			break;
+		}
 
 		// ---- Accept new client if we don't have one ----
 		if (TCPsocket newClient = SDLNet_TCP_Accept(listening))
@@ -1726,6 +1863,76 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "add_coop_item")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			int coopbase_id = obj["coopbase_id"].asInt();
+			int craft_id = obj["craft_id"].asInt();
+			std::string craft_type = obj["craft_type"].asString();
+
+			Base* current_base = 0;
+			Craft* current_craft = 0;
+
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+
+				if (base->_coop_base_id == coopbase_id)
+				{
+					current_base = base;
+
+					for (auto& craft : *base->getCrafts())
+					{
+
+						if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
+						{
+							current_craft = craft;
+							break;
+						}
+					}
+
+					break;
+				}
+			}
+
+			if (current_base && current_craft)
+			{
+
+				auto& coopItems = current_craft->getCoopItems();
+
+				int item_coop_id = obj["item_coop_id"].asInt();
+				bool coopbase = obj["coopbase"].asInt();
+				std::string item_type = obj["item_type"].asString();
+
+				// exists?
+				bool item_exists = false;
+				for (const auto& ci : coopItems)
+				{
+					if (ci.id == item_coop_id &&
+						ci.type == item_type &&
+						ci.owner == !coopbase)
+					{
+						item_exists = true;
+						break;
+					}
+				}
+
+				if (!item_exists)
+				{
+					coopItems.push_back({item_coop_id, item_type, !coopbase});
+				}
+
+			}
+			else
+			{
+				jsonAddedCoopItems.append(obj);
+			}
+		}
+
+	}
+
 	if (stateString == "request_coop_items")
 	{
 
@@ -2183,6 +2390,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "ProjectileFlyBState")
 	{
 
+		_hasHitUnit = -1;
+
 		if (_game->getSavedGame())
 		{
 			if (_game->getSavedGame()->getSavedBattle())
@@ -2199,7 +2408,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 		}
-
 
 	}
 
@@ -2905,6 +3113,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "current_seed")
 	{
 
+		_hasHitUnit = -1;
+
 		if (_game->getSavedGame())
 		{
 
@@ -3094,7 +3304,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 		}
-	
+
 	}
 
 	// ufo damage
@@ -4266,6 +4476,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string title = obj["title"].asString();
 		bool promotions = obj["promotions"].asBool();
 
+		_soldier_stats = obj["soldier_stats"];
+
+		_battle_stats = obj["battle_stats"];
+
 		_AISecondMoveCoop = false;
 		_AIProgressCoop = 100;
 
@@ -4287,6 +4501,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 
 					std::string coopname = obj["soldiers"][i]["coopname"].asString();
+					std::string name = obj["soldiers"][i]["name"].asString();
+					int nationality = obj["soldiers"][i]["nationality"].asInt();
 					int rank_int = obj["soldiers"][i]["rank"].asInt();
 					int promoted = obj["soldiers"][i]["promoted"].asInt();
 
@@ -4296,10 +4512,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						for (auto& soldier : *base->getSoldiers())
 						{
 
-							if (soldier->getCoopName() == coopname && coopname != "")
+							if ((soldier->getCoopName() == coopname && coopname != "") || (soldier->getName() == name && name != "") && soldier->getNationality() == nationality)
 							{
 								soldier->setCoopRank(intToSoldierRank(rank_int));
 								soldier->setRecentlyPromotedCoop(promoted);
+
+								if (soldier->getCurrentStats())
+								{
+
+									int tu = obj["soldiers"][i]["unit_stats"]["tu"].asInt();
+									int stamina = obj["soldiers"][i]["unit_stats"]["stamina"].asInt();
+									int health = obj["soldiers"][i]["unit_stats"]["health"].asInt();
+									int bravery = obj["soldiers"][i]["unit_stats"]["bravery"].asInt();
+									int reactions = obj["soldiers"][i]["unit_stats"]["reactions"].asInt();
+									int firing = obj["soldiers"][i]["unit_stats"]["firing"].asInt();
+									int throwing = obj["soldiers"][i]["unit_stats"]["throwing"].asInt();
+									int strength = obj["soldiers"][i]["unit_stats"]["strength"].asInt();
+									int psiStrength = obj["soldiers"][i]["unit_stats"]["psiStrength"].asInt();
+									int psiSkill = obj["soldiers"][i]["unit_stats"]["psiSkill"].asInt();
+									int melee = obj["soldiers"][i]["unit_stats"]["melee"].asInt();
+									int mana = obj["soldiers"][i]["unit_stats"]["mana"].asInt();
+
+									UnitStats stats = UnitStats(tu, stamina, health, bravery, reactions, firing, throwing, strength, psiStrength, psiSkill, melee, mana);
+
+									soldier->setCurrentStatsEditableCoop(stats);
+
+								}
 
 								break;
 							}

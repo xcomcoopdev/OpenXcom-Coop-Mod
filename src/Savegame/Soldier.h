@@ -190,6 +190,8 @@ private:
 	const UnitStats* getInitStats() const;
 	/// Get pointer to current stats.
 	UnitStats *getCurrentStatsEditable();
+	// coop
+	void setCurrentStatsEditableCoop(UnitStats& stats);
 	const UnitStats* getCurrentStats() const;
 	/// Set initial and current stats.
 	void setBothStats(UnitStats *stats);

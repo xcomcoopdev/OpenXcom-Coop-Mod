@@ -420,7 +420,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 					if (_battleGame->getSelectedUnit()->getGeoscapeSoldier()->getCraft()->getBase())
 					{
-
+				
 						auto& coopItems = _battleGame->getSelectedUnit()
 											  ->getGeoscapeSoldier()
 											  ->getCraft()
@@ -445,7 +445,9 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 								continue;
 
 							coopItems.push_back({item->getCoopID(), item->getRules()->getType(), true});
+
 						}
+	
 
 					}
 				}

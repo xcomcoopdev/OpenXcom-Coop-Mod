@@ -5956,6 +5956,44 @@ void BattleUnit::setUnitRulesCoop(Unit* unitRules)
 	_unitRules = unitRules;
 }
 
+bool BattleUnit::hasCoopItem(const BattleItem* item)
+{
+	if (connectionTCP::getCoopStatic() == false)
+		return false;
+
+	if (!item)
+		return false;
+
+	if (connectionTCP::coopInventory != false)
+		return false;
+
+	if (connectionTCP::_coopCampaign != true)
+		return false;
+
+	auto* geo = getGeoscapeSoldier();
+	if (!geo)
+		return false;
+
+	auto* craft = geo->getCraft();
+	if (!craft)
+		return false;
+
+	auto* base = craft->getBase();
+	if (!base)
+		return false;
+
+	for (const auto& ci : craft->getCoopItems())
+	{
+
+		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_coopBase)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 ////////////////////////////////////////////////////////////
 //					Script binding
 ////////////////////////////////////////////////////////////

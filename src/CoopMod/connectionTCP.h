@@ -162,6 +162,7 @@ class connectionTCP
 	// research
 	Json::Value waitedResearch;
 	static bool _isChatActiveStatic;
+	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();
 	void updateCoopTask();
 	std::string getCurrentClientName();
@@ -219,7 +220,7 @@ class connectionTCP
 	void setHost(bool host);
 	static bool playerInsideCoopBase; // is the player really in another player's base?
 	bool coopMissionEnd = false; // is the co-op mission completed?
-	Json::Value _jsonTargets, _jsonDamages, _jsonInventory;
+	Json::Value _jsonTargets, _jsonDamages, _jsonInventory, jsonAddedCoopItems;
 	void syncCoopInventory();
 	static bool coopInventory;
 	int _pathLock = -1;
@@ -334,6 +335,10 @@ class connectionTCP
 	Json::Value _coopFacility;
 
 	Json::Value _deleteCoopFacility;
+
+	Json::Value _soldier_stats;
+
+	Json::Value _battle_stats;
 
 	bool show_briefing_state = false;
 

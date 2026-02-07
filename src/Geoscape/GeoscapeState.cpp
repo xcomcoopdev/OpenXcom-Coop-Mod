@@ -860,8 +860,6 @@ void GeoscapeState::init()
 			// OLD SAVE SOLDIERS FROM BATTLE (CLIENT)
 			Base *base_selected = new Base(*_game->getSavedGame()->getSelectedBase());
 
-
-
 			// RANK PROMOTION
 			for (auto& base : *newsave->getBases())
 			{
@@ -876,8 +874,9 @@ void GeoscapeState::init()
 
 					for (auto* soldier : selected_soldiers)
 					{
-						if (soldier->getCoopName() == client_soldier->getCoopName())
+						if (soldier->getCoopName() == client_soldier->getCoopName() && soldier->getCoopName() != "" && client_soldier->getCoopName() != "" && soldier->getNationality() == client_soldier->getNationality())
 						{
+
 							// Copy stats and update rank and counts
 							UnitStats copiedStats = *soldier->getCurrentStats();
 							client_soldier->setBothStats(&copiedStats);
@@ -885,8 +884,64 @@ void GeoscapeState::init()
 							client_soldier->addKillCount(soldier->getKills());
 							client_soldier->addMissionCount();
 							client_soldier->addStunCount(soldier->getStuns());
+
 							found = true;
 							break;
+						}
+					}
+
+					if (!found)
+					{
+
+						for (auto* soldier : selected_soldiers)
+						{
+							if (soldier->getName() == client_soldier->getName() && soldier->getName() != "" && client_soldier->getName() != "" && soldier->getNationality() == client_soldier->getNationality())
+							{
+
+								// Copy stats and update rank and counts
+								UnitStats copiedStats = *soldier->getCurrentStats();
+								client_soldier->setBothStats(&copiedStats);
+								client_soldier->setCoopRank(soldier->getRank());
+								client_soldier->addKillCount(soldier->getKills());
+								client_soldier->addMissionCount();
+								client_soldier->addStunCount(soldier->getStuns());
+
+								if (client_soldier->getCoopName() == "")
+								{
+									client_soldier->setCoopName(soldier->getName());
+								}
+
+								found = true;
+								break;
+							}
+						}
+
+					}
+
+					if (!found)
+					{
+
+						for (auto* soldier : selected_soldiers)
+						{
+							if (soldier->getNationality() == client_soldier->getNationality())
+							{
+
+								// Copy stats and update rank and counts
+								UnitStats copiedStats = *soldier->getCurrentStats();
+								client_soldier->setBothStats(&copiedStats);
+								client_soldier->setCoopRank(soldier->getRank());
+								client_soldier->addKillCount(soldier->getKills());
+								client_soldier->addMissionCount();
+								client_soldier->addStunCount(soldier->getStuns());
+
+								if (client_soldier->getCoopName() == "")
+								{
+									client_soldier->setCoopName(soldier->getName());
+								}
+
+								found = true;
+								break;
+							}
 						}
 					}
 

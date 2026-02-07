@@ -930,6 +930,8 @@ public:
 
 	// coop
 	void setUnitRulesCoop(Unit *unitRules);
+	// coop
+	bool hasCoopItem(const BattleItem* item);
 
 };
 

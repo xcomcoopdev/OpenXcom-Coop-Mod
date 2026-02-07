@@ -1210,7 +1210,7 @@ void ProjectileFlyBState::projectileHitUnit(Position pos)
 	BattleUnit *targetVictim = _parent->getSave()->getTile(_action.target)->getUnit(); // Who we were aiming at (not necessarily who we hit)
 
 	// coop
-	if (victim && _parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == -1)
+	if (victim && !victim->isOut() && _parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == -1)
 	{
 
 		if (_action.weapon && _action.type)
@@ -1218,7 +1218,7 @@ void ProjectileFlyBState::projectileHitUnit(Position pos)
 
 			auto* conf = _action.weapon->getActionConf(_action.type);
 
-			if (conf->shots > 1)
+			if (conf->shots > 1 && conf->shots != _action.autoShotCounter)
 			{
 				_parent->getCoopMod()->_hasHitUnit = 1;
 			}

@@ -356,6 +356,8 @@ void ConfirmLandingState::btnYesClick(Action *)
 void ConfirmLandingState::startCoopMission()
 {
 
+	_game->getCoopMod()->coopInventory = true;
+
 	std::string message = checkStartingCondition();
 	if (!message.empty())
 	{

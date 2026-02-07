@@ -85,6 +85,10 @@ ConfirmEndMissionState::ConfirmEndMissionState(SavedBattleGame *battleGame, int 
 	_btnCancel->onKeyboardPress((ActionHandler)&ConfirmEndMissionState::btnCancelClick, Options::keyBattleAbort);
 
 	centerAllSurfaces();
+
+	// coop
+	_game->getCoopMod()->setPauseOn();
+
 }
 
 /**
@@ -112,6 +116,10 @@ void ConfirmEndMissionState::btnOkClick(Action *)
 void ConfirmEndMissionState::btnCancelClick(Action *)
 {
 	_game->popState();
+
+	// coop
+	_game->getCoopMod()->setPauseOff();
+
 }
 
 
