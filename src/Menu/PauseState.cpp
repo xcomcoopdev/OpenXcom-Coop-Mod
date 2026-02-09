@@ -151,7 +151,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	}
 
 	// battlescape
-	if (connectionTCP::_coopGamemode != 0 && _game->getCoopMod()->getHost() == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
 	{
 
 		_btnLoad->setVisible(false);

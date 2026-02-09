@@ -1611,6 +1611,40 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_coop_selected_craft_id = id;
 	}
 
+	if (stateString == "change_unit_name")
+	{
+
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int unit_id = obj["unit_id"].asInt();
+				std::string unit_name = obj["unit_name"].asString();
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getId() == unit_id)
+					{
+
+						unit->setName(unit_name);
+
+						if (unit->getGeoscapeSoldier())
+						{
+
+							unit->getGeoscapeSoldier()->setName(unit_name);
+
+						}
+
+					}
+				}
+
+			}
+		}
+
+	}
+
 	if (stateString == "abortPath")
 	{
 	

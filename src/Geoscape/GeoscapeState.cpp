@@ -885,6 +885,8 @@ void GeoscapeState::init()
 							client_soldier->addMissionCount();
 							client_soldier->addStunCount(soldier->getStuns());
 
+							client_soldier->setName(soldier->getName());
+
 							found = true;
 							break;
 						}
@@ -910,6 +912,8 @@ void GeoscapeState::init()
 								{
 									client_soldier->setCoopName(soldier->getName());
 								}
+
+								client_soldier->setName(soldier->getName());
 
 								found = true;
 								break;
@@ -938,6 +942,8 @@ void GeoscapeState::init()
 								{
 									client_soldier->setCoopName(soldier->getName());
 								}
+
+								client_soldier->setName(soldier->getName());
 
 								found = true;
 								break;

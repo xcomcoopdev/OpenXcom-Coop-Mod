@@ -1309,7 +1309,7 @@ void BattlescapeState::think()
 						_btnShowMap->setVisible(true);
 
 					}
-					
+
 					_battleGame->isYourTurn = 2;
 
 					// CLIENT UNIT SELECTOR
@@ -2702,6 +2702,7 @@ void BattlescapeState::btnAbortClick(Action *)
 
 	if (allowButtons())
 		_game->pushState(new AbortMissionState(_save, this));
+
 }
 
 /**

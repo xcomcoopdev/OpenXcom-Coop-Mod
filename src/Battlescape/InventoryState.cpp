@@ -749,6 +749,13 @@ void InventoryState::edtSoldierPress(Action *action)
 		BattleUnit *unit = _inv->getSelectedUnit();
 		if (unit != 0)
 		{
+
+			// coop
+			if ((_game->getCoopMod()->getHost() == true && unit->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && unit->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+			{
+				return;
+			}
+
 			Soldier *s = unit->getGeoscapeSoldier();
 			if (s)
 			{
@@ -766,9 +773,29 @@ void InventoryState::edtSoldierPress(Action *action)
  */
 void InventoryState::edtSoldierChange(Action *)
 {
+
 	BattleUnit *unit = _inv->getSelectedUnit();
 	if (unit != 0)
 	{
+
+		// coop
+		if ((_game->getCoopMod()->getHost() == true && unit->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && unit->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		{
+			return;
+		}
+		else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		{
+
+			Json::Value root;
+			root["state"] = "change_unit_name";
+
+			root["unit_id"] = unit->getId();
+			root["unit_name"] = _txtName->getText();
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+
 		Soldier *s = unit->getGeoscapeSoldier();
 		if (s)
 		{

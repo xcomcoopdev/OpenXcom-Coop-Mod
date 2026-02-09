@@ -181,6 +181,15 @@ AbortMissionState::AbortMissionState(SavedBattleGame *battleGame, BattlescapeSta
 	_btnCancel->onKeyboardPress((ActionHandler)&AbortMissionState::btnCancelClick, Options::keyBattleAbort);
 
 	centerAllSurfaces();
+
+	// coop
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	{
+
+		_btnOk->setVisible(false);
+
+	}
+
 }
 
 /**
@@ -217,6 +226,7 @@ void AbortMissionState::btnOkClick(Action *)
 	_game->popState();
 	_battleGame->setAborted(true);
 	_state->finishBattle(true, _inExit);
+
 }
 
 /**

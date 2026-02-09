@@ -86,7 +86,6 @@ public:
 	void init() override;
 	/// Loads New Battle settings.
 	void load(const std::string &filename = "battle");
-	SavedGame* loadCoop(const std::string& filename = "battle");
 	/// Saves New Battle settings.
 	void save(const std::string &filename = "battle");
 	/// Initializes a blank savegame.
