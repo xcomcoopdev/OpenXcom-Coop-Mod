@@ -138,7 +138,8 @@ void AlienMission::save(YAML::YamlNodeWriter writer) const
 	if (_multiUfoRetaliationInProgress)
 		writer.write("multiUfoRetaliationInProgress", _multiUfoRetaliationInProgress);
 	writer.write("uniqueID", _uniqueID);
-	if (_base)
+	// Invalid base co-op fix
+	if (_base && _base->_coop == false && (_base->getLongitude() != 0 || _base->getLatitude() != 0))
 		_base->saveId(writer["alienBase"]);
 	writer.write("missionSiteZone", _missionSiteZoneArea);
 }

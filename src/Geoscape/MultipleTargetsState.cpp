@@ -50,6 +50,9 @@ MultipleTargetsState::MultipleTargetsState(std::vector<Target*> targets, std::ve
 {
 	_screen = false;
 
+	// coop
+	_game->getCoopMod()->openMultipleTargetsMenu = true;
+
 	if (_targets.size() > 1)
 	{
 		int winHeight = BUTTON_HEIGHT * _targets.size() + SPACING * (_targets.size() - 1) + MARGIN * 2;
@@ -90,7 +93,8 @@ MultipleTargetsState::MultipleTargetsState(std::vector<Target*> targets, std::ve
  */
 MultipleTargetsState::~MultipleTargetsState()
 {
-
+	// coop
+	_game->getCoopMod()->openMultipleTargetsMenu = false;
 }
 
 /**

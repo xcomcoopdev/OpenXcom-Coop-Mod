@@ -231,7 +231,7 @@ void LoadGameState::think()
 						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
 						{
 
-							if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+							if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
 							{
 
 								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -269,7 +269,7 @@ void LoadGameState::think()
 						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
 						{
 
-							if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+							if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
 							{
 
 								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -303,7 +303,7 @@ void LoadGameState::think()
 							}
 						}
 						// HOST PVP2
-						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getSavedGame()->getCoop()->getGameMode() == 3)
+						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->getCoopGamemode() == 3)
 						{
 
 							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())

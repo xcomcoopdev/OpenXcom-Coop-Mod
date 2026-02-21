@@ -106,15 +106,6 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 }
 
 }
-void SavedGame::setCoop(CoopMenu *coopstate)
-{
-	_coopSave = coopstate;
-}
-
-CoopMenu *SavedGame::getCoop()
-{
-	return _coopSave;
-}
 
 /**
  * Initializes a brand new saved game according to the specified difficulty.

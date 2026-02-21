@@ -979,6 +979,9 @@ void DogfightState::update()
 
 		root["end"] = _end;
 
+		// new!!!
+		root["minimized"] = _minimized;
+
 		bool coop_survived = true;
 
 		// if not survived?

@@ -48,9 +48,6 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	_screen = false;
 
-	// coop
-	_game->getSavedGame()->setCoop(this);
-
 	int x = 20;
 
 	// ping
@@ -493,7 +490,7 @@ void CoopMenu::convertUnits()
 	}
 
 	// if pve2 gamemode
-	if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
+	if (_game->getCoopMod()->getCoopGamemode() == 4)
 	{
 		// swapper
 		for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -553,7 +550,7 @@ void CoopMenu::convertUnits()
 		}
 	}
 	// if pvp gamemode
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
+	else if (_game->getCoopMod()->getCoopGamemode() == 2)
 	{
 
 		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -571,7 +568,7 @@ void CoopMenu::convertUnits()
 		}
 	}
 	// pvp2
-	else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
+	else if (_game->getCoopMod()->getCoopGamemode() == 3)
 	{
 
 		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -674,12 +671,6 @@ void CoopMenu::showGamemode()
 	_btnPVP2->setVisible(false);
 	_btnPVE2->setVisible(false);
 
-}
-
-int CoopMenu::getGameMode()
-{
-
-	return _game->getCoopMod()->getCoopGamemode();
 }
 
 void CoopMenu::joinTCPGame(Action *action)

@@ -1278,9 +1278,21 @@ void GeoscapeState::think()
 						for (auto &weapon : *craft->getWeapons())
 						{
 
-							root["crafts"][craft_index]["weapons"][weapon_index]["type"] = weapon->getRules()->getType();
-							root["crafts"][craft_index]["weapons"][weapon_index]["ammo"] = weapon->getAmmo();
-								
+							if (weapon && weapon->getRules() && weapon->getAmmo())
+							{
+
+								root["crafts"][craft_index]["weapons"][weapon_index]["type"] = weapon->getRules()->getType();
+								root["crafts"][craft_index]["weapons"][weapon_index]["ammo"] = weapon->getAmmo();
+
+							}
+							else
+							{
+
+								root["crafts"][craft_index]["weapons"][weapon_index]["type"] = "";
+								root["crafts"][craft_index]["weapons"][weapon_index]["ammo"] = -1;
+
+							}
+				
 							weapon_index++;
 
 						}

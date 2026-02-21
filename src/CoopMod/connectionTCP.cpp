@@ -3366,6 +3366,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			bool end = obj["end"].asBool();
 			bool survived = obj["survived"].asBool();
 
+			bool minimized = obj["minimized"].asBool();
+
 			for (auto& i_ufo : *_game->getSavedGame()->getUfos())
 			{
 
@@ -3403,13 +3405,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						i_ufo->setSecondsRemaining(86400);
 					}
 	
-					if (end == true)
+					if (end == true || minimized == true)
 					{
 						i_ufo->_playerShotDownUfo = false;
 						i_ufo->setSpeed(i_ufo->originalCoopSpeed);
 						i_ufo->originalCoopSpeed = 0;
 					}
-					else
+					else if (minimized == false)
 					{
 						i_ufo->setSpeed(0);
 					}
@@ -3795,7 +3797,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "target_positions")
 	{
 
-		if (_game->getSavedGame() && playerInsideCoopBase == false)
+		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false)
 		{
 
 			// bases
@@ -3886,11 +3888,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 									const std::string type = wj[w]["type"].asString();
 									const int ammo = wj[w]["ammo"].asInt();
 
-									const RuleCraftWeapon* wRule = _game->getMod()->getCraftWeapon(type);
-									if (!wRule)
-										continue;
+									if (type != "" && ammo != -1)
+									{
+										const RuleCraftWeapon* wRule = _game->getMod()->getCraftWeapon(type);
+										if (!wRule)
+											continue;
 
-									weapons.push_back(new CraftWeapon(const_cast<RuleCraftWeapon*>(wRule), ammo));
+										weapons.push_back(new CraftWeapon(const_cast<RuleCraftWeapon*>(wRule), ammo));
+									}
+									else
+									{
+										weapons.push_back(0);
+									}
+
 								}
 
 								base->getCrafts()->push_back(craft);
@@ -3929,7 +3939,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						for (Json::ArrayIndex w = 0; w < count; ++w)
 						{
-							weapons[w]->setAmmo(wj[w]["ammo"].asInt());
+
+							if (weapons[w])
+							{
+
+								int ammo = wj[w]["ammo"].asInt();
+
+								if (ammo != -1)
+								{
+									weapons[w]->setAmmo(ammo);
+								}
+
+							}
+
 						}
 					}
 				}

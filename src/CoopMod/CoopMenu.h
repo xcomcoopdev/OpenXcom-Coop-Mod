@@ -118,7 +118,6 @@ class CoopMenu : public State
 	void btnPVP2Click(Action *action);
 	void btnChatClick(Action* action);
 	void showGamemode();
-	int getGameMode();
 	/// Runs the timers and handles popups.
 	void think() override;
 };

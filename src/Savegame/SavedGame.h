@@ -189,8 +189,6 @@ public:
 	SavedGame();
 	/// Cleans up the saved game.
 	~SavedGame();
-	CoopMenu *getCoop();
-	void setCoop(CoopMenu *_coopSave);
 	/// Sanitizes a mod name in a save.
 	static std::string sanitizeModName(const std::string &name);
 	/// Gets list of saves in the user directory.

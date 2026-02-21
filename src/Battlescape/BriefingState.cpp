@@ -288,7 +288,7 @@ void BriefingState::loadCoop()
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
 	{
 
-		if (_game->getSavedGame()->getCoop()->getGameMode() == 2 || _game->getSavedGame()->getCoop()->getGameMode() == 3)
+		if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
 		{
 
 			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -322,7 +322,7 @@ void BriefingState::loadCoop()
 		}
 	}
 	// HOST PVP2
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getSavedGame()->getCoop()->getGameMode() == 3)
+	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && connectionTCP::getCoopGamemode() == 3)
 	{
 
 		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -516,7 +516,7 @@ void BriefingState::setupCoop()
 {
 
 	// COOP
-	if (_game->getSavedGame()->getCoop() != 0 && _game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->isPreview() == false)
+	if (_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->isPreview() == false)
 	{
 
 		// check if campaign mission
@@ -532,7 +532,7 @@ void BriefingState::setupCoop()
 		}
 
 		// if pve2 gamemode
-		if (_game->getSavedGame()->getCoop()->getGameMode() == 4)
+		if (connectionTCP::getCoopGamemode() == 4)
 		{
 
 				_game->getSavedGame()->getSelectedBase()->getSoldiers()->clear();
@@ -608,7 +608,7 @@ void BriefingState::setupCoop()
 				}
 		}
 		// if pvp gamemode
-		else if (_game->getSavedGame()->getCoop()->getGameMode() == 2)
+		else if (connectionTCP::getCoopGamemode() == 2)
 		{
 
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
@@ -626,7 +626,7 @@ void BriefingState::setupCoop()
 				}
 		}
 		// pvp2
-		else if (_game->getSavedGame()->getCoop()->getGameMode() == 3)
+		else if (connectionTCP::getCoopGamemode() == 3)
 		{
 
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())

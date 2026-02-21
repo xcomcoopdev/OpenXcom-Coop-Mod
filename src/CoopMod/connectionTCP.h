@@ -357,6 +357,8 @@ class connectionTCP
 
 	int _hasHitUnit = -1;
 
+	bool openMultipleTargetsMenu = false;
+
 };
 
 }
