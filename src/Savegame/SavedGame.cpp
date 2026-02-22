@@ -397,6 +397,7 @@ void SavedGame::addFinishedResearchSimple(const RuleResearch* research)
  */
 void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 {
+
 	std::string filepath = Options::getMasterUserFolder() + filename;
 	YAML::YamlRootNodeReader documents(filepath, false, false);
 
@@ -714,6 +715,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	}
 
 	_scriptValues.load(reader, mod->getScriptGlobal());
+
 }
 
 void SavedGame::loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod)
@@ -788,6 +790,7 @@ void saveVectorIf(YAML::YamlNodeWriter& writer,
  */
 void SavedGame::save(const std::string &filename, Mod *mod) const
 {
+
 	YAML::YamlRootNodeWriter headerWriter;
 	headerWriter.setAsMap();
 	// Saves the brief game info used in the saves list
@@ -979,6 +982,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	{
 		throw Exception("Failed to save " + filepath);
 	}
+
 }
 
 /**

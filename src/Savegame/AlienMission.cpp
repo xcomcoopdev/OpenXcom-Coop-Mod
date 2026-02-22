@@ -83,8 +83,17 @@ void AlienMission::load(const YAML::YamlNodeReader& reader, SavedGame &game, con
 								   [&](AlienBase* ab)
 								   { return ab->getId() == id && ab->getDeployment()->getMarkerName() == type; });
 		if (found == game.getAlienBases()->end())
-			throw Exception("Corrupted save: Invalid base for mission.");
-		_base = *found;
+		{
+			// coop
+			// Make sure a save can load even if the alien base isn't found.
+			Log(LOG_ERROR) << "Corrupted save: Invalid base for mission.";
+			_base = 0;
+		}
+		else
+		{
+			_base = *found;
+		}
+
 	}
 	reader.tryRead("missionSiteZone", _missionSiteZoneArea);
 

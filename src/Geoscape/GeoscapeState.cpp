@@ -999,6 +999,8 @@ void GeoscapeState::init()
 
 		// Delete all co-op UFOs and missions
 
+		_game->getCoopMod()->allow_cutscene = true;
+
 		_game->getCoopMod()->inventory_battle_window = true;
 
 		_game->getCoopMod()->gamePaused = 0;
