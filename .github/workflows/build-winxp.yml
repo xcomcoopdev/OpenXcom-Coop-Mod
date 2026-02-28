@@ -30,7 +30,6 @@ jobs:
         shell: bash
 
     steps:
-      # Container job needs basic tools installed (git for checkout, make/zip for build/package)
       - name: Install build tools
         run: |
           apt-get update
@@ -59,14 +58,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v3
+          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v4
 
       - name: Configure + build (WinXP)
         run: |
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
           mkdir -p build
           cd build
-          i686-w64-mingw32.static-cmake -DCMAKE_BUILD_TYPE=Release ..
+          i686-w64-mingw32.static-cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF ..
           make -j"$(nproc)"
 
       - name: Package zip

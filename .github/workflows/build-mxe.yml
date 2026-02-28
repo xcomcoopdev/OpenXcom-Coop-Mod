@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v3
+          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v4
 
       - name: Install MXE dependencies (only if no cache)
         if: steps.cache-mxe.outputs.cache-hit != 'true'
@@ -34,7 +34,9 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             git make g++ autopoint gperf intltool libtool-bin lzip zip \
             ca-certificates wget xz-utils bzip2 \
-            python2-minimal
+            python2-minimal \
+            p7zip-full bison flex ruby \
+            gdk-pixbuf2.0-bin
 
           # Ensure /usr/bin/python exists and points to Python 2
           ln -sf /usr/bin/python2.7 /usr/bin/python || true
@@ -54,6 +56,8 @@ jobs:
           if [ "${{ inputs.MXE_VERSION }}" = "7e39b555dee5e906b24a44940055dc28d4056d23" ]; then
             sed -i 's/$(PKG)_VERSION := [0-9.]\+/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
             sed -i 's/$(PKG)_CHECKSUM := [0-9a-f]\{64\}/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
+            echo "=== mingw-w64.mk after patch ==="
+            cat src/mingw-w64.mk
           fi
 
           export MXE_PLUGIN_DIRS="$PWD/plugins/gcc${{ inputs.GCC_VERSION }}"
