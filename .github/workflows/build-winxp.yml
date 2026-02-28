@@ -71,15 +71,25 @@ jobs:
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
 
-          # IMPORTANT: make #include <SDL_net.h> work by adding your vendored header dir,
-          # and also add MXE's SDL include dir for safety.
-          export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net"
+          # Make your vendored headers work (#include <SDL_net.h>, json headers etc.)
+          export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
           export CFLAGS="$CPPFLAGS"
           export CXXFLAGS="$CPPFLAGS"
 
-          echo "=== DEBUG: SDL_net header locations ==="
-          ls -la "$GITHUB_WORKSPACE/deps/include/SDL_net/SDL_net.h" || true
-          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
+          echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
+          ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|ws2|iphlp|winmm|dxguid" || true
+
+          # Force link libs without touching CMakeLists.txt
+          # - jsoncpp: fixes Json::Value / Json::CharReader undefined references
+          # - ws2_32/iphlpapi: fixes SDL_net winsock + GetAdaptersInfo
+          # - winmm: fixes midiOut* symbols from SDL_mixer
+          # - dxguid: fixes DirectDraw IID_* symbols from SDL
+          # - jpeg/png/webp/smpeg/modplug: fixes SDL_image/SDL_mixer optional codec symbols when linked statically
+          export LDFLAGS="-L$MXE_PREFIX/lib \
+            -ljsoncpp \
+            -lws2_32 -liphlpapi -lwinmm -ldxguid \
+            -ljpeg -lpng -lwebp \
+            -lsmpeg -lmodplug"
 
           mkdir -p build
           cd build
@@ -91,7 +101,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
             "$GITHUB_WORKSPACE"
 
-          make -j"$(nproc)"
+          make -j"$(nproc)" VERBOSE=1
 
       - name: Package zip
         run: |
