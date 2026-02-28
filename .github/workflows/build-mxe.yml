@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v4
+          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v5
 
       - name: Install MXE dependencies (only if no cache)
         if: steps.cache-mxe.outputs.cache-hit != 'true'
@@ -52,12 +52,16 @@ jobs:
           cd mxe
           git checkout ${{ inputs.MXE_VERSION }}
 
-          # Patch mingw-w64 for this pinned MXE commit (ensure BOTH version and checksum change)
+          # Force mingw-w64 VERSION + CHECKSUM to stay in sync (prevents "wrong checksum" / backup 404 loop)
           if [ "${{ inputs.MXE_VERSION }}" = "7e39b555dee5e906b24a44940055dc28d4056d23" ]; then
-            sed -i 's/$(PKG)_VERSION := [0-9.]\+/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
-            sed -i 's/$(PKG)_CHECKSUM := [0-9a-f]\{64\}/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
-            echo "=== mingw-w64.mk after patch ==="
-            cat src/mingw-w64.mk
+            # Replace exactly 8.0.2 -> 8.0.3
+            sed -i 's/$(PKG)_VERSION := 8\.0\.2/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
+            # Replace exactly the 8.0.2 checksum -> 8.0.3 checksum
+            sed -i 's/$(PKG)_CHECKSUM := f00cf1e2f975008855c93b9e0f8ec97decbf50f478e7ae4c7b5ffb9cdc54b743/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
+
+            echo "=== mingw-w64.mk (patched lines) ==="
+            grep -n "PKG)_VERSION :=" src/mingw-w64.mk || true
+            grep -n "PKG)_CHECKSUM :=" src/mingw-w64.mk || true
           fi
 
           export MXE_PLUGIN_DIRS="$PWD/plugins/gcc${{ inputs.GCC_VERSION }}"
