@@ -13,56 +13,51 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: ubuntu:20.04
+
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Cache MXE
         id: cache-mxe
         uses: actions/cache@v4
         with:
-          path: /opt/mxe
-          # bump this if you change MXE packages to force rebuild
-          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v2
+          path: mxe
+          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v3
 
-      - name: Install MXE dependencies
+      - name: Install MXE dependencies (only if no cache)
         if: steps.cache-mxe.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git make g++ autopoint gperf intltool libtool-bin lzip zip
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git make g++ autopoint gperf intltool libtool-bin lzip zip \
+            ca-certificates wget xz-utils bzip2 \
+            python2-minimal
 
-      - name: Install MXE deps for newer MXE/GCC
-        if: steps.cache-mxe.outputs.cache-hit != 'true' && inputs.GCC_VERSION > '11'
-        run: |
-          sudo apt-get install -y python3-mako
-
-      - name: Use Python 2 for GCC<=11 (as in oxce-xp)
-        if: steps.cache-mxe.outputs.cache-hit != 'true' && inputs.GCC_VERSION <= '11'
-        run: |
-          sudo apt-get install -y python2
-          sudo update-alternatives --install /usr/bin/python python /usr/bin/python2 1
-          sudo update-alternatives --set python /usr/bin/python2
+          # Ensure /usr/bin/python exists and points to Python 2
+          ln -sf /usr/bin/python2.7 /usr/bin/python || true
+          ln -sf /usr/bin/python2.7 /usr/bin/python2 || true
 
       - name: Set up MXE environment (Windows XP support)
         if: steps.cache-mxe.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /opt
-          if [ ! -d /opt/mxe ]; then
-            sudo git clone https://github.com/mxe/mxe.git /opt/mxe
+          if [ ! -d mxe ]; then
+            git clone https://github.com/mxe/mxe.git mxe
           fi
-          sudo chown -R "$USER":"$USER" /opt/mxe
 
-          cd /opt/mxe
+          cd mxe
           git checkout ${{ inputs.MXE_VERSION }}
 
-          # Patch mingw-w64 for this pinned MXE commit (make sure BOTH version and checksum change)
+          # Patch mingw-w64 for this pinned MXE commit (ensure BOTH version and checksum change)
           if [ "${{ inputs.MXE_VERSION }}" = "7e39b555dee5e906b24a44940055dc28d4056d23" ]; then
             sed -i 's/$(PKG)_VERSION := [0-9.]\+/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
             sed -i 's/$(PKG)_CHECKSUM := [0-9a-f]\{64\}/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
-            echo "=== mingw-w64.mk after patch ==="
-            cat src/mingw-w64.mk
           fi
 
           export MXE_PLUGIN_DIRS="$PWD/plugins/gcc${{ inputs.GCC_VERSION }}"
 
-          # Build toolchain + libs for WinXP (added: sdl_net + jsoncpp)
           make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
             gcc cmake \
             sdl sdl_net sdl_gfx sdl_mixer sdl_image \
