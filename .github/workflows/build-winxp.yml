@@ -70,26 +70,15 @@ jobs:
           # Make sure CMake/pkg-config find MXE (not host) headers/libs
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
-          export CPPFLAGS="-I$MXE_PREFIX/include"
+
+          # IMPORTANT: make #include <SDL_net.h> work by adding your vendored header dir,
+          # and also add MXE's SDL include dir for safety.
+          export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net"
           export CFLAGS="$CPPFLAGS"
           export CXXFLAGS="$CPPFLAGS"
 
-          echo "=== DEBUG: workspace ==="
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          ls -la "$GITHUB_WORKSPACE/CMakeLists.txt" || true
-          ls -la "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
-          ls -la "$GITHUB_WORKSPACE/src/lodepng.cpp" || true
-
-          echo "=== DEBUG: lodepng.cpp references ==="
-          grep -n "lodepng\.cpp" "$GITHUB_WORKSPACE/CMakeLists.txt" || true
-          grep -n "lodepng\.cpp" "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
-
-          echo "=== DEBUG: add_executable references ==="
-          grep -n "add_executable" "$GITHUB_WORKSPACE/CMakeLists.txt" || true
-          grep -n "add_executable" "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
-
-          echo "=== DEBUG: SDL_net header in MXE prefix ==="
-          ls -la "$MXE_PREFIX/include/SDL_net.h" || true
+          echo "=== DEBUG: SDL_net header locations ==="
+          ls -la "$GITHUB_WORKSPACE/deps/include/SDL_net/SDL_net.h" || true
           ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
 
           mkdir -p build
