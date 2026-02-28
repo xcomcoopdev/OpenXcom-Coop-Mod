@@ -1,8 +1,8 @@
 
 set(root_src
-  ${CMAKE_CURRENT_SOURCE_DIR}/lodepng.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/md5.cpp
+  lodepng.cpp
+  main.cpp
+  md5.cpp
 )
 set ( basescape_src
   Basescape/BaseInfoState.cpp
