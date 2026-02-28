@@ -63,9 +63,23 @@ jobs:
       - name: Configure + build (WinXP)
         run: |
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
+
+          # Ensure pkg-config finds MXE (not host) packages
+          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static/lib/pkgconfig"
+
+          # Debug: verify we are building from repo root and file exists
+          echo "=== DEBUG: workspace ==="
+          echo "PWD=$(pwd)"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          ls -la "$GITHUB_WORKSPACE/CMakeLists.txt" || true
+          ls -la "$GITHUB_WORKSPACE/src/lodepng.cpp" || true
+          ls -la "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
+
           mkdir -p build
           cd build
-          i686-w64-mingw32.static-cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF ..
+
+          # IMPORTANT: use absolute source dir so CMake cannot pick the wrong CMakeLists.txt
+          i686-w64-mingw32.static-cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
 
       - name: Package zip
