@@ -63,28 +63,45 @@ jobs:
       - name: Configure + build (WinXP)
         run: |
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
-          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static/lib/pkgconfig"
+
+          # MXE prefix for the i686 static target
+          export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
+
+          # Make sure CMake/pkg-config find MXE (not host) headers/libs
+          export CMAKE_PREFIX_PATH="$MXE_PREFIX"
+          export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
+          export CPPFLAGS="-I$MXE_PREFIX/include"
+          export CFLAGS="$CPPFLAGS"
+          export CXXFLAGS="$CPPFLAGS"
 
           echo "=== DEBUG: workspace ==="
-          echo "PWD=$(pwd)"
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           ls -la "$GITHUB_WORKSPACE/CMakeLists.txt" || true
           ls -la "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
           ls -la "$GITHUB_WORKSPACE/src/lodepng.cpp" || true
 
-          echo "=== DEBUG: where is lodepng.cpp referenced? ==="
+          echo "=== DEBUG: lodepng.cpp references ==="
           grep -n "lodepng\.cpp" "$GITHUB_WORKSPACE/CMakeLists.txt" || true
           grep -n "lodepng\.cpp" "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
 
-          echo "=== DEBUG: where is add_executable referenced? ==="
+          echo "=== DEBUG: add_executable references ==="
           grep -n "add_executable" "$GITHUB_WORKSPACE/CMakeLists.txt" || true
           grep -n "add_executable" "$GITHUB_WORKSPACE/src/CMakeLists.txt" || true
+
+          echo "=== DEBUG: SDL_net header in MXE prefix ==="
+          ls -la "$MXE_PREFIX/include/SDL_net.h" || true
+          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
 
           mkdir -p build
           cd build
 
-          # Use absolute source dir so CMake cannot pick the wrong top-level
-          i686-w64-mingw32.static-cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF "$GITHUB_WORKSPACE"
+          i686-w64-mingw32.static-cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            "$GITHUB_WORKSPACE"
+
           make -j"$(nproc)"
 
       - name: Package zip
