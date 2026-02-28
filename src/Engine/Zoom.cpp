@@ -46,8 +46,8 @@
 #include <intrin.h>
 #endif
 
-#ifdef __GNUC__
-#if (__i386__ || __x86_64__)
+#if defined(__GNUC__) && !defined(__MINGW32__) && !defined(__MINGW64__)
+#if defined(__i386__) || defined(__x86_64__)
 #include <cpuid.h>
 #endif
 #endif

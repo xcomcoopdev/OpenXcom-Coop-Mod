@@ -852,6 +852,24 @@ void GeoscapeState::init()
 
 		std::string filepath = Options::getMasterUserFolder() + filename;
 
+		// Check if the coop_geoscape save exists!
+		if (!OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			filename = "coop_geoscape.sav";
+			filepath = Options::getMasterUserFolder() + filename;
+
+		}
+
+		// Check if the _autogeo_.asav save exists!
+		if (!OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+
+			filename = "_autogeo_.asav";
+			filepath = Options::getMasterUserFolder() + filename;
+
+		}
+
 		if (OpenXcom::CrossPlatform::fileExists(filepath))
 		{
 
@@ -975,16 +993,8 @@ void GeoscapeState::init()
 
 		_game->popState();
 
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "host/basehost.data", _palette));
-		}
-		else
-		{
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "client/basehost.data", _palette));
-		}
+		_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette));
 
-	
 		// COOP FIX
 		if (_game->getCoopMod()->getServerOwner() == true)
 		{

@@ -4597,6 +4597,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								break;
 							}
+							else if ((soldier->getName() == name && name != "") && soldier->getNationality() == nationality)
+							{
+
+								soldier->setCoopRank(intToSoldierRank(rank_int));
+								soldier->setRecentlyPromotedCoop(promoted);
+
+								if (soldier->getCurrentStats())
+								{
+
+									int tu = obj["soldiers"][i]["unit_stats"]["tu"].asInt();
+									int stamina = obj["soldiers"][i]["unit_stats"]["stamina"].asInt();
+									int health = obj["soldiers"][i]["unit_stats"]["health"].asInt();
+									int bravery = obj["soldiers"][i]["unit_stats"]["bravery"].asInt();
+									int reactions = obj["soldiers"][i]["unit_stats"]["reactions"].asInt();
+									int firing = obj["soldiers"][i]["unit_stats"]["firing"].asInt();
+									int throwing = obj["soldiers"][i]["unit_stats"]["throwing"].asInt();
+									int strength = obj["soldiers"][i]["unit_stats"]["strength"].asInt();
+									int psiStrength = obj["soldiers"][i]["unit_stats"]["psiStrength"].asInt();
+									int psiSkill = obj["soldiers"][i]["unit_stats"]["psiSkill"].asInt();
+									int melee = obj["soldiers"][i]["unit_stats"]["melee"].asInt();
+									int mana = obj["soldiers"][i]["unit_stats"]["mana"].asInt();
+
+									UnitStats stats = UnitStats(tu, stamina, health, bravery, reactions, firing, throwing, strength, psiStrength, psiSkill, melee, mana);
+
+									soldier->setCurrentStatsEditableCoop(stats);
+								}
+
+								break;
+
+							}
+
 						}
 
 					}

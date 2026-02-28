@@ -55,8 +55,6 @@ class OptionsMultiplayerState : public OptionsBaseState
 	int _offsetBaseMax = -1;
 	int _offsetBattleMin = -1;
 	int _offsetBattleMax = -1;
-	int _offsetAIMin = -1;
-	int _offsetAIMax = -1;
 
 	int _selected = -1;
 	OptionInfo* _selKey;

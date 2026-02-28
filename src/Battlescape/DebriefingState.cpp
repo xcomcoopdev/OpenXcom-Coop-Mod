@@ -725,6 +725,10 @@ void DebriefingState::init()
 				if (current_unit)
 				{
 
+					// fix
+					int status_int = battleStats[i]["status"].asInt();
+					current_unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(status_int));
+
 					if (current_unit->getStatistics())
 					{
 
@@ -1036,6 +1040,10 @@ void DebriefingState::init()
 
 						if (current_unit)
 						{
+					
+							// fix
+							int status_int = battleStats[i]["status"].asInt();
+							current_unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(status_int));
 
 							if (current_unit->getStatistics())
 							{
@@ -1317,6 +1325,9 @@ void DebriefingState::init()
 				{
 
 					root["battle_stats"][battle_stats_index]["unit_id"] = bu->getId();
+
+					// fix!
+					root["battle_stats"][battle_stats_index]["status"] = _game->getCoopMod()->unitstatusToInt(bu->getStatus());
 
 					root["battle_stats"][battle_stats_index]["MurdererId"] = bu->getMurdererId();
 					root["battle_stats"][battle_stats_index]["MurdererWeapon"] = bu->getMurdererWeapon();

@@ -218,8 +218,6 @@ void OptionsMultiplayerState::updateList()
 	_offsetBaseMax = -1;
 	_offsetBattleMin = -1;
 	_offsetBattleMax = -1;
-	_offsetAIMin = -1;
-	_offsetAIMax = -1;
 
 	_lstOptions->clearList();
 
@@ -229,11 +227,11 @@ void OptionsMultiplayerState::updateList()
 	{
 		_lstOptions->addRow(2, tr("Controls").c_str(), "");
 		row++;
-		_offsetGeneralMin = row;
-		_lstOptions->setCellColor(_offsetGeneralMin, 0, _colorGroup);
+		_offsetControlsMin = row;
+		_lstOptions->setCellColor(_offsetControlsMin, 0, _colorGroup);
 		addControls(_settingsControls[idx]);
 		row += _settingsControls[idx].size();
-		_offsetGeneralMax = row;
+		_offsetControlsMax = row;
 	}
 
 	if (_settingsGeneral[idx].size() > 0)
@@ -251,6 +249,7 @@ void OptionsMultiplayerState::updateList()
 		row += _settingsGeneral[idx].size();
 		_offsetGeneralMax = row;
 	}
+	
 
 	if (_settingsGeo[idx].size() > 0)
 	{
