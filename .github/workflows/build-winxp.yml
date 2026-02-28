@@ -6,7 +6,7 @@ on:
       ref:
         description: "Git ref to build (tag/branch/commit)"
         required: false
-        default: "v8.4.2"
+        default: "main"
 
   push:
     tags:
