@@ -82,17 +82,12 @@ jobs:
           echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
           ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
 
-          # IMPORTANT:
-          # Do NOT use -I$MXE_PREFIX/include/jsoncpp because it doesn't exist in your MXE layout.
-          # Put MXE include FIRST so <json/json.h> resolves to MXE headers (matching libjsoncpp.a),
-          # and keep deps/include later (for other headers).
+          # Put MXE include FIRST so <json/json.h> resolves to MXE headers (matching libjsoncpp.a)
           export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
           export CFLAGS="$CPPFLAGS"
           export CXXFLAGS="$CPPFLAGS"
 
-          # NOTE (Option A):
-          # Do NOT force -l... libs via LDFLAGS here.
-          # The corrected src/CMakeLists.txt links required libs with correct ordering.
+          # Option A: do not force -l... via LDFLAGS (CMakeLists handles link order)
           unset LDFLAGS || true
 
           rm -rf build
@@ -107,6 +102,15 @@ jobs:
             "$GITHUB_WORKSPACE"
 
           make -j"$(nproc)" VERBOSE=1
+
+      - name: Upload link.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: linktxt-${{ env.SAFE_REF }}
+          path: |
+            build/src/CMakeFiles/openxcom.dir/link.txt
+            build/CMakeFiles/openxcom.dir/link.txt
+          if-no-files-found: warn
 
       - name: Package zip
         run: |
