@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v6
+          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v7
 
       - name: Install MXE dependencies (only if no cache)
         if: steps.cache-mxe.outputs.cache-hit != 'true'

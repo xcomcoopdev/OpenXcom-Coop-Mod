@@ -643,7 +643,7 @@ if ( WIN32 )
     target_link_options(openxcom PRIVATE -mwindows -static)
 
     # Required deps for static SDL_net / SDL_image / audio / etc.
-    target_link_libraries(openxcom PRIVATE
+    target_link_libraries ( openxcom PRIVATE PRIVATE
       ws2_32 iphlpapi     # SDL_net (Winsock + GetAdaptersInfo)
       winmm              # SDL_mixer MIDI on Windows
       dxguid             # DirectDraw IID_* symbols
@@ -666,7 +666,7 @@ else()
 endif()
 
 # Final link line (works on Linux/macOS because WIN32 vars stay empty there)
-target_link_libraries ( openxcom
+target_link_libraries ( openxcom PRIVATE
   ${system_libs}
   ${PKG_DEPS_LDFLAGS}
   ${JSONCPP_LINK}

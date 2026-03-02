@@ -58,10 +58,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v6
+          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v7
 
       - name: Configure + build (WinXP)
         run: |
+          set -euo pipefail
+
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
 
           # MXE prefix for the i686 static target
@@ -71,24 +73,29 @@ jobs:
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
 
-          # IMPORTANT (Option 1):
-          # Use MXE's jsoncpp headers (v1.9.1) instead of repo headers (v1.9.7),
-          # to match the jsoncpp library we link against.
-          export CPPFLAGS="-I$MXE_PREFIX/include/jsoncpp -I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
-          export CFLAGS="$CPPFLAGS"
-          export CXXFLAGS="$CPPFLAGS"
-
-          echo "=== DEBUG: jsoncpp version headers present ==="
-          ls -la "$MXE_PREFIX/include/jsoncpp/json/version.h" || true
+          echo "=== DEBUG: where is jsoncpp header in MXE? ==="
+          ls -la "$MXE_PREFIX/include/json/json.h" || true
+          ls -la "$MXE_PREFIX/include/jsoncpp/json/json.h" || true
+          ls -la "$MXE_PREFIX/include/json/version.h" || true
           ls -la "$GITHUB_WORKSPACE/deps/include/json/version.h" || true
 
           echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
           ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
 
+          # IMPORTANT:
+          # Do NOT use -I$MXE_PREFIX/include/jsoncpp because it doesn't exist in your MXE layout.
+          # Put MXE include FIRST so <json/json.h> resolves to MXE headers (matching libjsoncpp.a),
+          # and keep deps/include later (for other headers).
+          export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
+          export CFLAGS="$CPPFLAGS"
+          export CXXFLAGS="$CPPFLAGS"
+
           # NOTE (Option A):
           # Do NOT force -l... libs via LDFLAGS here.
           # The corrected src/CMakeLists.txt links required libs with correct ordering.
+          unset LDFLAGS || true
 
+          rm -rf build
           mkdir -p build
           cd build
 
