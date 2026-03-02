@@ -613,8 +613,13 @@ if ( EMBED_ASSETS )
 endif ()
 
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
-# Base Windows libs: use -lxxx style so it works on MinGW; MSVC doesn't care.
+
+# --- Windows / MinGW / MXE link setup (safe for Linux/macOS) ------------------
+set(system_libs "")
+set(WIN32_LIBS "")
+
 if ( WIN32 )
+  # Base Windows libs (MinGW understands these names too)
   set ( system_libs
     advapi32
     shell32
@@ -626,45 +631,41 @@ if ( WIN32 )
   # Tools (crash handler etc.)
   set ( WIN32_LIBS imagehlp dbghelp )
 
-  # Export all symbols (as you had)
+  # Keep export-all-symbols behavior
   set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
 
-  # MinGW specific (MXE/WinXP build)
   if ( MINGW )
-    # Use GUI subsystem + static link
-    set ( system_libs ${system_libs} mingw32 -mwindows -static )
+    # SDL apps that use WIN32 subsystem need SDLmain to provide WinMain
+    # Typical MinGW order: mingw32, SDLmain, SDL
+    list(APPEND system_libs mingw32 SDLmain SDL)
 
-    # SDL_mixer uses winmm for MIDI on Windows
-    set ( system_libs ${system_libs} winmm )
+    # Put subsystem/static flags as link options (not as "libraries")
+    target_link_options(openxcom PRIVATE -mwindows -static)
 
-    # SDL (DirectX IDs) and SDL_net dependencies
-    set ( system_libs ${system_libs} dxguid ws2_32 iphlpapi )
-
-    # SDL_image codecs (static build needs explicit deps)
-    set ( system_libs ${system_libs} jpeg png webp )
-
-    # SDL_mixer optional deps often pulled in by static build
-    set ( system_libs ${system_libs} modplug smpeg )
-
-    # vorbisfile needs vorbis + ogg when static
-    set ( system_libs ${system_libs} vorbis ogg )
-  endif ()
-endif ()
+    # Required deps for static SDL_net / SDL_image / audio / etc.
+    target_link_libraries(openxcom PRIVATE
+      ws2_32 iphlpapi     # SDL_net (Winsock + GetAdaptersInfo)
+      winmm              # SDL_mixer MIDI on Windows
+      dxguid             # DirectDraw IID_* symbols
+      jpeg png webp      # SDL_image codecs
+      smpeg modplug      # SDL_mixer optional codecs (if enabled in your MXE build)
+      vorbis ogg         # vorbisfile needs these when static
+    )
+  endif()
+endif()
 
 # jsoncpp: on MinGW/MXE force picking it from the toolchain prefix if available
 if ( MINGW )
   find_library(JSONCPP_LIB jsoncpp PATHS "${CMAKE_PREFIX_PATH}/lib" NO_DEFAULT_PATH)
-  if ( JSONCPP_LIB )
-    set ( JSONCPP_LINK ${JSONCPP_LIB} )
-  else ()
-    # fallback: still try -ljsoncpp
-    set ( JSONCPP_LINK jsoncpp )
-  endif ()
+endif()
+
+if ( MINGW AND JSONCPP_LIB )
+  set ( JSONCPP_LINK ${JSONCPP_LIB} )
 else()
   set ( JSONCPP_LINK jsoncpp )
 endif()
 
-# Final link line (works on Linux/macOS because WIN32 vars are empty there)
+# Final link line (works on Linux/macOS because WIN32 vars stay empty there)
 target_link_libraries ( openxcom
   ${system_libs}
   ${PKG_DEPS_LDFLAGS}
@@ -673,6 +674,8 @@ target_link_libraries ( openxcom
   SDL_net
   ${WIN32_LIBS}
 )
+
+# ---------------------------------------------------------------------------
 
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
