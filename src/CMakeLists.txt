@@ -613,28 +613,66 @@ if ( EMBED_ASSETS )
 endif ()
 
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
-# Extra link flags for Windows. They need to be set before the SDL/YAML link flags, otherwise you will get strange link errors ('Undefined reference to WinMain@16')
+# Base Windows libs: use -lxxx style so it works on MinGW; MSVC doesn't care.
 if ( WIN32 )
-  set ( basic_windows_libs advapi32.lib shell32.lib shlwapi.lib wininet.lib urlmon.lib )
+  set ( system_libs
+    advapi32
+    shell32
+    shlwapi
+    wininet
+    urlmon
+  )
+
+  # Tools (crash handler etc.)
+  set ( WIN32_LIBS imagehlp dbghelp )
+
+  # Export all symbols (as you had)
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
+
+  # MinGW specific (MXE/WinXP build)
   if ( MINGW )
-    set ( basic_windows_libs ${basic_windows_libs} mingw32 -mwindows )
-    set ( static_flags  -static )
-    set ( SDLMIXER_LIBRARY "${SDLMIXER_LIBRARY} -lwinmm" )
+    # Use GUI subsystem + static link
+    set ( system_libs ${system_libs} mingw32 -mwindows -static )
+
+    # SDL_mixer uses winmm for MIDI on Windows
+    set ( system_libs ${system_libs} winmm )
+
+    # SDL (DirectX IDs) and SDL_net dependencies
+    set ( system_libs ${system_libs} dxguid ws2_32 iphlpapi )
+
+    # SDL_image codecs (static build needs explicit deps)
+    set ( system_libs ${system_libs} jpeg png webp )
+
+    # SDL_mixer optional deps often pulled in by static build
+    set ( system_libs ${system_libs} modplug smpeg )
+
+    # vorbisfile needs vorbis + ogg when static
+    set ( system_libs ${system_libs} vorbis ogg )
   endif ()
-  set ( system_libs ${basic_windows_libs} SDLmain ${static_flags} )
 endif ()
 
-# backtrace(3) requires libexecinfo on some *BSD systems
-if (${CMAKE_SYSTEM_NAME} MATCHES FreeBSD OR ${CMAKE_SYSTEM_NAME} MATCHES NetBSD OR ${CMAKE_SYSTEM_NAME} MATCHES OpenBSD)
-  set ( system_libs -lexecinfo )
-endif ()
+# jsoncpp: on MinGW/MXE force picking it from the toolchain prefix if available
+if ( MINGW )
+  find_library(JSONCPP_LIB jsoncpp PATHS "${CMAKE_PREFIX_PATH}/lib" NO_DEFAULT_PATH)
+  if ( JSONCPP_LIB )
+    set ( JSONCPP_LINK ${JSONCPP_LIB} )
+  else ()
+    # fallback: still try -ljsoncpp
+    set ( JSONCPP_LINK jsoncpp )
+  endif ()
+else()
+  set ( JSONCPP_LINK jsoncpp )
+endif()
 
-if (WIN32)
-  set(CMAKE_EXE_LINKER_FLAGS -Wl,--export-all-symbols)
-  set(WIN32_LIBS imagehlp dbghelp)
-endif(WIN32)
-
-target_link_libraries ( openxcom ${system_libs} ${PKG_DEPS_LDFLAGS} jsoncpp vorbisfile SDL_net ${WIN32_LIBS} )
+# Final link line (works on Linux/macOS because WIN32 vars are empty there)
+target_link_libraries ( openxcom
+  ${system_libs}
+  ${PKG_DEPS_LDFLAGS}
+  ${JSONCPP_LINK}
+  vorbisfile
+  SDL_net
+  ${WIN32_LIBS}
+)
 
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
