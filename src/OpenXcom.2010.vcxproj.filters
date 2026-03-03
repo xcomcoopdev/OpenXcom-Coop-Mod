@@ -1235,7 +1235,6 @@
     <ClCompile Include="CoopMod\Profile.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
-    <ClCompile Include="CoopMod\CrashHandler.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2727,7 +2726,6 @@
     <ClInclude Include="CoopMod\Profile.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
-    <ClInclude Include="CoopMod\CrashHandler.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Geoscape">

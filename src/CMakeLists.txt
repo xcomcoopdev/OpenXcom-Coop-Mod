@@ -1,4 +1,3 @@
-
 set(root_src
   lodepng.cpp
   main.cpp
@@ -139,7 +138,8 @@ set ( coopmod_src
   CoopMod/connectionTCP.cpp
   CoopMod/CoopMenu.cpp
   CoopMod/CoopState.cpp
-  CoopMod/CrashHandler.cpp
+  # CrashHandler removed for WinXP compatibility
+  # CoopMod/CrashHandler.cpp
   CoopMod/OptionsMultiplayer.cpp
   CoopMod/Profile.cpp
 )
@@ -444,14 +444,13 @@ set ( rapidyaml_src
   ../libs/rapidyaml/c4/yml/tag.cpp
   ../libs/rapidyaml/c4/yml/tree.cpp
   ../libs/rapidyaml/c4/yml/version.cpp
-
 )
 
 set ( cxx_src
     ${root_src}
     ${basescape_src}
     ${battlescape_src}
-    ${coopmod_src} 
+    ${coopmod_src}
     ${engine_src}
     ${geoscape_src}
     ${interface_src}
@@ -474,12 +473,9 @@ if ( "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND "${CMAKE_BUILD_TYPE}" STREQUA
   set_property ( SOURCE OpenXcom.rc APPEND PROPERTY COMPILE_DEFINITIONS _DEBUG )
 endif ()
 if ( "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" )
-  # attempt to limit the executable size
   set_property ( SOURCE ${cxx_src} APPEND_STRING PROPERTY COMPILE_FLAGS -femit-struct-debug-reduced\ )
 endif ()
 if ( "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
-  # C++ - only warnings
-  # C and C++ warnings
   set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wall\ )
   set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wextra\ )
   set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Winit-self\ )
@@ -495,14 +491,10 @@ if ( "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES 
   set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wno-unused-parameter\ )
   set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wno-inline\ )
   if ( "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" )
-    # apple clang 11.0 goes crazy with -Wshadow on the yaml-cpp source code
     set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wshadow\ )
-    # add warning flags recognized by g++ but not by clang
     set_property ( SOURCE ${cxx_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wsuggest-override\ )
     set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wclobbered\ )
     set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Wlogical-op\ )
-  elseif ( CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
-    # add warning flags recognized by clang but not by g++
   endif ()
   if ( FATAL_WARNING )
     set_property ( SOURCE ${cxx_src} ${c_src} APPEND_STRING PROPERTY COMPILE_FLAGS -Werror\ )
@@ -518,7 +510,6 @@ if ( CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
 endif ()
 
 if ( MSVC )
-  # Set warning levels for Debug and Release with debug info
   set ( CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /W${MSVC_WARNING_LEVEL}" )
   set ( CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /W${MSVC_WARNING_LEVEL}" )
   if ( FATAL_WARNING )
@@ -614,7 +605,7 @@ endif ()
 
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
 
-# --- Windows / MinGW / MXE link setup (safe for Linux/macOS) ------------------
+# --- Windows / MinGW / MXE link setup ---------------------------------------
 
 # jsoncpp: on MinGW/MXE force picking it from the toolchain prefix if available
 if ( MINGW )
@@ -627,48 +618,40 @@ else ()
   set ( JSONCPP_LINK jsoncpp )
 endif ()
 
-# Win32 system libs + tools
+# Extra Win32 libs we explicitly need (keep minimal for XP)
 set(WIN32_SYSTEM_LIBS "")
-set(WIN32_TOOLS_LIBS "")
-
 if ( WIN32 )
   set(WIN32_SYSTEM_LIBS advapi32 shell32 shlwapi wininet urlmon)
-  set(WIN32_TOOLS_LIBS imagehlp dbghelp)
-
   # keep export-all-symbols behavior
   set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
-
   if ( MINGW )
     # subsystem/static flags as link options (not as "libraries")
     target_link_options(openxcom PRIVATE -mwindows -static)
-
-    # SDL WinMain glue (WinXP/MinGW)
-    # (SDL itself comes from PKG_DEPS_LDFLAGS)
+    # SDL WinMain glue
     list(APPEND WIN32_SYSTEM_LIBS mingw32 SDLmain)
   endif ()
 endif ()
 
-# IMPORTANT: order matters with static linking!
-# Put libraries that *depend on others* first, and their dependencies later.
+# IMPORTANT: order matters for static linking!
 target_link_libraries(openxcom PRIVATE
   ${PKG_DEPS_LDFLAGS}
   ${JSONCPP_LINK}
 
-  # These use vorbis/ogg → dependencies AFTER
+  # Vorbis stack
   vorbisfile
   vorbis
   ogg
 
-  # SDL_net uses ws2_32/iphlpapi → dependencies AFTER SDL_net
+  # SDL_net stack (dependencies after)
   SDL_net
   ws2_32
   iphlpapi
 
-  # Common Windows multimedia / GUID deps used by SDL_* stacks
+  # Common Win libs used by SDL stacks
   winmm
   dxguid
 
-  # SDL_image/SDL_mixer optional codec deps (only if your MXE build enables them)
+  # SDL_image / SDL_mixer codecs (only if enabled in MXE build)
   jpeg
   png
   webp
@@ -676,12 +659,10 @@ target_link_libraries(openxcom PRIVATE
   modplug
 
   ${WIN32_SYSTEM_LIBS}
-  ${WIN32_TOOLS_LIBS}
 )
 
 # ---------------------------------------------------------------------------
 
-# Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
   include ( PostprocessBundle )
   postprocess_bundle ( openxcom ${bundle_path} )
@@ -694,18 +675,18 @@ if ( NOT EMBED_ASSETS )
       add_custom_command ( TARGET openxcom
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${bundle_path}/Contents/Resources/${binpath}
-	    VERBATIM )
+        VERBATIM )
     else ()
       add_custom_command ( TARGET openxcom
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${EXECUTABLE_OUTPUT_PATH}/${binpath}
-	    VERBATIM )
+        VERBATIM )
       install ( DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${binpath} DESTINATION ${data_install_dir} )
     endif ()
   endforeach ()
 endif ()
 
-# Copy Windows DLLs to bin folder
+# Copy Windows DLLs to bin folder (noop for static MXE, but kept for compatibility)
 if ( WIN32 )
   if ( CMAKE_CL_64 )
     file ( GLOB Windows_dll "${DEPS_DIR}/lib/x64/*.dll" )
@@ -716,12 +697,11 @@ if ( WIN32 )
     add_custom_command ( TARGET openxcom
       POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy ${dll} ${EXECUTABLE_OUTPUT_PATH}
-	  VERBATIM )
+      VERBATIM )
     install ( FILES ${dll} DESTINATION bin)
   endforeach()
 endif ()
 
-#Setup source groups for IDE
 if ( MSVC OR "${CMAKE_GENERATOR}" STREQUAL "Xcode" )
   source_group ( "Basescape" FILES ${basescape_src} )
   source_group ( "Battlescape" FILES ${battlescape_src} )

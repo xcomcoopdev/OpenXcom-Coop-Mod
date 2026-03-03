@@ -44,9 +44,6 @@
 #include "../Savegame/Ufo.h"
 #include "../Mod/RuleInventory.h"
 
-#include "CrashHandler.h" // coop
-
-
 #include <algorithm> // clamp, minmax
 #include <cmath>     // round
 #include <optional>
@@ -62,11 +59,6 @@ inline void DebugLog(const std::string& msg)
 #else
 	std::fprintf(stderr, "%s\n", msg.c_str());
 #endif
-
-	if (OpenXcom::Options::logInfoToFile && OpenXcom::Options::debugMode)
-	{
-		CrashHandler::log(msg);
-	}
 
 }
 

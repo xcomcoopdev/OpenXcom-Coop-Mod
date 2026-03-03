@@ -27,7 +27,6 @@
 #include <cassert>
 #include <exception>
 #include <sstream>
-#include "CoopMod/CrashHandler.h" // coop
 
 /** @mainpage
  * @author OpenXcom Developers
@@ -98,7 +97,6 @@ Game* game = 0;
 // programming license revoked...
 int main(int argc, char* argv[])
 {
-	CrashHandler::install(); // coop
 #ifndef DUMP_CORE
 #ifdef _MSC_VER
 	// Uncomment to check memory leaks in VS
