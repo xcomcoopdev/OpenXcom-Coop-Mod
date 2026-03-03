@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v7
+          key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v6
 
       - name: Configure + build (WinXP)
         run: |
@@ -67,62 +67,78 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
           export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
 
-          # Make sure CMake finds MXE
+          # Make sure CMake/pkg-config find MXE (not host)
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
 
-          # Your repo ships jsoncpp headers (1.9.7) under deps/include/json.
-          # MXE provides libjsoncpp.a, but its headers are NOT under include/jsoncpp/json/version.h in your build.
-          # So we keep repo headers and only ensure include paths are correct.
-          export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
-          export CFLAGS="$CPPFLAGS"
-          export CXXFLAGS="$CPPFLAGS"
+          echo "=== DEBUG: jsoncpp headers we will use (MXE) ==="
+          ls -la "$MXE_PREFIX/include/json/version.h" || true
+          ls -la "$MXE_PREFIX/include/json/json.h" || true
 
-          echo "=== DEBUG: jsoncpp headers present ==="
-          ls -la "$GITHUB_WORKSPACE/deps/include/json/version.h" || true
+          echo "=== DEBUG: SDL_net header in MXE ==="
+          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
 
-          echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
+          echo "=== DEBUG: key libs in MXE ==="
           ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
 
           mkdir -p build
           cd build
 
+          # IMPORTANT:
+          # - Put MXE include dirs FIRST so we don't accidentally use deps/include jsoncpp headers.
+          # - Add SDL include dir so <SDL_net.h> works (header is in include/SDL/SDL_net.h).
+          #
+          # Linker:
+          # - Use --start-group/--end-group to avoid static link order issues (vorbisfile/vorbis/ogg, SDL_net/ws2_32, etc.)
           i686-w64-mingw32.static-cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DDEV_BUILD=OFF \
             -DBUILD_PACKAGE=OFF \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DCMAKE_CXX_FLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL" \
+            -DCMAKE_EXE_LINKER_FLAGS="-Wl,--start-group -Wl,--end-group" \
             "$GITHUB_WORKSPACE"
 
           make -j"$(nproc)" VERBOSE=1
 
-      # Always dump + upload link command + linklibs so you can see missing libs/order
-      - name: Dump link files (debug)
+      # Collect link files even if the build fails
+      - name: Collect link files
         if: always()
         run: |
-          echo "=== link.txt ==="
-          cat build/src/CMakeFiles/openxcom.dir/link.txt || true
-          echo
-          echo "=== linklibs.rsp ==="
-          cat build/src/CMakeFiles/openxcom.dir/linklibs.rsp || true
+          set -euxo pipefail
+          mkdir -p artifacts-link
 
-      - name: Upload link files (debug)
+          # Try common locations
+          if [ -f "build/src/CMakeFiles/openxcom.dir/link.txt" ]; then
+            cp -v "build/src/CMakeFiles/openxcom.dir/link.txt" artifacts-link/link.txt
+          fi
+          if [ -f "build/src/CMakeFiles/openxcom.dir/linklibs.rsp" ]; then
+            cp -v "build/src/CMakeFiles/openxcom.dir/linklibs.rsp" artifacts-link/linklibs.rsp
+          fi
+
+          # Also dump to job log for quick viewing
+          echo "=== link.txt ==="
+          (cat artifacts-link/link.txt || true)
+          echo "=== linklibs.rsp ==="
+          (cat artifacts-link/linklibs.rsp || true)
+
+      - name: Upload link debug artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: link-debug-${{ env.SAFE_REF }}
-          path: |
-            build/src/CMakeFiles/openxcom.dir/link.txt
-            build/src/CMakeFiles/openxcom.dir/linklibs.rsp
+          path: artifacts-link/
 
       - name: Package zip
+        # Only package if build succeeded and bin exists
         if: success()
         run: |
+          set -euxo pipefail
           cd build/bin
           rm -f libopenxcom.dll.a || true
           zip -r "../../openxcom-winxp-${{ env.SAFE_REF }}.zip" .
 
-      - name: Upload artifact
+      - name: Upload build artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
