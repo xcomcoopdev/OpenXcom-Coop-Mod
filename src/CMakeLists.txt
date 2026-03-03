@@ -615,64 +615,68 @@ endif ()
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
 
 # --- Windows / MinGW / MXE link setup (safe for Linux/macOS) ------------------
-set(system_libs "")
-set(WIN32_LIBS "")
-
-if ( WIN32 )
-  # Base Windows libs (MinGW understands these names too)
-  set ( system_libs
-    advapi32
-    shell32
-    shlwapi
-    wininet
-    urlmon
-  )
-
-  # Tools (crash handler etc.)
-  set ( WIN32_LIBS imagehlp dbghelp )
-
-  # Keep export-all-symbols behavior
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
-
-  if ( MINGW )
-    # SDL apps that use WIN32 subsystem need SDLmain to provide WinMain
-    # Typical MinGW order: mingw32, SDLmain, SDL
-    list(APPEND system_libs mingw32 SDLmain SDL)
-
-    # Put subsystem/static flags as link options (not as "libraries")
-    target_link_options(openxcom PRIVATE -mwindows -static)
-
-    # Required deps for static SDL_net / SDL_image / audio / etc.
-    target_link_libraries ( openxcom PRIVATE PRIVATE
-      ws2_32 iphlpapi     # SDL_net (Winsock + GetAdaptersInfo)
-      winmm              # SDL_mixer MIDI on Windows
-      dxguid             # DirectDraw IID_* symbols
-      jpeg png webp      # SDL_image codecs
-      smpeg modplug      # SDL_mixer optional codecs (if enabled in your MXE build)
-      vorbis ogg         # vorbisfile needs these when static
-    )
-  endif()
-endif()
 
 # jsoncpp: on MinGW/MXE force picking it from the toolchain prefix if available
 if ( MINGW )
   find_library(JSONCPP_LIB jsoncpp PATHS "${CMAKE_PREFIX_PATH}/lib" NO_DEFAULT_PATH)
-endif()
+endif ()
 
 if ( MINGW AND JSONCPP_LIB )
   set ( JSONCPP_LINK ${JSONCPP_LIB} )
-else()
+else ()
   set ( JSONCPP_LINK jsoncpp )
-endif()
+endif ()
 
-# Final link line (works on Linux/macOS because WIN32 vars stay empty there)
-target_link_libraries ( openxcom PRIVATE
-  ${system_libs}
+# Win32 system libs + tools
+set(WIN32_SYSTEM_LIBS "")
+set(WIN32_TOOLS_LIBS "")
+
+if ( WIN32 )
+  set(WIN32_SYSTEM_LIBS advapi32 shell32 shlwapi wininet urlmon)
+  set(WIN32_TOOLS_LIBS imagehlp dbghelp)
+
+  # keep export-all-symbols behavior
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
+
+  if ( MINGW )
+    # subsystem/static flags as link options (not as "libraries")
+    target_link_options(openxcom PRIVATE -mwindows -static)
+
+    # SDL WinMain glue (WinXP/MinGW)
+    # (SDL itself comes from PKG_DEPS_LDFLAGS)
+    list(APPEND WIN32_SYSTEM_LIBS mingw32 SDLmain)
+  endif ()
+endif ()
+
+# IMPORTANT: order matters with static linking!
+# Put libraries that *depend on others* first, and their dependencies later.
+target_link_libraries(openxcom PRIVATE
   ${PKG_DEPS_LDFLAGS}
   ${JSONCPP_LINK}
+
+  # These use vorbis/ogg → dependencies AFTER
   vorbisfile
+  vorbis
+  ogg
+
+  # SDL_net uses ws2_32/iphlpapi → dependencies AFTER SDL_net
   SDL_net
-  ${WIN32_LIBS}
+  ws2_32
+  iphlpapi
+
+  # Common Windows multimedia / GUID deps used by SDL_* stacks
+  winmm
+  dxguid
+
+  # SDL_image/SDL_mixer optional codec deps (only if your MXE build enables them)
+  jpeg
+  png
+  webp
+  smpeg
+  modplug
+
+  ${WIN32_SYSTEM_LIBS}
+  ${WIN32_TOOLS_LIBS}
 )
 
 # ---------------------------------------------------------------------------
