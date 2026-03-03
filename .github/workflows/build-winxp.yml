@@ -62,32 +62,30 @@ jobs:
 
       - name: Configure + build (WinXP)
         run: |
-          set -euo pipefail
+          set -euxo pipefail
 
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
           export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
 
-          # Make sure CMake/pkg-config find MXE (not host)
-          export CMAKE_PREFIX_PATH="$MXE_PREFIX"
+          # Make pkg-config resolve MXE packages (not host)
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$MXE_PREFIX/lib/pkgconfig"
 
-          echo "=== DEBUG: where SDL_net headers are ==="
-          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
+          echo "=== DEBUG: MXE_PREFIX ==="
+          echo "$MXE_PREFIX"
+
+          echo "=== DEBUG: SDL_net headers (try common locations) ==="
           ls -la "$MXE_PREFIX/include/SDL_net.h" || true
+          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
+          ls -la "$MXE_PREFIX/include/SDL_net/SDL_net.h" || true
 
-          # ---- FIX #1: Provide SDL_net.h shim so source '#include <SDL_net.h>' works
-          mkdir -p "$GITHUB_WORKSPACE/_shim_includes"
-          cat > "$GITHUB_WORKSPACE/_shim_includes/SDL_net.h" <<'EOF'
-          #pragma once
-          #include <SDL/SDL_net.h>
-          EOF
+          echo "=== DEBUG: jsoncpp headers (try common locations) ==="
+          ls -la "$MXE_PREFIX/include/json/json.h" || true
+          ls -la "$MXE_PREFIX/include/jsoncpp/json/json.h" || true
 
-          # Put shim FIRST, then MXE includes.
-          export CPPFLAGS="-I$GITHUB_WORKSPACE/_shim_includes -I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL"
-          export CFLAGS="$CPPFLAGS"
-          export CXXFLAGS="$CPPFLAGS"
+          echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
+          ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
 
-          # Clean build dir to avoid stale CMake cache confusing includes
           rm -rf build
           mkdir -p build
           cd build
@@ -96,44 +94,22 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DDEV_BUILD=OFF \
             -DBUILD_PACKAGE=OFF \
-            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-            -DCMAKE_C_FLAGS="$CFLAGS" \
-            -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+            -DCMAKE_PREFIX_PATH="$MXE_PREFIX" \
+            -DDEPS_DIR= \
             "$GITHUB_WORKSPACE"
 
-          # Build verbose so link.txt/linklibs.rsp are produced and visible
           make -j"$(nproc)" VERBOSE=1
 
-      - name: Collect link scripts (even on failure)
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-
-          # These are created by CMake during link step (if it reaches that far)
-          if [ -f build/src/CMakeFiles/openxcom.dir/link.txt ]; then
-            cp -v build/src/CMakeFiles/openxcom.dir/link.txt artifacts/link.txt
-          fi
-          if [ -f build/src/CMakeFiles/openxcom.dir/linklibs.rsp ]; then
-            cp -v build/src/CMakeFiles/openxcom.dir/linklibs.rsp artifacts/linklibs.rsp
-          fi
-
-          # Also keep CMake logs when diagnosing
-          if [ -f build/CMakeFiles/CMakeOutput.log ]; then
-            cp -v build/CMakeFiles/CMakeOutput.log artifacts/CMakeOutput.log
-          fi
-          if [ -f build/CMakeFiles/CMakeError.log ]; then
-            cp -v build/CMakeFiles/CMakeError.log artifacts/CMakeError.log
-          fi
-
-          ls -la artifacts || true
-
-      - name: Upload link scripts artifact
+      # Always upload link scripts (even if build fails)
+      - name: Upload link scripts (link.txt + linklibs.rsp)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: winxp-link-scripts-${{ env.SAFE_REF }}
-          path: artifacts/
+          path: |
+            build/src/CMakeFiles/openxcom.dir/link.txt
+            build/src/CMakeFiles/openxcom.dir/linklibs.rsp
+            build/CMakeFiles/CMakeOutput.log
 
       - name: Package zip
         if: success()
@@ -142,7 +118,7 @@ jobs:
           rm -f libopenxcom.dll.a || true
           zip -r "../../openxcom-winxp-${{ env.SAFE_REF }}.zip" .
 
-      - name: Upload build artifact
+      - name: Upload artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
