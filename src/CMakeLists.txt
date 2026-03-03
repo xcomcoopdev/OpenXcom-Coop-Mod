@@ -599,6 +599,10 @@ endif ()
 
 add_executable ( openxcom  ${application_type} ${openxcom_src} ${openxcom_icon} )
 
+if (WIN32)
+  target_compile_definitions(openxcom PRIVATE __NO_DBGHELP)
+endif ()
+
 if ( EMBED_ASSETS )
   add_dependencies(openxcom zips)
 endif ()
