@@ -46,8 +46,6 @@
 #include <algorithm>
 #include "../fallthrough.h"
 
-#include "../CoopMod/CrashHandler.h" // coop 
-
 namespace OpenXcom
 {
 
@@ -181,14 +179,12 @@ void Game::run()
 			std::string msg = std::string("Exception in updateCoopTask: ") + e.what();
 
 			DebugLog((msg + "\n").c_str());
-			CRASH_LOG(msg);
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown non-std::exception thrown in updateCoopTask";
 
 			DebugLog((msg + "\n").c_str());
-			CRASH_LOG(msg);
 		}
 
 		// Clean up states

@@ -408,14 +408,12 @@ void connectionTCP::loopData()
 			std::string msg = "Error in loopData: " + std::string(e.what());
 
 			logError(msg);
-			CRASH_LOG(msg);
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown error in loopData!";
 
 			logError(msg);
-			CRASH_LOG(msg);
 		}
 
 		SDL_Delay(10); // Prevent 100% CPU usage when idle
@@ -621,9 +619,6 @@ void connectionTCP::updateCoopTask()
 
 				// Existing debug log
 				DebugLog((msg + "\n").c_str());
-
-				// Write a crash-style log file into user/logs/crash_YYYY-MM-DD_HH-MM-SS.log
-				CRASH_LOG(msg);
 
 				// Put back to the *back* to avoid pinning the head
 				rxHold.emplace_back(std::move(jsonStr));
@@ -5017,15 +5012,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			DebugLog((msg + "\n").c_str());
 
-			// Write separate crash log file to user/logs/...
-			CRASH_LOG(msg);
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown exception in map loading.";
 
 			DebugLog((msg + "\n").c_str());
-			CRASH_LOG(msg);
 		}
 	}
 
