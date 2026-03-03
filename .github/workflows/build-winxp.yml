@@ -60,33 +60,30 @@ jobs:
           path: mxe
           key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v7
 
-      - name: Prepare env
+      - name: Configure + build (WinXP)
         run: |
-          set -euo pipefail
+          set -euxo pipefail
+
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
           export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
+
+          # Make sure CMake finds MXE
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
 
-          # Prefer MXE headers first
+          # Your repo ships jsoncpp headers (1.9.7) under deps/include/json.
+          # MXE provides libjsoncpp.a, but its headers are NOT under include/jsoncpp/json/version.h in your build.
+          # So we keep repo headers and only ensure include paths are correct.
           export CPPFLAGS="-I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL -I$GITHUB_WORKSPACE/deps/include/SDL_net -I$GITHUB_WORKSPACE/deps/include"
           export CFLAGS="$CPPFLAGS"
           export CXXFLAGS="$CPPFLAGS"
 
-          unset LDFLAGS || true
+          echo "=== DEBUG: jsoncpp headers present ==="
+          ls -la "$GITHUB_WORKSPACE/deps/include/json/version.h" || true
 
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          echo "MXE_PREFIX=$MXE_PREFIX" >> $GITHUB_ENV
-          echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "CPPFLAGS=$CPPFLAGS" >> $GITHUB_ENV
-          echo "CFLAGS=$CFLAGS" >> $GITHUB_ENV
-          echo "CXXFLAGS=$CXXFLAGS" >> $GITHUB_ENV
+          echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
+          ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
 
-      - name: Configure (WinXP)
-        run: |
-          set -euo pipefail
-          rm -rf build
           mkdir -p build
           cd build
 
@@ -97,35 +94,26 @@ jobs:
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
             "$GITHUB_WORKSPACE"
 
-          echo "=== DEBUG: link.txt location candidates ==="
-          ls -la src/CMakeFiles/openxcom.dir/link.txt || true
-          ls -la CMakeFiles/openxcom.dir/link.txt || true
-
-      - name: Upload link.txt (after configure)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linktxt-config-${{ env.SAFE_REF }}
-          path: |
-            build/src/CMakeFiles/openxcom.dir/link.txt
-            build/CMakeFiles/openxcom.dir/link.txt
-          if-no-files-found: warn
-
-      - name: Build (WinXP)
-        run: |
-          set -euo pipefail
-          cd build
           make -j"$(nproc)" VERBOSE=1
 
-      - name: Upload link.txt (after build)
+      # Always dump + upload link command + linklibs so you can see missing libs/order
+      - name: Dump link files (debug)
+        if: always()
+        run: |
+          echo "=== link.txt ==="
+          cat build/src/CMakeFiles/openxcom.dir/link.txt || true
+          echo
+          echo "=== linklibs.rsp ==="
+          cat build/src/CMakeFiles/openxcom.dir/linklibs.rsp || true
+
+      - name: Upload link files (debug)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: linktxt-build-${{ env.SAFE_REF }}
+          name: link-debug-${{ env.SAFE_REF }}
           path: |
             build/src/CMakeFiles/openxcom.dir/link.txt
-            build/CMakeFiles/openxcom.dir/link.txt
-          if-no-files-found: warn
+            build/src/CMakeFiles/openxcom.dir/linklibs.rsp
 
       - name: Package zip
         if: success()
