@@ -60,8 +60,10 @@ jobs:
           path: mxe
           key: ${{ runner.os }}-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-v7
 
-      - name: Configure (WinXP)
+      - name: Configure + build (WinXP)
         run: |
+          set -euo pipefail
+
           export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
           export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
 
@@ -69,14 +71,23 @@ jobs:
           export CMAKE_PREFIX_PATH="$MXE_PREFIX"
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
 
-          echo "=== DEBUG: json headers location check ==="
-          ls -la "$MXE_PREFIX/include/json" || true
-          ls -la "$MXE_PREFIX/include/json/json.h" || true
-          ls -la "$GITHUB_WORKSPACE/deps/include/json/json.h" || true
+          echo "=== DEBUG: where SDL_net headers are ==="
+          ls -la "$MXE_PREFIX/include/SDL/SDL_net.h" || true
+          ls -la "$MXE_PREFIX/include/SDL_net.h" || true
 
-          echo "=== DEBUG: key libs present in MXE_PREFIX/lib ==="
-          ls -la "$MXE_PREFIX/lib" | grep -Ei "json|sdl|jpeg|png|webp|smpeg|modplug|vorbis|ogg|ws2|iphlp|winmm|dxguid" || true
+          # ---- FIX #1: Provide SDL_net.h shim so source '#include <SDL_net.h>' works
+          mkdir -p "$GITHUB_WORKSPACE/_shim_includes"
+          cat > "$GITHUB_WORKSPACE/_shim_includes/SDL_net.h" <<'EOF'
+          #pragma once
+          #include <SDL/SDL_net.h>
+          EOF
 
+          # Put shim FIRST, then MXE includes.
+          export CPPFLAGS="-I$GITHUB_WORKSPACE/_shim_includes -I$MXE_PREFIX/include -I$MXE_PREFIX/include/SDL"
+          export CFLAGS="$CPPFLAGS"
+          export CXXFLAGS="$CPPFLAGS"
+
+          # Clean build dir to avoid stale CMake cache confusing includes
           rm -rf build
           mkdir -p build
           cd build
@@ -86,58 +97,43 @@ jobs:
             -DDEV_BUILD=OFF \
             -DBUILD_PACKAGE=OFF \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DCMAKE_C_FLAGS="$CFLAGS" \
+            -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
             "$GITHUB_WORKSPACE"
 
-      - name: Patch link order (start-group/end-group) for static link
-        run: |
-          RSP="build/src/CMakeFiles/openxcom.dir/linklibs.rsp"
-          if [ -f "$RSP" ]; then
-            echo "=== BEFORE patch: $RSP ==="
-            cat "$RSP" || true
-
-            # Flatten to one line and wrap with start/end-group to fix static link ordering
-            ONE_LINE="$(tr '\n' ' ' < "$RSP")"
-            echo " -Wl,--start-group $ONE_LINE -Wl,--end-group " > "$RSP"
-
-            echo "=== AFTER patch: $RSP ==="
-            cat "$RSP" || true
-          else
-            echo "WARN: linklibs.rsp not found yet at $RSP (CMake layout changed?)"
-            find build -maxdepth 5 -name "linklibs.rsp" -print || true
-          fi
-
-      - name: Build (WinXP)
-        run: |
-          export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
-          cd build
+          # Build verbose so link.txt/linklibs.rsp are produced and visible
           make -j"$(nproc)" VERBOSE=1
 
-      - name: Collect link files (always)
+      - name: Collect link scripts (even on failure)
         if: always()
         run: |
-          mkdir -p artifacts/link
-          echo "=== FIND link.txt / linklibs.rsp ==="
-          find build -name "link.txt" -o -name "linklibs.rsp" -print || true
+          set -euo pipefail
+          mkdir -p artifacts
 
-          # Copy if present
-          cp -v build/src/CMakeFiles/openxcom.dir/link.txt artifacts/link/ 2>/dev/null || true
-          cp -v build/src/CMakeFiles/openxcom.dir/linklibs.rsp artifacts/link/ 2>/dev/null || true
+          # These are created by CMake during link step (if it reaches that far)
+          if [ -f build/src/CMakeFiles/openxcom.dir/link.txt ]; then
+            cp -v build/src/CMakeFiles/openxcom.dir/link.txt artifacts/link.txt
+          fi
+          if [ -f build/src/CMakeFiles/openxcom.dir/linklibs.rsp ]; then
+            cp -v build/src/CMakeFiles/openxcom.dir/linklibs.rsp artifacts/linklibs.rsp
+          fi
 
-          echo "=== artifacts/link contents ==="
-          ls -la artifacts/link || true
+          # Also keep CMake logs when diagnosing
+          if [ -f build/CMakeFiles/CMakeOutput.log ]; then
+            cp -v build/CMakeFiles/CMakeOutput.log artifacts/CMakeOutput.log
+          fi
+          if [ -f build/CMakeFiles/CMakeError.log ]; then
+            cp -v build/CMakeFiles/CMakeError.log artifacts/CMakeError.log
+          fi
 
-          echo "=== link.txt (if exists) ==="
-          sed -n '1,200p' artifacts/link/link.txt 2>/dev/null || true
+          ls -la artifacts || true
 
-          echo "=== linklibs.rsp (if exists) ==="
-          sed -n '1,200p' artifacts/link/linklibs.rsp 2>/dev/null || true
-
-      - name: Upload link logs artifact (always)
+      - name: Upload link scripts artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: link-logs-${{ env.SAFE_REF }}
-          path: artifacts/link
+          name: winxp-link-scripts-${{ env.SAFE_REF }}
+          path: artifacts/
 
       - name: Package zip
         if: success()
