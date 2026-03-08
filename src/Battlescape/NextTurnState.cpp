@@ -605,6 +605,76 @@ void NextTurnState::close()
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
 
+			// hotseat
+			if (_game->getCoopMod()->_isHotseatActive == true && _game->getCoopMod()->_changeHotseatTurn == true && _game->getSavedGame()->getSavedBattle())
+			{
+
+				_game->getCoopMod()->_changeHotseatTurn = false;
+
+				_game->getCoopMod()->_isHotseatAlienTurn = !_game->getCoopMod()->_isHotseatAlienTurn;
+
+				_battleGame->resetTiles();
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getFaction() == FACTION_HOSTILE)
+					{
+
+						unit->convertToFaction(FACTION_PLAYER);
+						unit->setOriginalFaction(FACTION_PLAYER);
+						_battleGame->setSelectedUnit(unit);
+
+						if (_battleGame->getTileEngine())
+						{
+
+							_battleGame->getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition());
+							_battleGame->getTileEngine()->calculateFOV(unit);
+
+						}
+
+					}
+					else if (unit->getFaction() == FACTION_PLAYER)
+					{
+
+						unit->convertToFaction(FACTION_HOSTILE);
+						unit->setOriginalFaction(FACTION_HOSTILE);
+
+						if (!unit->getUnitRules())
+						{
+
+							std::string alienName = "MALE_CIVILIAN";
+
+							if (unit->getGeoscapeSoldier())
+							{
+
+								if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+								{
+									alienName = "FEMALE_CIVILIAN";
+								}
+							}
+
+							Unit* rule = _game->getMod()->getUnit(alienName, true);
+							unit->setUnitRulesCoop(rule);
+
+						}
+
+						unit->setVisible(false);
+
+
+					}
+
+				}
+
+				if (_battleGame->getSelectedUnit() && _battleGame->getBattleGame())
+				{
+
+					_battleGame->getBattleGame()->centerOnPositionCoop(_battleGame->getSelectedUnit()->getPosition());
+
+				}
+
+			}
+
 			// coop resets
 			if (_game->getCoopMod()->getCoopStatic() == true)
 			{

@@ -328,6 +328,7 @@ public:
 	void clearWaypointsCoop();
 	void CoopShoot();
 	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
+	void centerOnPositionCoop(Position pos);
 };
 
 }

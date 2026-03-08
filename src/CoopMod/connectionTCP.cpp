@@ -121,6 +121,8 @@ bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
 bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
 
+bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -1472,6 +1474,56 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	coopSession = true;
 
+	if (stateString == "giveUnit")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+
+				int unit_id = obj["unit_id"].asInt();
+				int coop = obj["coop"].asInt();
+
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+
+					if (unit->getId() == unit_id)
+					{
+
+						// save
+						if (getHost() == true && getCoopCampaign() == true)
+						{
+
+							if (unit->getGeoscapeSoldier())
+							{
+
+								if (unit->getGeoscapeSoldier()->getOwnerPlayerId() == 999)
+								{
+
+									unit->getGeoscapeSoldier()->setOwnerPlayerId(unit->getCoop());
+
+								}
+
+							}
+
+						}
+
+						unit->setCoop(coop);
+
+						break;
+
+					}
+
+				}
+
+			}
+
+		}
+
+	}
+
 	if (stateString == "calc_explode_fov")
 	{
 
@@ -2562,13 +2614,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "info_box")
 	{
 
+		_hasHitUnit = -1;
+
 		std::string msg = obj["msg"].asString();
 
 		if (_game->getSavedGame())
 		{
 
 			if (_game->getSavedGame()->getSavedBattle())
-			{
+			{ 
 
 				_game->getSavedGame()->getSavedBattle()->getBattleGame()->infoboxCoop(msg);
 
@@ -2581,6 +2635,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// info box ok
 	if (stateString == "info_box_ok")
 	{
+
+		_hasHitUnit = -1;
 
 		std::string msg = obj["msg"].asString();
 
@@ -4562,13 +4618,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int rank_int = obj["soldiers"][i]["rank"].asInt();
 					int promoted = obj["soldiers"][i]["promoted"].asInt();
 
+					int init_tu = obj["soldiers"][i]["init_tu"].asInt();
+					int coopbase = obj["soldiers"][i]["coopbase"].asInt();
+
 					for (auto& base : *_game->getSavedGame()->getBases())
 					{
 
 						for (auto& soldier : *base->getSoldiers())
 						{
 
-							if ((soldier->getCoopName() == coopname && coopname != "") || (soldier->getName() == name && name != "") && soldier->getNationality() == nationality)
+							if ((soldier->getCoopName() == coopname && coopname != "") || (soldier->getName() == name && name != "") && soldier->getNationality() == nationality && soldier->getInitStats() && soldier->getInitStats()->tu == init_tu && soldier->getCoopBase() == coopbase)
 							{
 								soldier->setCoopRank(intToSoldierRank(rank_int));
 								soldier->setRecentlyPromotedCoop(promoted);
@@ -4597,7 +4656,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								break;
 							}
-							else if ((soldier->getName() == name && name != "") && soldier->getNationality() == nationality)
+							else if ((soldier->getName() == name && name != "") && soldier->getNationality() == nationality && soldier->getInitStats() && soldier->getInitStats()->tu == init_tu && soldier->getCoopBase() == coopbase)
 							{
 
 								soldier->setCoopRank(intToSoldierRank(rank_int));
@@ -5133,6 +5192,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_reset_timeunits_onturnchange_pvp = Options::resetTimeUnitsOnTurnChangePVP;
 		root["reset_timeunits_onturnchange_pvp"] = _reset_timeunits_onturnchange_pvp;
 
+		// UnbalancedCraftSoldiersLimit
+		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
+		root["unbalanced_craft_soldiers_limit"] = _unbalanced_craft_soldiers_limit;
+
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -5309,6 +5372,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// resetTimeUnitsOnTurnChangePVP
 		bool reset_timeunits_onturnchange_pvp = obj["reset_timeunits_onturnchange_pvp"].asBool();
 		connectionTCP::_reset_timeunits_onturnchange_pvp = reset_timeunits_onturnchange_pvp;
+
+		// UnbalancedCraftSoldiersLimit
+		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
+		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
 
 		for (Json::Value host_mod : obj["mods"])
 		{

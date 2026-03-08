@@ -299,6 +299,15 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 
 
 	// COOP
+	// hotseat
+	if (_game->getCoopMod()->_isHotseatActive == true)
+	{
+
+		_game->getCoopMod()->_changeHotseatTurn = false;
+		_game->getCoopMod()->_isHotseatAlienTurn = false;
+
+	}
+
 	if (_game->getCoopMod()->isCoopSession() == true)
 	{
 		_game->getCoopMod()->coopMissionEnd = true;
@@ -1257,34 +1266,46 @@ void DebriefingState::init()
 
 		// rank
 		int soldier_index = 0;
-		for (auto &soldier : participants)
+
+		if (_base)
 		{
 
-			root["soldiers"][soldier_index]["coopname"] = soldier->getCoopName();
-			root["soldiers"][soldier_index]["name"] = soldier->getName();
-			root["soldiers"][soldier_index]["nationality"] = soldier->getNationality();
-			root["soldiers"][soldier_index]["rank"] = _game->getCoopMod()->SoldierRanktoInt(soldier->getRank());
-			root["soldiers"][soldier_index]["promoted"] = soldier->getRecentlyPromotedCoop();
-
-			if (soldier->getCurrentStats())
+			for (auto& soldier : *_base->getSoldiers())
 			{
 
-				root["soldiers"][soldier_index]["unit_stats"]["tu"] = static_cast<int>(soldier->getCurrentStats()->tu);
-				root["soldiers"][soldier_index]["unit_stats"]["stamina"] = static_cast<int>(soldier->getCurrentStats()->stamina);
-				root["soldiers"][soldier_index]["unit_stats"]["health"] = static_cast<int>(soldier->getCurrentStats()->health);
-				root["soldiers"][soldier_index]["unit_stats"]["bravery"] = static_cast<int>(soldier->getCurrentStats()->bravery);
-				root["soldiers"][soldier_index]["unit_stats"]["reactions"] = static_cast<int>(soldier->getCurrentStats()->reactions);
-				root["soldiers"][soldier_index]["unit_stats"]["firing"] = static_cast<int>(soldier->getCurrentStats()->firing);
-				root["soldiers"][soldier_index]["unit_stats"]["throwing"] = static_cast<int>(soldier->getCurrentStats()->throwing);
-				root["soldiers"][soldier_index]["unit_stats"]["strength"] = static_cast<int>(soldier->getCurrentStats()->strength);
-				root["soldiers"][soldier_index]["unit_stats"]["psiStrength"] = static_cast<int>(soldier->getCurrentStats()->psiStrength);
-				root["soldiers"][soldier_index]["unit_stats"]["psiSkill"] = static_cast<int>(soldier->getCurrentStats()->psiSkill);
-				root["soldiers"][soldier_index]["unit_stats"]["melee"] = static_cast<int>(soldier->getCurrentStats()->melee);
-				root["soldiers"][soldier_index]["unit_stats"]["mana"] = static_cast<int>(soldier->getCurrentStats()->mana);
+				root["soldiers"][soldier_index]["coopbase"] = soldier->getCoopBase();
+				root["soldiers"][soldier_index]["coopname"] = soldier->getCoopName();
+				root["soldiers"][soldier_index]["name"] = soldier->getName();
+				root["soldiers"][soldier_index]["nationality"] = soldier->getNationality();
+				root["soldiers"][soldier_index]["rank"] = _game->getCoopMod()->SoldierRanktoInt(soldier->getRank());
+				root["soldiers"][soldier_index]["promoted"] = soldier->getRecentlyPromotedCoop();
 
+				if (soldier->getInitStats())
+				{
+
+					root["soldiers"][soldier_index]["init_tu"] = static_cast<int>(soldier->getInitStats()->tu);
+
+				}
+
+				if (soldier->getCurrentStats())
+				{
+
+					root["soldiers"][soldier_index]["unit_stats"]["tu"] = static_cast<int>(soldier->getCurrentStats()->tu);
+					root["soldiers"][soldier_index]["unit_stats"]["stamina"] = static_cast<int>(soldier->getCurrentStats()->stamina);
+					root["soldiers"][soldier_index]["unit_stats"]["health"] = static_cast<int>(soldier->getCurrentStats()->health);
+					root["soldiers"][soldier_index]["unit_stats"]["bravery"] = static_cast<int>(soldier->getCurrentStats()->bravery);
+					root["soldiers"][soldier_index]["unit_stats"]["reactions"] = static_cast<int>(soldier->getCurrentStats()->reactions);
+					root["soldiers"][soldier_index]["unit_stats"]["firing"] = static_cast<int>(soldier->getCurrentStats()->firing);
+					root["soldiers"][soldier_index]["unit_stats"]["throwing"] = static_cast<int>(soldier->getCurrentStats()->throwing);
+					root["soldiers"][soldier_index]["unit_stats"]["strength"] = static_cast<int>(soldier->getCurrentStats()->strength);
+					root["soldiers"][soldier_index]["unit_stats"]["psiStrength"] = static_cast<int>(soldier->getCurrentStats()->psiStrength);
+					root["soldiers"][soldier_index]["unit_stats"]["psiSkill"] = static_cast<int>(soldier->getCurrentStats()->psiSkill);
+					root["soldiers"][soldier_index]["unit_stats"]["melee"] = static_cast<int>(soldier->getCurrentStats()->melee);
+					root["soldiers"][soldier_index]["unit_stats"]["mana"] = static_cast<int>(soldier->getCurrentStats()->mana);
+				}
+
+				soldier_index++;
 			}
-
-			soldier_index++;
 
 		}
 
@@ -3053,6 +3074,13 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 		}
 		else
 		{
+
+			// coop fix
+			if (!bi->getUnit())
+			{
+				continue;
+			}
+
 			if (rule->isRecoverable() && !bi->getXCOMProperty())
 			{
 				if (rule->getBattleType() == BT_CORPSE)

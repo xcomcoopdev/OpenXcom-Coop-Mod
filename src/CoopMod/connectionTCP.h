@@ -289,6 +289,8 @@ class connectionTCP
 
 	static bool _reset_timeunits_onturnchange_pvp;
 
+	static bool _unbalanced_craft_soldiers_limit;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -358,6 +360,11 @@ class connectionTCP
 	int _hasHitUnit = -1;
 
 	bool openMultipleTargetsMenu = false;
+
+	// hotseat
+	bool _isHotseatActive = false;
+	bool _changeHotseatTurn = false;
+	bool _isHotseatAlienTurn = false;
 
 };
 

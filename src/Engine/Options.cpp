@@ -574,6 +574,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableTimeSync", &EnableTimeSync, true, "Enable Time Sync", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHostOnlyTimeSpeed", &EnableHostOnlyTimeSpeed, false, "Only Host Can Change Time Speed", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
@@ -590,7 +591,8 @@ void createControlsOTHER()
 	// your fork's controls here
 
 	// coop
-	_info.push_back(OptionInfo(OPTION_OTHER, "keyChat", &keyChat, SDLK_c, "Toggle Chat", "STR_GENERAL"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "keyChat", &keyChat, SDLK_KP1, "Toggle Chat", "STR_GENERAL"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "giveUnit", &giveUnit, SDLK_KP2, "Give Unit to Teammate", "STR_GENERAL"));
 
 }
 

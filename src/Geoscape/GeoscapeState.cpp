@@ -783,7 +783,8 @@ void GeoscapeState::init()
 	}
 
 	// HOST AFTER THE BATTLE
-	if (_game->getCoopMod()->getHost() == true && _game->getCoopMod()->coopMissionEnd == true)
+	// Make sure the other player's units aren't saved in single-player mode.
+	if ((_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false) && _game->getCoopMod()->coopMissionEnd == true)
 	{
 
 		for (auto &base : *_game->getSavedGame()->getBases())
@@ -794,6 +795,13 @@ void GeoscapeState::init()
 			for (auto it = soldiers->begin(); it != soldiers->end();)
 			{
 				Soldier* soldier = *it;
+
+				if (soldier->getOwnerPlayerId() != 999)
+				{
+
+					soldier->setCoop(soldier->getOwnerPlayerId());
+
+				}
 
 				if (soldier->getCoop() != 0)
 				{
@@ -892,7 +900,7 @@ void GeoscapeState::init()
 
 					for (auto* soldier : selected_soldiers)
 					{
-						if (soldier->getCoopName() == client_soldier->getCoopName() && soldier->getCoopName() != "" && client_soldier->getCoopName() != "" && soldier->getNationality() == client_soldier->getNationality())
+						if (soldier->getCoopName() == client_soldier->getCoopName() && soldier->getCoopName() != "" && client_soldier->getCoopName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
 						{
 
 							// Copy stats and update rank and counts
@@ -915,7 +923,7 @@ void GeoscapeState::init()
 
 						for (auto* soldier : selected_soldiers)
 						{
-							if (soldier->getName() == client_soldier->getName() && soldier->getName() != "" && client_soldier->getName() != "" && soldier->getNationality() == client_soldier->getNationality())
+							if (soldier->getName() == client_soldier->getName() && soldier->getName() != "" && client_soldier->getName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
 							{
 
 								// Copy stats and update rank and counts
@@ -945,7 +953,7 @@ void GeoscapeState::init()
 
 						for (auto* soldier : selected_soldiers)
 						{
-							if (soldier->getNationality() == client_soldier->getNationality())
+							if (soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu)
 							{
 
 								// Copy stats and update rank and counts
