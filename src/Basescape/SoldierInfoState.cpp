@@ -319,9 +319,12 @@ SoldierInfoState::SoldierInfoState(Base *base, size_t soldierId, bool forceLimit
 	_btnSack->setText(tr("STR_SACK"));
 
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+	if (_base)
 	{
-		_btnSack->setText("MOVE");
+		if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+		{
+			_btnSack->setText("MOVE");
+		}
 	}
 
 	_btnSack->onMouseClick((ActionHandler)&SoldierInfoState::btnSackClick);

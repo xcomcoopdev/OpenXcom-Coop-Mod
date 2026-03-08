@@ -1493,6 +1493,20 @@ int Craft::getSpaceAvailable() const
 {
 
 	// coop
+	if (connectionTCP::_unbalanced_craft_soldiers_limit == true && connectionTCP::getCoopStatic() == true)
+	{
+
+		if ((getMaxUnitsClamped() - 4) > 2)
+		{
+			return (getMaxUnitsClamped() - 4) - getSpaceUsed();
+		}
+		else
+		{
+			return getMaxUnitsClamped() - getSpaceUsed();
+		}
+
+	}
+	
 	// check if not pvp
 	if (connectionTCP::getCoopGamemode() != 2 && connectionTCP::getCoopGamemode() != 3 && connectionTCP::getCoopStatic() == true && getMaxUnitsClamped() > 2)
 	{

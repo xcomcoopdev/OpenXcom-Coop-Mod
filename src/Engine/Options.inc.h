@@ -17,7 +17,7 @@ OPT SoundFormat preferredSound;
 OPT VideoFormat preferredVideo;
 OPT SDL_GrabMode captureMouse;
 OPT TextWrapping wordwrap;
-OPT SDLKey keyOk, keyCancel, keyScreenshot, keyFps, keyQuickLoad, keyQuickSave, keyChat;
+OPT SDLKey keyOk, keyCancel, keyScreenshot, keyFps, keyQuickLoad, keyQuickSave, keyChat, giveUnit;
 
 // Geoscape options
 OPT int geoClockSpeed, dogfightSpeed, geoScrollSpeed, geoDragScrollButton, geoscapeScale;
@@ -88,6 +88,7 @@ OPT bool oxceGeoscapeEventsInstantDelivery;
 OPT bool oxceShowBaseNameInPopups;
 
 OPT bool EnableResearchSync;
+OPT bool UnbalancedCraftSoldiersLimit;
 OPT bool EnableTimeSync;
 OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;

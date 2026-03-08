@@ -187,6 +187,7 @@ void Soldier::load(const YAML::YamlNodeReader& node, const Mod *mod, SavedGame *
 	reader.tryRead("coopcraft", _coopcraft);
 	reader.tryRead("coopcrafttype", _coopcraft_type);
 	reader.tryRead("coopname", _coopname);
+	reader.tryRead("ownerplayerid", _ownerPlayerId);
 
 	reader.tryRead("callsign", _callsign);
 	reader.tryRead("nationality", _nationality);
@@ -328,6 +329,7 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	writer.write("coopcraft", _coopcraft);
 	writer.write("coopcrafttype", _coopcraft_type);
 	writer.write("coopname", _coopname);
+	writer.write("ownerplayerid", _ownerPlayerId);
 
 	if (!_callsign.empty())
 		writer.write("callsign", _callsign);
@@ -909,6 +911,16 @@ void Soldier::setLookVariant(int lookVariant)
 const RuleSoldier *Soldier::getRules() const
 {
 	return _rules;
+}
+
+void Soldier::setOwnerPlayerId(int id)
+{
+	_ownerPlayerId = id;
+}
+
+int Soldier::getOwnerPlayerId()
+{
+	return _ownerPlayerId;
 }
 
 void Soldier::setCoopCraft(int craft)

@@ -87,7 +87,7 @@ class File;
 class CoopMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnPVE, *_btnPVP, *_btnPVP2, *_btnPVE2, *_btnChat;
+	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnPVE, *_btnPVP, *_btnPVP2, *_btnPVE2, *_btnChat, *_btnHotseat, *_btnStartHotseat;
 	TextList *_lstSaves;
 	TextEdit *_ipAddress, *_playerName;
 	Window *_window;
@@ -112,10 +112,12 @@ class CoopMenu : public State
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
 	void hostTCPGame(Action *action);
+	void startHotseat(Action* action);
 	void btnPVEClick(Action *action);
 	void btnPVE2Click(Action* action);
 	void btnPVPClick(Action *action);
 	void btnPVP2Click(Action *action);
+	void btnHotseatClick(Action* action);
 	void btnChatClick(Action* action);
 	void showGamemode();
 	/// Runs the timers and handles popups.

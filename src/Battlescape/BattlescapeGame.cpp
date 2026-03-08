@@ -922,7 +922,7 @@ int BattlescapeGame::think()
 			if (!_debugPlay)
 			{
 				// coop (PVP)
-				if ((getCoopMod()->getCoopGamemode() == 2 || getCoopMod()->getCoopGamemode() == 3) && _save->getSelectedUnit())
+				if ((getCoopMod()->getCoopGamemode() == 2 || getCoopMod()->getCoopGamemode() == 3 || getCoopMod()->_isHotseatActive == true) && _save->getSelectedUnit())
 				{
 
 					if (_save->getSelectedUnit()->getFaction() == FACTION_HOSTILE)
@@ -4611,6 +4611,13 @@ void BattlescapeGame::CoopShoot()
 void BattlescapeGame::hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack, int terrainMeleeTilePart, uint64_t seed)
 {
 	getTileEngine()->hitCoop(attack, center, power, type, rangeAtack, terrainMeleeTilePart, seed);
+}
+
+void BattlescapeGame::centerOnPositionCoop(Position pos)
+{
+
+	getMap()->getCamera()->centerOnPosition(pos);
+
 }
 
 }

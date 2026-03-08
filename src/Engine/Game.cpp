@@ -340,6 +340,66 @@ void Game::run()
 						{
 
 							// coop
+							// Give Unit to Teammate
+							if (_event.key.keysym.sym == Options::giveUnit && _tcpConnection->getCoopStatic() == true && _tcpConnection->getCoopGamemode() != 2 && _tcpConnection->getCoopGamemode() != 3 && _tcpConnection->getCurrentTurn() == 2)
+							{
+
+								if (_save->getSavedBattle())
+								{
+
+									if (_save->getSavedBattle()->getSelectedUnit())
+									{
+
+										if (_save->getSavedBattle()->getSelectedUnit()->getFaction() == FACTION_PLAYER && !_save->getSavedBattle()->getSelectedUnit()->isOut())
+										{
+
+											// save
+											if (_tcpConnection->getHost() == true && _tcpConnection->getCoopCampaign() == true)
+											{
+
+												if (_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier())
+												{
+
+													if (_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier()->getOwnerPlayerId() == 999)
+													{
+
+														_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier()->setOwnerPlayerId(_save->getSavedBattle()->getSelectedUnit()->getCoop());
+
+													}
+
+												}
+
+											}
+
+											if (_tcpConnection->getHost() == true)
+											{
+												_save->getSavedBattle()->getSelectedUnit()->setCoop(1);
+											}
+											else
+											{
+												_save->getSavedBattle()->getSelectedUnit()->setCoop(0);
+											}
+
+											// send
+											Json::Value obj;
+											obj["state"] = "giveUnit";
+
+											obj["unit_id"] = _save->getSavedBattle()->getSelectedUnit()->getId();
+											obj["coop"] = _save->getSavedBattle()->getSelectedUnit()->getCoop();
+
+											_tcpConnection->sendTCPPacketData(obj.toStyledString());
+
+											// reset
+											_save->getSavedBattle()->selectNextPlayerUnit();
+
+										}
+
+									}
+
+								}
+
+							}
+
 							// Activate chat with Options::keyChat
 							if (_event.key.keysym.sym == Options::keyChat && (_tcpConnection->getCoopStatic() == true || _tcpConnection->getServerOwner() == true) && _tcpConnection->getChatMenu())
 							{

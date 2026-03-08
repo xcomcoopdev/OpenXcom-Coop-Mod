@@ -750,6 +750,50 @@ BattlescapeState::BattlescapeState() :
 
 	_barHealthColor = _barHealth->getColor();
 
+	// coop
+	// hotseat
+	if (_game->getCoopMod()->_isHotseatActive == true)
+	{
+
+		_game->getCoopMod()->_isHotseatAlienTurn = false;
+		_game->getCoopMod()->_changeHotseatTurn = false;
+
+	}
+
+	// coop
+	// reset tiles (PVP)
+	if (_game->getCoopMod()->getCoopStatic() == true && _save)
+	{
+
+		if ((_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false))
+		{
+
+			_save->resetTiles();
+
+			for (auto& unit : *_save->getUnits())
+			{
+
+				if (unit->getFaction() == FACTION_PLAYER)
+				{
+
+					if (_save->getTileEngine())
+					{
+
+						_save->getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition());
+						_save->getTileEngine()->calculateFOV(unit);
+
+					}
+				}
+				else if (unit->getFaction() == FACTION_HOSTILE)
+				{
+
+					unit->setVisible(false);
+
+				}
+			}
+		}
+	}
+
 	// COOP
 	// BATTLESCAPE INIT
 	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview() && _game->getCoopMod()->isCoopSession() == true && (_game->getCoopMod()->_waitBC == false || _game->getCoopMod()->_waitBH == false))
@@ -2507,6 +2551,14 @@ void BattlescapeState::btnHelpClick(Action *)
  */
 void BattlescapeState::btnEndTurnClick(Action *)
 {
+
+	// hotseat
+	if (_game->getCoopMod()->_isHotseatActive == true)
+	{
+
+		_game->getCoopMod()->_changeHotseatTurn = true;
+
+	}
 
 	_game->getCoopMod()->_isActivePlayerSync = false;
 
@@ -5276,6 +5328,53 @@ void BattlescapeState::popup(State *state)
  */
 void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
+
+	// coop
+	// hotseat
+	if (_game->getCoopMod()->_isHotseatActive == true)
+	{
+
+		_game->getCoopMod()->_changeHotseatTurn = false;
+
+		if (_game->getCoopMod()->_isHotseatAlienTurn == true)
+		{
+			for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+
+				if (unit->getFaction() == FACTION_HOSTILE)
+				{
+
+					unit->convertToFaction(FACTION_PLAYER);
+					unit->setOriginalFaction(FACTION_PLAYER);
+				}
+				else if (unit->getFaction() == FACTION_PLAYER)
+				{
+
+					unit->convertToFaction(FACTION_HOSTILE);
+					unit->setOriginalFaction(FACTION_HOSTILE);
+
+					if (!unit->getUnitRules())
+					{
+
+						std::string alienName = "MALE_CIVILIAN";
+
+						if (unit->getGeoscapeSoldier())
+						{
+
+							if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
+							{
+								alienName = "FEMALE_CIVILIAN";
+							}
+						}
+
+						Unit* rule = _game->getMod()->getUnit(alienName, true);
+						unit->setUnitRulesCoop(rule);
+					}
+				}
+			}
+		}
+
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false && _save->isPreview() == false)

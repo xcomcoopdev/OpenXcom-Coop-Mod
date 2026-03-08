@@ -96,7 +96,10 @@ private:
 	int _coopcraft = -1;
 	std::string _coopname = "";
 	std::string _coopcraft_type;
+	int _ownerPlayerId = 999;
   public:
+	void setOwnerPlayerId(int id);
+	int getOwnerPlayerId();
 	void setCoopCraft(int craft);
 	int getCoopCraft() const;
 	void setCoopCraftType(std::string type);
