@@ -3075,37 +3075,37 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 		else
 		{
 
-			// coop fix
-			if (!bi->getUnit())
-			{
-				continue;
-			}
-
 			if (rule->isRecoverable() && !bi->getXCOMProperty())
 			{
 				if (rule->getBattleType() == BT_CORPSE)
 				{
-					BattleUnit *corpseUnit = bi->getUnit();
-					if (corpseUnit->getStatus() == STATUS_DEAD)
+
+					// coop fix
+					if (bi->getUnit())
 					{
-						if (rule->isCorpseRecoverable())
+						BattleUnit* corpseUnit = bi->getUnit();
+						if (corpseUnit->getStatus() == STATUS_DEAD)
 						{
-							addItemsToBaseStores(corpseUnit->getArmor()->getCorpseGeoscape(), base, 1, true);
-							addStat("STR_ALIEN_CORPSES_RECOVERED", 1, bi->getRules()->getRecoveryPoints());
+							if (rule->isCorpseRecoverable())
+							{
+								addItemsToBaseStores(corpseUnit->getArmor()->getCorpseGeoscape(), base, 1, true);
+								addStat("STR_ALIEN_CORPSES_RECOVERED", 1, bi->getRules()->getRecoveryPoints());
+							}
+						}
+						else if (corpseUnit->getStatus() == STATUS_UNCONSCIOUS ||
+								 // or it's in timeout because it's unconscious from the previous stage
+								 // units can be in timeout and alive, and we assume they flee.
+								 (corpseUnit->isIgnored() &&
+								  corpseUnit->getHealth() > 0 &&
+								  corpseUnit->getHealth() < corpseUnit->getStunlevel()))
+						{
+							if (corpseUnit->getOriginalFaction() == FACTION_HOSTILE)
+							{
+								recoverAlien(corpseUnit, base, craft);
+							}
 						}
 					}
-					else if (corpseUnit->getStatus() == STATUS_UNCONSCIOUS ||
-							// or it's in timeout because it's unconscious from the previous stage
-							// units can be in timeout and alive, and we assume they flee.
-							(corpseUnit->isIgnored() &&
-							corpseUnit->getHealth() > 0 &&
-							corpseUnit->getHealth() < corpseUnit->getStunlevel()))
-					{
-						if (corpseUnit->getOriginalFaction() == FACTION_HOSTILE)
-						{
-							recoverAlien(corpseUnit, base, craft);
-						}
-					}
+
 				}
 				// only add recovery points for unresearched items
 				else if (!_game->getSavedGame()->isResearched(rule->getRequirements()))
