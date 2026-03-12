@@ -5070,7 +5070,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			std::string msg = "Exception in map loading: " + std::string(e.what());
 
 			DebugLog((msg + "\n").c_str());
-
 		}
 		catch (...)
 		{

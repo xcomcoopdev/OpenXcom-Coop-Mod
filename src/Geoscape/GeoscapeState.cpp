@@ -2805,7 +2805,8 @@ void GeoscapeState::time30Minutes()
 	{
 		for (auto* xcraft : *xbase->getCrafts())
 		{
-			if (xcraft->getStatus() == "STR_REFUELLING")
+			// coop fix
+			if (xcraft->getStatus() == "STR_REFUELLING" && xcraft->coop == false)
 			{
 				std::string item = xcraft->refuel();
 

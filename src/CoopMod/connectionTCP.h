@@ -356,6 +356,8 @@ class connectionTCP
 	bool _isHotseatActive = false;
 	bool _changeHotseatTurn = false;
 	bool _isHotseatAlienTurn = false;
+	Json::Value _discoveredTilesAlienTurn;
+	Json::Value _discoveredTilesXComTurn;
 
 };
 

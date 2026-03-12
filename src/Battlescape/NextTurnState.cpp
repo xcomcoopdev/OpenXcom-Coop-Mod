@@ -613,8 +613,6 @@ void NextTurnState::close()
 
 				_game->getCoopMod()->_isHotseatAlienTurn = !_game->getCoopMod()->_isHotseatAlienTurn;
 
-				_battleGame->resetTiles();
-
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
 
@@ -624,14 +622,6 @@ void NextTurnState::close()
 						unit->convertToFaction(FACTION_PLAYER);
 						unit->setOriginalFaction(FACTION_PLAYER);
 						_battleGame->setSelectedUnit(unit);
-
-						if (_battleGame->getTileEngine())
-						{
-
-							_battleGame->getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition());
-							_battleGame->getTileEngine()->calculateFOV(unit);
-
-						}
 
 					}
 					else if (unit->getFaction() == FACTION_PLAYER)
@@ -660,8 +650,7 @@ void NextTurnState::close()
 						}
 
 						unit->setVisible(false);
-
-
+						
 					}
 
 				}
