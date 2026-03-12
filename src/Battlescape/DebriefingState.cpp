@@ -305,6 +305,8 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 
 		_game->getCoopMod()->_changeHotseatTurn = false;
 		_game->getCoopMod()->_isHotseatAlienTurn = false;
+		_game->getCoopMod()->_discoveredTilesAlienTurn = Json::nullValue;
+		_game->getCoopMod()->_discoveredTilesXComTurn = Json::nullValue;
 
 	}
 

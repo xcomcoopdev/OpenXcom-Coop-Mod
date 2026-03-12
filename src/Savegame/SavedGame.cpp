@@ -3227,6 +3227,7 @@ bool SavedGame::isManaUnlocked(Mod *mod) const
 /**
  * Gets the current score based on research score and xcom/alien activity in regions.
  */
+/*
 int SavedGame::getCurrentScore(int monthsPassed) const
 {
 	size_t invertedEntry = _funds.size() - 1;
@@ -3237,6 +3238,39 @@ int SavedGame::getCurrentScore(int monthsPassed) const
 	{
 		scoreTotal += region->getActivityXcom().at(invertedEntry) - region->getActivityAlien().at(invertedEntry);
 	}
+	return scoreTotal;
+}
+*/
+
+/**
+ * Gets the current score based on research score and xcom/alien activity in regions.
+ */
+int SavedGame::getCurrentScore(int monthsPassed) const
+{
+	if (_funds.empty())
+		return 0;
+
+	size_t invertedEntry = _funds.size() - 1;
+
+	if (_researchScores.size() <= invertedEntry)
+		return 0;
+
+	int scoreTotal = _researchScores[invertedEntry];
+
+	if (monthsPassed > 1)
+		scoreTotal += 400;
+
+	for (auto* region : _regions)
+	{
+		const auto& xcom = region->getActivityXcom();
+		const auto& alien = region->getActivityAlien();
+
+		if (xcom.size() <= invertedEntry || alien.size() <= invertedEntry)
+			continue;
+
+		scoreTotal += xcom[invertedEntry] - alien[invertedEntry];
+	}
+
 	return scoreTotal;
 }
 

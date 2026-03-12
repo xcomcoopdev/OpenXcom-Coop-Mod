@@ -757,6 +757,8 @@ BattlescapeState::BattlescapeState() :
 
 		_game->getCoopMod()->_isHotseatAlienTurn = false;
 		_game->getCoopMod()->_changeHotseatTurn = false;
+		_game->getCoopMod()->_discoveredTilesAlienTurn = Json::nullValue;
+		_game->getCoopMod()->_discoveredTilesXComTurn = Json::nullValue;
 
 	}
 
@@ -921,6 +923,67 @@ void BattlescapeState::resetPalettes()
  */
 void BattlescapeState::init()
 {
+
+	// hotseat
+	if (_game->getCoopMod()->_isHotseatActive == true && _save)
+	{
+
+		const Json::Value& tile_json = _game->getCoopMod()->_isHotseatAlienTurn
+									  ? _game->getCoopMod()->_discoveredTilesAlienTurn
+									  : _game->getCoopMod()->_discoveredTilesXComTurn;
+
+		if (!tile_json.isNull())
+		{
+
+			const Json::Value& tiles = tile_json["tiles"];
+
+			for (Json::ArrayIndex json_id = 0; json_id < tiles.size(); ++json_id)
+			{
+				int tile_pos_x = tiles[json_id]["tile_pos_x"].asInt();
+				int tile_pos_y = tiles[json_id]["tile_pos_y"].asInt();
+				int tile_pos_z = tiles[json_id]["tile_pos_z"].asInt();
+
+				Tile* tile = _save->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+				if (!tile)
+					continue;
+
+				bool discovered_floor = tiles[json_id]["discovered_floor"].asBool();
+				bool discovered_westwall = tiles[json_id]["discovered_westwall"].asBool();
+				bool discovered_northwall = tiles[json_id]["discovered_northwall"].asBool();
+				bool discovered_object = tiles[json_id]["discovered_object"].asBool();
+				bool discovered_max = tiles[json_id]["discovered_max"].asBool();
+
+				tile->setDiscovered(discovered_floor, O_FLOOR);
+				tile->setDiscovered(discovered_westwall, O_WESTWALL);
+				tile->setDiscovered(discovered_northwall, O_NORTHWALL);
+				tile->setDiscovered(discovered_object, O_OBJECT);
+				tile->setDiscovered(discovered_max, O_MAX);
+			}
+
+		}
+		else if (_game->getCoopMod()->_isHotseatAlienTurn == true)
+		{
+			_save->resetTiles();
+		}
+
+		for (auto& unit : *_save->getUnits())
+		{
+
+			if (unit->getFaction() == FACTION_PLAYER)
+			{
+
+				if (_save->getTileEngine())
+				{
+					_save->getTileEngine()->calculateFOV(unit);
+				}
+
+			}
+
+		}
+
+	}
+
 	if (_paletteResetRequested)
 	{
 		_paletteResetRequested = false;
@@ -2557,6 +2620,46 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	{
 
 		_game->getCoopMod()->_changeHotseatTurn = true;
+		
+		// Save line of sight
+		// tiles
+		Json::Value obj_line_of_sight;
+		obj_line_of_sight["tiles"] = Json::nullValue;
+		int json_index = 0;
+		for (int tile_index = 0; tile_index < _save->getMapSizeXYZ();)
+		{
+
+			if (_save->getTile(tile_index))
+			{
+
+				obj_line_of_sight["tiles"][json_index]["tile_pos_x"] = _save->getTile(tile_index)->getPosition().x;
+				obj_line_of_sight["tiles"][json_index]["tile_pos_y"] = _save->getTile(tile_index)->getPosition().y;
+				obj_line_of_sight["tiles"][json_index]["tile_pos_z"] = _save->getTile(tile_index)->getPosition().z;
+
+				obj_line_of_sight["tiles"][json_index]["discovered_floor"] = _save->getTile(tile_index)->isDiscovered(O_FLOOR);
+				obj_line_of_sight["tiles"][json_index]["discovered_westwall"] = _save->getTile(tile_index)->isDiscovered(O_WESTWALL);
+				obj_line_of_sight["tiles"][json_index]["discovered_northwall"] = _save->getTile(tile_index)->isDiscovered(O_NORTHWALL);
+				obj_line_of_sight["tiles"][json_index]["discovered_object"] = _save->getTile(tile_index)->isDiscovered(O_OBJECT);
+				obj_line_of_sight["tiles"][json_index]["discovered_max"] = _save->getTile(tile_index)->isDiscovered(O_MAX);
+
+				json_index++;
+
+			}
+
+			++tile_index;
+
+		}
+
+		// alien
+		if (_game->getCoopMod()->_isHotseatAlienTurn == true)
+		{
+			_game->getCoopMod()->_discoveredTilesAlienTurn = obj_line_of_sight;
+		}
+		// xcom
+		else
+		{
+			_game->getCoopMod()->_discoveredTilesXComTurn = obj_line_of_sight;
+		}
 
 	}
 
