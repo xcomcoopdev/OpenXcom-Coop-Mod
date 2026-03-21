@@ -298,6 +298,7 @@ public:
 	void resetLight(LightLayers layer);
 	/// Reset light to zero for this tile and multiple layers.
 	void resetLightMulti(LightLayers layer);
+	void setLightCoop(int light, LightLayers layer);
 	/// Add light to this tile.
 	void addLight(int light, LightLayers layer);
 	/// Get max light to this tile.

@@ -921,9 +921,16 @@ int BattlescapeGame::think()
 			_save->resetUnitHitStates();
 			if (!_debugPlay)
 			{
-				// coop (PVP)
+				// coop (PVP and HOTSEAT)
 				if ((getCoopMod()->getCoopGamemode() == 2 || getCoopMod()->getCoopGamemode() == 3 || getCoopMod()->_isHotseatActive == true) && _save->getSelectedUnit())
 				{
+
+					if (_save->getSelectedUnit()->getFaction() == FACTION_NEUTRAL && getCoopMod()->_isHotseatActive == true && getCoopMod()->_isHotseatAlienTurn == true)
+					{
+						_endTurnRequested = true;
+						statePushBack(0); // end AI turn
+						return 0;
+					}
 
 					if (_save->getSelectedUnit()->getFaction() == FACTION_HOSTILE)
 					{

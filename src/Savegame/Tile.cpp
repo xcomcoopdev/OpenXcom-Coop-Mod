@@ -471,6 +471,11 @@ void Tile::resetLightMulti(LightLayers layer)
 	}
 }
 
+void Tile::setLightCoop(int light, LightLayers layer)
+{
+	_light[layer] = light;
+}
+
 /**
  * Add the light amount on the tile. Only add light if the current light is lower.
  * @param light Amount of light to add.

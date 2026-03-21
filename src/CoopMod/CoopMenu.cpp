@@ -63,11 +63,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost = new TextButton(180, 18, x + 18, 132);
 	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
 
-	_btnPVE = new TextButton(180, 18, x + 18, 52);
-	_btnPVE2 = new TextButton(180, 18, x + 18, 52);
-	_btnPVP = new TextButton(180, 18, x + 18, 52);
-	_btnPVP2 = new TextButton(180, 18, x + 18, 52);
-	_btnHotseat = new TextButton(180, 18, x + 18, 52);
+	_cbxGameMode = new ComboBox(this, 180, 18, x + 18, 52);
 
 	_btnMessage = new TextButton(180, 18, x + 18, 92);
 
@@ -94,11 +90,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_btnStartHotseat, "button", "pauseMenu");
 	add(_btnMessage, "button", "pauseMenu");
 	add(_btnChat, "button", "pauseMenu");
-	add(_btnPVE, "button", "pauseMenu");
-	add(_btnPVE2, "button", "pauseMenu");
-	add(_btnPVP, "button", "pauseMenu");
-	add(_btnPVP2, "button", "pauseMenu");
-	add(_btnHotseat, "button", "pauseMenu");
+	add(_cbxGameMode, "button", "pauseMenu");
 	add(_txtInfo, "text", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_txtData, "text", "pauseMenu");
@@ -205,30 +197,14 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_btnCancel->onKeyboardPress((ActionHandler)&CoopMenu::btnCancelClick, Options::keyCancel);
 
 	// game modes
-	_btnPVE->setText("GAMEMODE: PVE");
-	_btnPVE->onMouseClick((ActionHandler)&CoopMenu::btnPVEClick);
-	_btnPVE->onKeyboardPress((ActionHandler)&CoopMenu::btnPVEClick, Options::keyCancel);
-	_btnPVE->setVisible(false);
+	_gamemodeTypes.push_back("GAMEMODE: PVE");
+	_gamemodeTypes.push_back("GAMEMODE: PVE2");
+	_gamemodeTypes.push_back("GAMEMODE: PVP");
+	_gamemodeTypes.push_back("GAMEMODE: PVP2");
+	_gamemodeTypes.push_back("GAMEMODE: HOTSEAT");
 
-	_btnPVE2->setText("GAMEMODE: PVE2");
-	_btnPVE2->onMouseClick((ActionHandler)&CoopMenu::btnPVE2Click);
-	_btnPVE2->onKeyboardPress((ActionHandler)&CoopMenu::btnPVE2Click, Options::keyCancel);
-	_btnPVE2->setVisible(false);
-
-	_btnPVP->setText("GAMEMODE: PVP");
-	_btnPVP->onMouseClick((ActionHandler)&CoopMenu::btnPVPClick);
-	_btnPVP->onKeyboardPress((ActionHandler)&CoopMenu::btnPVPClick, Options::keyCancel);
-	_btnPVP->setVisible(false);
-
-	_btnPVP2->setText("GAMEMODE: PVP2");
-	_btnPVP2->onMouseClick((ActionHandler)&CoopMenu::btnPVP2Click);
-	_btnPVP2->onKeyboardPress((ActionHandler)&CoopMenu::btnPVP2Click, Options::keyCancel);
-	_btnPVP2->setVisible(false);
-
-	_btnHotseat->setText("GAMEMODE: HOTSEAT");
-	_btnHotseat->onMouseClick((ActionHandler)&CoopMenu::btnHotseatClick);
-	_btnHotseat->onKeyboardPress((ActionHandler)&CoopMenu::btnHotseatClick, Options::keyCancel);
-	_btnHotseat->setVisible(false);
+	_cbxGameMode->setOptions(_gamemodeTypes, false);
+	_cbxGameMode->onChange((ActionHandler)&CoopMenu::cbxGameModeChange);
 
 	// check if campaign mission
 	if (!_game->getSavedGame()->getCountries()->empty())
@@ -255,6 +231,8 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_btnStartHotseat->setVisible(true);
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
 
+		_cbxGameMode->setVisible(false);
+
 	}
 	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
 	{
@@ -268,11 +246,8 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_txtInfo->setVisible(false);
-		_btnPVE->setVisible(false);
-		_btnPVE2->setVisible(false);
-		_btnPVP->setVisible(false);
-		_btnPVP2->setVisible(false);
-		_btnHotseat->setVisible(false);
+
+		_cbxGameMode->setVisible(false);
 	
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -287,31 +262,12 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_tcpButtonHost->setVisible(true);
 		_txtInfo->setVisible(false);
 
-		_btnPVP->setVisible(false);
-		_btnPVP2->setVisible(false);
-		_btnPVE->setVisible(false);
-		_btnPVE2->setVisible(false);
-		_btnHotseat->setVisible(false);
+		_cbxGameMode->setVisible(false);
 
 		if (_game->getCoopMod()->getServerOwner() == false)
 		{
 
-			if (_game->getCoopMod()->getCoopGamemode() == 4)
-			{
-				_btnPVE2->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 0)
-			{
-				_btnPVE->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 2)
-			{
-				_btnPVP->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 3)
-			{
-				_btnPVP2->setVisible(true);
-			}
+			_cbxGameMode->setVisible(true);
 
 		}
 
@@ -414,11 +370,9 @@ void CoopMenu::init()
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_txtInfo->setVisible(false);
-		_btnPVE->setVisible(false);
-		_btnPVE2->setVisible(false);
-		_btnPVP->setVisible(false);
-		_btnPVP2->setVisible(false);
-		_btnHotseat->setVisible(false);
+
+		_cbxGameMode->setVisible(false);
+
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
@@ -432,31 +386,13 @@ void CoopMenu::init()
 		_tcpButtonHost->setVisible(true);
 		_txtInfo->setVisible(false);
 
-		_btnPVP->setVisible(false);
-		_btnPVP2->setVisible(false);
-		_btnPVE->setVisible(false);
-		_btnPVE2->setVisible(false);
-		_btnHotseat->setVisible(false);
+		_cbxGameMode->setVisible(false);
 
 		if (_game->getCoopMod()->getServerOwner() == false)
 		{
 
-			if (_game->getCoopMod()->getCoopGamemode() == 4)
-			{
-				_btnPVE2->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 1 || _game->getCoopMod()->getCoopGamemode() == 0)
-			{
-				_btnPVE->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 2)
-			{
-				_btnPVP->setVisible(true);
-			}
-			else if (_game->getCoopMod()->getCoopGamemode() == 3)
-			{
-				_btnPVP2->setVisible(true);
-			}
+			_cbxGameMode->setVisible(true);
+
 		}
 	}
 
@@ -470,11 +406,7 @@ void CoopMenu::init()
 			if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
 			{
 
-					_btnPVE->setVisible(false);
-					_btnPVE2->setVisible(false);
-					_btnPVP->setVisible(false);
-					_btnPVP2->setVisible(false);
-					_btnHotseat->setVisible(false);
+					_cbxGameMode->setVisible(false);
 
 					break;
 			}
@@ -623,90 +555,15 @@ void CoopMenu::convertUnits()
 			{
 
 				unit->setCoop(0);
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
 			}
 			else if (unit->getFaction() == FACTION_PLAYER)
 			{
 
 				unit->setCoop(1);
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-
-				std::string alienName = "MALE_CIVILIAN";
-
-				if (unit->getGeoscapeSoldier())
-				{
-
-					if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-					{
-						alienName = "FEMALE_CIVILIAN";
-					}
-				}
-
-				Unit* rule = _game->getMod()->getUnit(alienName, true);
-				unit->setUnitRulesCoop(rule);
 			}
 		}
+
 	}
-
-}
-
-void CoopMenu::btnPVEClick(Action *action)
-{
-
-	_btnPVE->setVisible(false);
-	_btnPVE2->setVisible(true);
-
-	current_gamemode = 4;
-
-}
-
-void CoopMenu::btnPVE2Click(Action* action)
-{
-
-	_btnPVE2->setVisible(false);
-	_btnPVP->setVisible(true);
-
-	current_gamemode = 2;
-
-}
-
-void CoopMenu::btnPVP2Click(Action *action)
-{
-
-	_btnPVP2->setVisible(false);
-	_btnHotseat->setVisible(true);
-
-	current_gamemode = 1;
-
-	// hide
-	_tcpButtonJoin->setVisible(false);
-	_tcpButtonHost->setVisible(false);
-	_ipAddress->setVisible(false);
-	_playerName->setVisible(false);
-
-	// show
-	_btnStartHotseat->setVisible(true);
-
-}
-
-void CoopMenu::btnHotseatClick(Action* action)
-{
-
-	_btnHotseat->setVisible(false);
-	_btnPVE->setVisible(true);
-
-	current_gamemode = 1;
-
-	// show
-	_tcpButtonJoin->setVisible(true);
-	_tcpButtonHost->setVisible(true);
-	_ipAddress->setVisible(true);
-	_playerName->setVisible(true);
-
-	// hide
-	_btnStartHotseat->setVisible(false);
 
 }
 
@@ -722,28 +579,68 @@ void CoopMenu::btnChatClick(Action* action)
 
 }
 
-void CoopMenu::btnPVPClick(Action *action)
-{
-
-	_btnPVP->setVisible(false);
-	_btnPVP2->setVisible(true);
-
-	current_gamemode = 3;
-
-}
-
 void CoopMenu::showGamemode()
 {
 
 	if ((_game->getCoopMod()->isConnected() == -1) && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_isHotseatActive == false)
 	{
-		_btnPVE->setVisible(true);
+		_cbxGameMode->setVisible(true);
 	}
 
-	_btnPVP->setVisible(false);
-	_btnPVP2->setVisible(false);
-	_btnPVE2->setVisible(false);
-	_btnHotseat->setVisible(false);
+	_cbxGameMode->setVisible(false);
+
+}
+
+void CoopMenu::cbxGameModeChange(Action* action)
+{
+
+	int selected_gamemode = _cbxGameMode->getSelected();
+
+	// show
+	_tcpButtonJoin->setVisible(true);
+	_tcpButtonHost->setVisible(true);
+	_ipAddress->setVisible(true);
+	_playerName->setVisible(true);
+
+	// hide
+	_btnStartHotseat->setVisible(false);
+
+	// PVE
+	if (selected_gamemode == 0)
+	{
+		current_gamemode = 1;
+	}
+	// PVE2
+	else if (selected_gamemode == 1)
+	{
+		current_gamemode = 4;
+	}
+	// PVP
+	else if (selected_gamemode == 2)
+	{
+		current_gamemode = 2;
+	}
+	// PVP2
+	else if (selected_gamemode == 3)
+	{
+		current_gamemode = 3;
+	}
+	// HOTSEAT
+	else if (selected_gamemode == 4)
+	{
+
+		current_gamemode = 1;
+
+		// hide
+		_tcpButtonJoin->setVisible(false);
+		_tcpButtonHost->setVisible(false);
+		_ipAddress->setVisible(false);
+		_playerName->setVisible(false);
+
+		// show
+		_btnStartHotseat->setVisible(true);
+
+	}
 
 }
 
@@ -824,10 +721,7 @@ void CoopMenu::hostTCPGame(Action *action)
 	_tcpButtonJoin->setVisible(false);
 	_tcpButtonHost->setVisible(false);
 
-	_btnPVP->setVisible(false);
-	_btnPVP2->setVisible(false);
-	_btnPVE->setVisible(false);
-	_btnPVE2->setVisible(false);
+	_cbxGameMode->setVisible(false);
 
 	_game->getCoopMod()->setPlayerTurn(3);
 
@@ -883,12 +777,12 @@ void CoopMenu::startHotseat(Action* action)
 	if (_game->getCoopMod()->_isHotseatActive)
 	{
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
-		_btnHotseat->setVisible(false);
+		_cbxGameMode->setVisible(false);
 	}
 	else
 	{
 		_btnStartHotseat->setText("ENABLE HOTSEAT");
-		_btnHotseat->setVisible(true);
+		_cbxGameMode->setVisible(true);
 	}
 
 }
@@ -906,11 +800,7 @@ void CoopMenu::disconnect(Action *action)
 	_ipAddress->setVisible(true);
 	_playerName->setVisible(true);
 
-	_btnPVE->setVisible(true);
-
-	_btnPVP->setVisible(false);
-	_btnPVP2->setVisible(false);
-	_btnPVE2->setVisible(false);
+	_cbxGameMode->setVisible(true);
 
 	_game->getCoopMod()->disconnectTCP();
 
@@ -926,10 +816,7 @@ void CoopMenu::disconnect(Action *action)
 			if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
 			{
 
-				_btnPVE->setVisible(false);
-				_btnPVE2->setVisible(false);
-				_btnPVP->setVisible(false);
-				_btnPVP2->setVisible(false);
+				_cbxGameMode->setVisible(false);
 
 				break;
 			}

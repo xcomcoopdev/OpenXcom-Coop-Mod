@@ -99,6 +99,7 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool debugCoopMenu;
 OPT bool logPacketMessages;
+OPT bool EnableHotseatDebugMode;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

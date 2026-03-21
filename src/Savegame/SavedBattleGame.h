@@ -433,6 +433,8 @@ public:
 	void loadMapResources(Mod *mod);
 	/// Resets tiles units are standing on
 	void resetUnitTiles();
+	// coop pvp
+	void resetCoopTiles();
 	/// Add item to delete list.
 	void deleteList(BattleItem *item);
 	/// Removes an item from the game.

@@ -1553,9 +1553,17 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 		direction = unit->getDirection();
 	}
 
+	bool firstAlienInitTemp = false;
+
 	// coop (pvp)
 	if (_save->getBattleGame())
 	{
+
+		if (_save->getBattleGame()->getCoopMod()->_firstAlienInit)
+		{
+			_save->getBattleGame()->getCoopMod()->_firstAlienInit = false;
+			firstAlienInitTemp = true;
+		}
 
 		if (_save->getBattleGame()->isCoop() == false && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3))
 		{
@@ -1576,7 +1584,7 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 
 	}
 
-	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
+	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)) && firstAlienInitTemp == false)
 	{
 		//The event wasn't meant for us and/or visible for us.
 		return;

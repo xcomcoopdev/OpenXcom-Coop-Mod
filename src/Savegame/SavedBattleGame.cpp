@@ -471,6 +471,7 @@ void SavedBattleGame::loadMapResources(Mod *mod)
 	}
 
 	initUtilities(mod);
+
 	// matches up tiles and units
 	resetUnitTiles();
 	getTileEngine()->calculateLighting(LL_AMBIENT, TileEngine::invalid, 0, true);
@@ -1815,6 +1816,35 @@ void SavedBattleGame::resetUnitTiles()
 	_beforeGame = false;
 }
 
+void SavedBattleGame::resetCoopTiles()
+{
+
+	resetTiles();
+
+	if (getTileEngine())
+	{
+
+		for (auto& unit : *getUnits())
+		{
+
+			if (unit->getFaction() == FACTION_PLAYER)
+			{
+
+				getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition(), 2);
+				getTileEngine()->calculateFOV(unit->getPosition(), 1, true);
+			}
+			else if (unit->getFaction() == FACTION_HOSTILE)
+			{
+				unit->setVisible(false);
+			}
+
+			unit->clearVisibleUnits();
+
+		}
+	}
+
+}
+
 /**
  * Gives access to the "storage space" vector, for distribution of items in base defense missions.
  * @return Vector of storage positions.
@@ -2516,6 +2546,7 @@ Node *SavedBattleGame::getPatrolNode(bool scout, BattleUnit *unit, Node *fromNod
  */
 void SavedBattleGame::prepareNewTurn()
 {
+
 	std::vector<Tile*> tilesOnFire;
 	std::vector<Tile*> tilesOnSmoke;
 
