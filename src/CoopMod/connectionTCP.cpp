@@ -21,6 +21,7 @@
 #include "connectionTCP.h"
 
 #include "../Engine/Game.h"
+#include "../Menu/MainMenuState.h"
 
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Mod/AlienDeployment.h"
@@ -132,6 +133,10 @@ bool connectionTCP::playerInsideCoopBase = false;
 bool connectionTCP::coopInventory = false;
 
 bool connectionTCP::moveCoopItems = false;
+
+bool connectionTCP::no_bases = false;
+
+bool connectionTCP::_isHotseatActive = false;
 
 std::string current_ping = "";
 
@@ -409,13 +414,11 @@ void connectionTCP::loopData()
 			// Build one message for both logError and crash.log
 			std::string msg = "Error in loopData: " + std::string(e.what());
 
-			logError(msg);
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown error in loopData!";
 
-			logError(msg);
 		}
 
 		SDL_Delay(10); // Prevent 100% CPU usage when idle
@@ -889,6 +892,7 @@ void resetCoopState(bool isHost)
 	onTcpHost = isHost;
 	server_owner = isHost;
 	onConnect = -1;
+	connectionTCP::no_bases = false;
 }
 
 // SERVER SETUP
@@ -3139,6 +3143,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				int unit_id = obj["unit_id"].asInt();
 				int health = obj["health"].asInt();
+				int stunlevel = obj["stunlevel"].asInt();
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -3146,7 +3151,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					if (unit->getId() == unit_id)
 					{
 
+						const Json::Value& fatalArray = obj["fatalWounds"];
+
+						for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+						{
+							unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+						}
+
 						unit->setHealth(health);
+						unit->setStunlevelCoop(stunlevel);
 						break;
 
 					}
@@ -5070,12 +5083,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			std::string msg = "Exception in map loading: " + std::string(e.what());
 
 			DebugLog((msg + "\n").c_str());
+
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown exception in map loading.";
 
 			DebugLog((msg + "\n").c_str());
+
 		}
 	}
 
@@ -5102,6 +5117,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Create JSON object
 		Json::Value root133;
 		root133["ip"] = ipAddress;
+		root133["port"] = tcp_port;
 		root133["name"] = sendTcpPlayer;
 
 		// Write JSON to file
@@ -5271,6 +5287,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Create JSON object
 		Json::Value root135;
 		root135["ip"] = ipAddress;
+		root135["port"] = tcp_port;
 		root135["name"] = sendTcpPlayer;
 
 		// Write JSON to file
@@ -5318,15 +5335,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// if campaign
 			if (host_coop_campaign == true)
 			{
-				_game->pushState(new CoopState(2000));
+
+				connectionTCP::no_bases = true;
+				_game->pushState(new GeoscapeState());
+
 			}
 			// if new battle
 			else
 			{
 				_game->pushState(new CoopState(3000));
+
+				return;
+
 			}
 
-			return;
 		}
 
 		// mod check
@@ -5426,7 +5448,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		// DISPLAY THE CLIENT PLAYER'S BASE
-		_game->popState();
+		if (connectionTCP::no_bases == false)
+		{
+			_game->popState();
+		}
 
 		_game->pushState(new Profile(clientInBattle, inBattle));
 
@@ -5438,34 +5463,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		markers["state"] = "coopBase";
 		markers["battle"] = inBattle;
 
-		int index = 0;
-		for (auto base : *_game->getSavedGame()->getBases())
+		if (connectionTCP::no_bases == false)
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false)
+			int index = 0;
+			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
+				if (base->_coopBase == false && base->_coopIcon == false)
+				{
 
-				markers["markers"][index]["base"] = base->getName().c_str();
-				markers["markers"][index]["lon"] = base->getLongitude();
-				markers["markers"][index]["lan"] = base->getLatitude();
+					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
 
-				// new!!!
-				markers["markers"][index]["range_coop"] = base->_range_coop;
+					markers["markers"][index]["base"] = base->getName().c_str();
+					markers["markers"][index]["lon"] = base->getLongitude();
+					markers["markers"][index]["lan"] = base->getLatitude();
 
-				markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
-				markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
-				markers["markers"][index]["getAvailableLaboratories"] = base->getAvailableLaboratories();
-				markers["markers"][index]["getAvailableQuarters"] = base->getAvailableQuarters();
-				markers["markers"][index]["getAvailableScientists"] = base->getAvailableScientists();
-				markers["markers"][index]["getAvailableSoldiers"] = base->getAvailableSoldiers();
-				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
-				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
-				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
+					// new!!!
+					markers["markers"][index]["range_coop"] = base->_range_coop;
 
-				index++;
+					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
+					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
+					markers["markers"][index]["getAvailableLaboratories"] = base->getAvailableLaboratories();
+					markers["markers"][index]["getAvailableQuarters"] = base->getAvailableQuarters();
+					markers["markers"][index]["getAvailableScientists"] = base->getAvailableScientists();
+					markers["markers"][index]["getAvailableSoldiers"] = base->getAvailableSoldiers();
+					markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
+					markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
+					markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
+
+					index++;
+				}
 			}
+
 		}
 
 		sendTCPPacketData(markers.toStyledString());
@@ -5697,14 +5727,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
-		if (getHost() == false)
+		if (getHost() == false && connectionTCP::no_bases == false)
 		{
 
 			markers["state"] = "coopBase3";
 
 			sendTCPPacketData(markers.toStyledString());
 		}
-		else
+		else if (getHost() == true)
 		{
 
 			markers["state"] = "coopBase2";
@@ -6860,6 +6890,11 @@ void connectionTCP::fixCoopSave()
 {
 	if (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle() && getCoopCampaign() == true)
 	{
+
+		int newID = -1;
+		int alienId = 2000000;
+		int lastID = 0;
+
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
 			auto* soldiers = base->getSoldiers();
@@ -6867,6 +6902,27 @@ void connectionTCP::fixCoopSave()
 			for (auto it = soldiers->begin(); it != soldiers->end();)
 			{
 				auto* soldier = *it;
+
+				// Check that if the game mode is not PvE2, the soldiers are not aliens.
+				if (getCoopGamemode() != 4 && newID == -1)
+				{
+
+					// If the soldier ID is greater than 2000000
+					if (soldier->getId() >= alienId)
+					{
+						newID = lastID + 1;
+					}
+					else
+					{
+						lastID = soldier->getId();
+					}
+
+				}
+
+				if (newID != -1)
+				{
+					soldier->setId(newID++);
+				}
 
 				// For all soldiers where coopbase is not -1, make sure their craft is null.
 				if (soldier->getCoopBase() != -1)
@@ -6888,7 +6944,22 @@ void connectionTCP::fixCoopSave()
 	}
 }
 
-void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress)
+bool valid_port(const std::string& s)
+{
+	if (s.empty())
+		return false;
+
+	if (!std::all_of(s.begin(), s.end(), [](unsigned char c)
+					 { return std::isdigit(c); }))
+	{
+		return false;
+	}
+
+	int port = std::stoi(s);
+	return port >= 0 && port <= 65535;
+}
+
+void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress, std::string str_port)
 {
 
 	gamePaused = 0;
@@ -6900,7 +6971,12 @@ void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress)
 	coopMissionEnd = false;
 	inventory_battle_window = true;
 
-	int port = getPortFromAddress(ipaddress);
+	int port = -1;
+
+	if (valid_port(str_port))
+	{
+		port = std::stoi(str_port);
+	}
 
 	if (port == -1)
 	{
@@ -6927,7 +7003,7 @@ void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress)
 
 }
 
-void connectionTCP::connectTCPServer(std::string playername, std::string ipaddress)
+void connectionTCP::connectTCPServer(std::string playername, std::string ipaddress, std::string str_port)
 {
 	ipAddress = ipaddress;
 	sendTcpPlayer = playername;
@@ -6940,7 +7016,12 @@ void connectionTCP::connectTCPServer(std::string playername, std::string ipaddre
 	coopMissionEnd = false;
 	inventory_battle_window = true;
 
-	int port = getPortFromAddress(ipaddress);
+	int port = -1;
+
+	if (valid_port(str_port))
+	{
+		port = std::stoi(str_port);
+	}
 
 	if (port == -1)
 	{
@@ -7073,6 +7154,14 @@ void connectionTCP::disconnectTCP()
 
 		// both
 		connectionTCP::_coopGamemode = 0;
+
+		if (connectionTCP::no_bases == true)
+		{
+			_game->setState(new MainMenuState);
+		}
+
+		connectionTCP::no_bases = false;
+
 		gamePaused = 0;
 		playerInsideCoopBase = false;
 

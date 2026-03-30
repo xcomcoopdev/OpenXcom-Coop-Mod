@@ -402,21 +402,6 @@ CoopState::CoopState(int state)
 
 	}
 
-	// campaign
-	if (state == 2000)
-	{
-		_txtTitle->setSmall();
-		_txtTitle->setText("Please load a Campaign save\n to join the session.");
-		_btnBack->setVisible(true);
-
-		// disconnect
-		connectionTCP::_coopGamemode = 0;
-		_game->getCoopMod()->disconnectTCP();
-
-		_game->popState();
-
-	}
-
 	// new  battle
 	if (state == 3000)
 	{

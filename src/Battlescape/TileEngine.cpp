@@ -1553,9 +1553,17 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 		direction = unit->getDirection();
 	}
 
+	bool firstAlienInitTemp = false;
+
 	// coop (pvp)
 	if (_save->getBattleGame())
 	{
+
+		if (_save->getBattleGame()->getCoopMod()->_firstAlienInit)
+		{
+			_save->getBattleGame()->getCoopMod()->_firstAlienInit = false;
+			firstAlienInitTemp = true;
+		}
 
 		if (_save->getBattleGame()->isCoop() == false && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3))
 		{
@@ -1576,7 +1584,7 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 
 	}
 
-	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
+	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)) && firstAlienInitTemp == false)
 	{
 		//The event wasn't meant for us and/or visible for us.
 		return;
@@ -2605,7 +2613,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 	int threshold = unit->getReactionScore();
 	// no reaction on civilian turn.
 	// reaction is allowed during the civilian turn in coop PvP mode.
-	if (_save->getSide() != FACTION_NEUTRAL || (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && _save->getSide() == FACTION_NEUTRAL)
+	if (_save->getSide() != FACTION_NEUTRAL || ((connectionTCP::_isHotseatActive == true || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && _save->getSide() == FACTION_NEUTRAL))
 	{
 		for (auto* bu : *_save->getUnits())
 		{
@@ -2622,7 +2630,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 				// closer than 20 tiles
 				Position::distance2dSq(unit->getPosition(), bu->getPosition()) <= getMaxViewDistanceSq() &&
 				// coop (PVP)
-				(((connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && bu->getFaction() != FACTION_PLAYER) || (_save->getSide() != FACTION_NEUTRAL))) 
+					(((connectionTCP::_isHotseatActive == true || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && bu->getFaction() != FACTION_PLAYER) || (_save->getSide() != FACTION_NEUTRAL))) 
 			{
 				BattleAction falseAction;
 				falseAction.type = BA_SNAPSHOT;
@@ -3311,6 +3319,15 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			root["state"] = "hit_unit";
 			root["unit_id"] = target->getId();
 			root["health"] = target->getHealth();
+			root["stunlevel"] = target->getStunlevel();
+
+			Json::Value fatalArray(Json::arrayValue);
+			for (int i = 0; i < BODYPART_MAX; ++i)
+			{
+				fatalArray.append(target->getFatalWoundsCoop()[i]);
+			}
+
+			root["fatalWounds"] = fatalArray;
 
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}

@@ -223,12 +223,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	// COOP
 	if (_base->_coopBase == true)
 	{
-		//_edtBase->setVisible(false);
 		_btnNewBase->setVisible(false);
-		//_btnBaseInfo->setVisible(false);
-		//_btnSoldiers->setVisible(false);
-
-		//_btnCrafts->setVisible(false);
 		_btnFacilities->setVisible(false);
 		_btnResearch->setVisible(false);
 		_btnManufacture->setVisible(false);
@@ -237,7 +232,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 		_btnSell->setVisible(false);
 
 		// PVP
-		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3 || connectionTCP::no_bases == true)
 		{
 
 			_btnPurchase->setVisible(false);

@@ -87,13 +87,14 @@ class File;
 class CoopMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnPVE, *_btnPVP, *_btnPVP2, *_btnPVE2, *_btnChat, *_btnHotseat, *_btnStartHotseat;
+	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnChat, *_btnStartHotseat;
 	TextList *_lstSaves;
-	TextEdit *_ipAddress, *_playerName;
+	TextEdit *_ipAddress, *_playerName, *_port;
+	ComboBox* _cbxGameMode;
 	Window *_window;
 	Text *_txtTitle, *_txtData, *_txtInfo, *_hostPing, *_clientPing;
 	std::map<Surface *, bool> _surfaceBackup;
-	std::vector<std::string> _missionTypes, _terrainTypes, _alienRaces, _crafts;
+	std::vector<std::string> _gamemodeTypes;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
 	bool _isRightClick;
@@ -113,13 +114,9 @@ class CoopMenu : public State
 	void joinTCPGame(Action *action);
 	void hostTCPGame(Action *action);
 	void startHotseat(Action* action);
-	void btnPVEClick(Action *action);
-	void btnPVE2Click(Action* action);
-	void btnPVPClick(Action *action);
-	void btnPVP2Click(Action *action);
-	void btnHotseatClick(Action* action);
 	void btnChatClick(Action* action);
 	void showGamemode();
+	void cbxGameModeChange(Action* action);
 	/// Runs the timers and handles popups.
 	void think() override;
 };
