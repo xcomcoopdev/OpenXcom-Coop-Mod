@@ -1781,6 +1781,13 @@ const std::vector<Craft*>* GeoscapeState::updateActiveCrafts()
  */
 void GeoscapeState::time5Seconds()
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	// If in "slow mode", handle UFO hunting and escorting logic every 5 seconds, not only every 10 minutes
 	if ((_timeSpeed == _btn5Secs || _timeSpeed == _btn1Min) && _game->getMod()->getHunterKillerFastRetarget())
 	{
@@ -2389,6 +2396,13 @@ bool DetectXCOMBase::operator()(const Ufo *ufo) const
  */
 void GeoscapeState::time10Minutes()
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		// Fuel consumption for XCOM craft.
@@ -2747,6 +2761,13 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
  */
 void GeoscapeState::time30Minutes()
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	// Decrease mission countdowns
 	for (auto* am : _game->getSavedGame()->getAlienMissions())
 	{
@@ -3015,6 +3036,13 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
  */
 void GeoscapeState::time1Hour()
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	// Handle craft maintenance
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
@@ -3095,7 +3123,8 @@ void GeoscapeState::time1Hour()
 			}
 		}
 
-		if (Options::storageLimitsEnforced)
+		// coop fix
+		if (Options::storageLimitsEnforced && connectionTCP::no_bases == false)
 		{
 			if (xbase->storesOverfull())
 			{
@@ -3259,6 +3288,13 @@ void GenerateSupplyMission::operator()(AlienBase *base) const
  */
 void GeoscapeState::time1Day()
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	_game->getSavedGame()->increaseDaysPassed();
 
 	SavedGame *saveGame = _game->getSavedGame();
@@ -3752,6 +3788,12 @@ void GeoscapeState::time1Month()
 {
 
 	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
+	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
 	{
 		// do nothing
@@ -3937,6 +3979,12 @@ void GeoscapeState::btnInterceptClick(Action *)
 {
 
 	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
+	// coop
 	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
 	{
 		return;
@@ -4045,6 +4093,12 @@ void GeoscapeState::btnDebugClick(Action *)
  */
 void GeoscapeState::btnBasesClick(Action *)
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
@@ -4599,6 +4653,13 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
  */
 void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
 {
+
+	// coop fix
+	if (connectionTCP::no_bases == true)
+	{
+		return;
+	}
+
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();

@@ -89,7 +89,7 @@ class CoopMenu : public State
   private:
 	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnChat, *_btnStartHotseat;
 	TextList *_lstSaves;
-	TextEdit *_ipAddress, *_playerName;
+	TextEdit *_ipAddress, *_playerName, *_port;
 	ComboBox* _cbxGameMode;
 	Window *_window;
 	Text *_txtTitle, *_txtData, *_txtInfo, *_hostPing, *_clientPing;

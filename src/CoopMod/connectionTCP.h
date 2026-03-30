@@ -180,8 +180,8 @@ class connectionTCP
 	bool getLanding();
 	void setSelectedCraft(Craft* selectedCraft);
 	Craft* getSelectedCraft();
-	void hostTCPServer(std::string playername, std::string port);
-	void connectTCPServer(std::string playername, std::string ipaddress);
+	void hostTCPServer(std::string playername, std::string ipaddress, std::string port);
+	void connectTCPServer(std::string playername, std::string ipaddress, std::string port);
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();
@@ -361,8 +361,10 @@ class connectionTCP
 
 	bool openMultipleTargetsMenu = false;
 
+	static bool no_bases;
+
 	// hotseat
-	bool _isHotseatActive = false;
+	static bool _isHotseatActive;
 	bool _changeHotseatTurn = false;
 	bool _isHotseatAlienTurn = false;
 	Json::Value _discoveredTilesAlienTurn;

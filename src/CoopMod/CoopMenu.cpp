@@ -57,10 +57,14 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	// Create objects
 	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(180, 18, x + 18, 60);
+
 	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
-	_playerName = new TextEdit(this, 180, 18, x + 18, 92);
-	_tcpButtonJoin = new TextButton(180, 18, x + 18, 112);
-	_tcpButtonHost = new TextButton(180, 18, x + 18, 132);
+	_port = new TextEdit(this, 180, 18, x + 18, 92);
+	_playerName = new TextEdit(this, 180, 18, x + 18, 112);
+
+	_tcpButtonJoin = new TextButton(90, 18, x + 108, 132);
+	_tcpButtonHost = new TextButton(90, 18, x + 18, 132);
+
 	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
 
 	_cbxGameMode = new ComboBox(this, 180, 18, x + 18, 52);
@@ -84,6 +88,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	add(_window, "window", "pauseMenu");
 	add(_ipAddress);
+	add(_port);
 	add(_playerName);
 	add(_tcpButtonJoin, "button", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
@@ -157,13 +162,20 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_ipAddress->setText("IP-ADDRESS");
 	_ipAddress->setVisible(false);
 
+	// port
+	_port->setColor(color);
+	_port->setBig();
+	_port->setBorderColor(color);
+	_port->setText("PORT");
+	_port->setVisible(false);
+
 	_playerName->setColor(color);
 	_playerName->setBig();
 	_playerName->setBorderColor(color);
 	_playerName->setText("Player");
 	_playerName->setVisible(false);
 
-	_btnMessage->setText(tr("DISCONNECT"));
+	_btnMessage->setText("DISCONNECT");
 	_btnMessage->setVisible(false);
 	_btnMessage->onMouseClick((ActionHandler)&CoopMenu::disconnect);
 
@@ -225,7 +237,9 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_ipAddress->setVisible(false);
+		_port->setVisible(false);
 		_playerName->setVisible(false);
+
 
 		// show
 		_btnStartHotseat->setVisible(true);
@@ -242,6 +256,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_btnMessage->setVisible(true);
 		_btnChat->setVisible(true);
 		_ipAddress->setVisible(false);
+		_port->setVisible(false);
 		_playerName->setVisible(false);
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
@@ -257,6 +272,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_btnMessage->setVisible(false);
 		_btnChat->setVisible(false);
 		_ipAddress->setVisible(true);
+		_port->setVisible(true);
 		_playerName->setVisible(true);
 		_tcpButtonJoin->setVisible(true);
 		_tcpButtonHost->setVisible(true);
@@ -282,6 +298,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	std::string filepath = Options::getMasterUserFolder() + filename;
 
 	std::string ipAddress;
+	std::string port;
 	std::string playerName;
 
 	if (OpenXcom::CrossPlatform::fileExists(filepath))
@@ -299,6 +316,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 			if (parsingSuccessful)
 			{
 				ipAddress = root.get("ip", "").asString();
+				port = root.get("port", "").asString();
 				playerName = root.get("name", "").asString();
 
 				
@@ -308,6 +326,13 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 					ipAddress = "IP-ADDRESS";
 				}
 
+				if (port == "")
+				{
+					// port is empty
+					port = "3000";
+				}
+
+
 				if (playerName == "")
 				{
 					// name is empty
@@ -315,6 +340,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 				}
 
 				_ipAddress->setText(ipAddress);
+				_port->setText(port);
 				_playerName->setText(playerName); 
 			}
 			else
@@ -352,6 +378,7 @@ void CoopMenu::init()
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_ipAddress->setVisible(false);
+		_port->setVisible(false);
 		_playerName->setVisible(false);
 
 		// show
@@ -366,6 +393,7 @@ void CoopMenu::init()
 		_btnMessage->setVisible(true);
 		_btnChat->setVisible(true);
 		_ipAddress->setVisible(false);
+		_port->setVisible(false);
 		_playerName->setVisible(false);
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
@@ -381,6 +409,7 @@ void CoopMenu::init()
 		_btnMessage->setVisible(false);
 		_btnChat->setVisible(false);
 		_ipAddress->setVisible(true);
+		_port->setVisible(true);
 		_playerName->setVisible(true);
 		_tcpButtonJoin->setVisible(true);
 		_tcpButtonHost->setVisible(true);
@@ -600,6 +629,7 @@ void CoopMenu::cbxGameModeChange(Action* action)
 	_tcpButtonJoin->setVisible(true);
 	_tcpButtonHost->setVisible(true);
 	_ipAddress->setVisible(true);
+	_port->setVisible(true);
 	_playerName->setVisible(true);
 
 	// hide
@@ -635,6 +665,7 @@ void CoopMenu::cbxGameModeChange(Action* action)
 		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_ipAddress->setVisible(false);
+		_port->setVisible(false);
 		_playerName->setVisible(false);
 
 		// show
@@ -689,7 +720,7 @@ void CoopMenu::joinTCPGame(Action *action)
 
 	_game->pushState(new CoopState(15));
 
-	_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText());
+	_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
 }
 
 void CoopMenu::hostTCPGame(Action *action)
@@ -717,6 +748,7 @@ void CoopMenu::hostTCPGame(Action *action)
 	_btnMessage->setVisible(true);
 	_btnChat->setVisible(true);
 	_ipAddress->setVisible(false);
+	_port->setVisible(false);
 	_playerName->setVisible(false);
 	_tcpButtonJoin->setVisible(false);
 	_tcpButtonHost->setVisible(false);
@@ -757,7 +789,7 @@ void CoopMenu::hostTCPGame(Action *action)
 
 
 	// HOST GAME
-	_game->getCoopMod()->hostTCPServer(_playerName->getText(), _ipAddress->getText());
+	_game->getCoopMod()->hostTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
 }
 
 void CoopMenu::startHotseat(Action* action)
@@ -798,6 +830,7 @@ void CoopMenu::disconnect(Action *action)
 	_tcpButtonHost->setVisible(true);
 	_tcpButtonJoin->setVisible(true);
 	_ipAddress->setVisible(true);
+	_port->setVisible(true);
 	_playerName->setVisible(true);
 
 	_cbxGameMode->setVisible(true);
@@ -875,12 +908,39 @@ void CoopMenu::think()
 	State::think();
 
 	static Uint32 lastUpdate = 0;
+	static Uint32 lastUpdateGamemode = 0;
 	static Uint32 pingSentTime = 0;
 	Uint32 now = SDL_GetTicks();
 
 	if (_game->getCoopMod()->isCoopSession() == false || _game->getCoopMod()->getCoopStatic() == false)
 	{
 		_clientPing->setVisible(false);
+	}
+
+	if ((_game->getCoopMod()->isCoopSession() == true || _game->getCoopMod()->getServerOwner() == true) && now - lastUpdateGamemode >= 1000)
+	{
+		std::string str_disconnect2 = "";
+
+		if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+		{
+			str_disconnect2 = "DISCONNECT (PVE)";
+		}
+		else if (_game->getCoopMod()->getCoopGamemode() == 2)
+		{
+			str_disconnect2 = "DISCONNECT (PVP)";
+		}
+		else if (_game->getCoopMod()->getCoopGamemode() == 3)
+		{
+			str_disconnect2 = "DISCONNECT (PVP2)";
+		}
+		else if (_game->getCoopMod()->getCoopGamemode() == 4)
+		{
+			str_disconnect2 = "DISCONNECT (PVE2)";
+		}
+		_btnMessage->setText(str_disconnect2);
+
+		lastUpdateGamemode = now;
+
 	}
 
 	if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getCoopStatic() == true && now - lastUpdate >= 1000 && _game->getCoopMod()->getChatMenu())

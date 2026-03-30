@@ -122,6 +122,12 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 
 	centerAllSurfaces();
 
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		_btnIntercept->setVisible(false);
+	}
+
 	// PVP
 	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
 	{

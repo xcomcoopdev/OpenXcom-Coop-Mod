@@ -414,8 +414,10 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
 	reader.tryRead("monthsPassed", _monthsPassed);
+
 	// coop
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
@@ -825,8 +827,10 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+
 	// coop
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);

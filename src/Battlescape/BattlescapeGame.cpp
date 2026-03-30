@@ -1622,6 +1622,23 @@ void BattlescapeGame::checkForCasualties(const RuleDamageType *damageType, Battl
 				{
 					murderer->addKillCount();
 					victim->killedBy(murderer->getFaction());
+
+					// coop (hotseat)
+					// civilian casualties caused by aliens should not being counted as X-Com losses
+					if (_parentState && _parentState->getGame()->getCoopMod()->_isHotseatActive == true && _parentState && _parentState->getGame()->getCoopMod()->_isHotseatAlienTurn == true)
+					{
+
+						if (murderer->getFaction() == FACTION_PLAYER)
+						{
+							victim->killedBy(FACTION_HOSTILE);
+						}
+						else if (murderer->getFaction() == FACTION_HOSTILE)
+						{
+							victim->killedBy(FACTION_PLAYER);
+						}
+
+					}
+
 					int modifier = murderer->getFaction() == FACTION_PLAYER ? _save->getFactionMoraleModifier(true) : 100;
 
 					// if there is a known murderer, he will get a morale bonus if he is of a different faction (what with neutral?)

@@ -738,7 +738,7 @@ void TransferItemsState::completeTransfer()
 				}
 			}
 
-		
+			root["items"][index]["craft_rule"] = "";
 
 			// sending
 			std::string item_name = "";
@@ -773,10 +773,7 @@ void TransferItemsState::completeTransfer()
 			root["items"][index]["amount"] = item_amount;
 			root["items"][index]["hour"] = hour;
 			root["items"][index]["type"] = (int)trade->getType();
-			root["items"][index]["craft_rule"] = "";
 			root["items"][index]["name"] = item_name;
-
-
 
 			index++;
 		}

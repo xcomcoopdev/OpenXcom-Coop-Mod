@@ -886,9 +886,10 @@ void PurchaseState::btnOkClick(Action *)
 		for (auto trade : *_base->getTransfers())
 		{
 
-
 			std::string item_name = "";
 			int item_amount = 0;
+
+			root["items"][index]["craft_rule"] = "";
 
 			if (trade->getType() == TRANSFER_SOLDIER)
 			{
@@ -919,7 +920,6 @@ void PurchaseState::btnOkClick(Action *)
 			root["items"][index]["amount"] = item_amount;
 			root["items"][index]["hour"] = hour;
 			root["items"][index]["type"] = (int)trade->getType();
-			root["items"][index]["craft_rule"] = "";
 
 			index++;
 
