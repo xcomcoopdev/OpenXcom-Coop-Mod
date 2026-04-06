@@ -1252,11 +1252,11 @@ void Globe::drawRadars()
 				// coop
 				if (xbase->_coopBase == false)
 				{
-					xbase->_range_coop = range;
+					xbase->_radar_range_coop = range;
 				}
-				if (xbase->_range_coop != 0 && xbase->_coopBase == true)
+				if (xbase->_radar_range_coop != 0 && xbase->_coopBase == true)
 				{
-					range = xbase->_range_coop;
+					range = xbase->_radar_range_coop;
 				}
 	
 				range = Nautical(range);

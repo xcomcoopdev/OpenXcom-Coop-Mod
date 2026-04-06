@@ -1964,6 +1964,14 @@ void BattlescapeGame::handleState()
 	}
 }
 
+void BattlescapeGame::handleStateCoop()
+{
+	if (!_states.empty())
+	{
+		_states.front()->think();
+	}
+}
+
 /**
  * Pushes a state to the front of the queue and starts it.
  * @param bs Battlestate.
@@ -2635,7 +2643,6 @@ void BattlescapeGame::cancelAllActions()
 	setupCursor();
 	_parentState->getGame()->getCursor()->setVisible(true);
 }
-
 /**
  * Gets a pointer to access action members directly.
  * @return Pointer to action.

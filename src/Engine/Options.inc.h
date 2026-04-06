@@ -93,6 +93,7 @@ OPT bool EnableTimeSync;
 OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;
+OPT bool OnlyHostSpawnsMissions;
 OPT bool EnableXcomEquipmentAliensPVP;
 OPT bool resetTimeUnitsOnTurnChangePVP;
 OPT bool debugMode;

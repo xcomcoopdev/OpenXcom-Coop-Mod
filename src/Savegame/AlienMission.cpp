@@ -48,10 +48,15 @@
 namespace OpenXcom
 {
 
-AlienMission::AlienMission(const RuleAlienMission &rule) : _rule(rule), _nextWave(0), _nextUfoCounter(0), _spawnCountdown(0), _liveUfos(0),
+AlienMission::AlienMission(const RuleAlienMission &rule, bool coop) : _rule(rule), _nextWave(0), _nextUfoCounter(0), _spawnCountdown(0), _liveUfos(0),
 	_interrupted(false), _multiUfoRetaliationInProgress(false), _uniqueID(0), _missionSiteZoneArea(-1), _base(0)
 {
-	// Empty by design.
+	// coop
+	if (coop == false && connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	{
+		_interrupted = true;
+	}
+
 }
 
 AlienMission::~AlienMission()
@@ -484,6 +489,13 @@ Base* AlienMission::selectXcomBase(SavedGame& game, const RuleRegion& regionRule
  */
 Ufo *AlienMission::spawnUfo(SavedGame &game, const Mod &mod, const Globe &globe, const MissionWave &wave, const UfoTrajectory &trajectory)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	{
+		return 0;
+	}
+
 	auto logUfo = [](Ufo* u, SavedGame& g, AlienMission* a)
 	{
 		if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
@@ -1181,6 +1193,13 @@ void AlienMission::addScore(double lon, double lat, SavedGame &game) const
  */
 AlienBase *AlienMission::spawnAlienBase(Country *pactCountry, Game &engine, std::pair<double, double> pos, AlienDeployment *deployment)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	{
+		return 0;
+	}
+
 	SavedGame &game = *engine.getSavedGame();
 	AlienBase *ab = new AlienBase(deployment, game.getMonthsPassed());
 	if (pactCountry)
@@ -1455,6 +1474,14 @@ std::pair<double, double> AlienMission::getLandPointForMissionSite(const Globe& 
  */
 MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, const MissionArea &area, const Ufo *ufo, AlienDeployment *missionOveride)
 {
+
+	// coop
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	{
+		return 0;
+	}
+
+
 	Texture *texture = mod.getGlobe()->getTexture(area.texture);
 	AlienDeployment *deployment = nullptr;
 	AlienDeployment *alienCustomDeploy = ufo ? mod.getDeployment(ufo->getCraftStats().missionCustomDeploy) : 0;

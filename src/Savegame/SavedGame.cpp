@@ -417,6 +417,10 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	// coop
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	{
+		reader.tryRead("no_bases", connectionTCP::no_bases);
+	}
 
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
@@ -830,6 +834,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 
 	// coop
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("no_bases", connectionTCP::no_bases);
 
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
@@ -869,7 +874,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	saveVectorIf(writer, _bases, "bases",
 				 [](const Base* b)
 				 { return !b->_coopIcon; });
-
+	
 	saveVector(writer, _waypoints, "waypoints");
 
 	// coop
@@ -1099,6 +1104,13 @@ void SavedGame::setIronman(bool ironman)
  */
 int64_t SavedGame::getFunds() const
 {
+
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		return 1000;
+	}
+
 	return _funds.back();
 }
 

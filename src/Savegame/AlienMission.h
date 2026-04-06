@@ -60,7 +60,7 @@ private:
   public:
 	// Data
 	/// Creates a mission of the specified type.
-	AlienMission(const RuleAlienMission &rule);
+	AlienMission(const RuleAlienMission &rule, bool coop = false);
 	/// Cleans up the mission info.
 	~AlienMission();
 	/// Loads the mission from YAML.

@@ -124,6 +124,8 @@ bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
+bool connectionTCP::_only_host_spawns_missions = true;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -135,6 +137,8 @@ bool connectionTCP::coopInventory = false;
 bool connectionTCP::moveCoopItems = false;
 
 bool connectionTCP::no_bases = false;
+
+bool connectionTCP::isCoopBaseLoading = false;
 
 bool connectionTCP::_isHotseatActive = false;
 
@@ -443,9 +447,32 @@ void connectionTCP::createLoopdataThread()
 
 }
 
-// an endless loop that processes the sync-packet data: tasks, remove targets, research, trading, disconnect, errors.
+// an endless loop that processes the sync-packet data: battlescape, tasks, remove targets, research, trading, disconnect, errors.
 void connectionTCP::updateCoopTask()
 {
+
+	// battlescape
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame())
+	{
+
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+
+			if (_game->getSavedGame()->getSavedBattle()->getBattleGame() && _game->getSavedGame()->getSavedBattle()->getBattleState())
+			{
+
+				if (!_game->isState(_game->getSavedGame()->getSavedBattle()->getBattleState()))
+				{
+
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->handleStateCoop();
+
+				}
+
+			}
+
+		}
+
+	}
 
 	// time
 	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0)
@@ -603,11 +630,10 @@ void connectionTCP::updateCoopTask()
 
 				// Make operator precedence explicit:
 				const bool consumeNow =
-						 (_coop_task_completed || (
-						 (stateString == "abortPath" && _coopWalkInit) ||
+						 (_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "close_event" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString  == "hasHitUnit") &&
+					 stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
 				if (consumeNow)
@@ -900,6 +926,7 @@ void resetCoopState(bool isHost)
 	server_owner = isHost;
 	onConnect = -1;
 	connectionTCP::no_bases = false;
+	connectionTCP::isCoopBaseLoading = false;
 }
 
 // SERVER SETUP
@@ -3876,8 +3903,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 
 				int coopbase_id = obj["bases"][i]["coopbase_id"].asInt();
-				int range_coop = obj["bases"][i]["range_coop"].asInt();
-				int range_detection = obj["bases"][i]["range_detection"].asInt();
 
 				for (auto &temp_base : *_game->getSavedGame()->getBases())
 				{
@@ -3885,9 +3910,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					if (temp_base->_coopIcon == true && temp_base->_coop_base_id == coopbase_id)
 					{
 
-						temp_base->_range_coop = range_coop;
-						temp_base->_range_detection = range_detection;
+						// facilities
+						temp_base->_facilitiesRadarCoop = obj["bases"][i]["facilities"];
 
+						double radar_range_coop = obj["bases"][i]["radar_range_coop"].asDouble();
+						temp_base->_radar_range_coop = radar_range_coop;
+			
 						break;
 					}
 
@@ -4073,7 +4101,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					if (alien_mission_rule)
 					{
 
-						alien_mission = new AlienMission(*alien_mission_rule);
+						alien_mission = new AlienMission(*alien_mission_rule, true);
 
 						alien_mission->setCoop(true);
 						alien_mission->setRace(race);
@@ -4598,6 +4626,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "DebriefingState")
 	{
+
+		// MissionStatistics
+		bool isMissionStatistics = obj["isMissionStatistics"].asBool();
+		if (isMissionStatistics == true)
+		{
+
+			// use later...
+			_missionStatisticsCoop = obj["missionStatistics"];
+
+		}
 
 		bool abort = obj["abort"].asBool();
 		std::string title = obj["title"].asString();
@@ -5212,6 +5250,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
 		root["unbalanced_craft_soldiers_limit"] = _unbalanced_craft_soldiers_limit;
 
+		// OnlyHostSpawnsMissions
+		connectionTCP::_only_host_spawns_missions = Options::OnlyHostSpawnsMissions;
+		root["only_host_spawns_missions"] = _only_host_spawns_missions;
+
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -5399,6 +5441,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
 
+		// OnlyHostSpawnsMissions
+		bool only_host_spawns_missions = obj["only_host_spawns_missions"].asBool();
+		connectionTCP::_only_host_spawns_missions = only_host_spawns_missions;
+
 		for (Json::Value host_mod : obj["mods"])
 		{
 
@@ -5489,7 +5535,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					markers["markers"][index]["lan"] = base->getLatitude();
 
 					// new!!!
-					markers["markers"][index]["range_coop"] = base->_range_coop;
+					markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
+					markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
 
 					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
@@ -5564,9 +5611,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableStores = marker["getAvailableStores"].asInt();
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
-
-			// new!!!
-			int range_coop = marker["range_coop"].asInt();
 			
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
@@ -5586,7 +5630,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->_coop_base_id = coopbaseid;
 
 			// new!!!
-			CoopBase->_range_coop = range_coop;
+			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			double radar_range_coop = marker["radar_range_coop"].asDouble();
+			CoopBase->_radar_range_coop = radar_range_coop;
 
 			std::string base_name = marker["base"].asString();
 			CoopBase->setName(base_name);
@@ -5629,7 +5675,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
 
 				// new!!!
-				markers["markers"][index]["range_coop"] = base->_range_coop;
+				markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
+				markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
 
 				index++;
 			}
@@ -5657,9 +5704,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int getAvailableTraining = obj["markers"]["getAvailableTraining"].asInt();
 		int getAvailableWorkshops = obj["markers"]["getAvailableWorkshops"].asInt();
 
-		// new!!!
-		int range_coop = obj["markers"]["range_coop"].asInt();
-
 		double lon = std::stod(s_lon);
 		double lan = std::stod(s_lan);
 
@@ -5683,7 +5727,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		CoopBase->_coop_base_id = coopbaseid;
 
-		CoopBase->_range_coop = range_coop;
+		// new!!!
+		CoopBase->_facilitiesRadarCoop = obj["markers"]["facilitiesRadarCoop"];
+		double radar_range_coop = obj["markers"]["radar_range_coop"].asDouble();
+		CoopBase->_radar_range_coop = radar_range_coop;
 
 		CoopBase->setLongitude(lon);
 		CoopBase->setLatitude(lan);
@@ -5730,7 +5777,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
 
 				// new!!!
-				markers["markers"][index]["range_coop"] = base->_range_coop;
+				markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
+				markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
 
 				index++;
 			}
@@ -5759,10 +5807,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		Json::Value m_markers;
 		Json::Reader reader;
 
-		// jos markkereita
+		// if there are markers
 		if (obj["markers"].empty() == false && obj.isMember("markers") == true)
 		{
-
 			j_markers = obj["markers"].toStyledString();
 		}
 
@@ -5785,9 +5832,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableStores = marker["getAvailableStores"].asInt();
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
-
-			// new!!!
-			int range_coop = marker["range_coop"].asInt();
 
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
@@ -5823,7 +5867,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			CoopBase->_range_coop = range_coop;
+			// new !!!
+			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			double radar_range_coop = marker["radar_range_coop"].asDouble();
+			CoopBase->_radar_range_coop = radar_range_coop;
 
 			CoopBase->setName(base_name);
 
@@ -5871,9 +5918,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int getAvailableTraining = marker["getAvailableTraining"].asInt();
 			int getAvailableWorkshops = marker["getAvailableWorkshops"].asInt();
 
-			// new!!!
-			int range_coop = marker["range_coop"].asInt();
-
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
 
@@ -5908,7 +5952,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			CoopBase->_range_coop = range_coop;
+			// new !!!
+			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			double radar_range_coop = marker["radar_range_coop"].asDouble();
+			CoopBase->_radar_range_coop = radar_range_coop;
 
 			CoopBase->setName(base_name);
 
@@ -6190,11 +6237,15 @@ void connectionTCP::setPauseOn()
 	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false && _battleInit == true)
 	{
 
+		/*
 		Json::Value root;
 
 		root["state"] = "GamePausedON";
 
 		sendTCPPacketData(root.toStyledString().c_str());
+		*/
+
+
 	}
 }
 
@@ -6205,11 +6256,14 @@ void connectionTCP::setPauseOff()
 	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false && _battleInit == true)
 	{
 
+		/*
 		Json::Value root;
 
 		root["state"] = "GamePausedOFF";
 
 		sendTCPPacketData(root.toStyledString().c_str());
+		*/
+
 	}
 }
 
@@ -6732,6 +6786,22 @@ SoldierRank connectionTCP::intToSoldierRank(int rank)
 	return RANK_ROOKIE;
 }
 
+Json::Value connectionTCP::toJson(const std::map<int, int>& m)
+{
+	Json::Value j(Json::objectValue);
+	for (auto [k, v] : m)
+		j[std::to_string(k)] = v;
+	return j;
+}
+
+std::map<int, int> connectionTCP::fromJson(const Json::Value& j)
+{
+	std::map<int, int> m;
+	for (const auto& key : j.getMemberNames())
+		m[std::stoi(key)] = j[key].asInt();
+	return m;
+}
+
 void connectionTCP::generateCraftSoldiers()
 {
 
@@ -7170,6 +7240,7 @@ void connectionTCP::disconnectTCP()
 		}
 
 		connectionTCP::no_bases = false;
+		connectionTCP::isCoopBaseLoading = false;
 
 		gamePaused = 0;
 		playerInsideCoopBase = false;

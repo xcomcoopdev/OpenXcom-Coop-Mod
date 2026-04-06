@@ -291,6 +291,8 @@ class connectionTCP
 
 	static bool _unbalanced_craft_soldiers_limit;
 
+	static bool _only_host_spawns_missions;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -362,6 +364,7 @@ class connectionTCP
 	bool openMultipleTargetsMenu = false;
 
 	static bool no_bases;
+	static bool isCoopBaseLoading;
 
 	// hotseat
 	static bool _isHotseatActive;
@@ -370,6 +373,11 @@ class connectionTCP
 	Json::Value _discoveredTilesAlienTurn;
 	Json::Value _discoveredTilesXComTurn;
 	bool _firstAlienInit = false;
+
+	// MissionStatistics
+	Json::Value toJson(const std::map<int, int>& m);
+	std::map<int, int> fromJson(const Json::Value& j);
+	Json::Value _missionStatisticsCoop = Json::nullValue;
 
 };
 

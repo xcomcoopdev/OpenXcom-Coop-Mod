@@ -340,6 +340,9 @@ CoopState::CoopState(int state)
 
 	if (state == 50)
 	{
+
+		connectionTCP::isCoopBaseLoading = true;
+
 		_txtTitle->setText("Synchronizing bases...");
 		_btnBack->setText("Disconnect");
 		_btnBack->setVisible(true);

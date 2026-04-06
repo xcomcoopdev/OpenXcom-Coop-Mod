@@ -73,6 +73,12 @@ TargetInfoState::TargetInfoState(Target *target, Globe *globe) : _target(target)
 	// Set up objects
 	setWindowBackground(_window, "targetInfo");
 
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		_btnIntercept->setVisible(false);
+	}
+
 	// PVP
 	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
 	{

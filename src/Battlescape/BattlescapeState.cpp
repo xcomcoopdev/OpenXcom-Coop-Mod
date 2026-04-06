@@ -1444,13 +1444,10 @@ void BattlescapeState::think()
 						_btnZeroTUs->setVisible(false);
 						_btnLeftHandItem->setVisible(false);
 						_btnRightHandItem->setVisible(false);
-
-						_btnShowMap->setVisible(false);
 						
 					}
 
 					_btnEndTurn->setVisible(false);
-					_btnShowMap->setVisible(false);
 
 					// waiting
 					if (_game->getCoopMod()->_playerTurn == 3)
@@ -1470,7 +1467,6 @@ void BattlescapeState::think()
 					else if (_game->getCoopMod()->_playerTurn == 4)
 					{
 						_btnEndTurn->setVisible(true);
-						_btnShowMap->setVisible(true);
 						_battleGame->isYourTurn = 4;
 						showCoopWarning("You are in spectator mode");
 					}
@@ -1548,8 +1544,6 @@ void BattlescapeState::think()
 						_btnZeroTUs->setVisible(true);
 						_btnLeftHandItem->setVisible(true);
 						_btnRightHandItem->setVisible(true);
-
-						_btnShowMap->setVisible(true);
 
 					}
 
@@ -2434,13 +2428,6 @@ void BattlescapeState::btnMapDownClick(Action *)
  */
 void BattlescapeState::btnShowMapClick(Action *)
 {
-
-	// coop
-	if (_game->getCoopMod()->getCurrentTurn() == 1)
-	{
-		return;
-	}
-
 	//MiniMapState
 	if (allowButtons())
 		_game->pushState (new MiniMapState (_map->getCamera(), _save));

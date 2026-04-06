@@ -90,6 +90,11 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 	_txtCity->setAlign(ALIGN_CENTER);
 	_txtCity->setText(tr(mission->getCity()));
 
+	// coop
+	if (connectionTCP::no_bases == true)
+	{
+		_btnIntercept->setVisible(false);
+	}
 
 	// COOP
 	// Synchronizing the mission for the other player.

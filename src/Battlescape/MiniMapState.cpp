@@ -33,6 +33,7 @@
 
 namespace OpenXcom
 {
+SavedBattleGame* tempSave = 0;
 /**
  * Initializes all the elements in the MiniMapState screen.
  * @param game Pointer to the core game.
@@ -41,6 +42,10 @@ namespace OpenXcom
  */
 MiniMapState::MiniMapState (Camera * camera, SavedBattleGame * battleGame)
 {
+
+	// coop
+	tempSave = battleGame;
+
 	if (Options::maximizeInfoScreens)
 	{
 		Options::baseXResolution = Screen::ORIGINAL_WIDTH;
@@ -127,11 +132,8 @@ void MiniMapState::btnOkClick(Action *)
 		Screen::updateScale(Options::battlescapeScale, Options::baseXBattlescape, Options::baseYBattlescape, true);
 		_game->getScreen()->resetDisplay(false);
 	}
+
 	_game->popState();
-
-	// coop
-	_game->getCoopMod()->setPauseOff();
-
 }
 
 /**
@@ -165,6 +167,14 @@ void MiniMapState::animate()
  */
 void MiniMapState::think()
 {
+
+	if (tempSave && tempSave->getBattleGame() && _game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		tempSave->getBattleGame()->handleStateCoop();
+
+	}
+
 	State::think();
 	_timerAnimate->think(this, 0);
 }

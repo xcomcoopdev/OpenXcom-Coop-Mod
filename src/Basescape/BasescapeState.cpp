@@ -231,6 +231,8 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 		_btnPurchase->setVisible(true);
 		_btnSell->setVisible(false);
 
+		connectionTCP::isCoopBaseLoading = false;
+
 		// PVP
 		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3 || connectionTCP::no_bases == true)
 		{
@@ -679,7 +681,7 @@ void BasescapeState::viewLeftClick(Action *)
 			if (fac->getRules()->isLift() && _base->getFacilities()->size() > 1)
 			{
 				// Note: vehicles will not be deployed in the base preview
-				if (_base->getAvailableSoldiers(true, true) > 0/* || !_base->getVehicles()->empty()*/)
+				if (_base->getAvailableSoldiers(true, true) > 0 || connectionTCP::no_bases == true || _game->getCoopMod()->getCoopStatic() == true  /* || !_base->getVehicles()->empty()*/)
 				{
 					int texture, shade;
 					_globe->getPolygonTextureAndShade(_base->getLongitude(), _base->getLatitude(), &texture, &shade);

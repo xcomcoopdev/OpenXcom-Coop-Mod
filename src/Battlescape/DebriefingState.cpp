@@ -1267,6 +1267,38 @@ void DebriefingState::init()
 		root["title"] = _txtTitle->getText();
 		root["promotions"] = _promotions;
 
+		// missionStatistics
+		root["isMissionStatistics"] = false;
+		if (_missionStatistics && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getHost() == true)
+		{
+
+			root["isMissionStatistics"] = true;
+
+			root["missionStatistics"]["id"] = _missionStatistics->id;
+			root["missionStatistics"]["markerName"] = _missionStatistics->markerName;
+			root["missionStatistics"]["markerId"] = _missionStatistics->markerId;
+			root["missionStatistics"]["time"]["second"] = _missionStatistics->time.getSecond();
+			root["missionStatistics"]["time"]["minute"] = _missionStatistics->time.getMinute();
+			root["missionStatistics"]["time"]["hour"] = _missionStatistics->time.getHour();
+			root["missionStatistics"]["time"]["weekday"] = _missionStatistics->time.getWeekday();
+			root["missionStatistics"]["time"]["day"] = _missionStatistics->time.getDay();
+			root["missionStatistics"]["time"]["month"] = _missionStatistics->time.getMonth();
+			root["missionStatistics"]["time"]["year"] = _missionStatistics->time.getYear();
+			root["missionStatistics"]["region"] = _missionStatistics->region;
+			root["missionStatistics"]["country"] = _missionStatistics->country;
+			root["missionStatistics"]["type"] = _missionStatistics->type;
+			root["missionStatistics"]["ufo"] = _missionStatistics->ufo;
+			root["missionStatistics"]["success"] = _missionStatistics->success;
+			root["missionStatistics"]["rating"] = _missionStatistics->rating;
+			root["missionStatistics"]["score"] = _missionStatistics->score;
+			root["missionStatistics"]["alienRace"] = _missionStatistics->alienRace;
+			root["missionStatistics"]["daylight"] = _missionStatistics->daylight;
+			root["missionStatistics"]["injuryList"] = _game->getCoopMod()->toJson(_missionStatistics->injuryList); 
+			root["missionStatistics"]["valiantCrux"] = _missionStatistics->valiantCrux;
+			root["missionStatistics"]["lootValue"] = _missionStatistics->lootValue;
+
+		}
+
 		// rank
 		int soldier_index = 0;
 

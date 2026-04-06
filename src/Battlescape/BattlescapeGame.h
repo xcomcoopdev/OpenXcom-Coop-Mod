@@ -199,6 +199,8 @@ public:
 	bool playableUnitSelected() const;
 	/// Handles states timer.
 	void handleState();
+	// coop
+	void handleStateCoop();
 	/// Pushes a state to the front of the list.
 	void statePushFront(BattleState *bs);
 	/// Pushes a state to second on the list.

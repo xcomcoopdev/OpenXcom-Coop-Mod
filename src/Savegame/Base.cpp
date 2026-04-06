@@ -629,52 +629,87 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	int radar_max_range = 0;
 	int radar_chance = 0;
 
-	for (const auto* fac : _facilities)
+	// coop
+	if (_coopBase == false)
 	{
-		if (fac->getBuildTime() != 0)
+		for (const auto* fac : _facilities)
 		{
-			continue;
-		}
-		if (fac->getRules()->getRadarRange() >= distance)
-		{
-			int radarChance = fac->getRules()->getRadarChance();
+			if (fac->getBuildTime() != 0)
+			{
+				continue;
+			}
+			if (fac->getRules()->getRadarRange() >= distance)
+			{
+				int radarChance = fac->getRules()->getRadarChance();
+				if (fac->getRules()->isHyperwave())
+				{
+					if (radarChance == 100 || RNG::percent(radarChance))
+					{
+						hyperwave = true;
+					}
+					hyperwave_chance += radarChance;
+				}
+				else
+				{
+					radar_chance += radarChance;
+				}
+			}
 			if (fac->getRules()->isHyperwave())
 			{
-				if (radarChance == 100 || RNG::percent(radarChance))
-				{
-					hyperwave = true;
-				}
-				hyperwave_chance += radarChance;
+				hyperwave_max_range = std::max(hyperwave_max_range, fac->getRules()->getRadarRange());
 			}
 			else
 			{
-				radar_chance += radarChance;
+				radar_max_range = std::max(radar_max_range, fac->getRules()->getRadarRange());
 			}
 		}
-		if (fac->getRules()->isHyperwave())
+	}
+	else
+	{
+
+		if (!_facilitiesRadarCoop.empty())
 		{
-			hyperwave_max_range = std::max(hyperwave_max_range, fac->getRules()->getRadarRange());
+
+			for (int f = 0; f < _facilitiesRadarCoop.size(); f++)
+			{
+
+				int radar_chance_coop = _facilitiesRadarCoop[f]["radar_chance_coop"].asInt();
+				int radar_range_coop = _facilitiesRadarCoop[f]["radar_range_coop"].asInt();
+				bool hyperwave_coop = _facilitiesRadarCoop[f]["hyperwave_coop"].asBool();
+
+				if (radar_range_coop >= distance)
+				{
+					int radarChance = radar_chance_coop;
+					if (hyperwave_coop)
+					{
+						if (radarChance == 100 || RNG::percent(radarChance))
+						{
+							hyperwave = true;
+						}
+						hyperwave_chance += radarChance;
+					}
+					else
+					{
+						radar_chance += radarChance;
+					}
+				}
+				if (hyperwave_coop)
+				{
+					hyperwave_max_range = std::max(hyperwave_max_range, radar_range_coop);
+				}
+				else
+				{
+					radar_max_range = std::max(radar_max_range, radar_range_coop);
+				}
+
+			}
+
 		}
-		else
-		{
-			radar_max_range = std::max(radar_max_range, fac->getRules()->getRadarRange());
-		}
+
 	}
 
 	int detectionChance = 0;
 	UfoDetection detectionType = DETECTION_NONE;
-
-	// coop
-	if (_coopBase == true)
-	{
-		radar_max_range = _range_coop;
-
-		if (_range_coop >= distance)
-		{
-			radar_chance = _range_detection;
-		}
-
-	}
 
 	if (alreadyTracked)
 	{

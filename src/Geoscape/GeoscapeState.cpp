@@ -136,6 +136,7 @@
 
 #include "../CoopMod/CoopState.h"
 #include "../Savegame/CraftWeapon.h"
+#include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
 
 namespace OpenXcom
@@ -758,6 +759,68 @@ void GeoscapeState::handle(Action *action)
 void GeoscapeState::init()
 {
 
+	// missionStatistics
+	if (_game->getSavedGame() && _game->getCoopMod()->coopMissionEnd == false && _game->getCoopMod()->getServerOwner() == true)
+	{
+
+		Json::Value& missionStatistics = _game->getCoopMod()->_missionStatisticsCoop;
+
+		if (!missionStatistics.empty())
+		{
+
+			int id = missionStatistics["id"].asInt();
+			std::string markerName = missionStatistics["markerName"].asString();
+			int markerId = missionStatistics["markerId"].asInt();
+			int time_second = missionStatistics["time"]["second"].asInt();
+			int time_minute = missionStatistics["time"]["minute"].asInt();
+			int time_hour = missionStatistics["time"]["hour"].asInt();
+			int time_weekday = missionStatistics["time"]["weekday"].asInt();
+			int time_day = missionStatistics["time"]["day"].asInt();
+			int time_month = missionStatistics["time"]["month"].asInt();
+			int time_year = missionStatistics["time"]["year"].asInt();
+			std::string region = missionStatistics["region"].asString();
+			std::string country = missionStatistics["country"].asString();
+			std::string type = missionStatistics["type"].asString();
+			std::string ufo = missionStatistics["ufo"].asString();
+			bool success = missionStatistics["success"].asBool();
+			std::string rating = missionStatistics["rating"].asString();
+			int score = missionStatistics["score"].asInt();
+			std::string alienRace = missionStatistics["alienRace"].asString();
+			int daylight = missionStatistics["daylight"].asInt();
+			std::map<int, int> injuryList;
+			if (missionStatistics.isMember("injuryList"))
+			{
+				injuryList = _game->getCoopMod()->fromJson(missionStatistics["injuryList"]);
+			}
+			bool valiantCrux = missionStatistics["valiantCrux"].asBool();
+			int lootValue = missionStatistics["lootValue"].asInt();
+
+			MissionStatistics *createMissionStatistics = new MissionStatistics();
+			createMissionStatistics->id = id;
+			createMissionStatistics->markerName = markerName;
+			createMissionStatistics->markerId = markerId;
+			createMissionStatistics->time = GameTime(time_weekday, time_day, time_month, time_year, time_hour, time_minute, time_second);
+			createMissionStatistics->region = region;
+			createMissionStatistics->country = country;
+			createMissionStatistics->type = type;
+			createMissionStatistics->ufo = ufo;
+			createMissionStatistics->success = success;
+			createMissionStatistics->rating = rating;
+			createMissionStatistics->score = score;
+			createMissionStatistics->alienRace = alienRace;
+			createMissionStatistics->daylight = daylight;
+			createMissionStatistics->injuryList = injuryList;
+			createMissionStatistics->valiantCrux = valiantCrux;
+			createMissionStatistics->lootValue = lootValue;
+
+			_game->getSavedGame()->getMissionStatistics()->push_back(createMissionStatistics);
+
+			missionStatistics = Json::nullValue;
+
+		}
+
+	}
+
 	// Graph requests (co-op)
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true)
 	{
@@ -1264,18 +1327,41 @@ void GeoscapeState::think()
 				if (base->_coopBase == false)
 				{
 
-					// new!!!
 					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
-					root["bases"][base_index]["range_coop"] = base->_range_coop;
 
-					int range_detection = base->getShortRangeDetection();
-
-					if (range_detection == 0)
+					// facilities
+					int facilities_index = 0;
+					double tr_coop, radar_range_coop;
+					for (const auto* fac : *base->getFacilities())
 					{
-						range_detection = base->getLongRangeDetection();
+						if (fac->getBuildTime() != 0)
+						{
+							continue;
+						}
+
+						if (fac->getRules())
+						{
+							if (fac->getBuildTime() == 0)
+							{
+								tr_coop = fac->getRules()->getRadarRange();
+								if (tr_coop < 10000 && tr_coop > radar_range_coop)
+									radar_range_coop = tr_coop;
+							}
+							root["bases"][base_index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
+							root["bases"][base_index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
+							root["bases"][base_index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
+						}
+						else
+						{
+							root["bases"][base_index]["facilities"][facilities_index]["radar_chance_coop"] = 0;
+							root["bases"][base_index]["facilities"][facilities_index]["hyperwave_coop"] = false;
+							root["bases"][base_index]["facilities"][facilities_index]["radar_range_coop"] = 0;
+						}
+
+						facilities_index++;
 					}
 
-					root["bases"][base_index]["range_detection"] = range_detection;
+					root["bases"][base_index]["radar_range_coop"] = radar_range_coop;
 
 					base_index++;
 
