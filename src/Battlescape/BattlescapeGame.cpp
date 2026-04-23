@@ -1947,6 +1947,10 @@ bool BattlescapeGame::playableUnitSelected() const
  */
 void BattlescapeGame::handleState()
 {
+
+	// coop
+	connectionTCP::pauseSound = false;
+
 	if (!_states.empty())
 	{
 		// end turn request?
@@ -1964,8 +1968,12 @@ void BattlescapeGame::handleState()
 	}
 }
 
+// coop
 void BattlescapeGame::handleStateCoop()
 {
+
+	connectionTCP::pauseSound = true;
+
 	if (!_states.empty())
 	{
 		_states.front()->think();

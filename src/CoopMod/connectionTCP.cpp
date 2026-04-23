@@ -124,8 +124,6 @@ bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
-bool connectionTCP::_only_host_spawns_missions = true;
-
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -141,6 +139,10 @@ bool connectionTCP::no_bases = false;
 bool connectionTCP::isCoopBaseLoading = false;
 
 bool connectionTCP::_isHotseatActive = false;
+
+bool connectionTCP::show_inactive_player_inventory = false;
+
+bool connectionTCP::pauseSound = false;
 
 std::string current_ping = "";
 
@@ -5250,10 +5252,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
 		root["unbalanced_craft_soldiers_limit"] = _unbalanced_craft_soldiers_limit;
 
-		// OnlyHostSpawnsMissions
-		connectionTCP::_only_host_spawns_missions = Options::OnlyHostSpawnsMissions;
-		root["only_host_spawns_missions"] = _only_host_spawns_missions;
-
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
 
@@ -5440,10 +5438,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// UnbalancedCraftSoldiersLimit
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
-
-		// OnlyHostSpawnsMissions
-		bool only_host_spawns_missions = obj["only_host_spawns_missions"].asBool();
-		connectionTCP::_only_host_spawns_missions = only_host_spawns_missions;
 
 		for (Json::Value host_mod : obj["mods"])
 		{
@@ -6300,11 +6294,16 @@ int connectionTCP::getCoopGamemode()
 void connectionTCP::createCoopMenu()
 {
 
-	CoopMenu* state = new CoopMenu();
+	// If the player has created a server or joined another player's game, create the LobbyMenu
+	if (_game->getCoopMod()->isConnected() == 1 || _game->getCoopMod()->getServerOwner() == true)
+	{
+		_game->pushState(new LobbyMenu());
+	}
+	else
+	{
+		_game->pushState(new ServerList());
+	}
 
-	state->showGamemode();
-
-	_game->pushState(state);
 }
 
 void connectionTCP::sendTCPPacketStaticData2(std::string data)
@@ -7038,7 +7037,7 @@ bool valid_port(const std::string& s)
 	return port >= 0 && port <= 65535;
 }
 
-void connectionTCP::hostTCPServer(std::string playername, std::string ipaddress, std::string str_port)
+void connectionTCP::hostTCPServer(std::string playername, std::string str_port)
 {
 
 	gamePaused = 0;
@@ -7233,6 +7232,7 @@ void connectionTCP::disconnectTCP()
 
 		// both
 		connectionTCP::_coopGamemode = 0;
+		connectionTCP::show_inactive_player_inventory = false;
 
 		if (connectionTCP::no_bases == true)
 		{

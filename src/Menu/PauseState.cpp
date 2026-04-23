@@ -34,7 +34,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../version.h"
 
-#include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/ServerList.h"
 
 namespace OpenXcom
 {
@@ -245,8 +245,7 @@ void PauseState::btnSaveClick(Action *)
 void PauseState::btnCoopClick(Action *)
 {
 
-	CoopMenu *coop = new CoopMenu();
-	_game->pushState(coop);
+	_game->pushState(new ServerList());
 
 }
 

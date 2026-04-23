@@ -573,7 +573,6 @@ void createAdvancedOptionsOTHER()
 	// coop
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableTimeSync", &EnableTimeSync, true, "Enable Time Sync", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHostOnlyTimeSpeed", &EnableHostOnlyTimeSpeed, false, "Only Host Can Change Time Speed", "STR_GEOSCAPE"));
-	_info.push_back(OptionInfo(OPTION_OTHER, "OnlyHostSpawnsMissions", &OnlyHostSpawnsMissions, true, "Only the Host Spawns UFOs and Missions", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, true, "Enable Research Sync", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
@@ -582,7 +581,6 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "resetTimeUnitsOnTurnChangePVP", &resetTimeUnitsOnTurnChangePVP, true, "Reset Time Units when PVP turn changes", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
-	_info.push_back(OptionInfo(OPTION_OTHER, "debugCoopMenu", &debugCoopMenu, false, "Enable COOP Menu Debug Mode", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
 

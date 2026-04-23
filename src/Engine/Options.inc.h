@@ -12,6 +12,8 @@ OPT bool fullscreen, asyncBlit, playIntro, useScaleFilter, useHQXFilter, useXBRZ
 OPT std::string language, useOpenGLShader;
 OPT KeyboardType keyboardMode;
 OPT SaveSort saveOrder;
+OPT serverSort serverOrder;
+OPT playerSort playerOrder;
 OPT MusicFormat preferredMusic;
 OPT SoundFormat preferredSound;
 OPT VideoFormat preferredVideo;
@@ -93,12 +95,10 @@ OPT bool EnableTimeSync;
 OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;
-OPT bool OnlyHostSpawnsMissions;
 OPT bool EnableXcomEquipmentAliensPVP;
 OPT bool resetTimeUnitsOnTurnChangePVP;
 OPT bool debugMode;
 OPT bool logInfoToFile;
-OPT bool debugCoopMenu;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
 

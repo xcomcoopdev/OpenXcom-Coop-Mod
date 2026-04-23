@@ -52,7 +52,7 @@ AlienMission::AlienMission(const RuleAlienMission &rule, bool coop) : _rule(rule
 	_interrupted(false), _multiUfoRetaliationInProgress(false), _uniqueID(0), _missionSiteZoneArea(-1), _base(0)
 {
 	// coop
-	if (coop == false && connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	if (coop == false && connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
 	{
 		_interrupted = true;
 	}
@@ -491,7 +491,7 @@ Ufo *AlienMission::spawnUfo(SavedGame &game, const Mod &mod, const Globe &globe,
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
 	{
 		return 0;
 	}
@@ -1195,7 +1195,7 @@ AlienBase *AlienMission::spawnAlienBase(Country *pactCountry, Game &engine, std:
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
 	{
 		return 0;
 	}
@@ -1476,7 +1476,7 @@ MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, con
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false && connectionTCP::_only_host_spawns_missions == true)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
 	{
 		return 0;
 	}

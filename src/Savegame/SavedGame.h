@@ -97,6 +97,29 @@ struct SaveInfo
 	bool reserved;
 };
 
+struct ServerInfo
+{
+	std::string name;
+	std::string player;
+	std::string address;
+	int port;
+	bool online;
+	int maxPlayers;
+	int currentPlayers;
+	int latency;
+	bool reserved;
+	std::string details; // description, gamemode, mods, 
+};
+
+struct playerInfo
+{
+	int id;
+	std::string name;
+	std::string latency;
+	bool reserved;
+	std::string details; // stats
+};
+
 /**
  * The game data that gets written to disk when the game is saved.
  * A saved game holds all the variable info in a game like funds,

@@ -34,6 +34,9 @@
 
 #include <SDL_net.h>
 
+#include "ServerList.h"
+#include "LobbyMenu.h"
+
 #include "CoopMenu.h"
 #include "CoopState.h"
 #include "Profile.h"
@@ -180,7 +183,7 @@ class connectionTCP
 	bool getLanding();
 	void setSelectedCraft(Craft* selectedCraft);
 	Craft* getSelectedCraft();
-	void hostTCPServer(std::string playername, std::string ipaddress, std::string port);
+	void hostTCPServer(std::string playername, std::string port);
 	void connectTCPServer(std::string playername, std::string ipaddress, std::string port);
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
@@ -291,8 +294,6 @@ class connectionTCP
 
 	static bool _unbalanced_craft_soldiers_limit;
 
-	static bool _only_host_spawns_missions;
-
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -378,6 +379,12 @@ class connectionTCP
 	Json::Value toJson(const std::map<int, int>& m);
 	std::map<int, int> fromJson(const Json::Value& j);
 	Json::Value _missionStatisticsCoop = Json::nullValue;
+
+	// inventory
+	static bool show_inactive_player_inventory;
+
+	// pause
+	static bool pauseSound;
 
 };
 

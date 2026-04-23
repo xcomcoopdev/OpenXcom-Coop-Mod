@@ -751,6 +751,9 @@ BattlescapeState::BattlescapeState() :
 	_barHealthColor = _barHealth->getColor();
 
 	// coop
+	connectionTCP::show_inactive_player_inventory = false;
+
+	// coop
 	// hotseat
 	if (_game->getCoopMod()->_isHotseatActive == true)
 	{
@@ -1370,7 +1373,7 @@ void BattlescapeState::think()
 			{
 
 					// fix
-					if (_btnInventory->getVisible() == true)
+					if (_btnKneel->getVisible() == true)
 					{
 
 						for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
@@ -1401,8 +1404,7 @@ void BattlescapeState::think()
 						}
 
 						_btnKneel->setVisible(false);
-						_btnInventory->setVisible(false);
-
+			
 						_btnCenter->setVisible(true);
 
 						if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
@@ -1484,7 +1486,7 @@ void BattlescapeState::think()
 					_game->getCoopMod()->_playerTurn = 0;
 
 					// fix
-					if (_btnInventory->getVisible() == false)
+					if (_btnKneel->getVisible() == false)
 					{
 
 						for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
@@ -1509,8 +1511,7 @@ void BattlescapeState::think()
 						_btnUnitDown->setVisible(true);
 
 						_btnKneel->setVisible(true);
-						_btnInventory->setVisible(true);
-
+				
 						_btnCenter->setVisible(true);
 
 						_btnNextSoldier->setVisible(true);

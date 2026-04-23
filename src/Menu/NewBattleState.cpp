@@ -824,9 +824,7 @@ void NewBattleState::btnOkClick(Action *)
 
 void NewBattleState::btnCoopClick(Action *action)
 {
-
 	_game->getCoopMod()->createCoopMenu();
-
 }
 
 /**

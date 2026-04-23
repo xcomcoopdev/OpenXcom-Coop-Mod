@@ -263,6 +263,13 @@ void UnitWalkBState::think()
 
 			// coop
 			bool sound = true;
+
+			// Do not play walking sounds while multiplayer is paused
+			if (connectionTCP::pauseSound == true)
+			{
+				sound = false;
+			}
+
 			// PVP
 			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
 			{

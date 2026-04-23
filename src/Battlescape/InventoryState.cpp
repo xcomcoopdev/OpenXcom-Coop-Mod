@@ -364,6 +364,13 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 	if (_battleGame->getSelectedUnit())
 	{
+
+		// If this is not the active player
+		if (_game->getCoopMod()->getCurrentTurn() == 1 || _game->getCoopMod()->getCurrentTurn() == 3)
+		{
+			connectionTCP::show_inactive_player_inventory = true;
+		}
+
 		// coop
 		if ((_game->getCoopMod()->getHost() == true && _battleGame->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _battleGame->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
 		{
@@ -1308,6 +1315,9 @@ void InventoryState::btnUfopaediaClick(Action*)
  */
 void InventoryState::btnOkClick(Action*)
 {
+
+	// coop
+	connectionTCP::show_inactive_player_inventory = false;
 
 	if (_inv->getSelectedItem() != 0)
 		return;

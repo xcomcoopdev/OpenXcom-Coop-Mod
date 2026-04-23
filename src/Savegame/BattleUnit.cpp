@@ -5320,7 +5320,7 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 	}
 
 	// coop fix
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false && connectionTCP::coopInventory == true)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false && connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false)
 	{
 		return false;
 	}

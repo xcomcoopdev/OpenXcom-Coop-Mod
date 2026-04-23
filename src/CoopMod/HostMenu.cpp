@@ -18,7 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>. 
  */
 
-#include "CoopMenu.h"
+#include "HostMenu.h"
 #include "../Menu/SaveGameState.h"
 #include "../Menu/LoadGameState.h"
 #include "CoopState.h"
@@ -30,13 +30,13 @@
 namespace OpenXcom
 {
 
-int current_gamemode = 0;
+int _current_gamemode = 0;
 
 /**
  * Initializes all the elements in the New Battle window.
  * @param game Pointer to the core game.
  */
-CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _isRightClick(false)
+HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _isRightClick(false)
 {
 
 	// coop chat menu
@@ -49,29 +49,19 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_screen = false;
 
 	int x = 20;
-
-	// ping
-	_hostPing = new Text(180, 18, x + 20, 60);
-	_clientPing = new Text(180, 18, x + 20, 72);
 	
 	// Create objects
 	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(180, 18, x + 18, 60);
 
-	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
 	_port = new TextEdit(this, 180, 18, x + 18, 92);
 	_playerName = new TextEdit(this, 180, 18, x + 18, 112);
 
-	_tcpButtonJoin = new TextButton(90, 18, x + 108, 132);
-	_tcpButtonHost = new TextButton(90, 18, x + 18, 132);
+	_tcpButtonHost = new TextButton(180, 18, x + 18, 132);
 
 	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
 
 	_cbxGameMode = new ComboBox(this, 180, 18, x + 18, 52);
-
-	_btnMessage = new TextButton(180, 18, x + 18, 92);
-
-	_btnChat = new TextButton(180, 18, x + 18, 112);
 
 	_txtInfo = new Text(180, 18, x + 18, 95);
 	_btnCancel = new TextButton(180, 18, x + 18, 152);
@@ -87,22 +77,15 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 
 	add(_window, "window", "pauseMenu");
-	add(_ipAddress);
 	add(_port);
 	add(_playerName);
-	add(_tcpButtonJoin, "button", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
 	add(_btnStartHotseat, "button", "pauseMenu");
-	add(_btnMessage, "button", "pauseMenu");
-	add(_btnChat, "button", "pauseMenu");
 	add(_cbxGameMode, "button", "pauseMenu");
 	add(_txtInfo, "text", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_txtData, "text", "pauseMenu");
 	add(_txtTitle, "text", "pauseMenu");
-	add(_hostPing, "text", "pauseMenu");
-	add(_clientPing, "text", "pauseMenu");
-
 
 	centerAllSurfaces();
 
@@ -124,43 +107,16 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
-	_txtTitle->setText(tr("COOP MENU"));
+	_txtTitle->setText(tr("HOST"));
 
 	_txtData->setAlign(ALIGN_CENTER);
 	_txtData->setBig();
 	_txtData->setText("HELLO");
 	_txtData->setVisible(false);
 
-
 	_txtInfo->setVisible(false);
 	_txtInfo->setAlign(ALIGN_CENTER);
 	_txtInfo->setSmall();
-
-	// ping
-	// ping host
-	_hostPing->setVisible(false);
-	_hostPing->setAlign(ALIGN_CENTER);
-	_hostPing->setSmall();
-	_hostPing->setColor(color);
-	_hostPing->setBorderColor(color);
-
-	std::string name = _game->getCoopMod()->getHostName();
-	std::string ping = "0";
-	_hostPing->setText("Player: " + name + " | Latency: " + ping + " ms");
-
-	// ping client
-	_clientPing->setVisible(false);
-	_clientPing->setAlign(ALIGN_CENTER);
-	_clientPing->setSmall();
-	_clientPing->setColor(color);
-	_clientPing->setBorderColor(color);
-
-	// ip address
-	_ipAddress->setColor(color);
-	_ipAddress->setBig();
-	_ipAddress->setBorderColor(color);
-	_ipAddress->setText("IP-ADDRESS");
-	_ipAddress->setVisible(false);
 
 	// port
 	_port->setColor(color);
@@ -174,39 +130,20 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_playerName->setBorderColor(color);
 	_playerName->setText("Player");
 	_playerName->setVisible(false);
-
-	_btnMessage->setText("DISCONNECT");
-	_btnMessage->setVisible(false);
-	_btnMessage->onMouseClick((ActionHandler)&CoopMenu::disconnect);
-
-	std::string n = SDL_GetKeyName(Options::keyChat);
-	if (n.size() == 1)
-		n[0] = (char)std::toupper((unsigned char)n[0]);
-
-	std::string label = std::string(tr("CHAT").c_str()) + " [" + n + "]";
-	_btnChat->setText(label.c_str());
-
-	_btnChat->setVisible(false);
-	_btnChat->onMouseClick((ActionHandler)&CoopMenu::btnChatClick);
 	
-	_tcpButtonJoin->setText("JOIN GAME");
-	_tcpButtonJoin->onMouseClick((ActionHandler)&CoopMenu::joinTCPGame);
-	_tcpButtonJoin->onKeyboardPress((ActionHandler)&CoopMenu::joinTCPGame, Options::keyOk);
-	_tcpButtonJoin->setVisible(true);
-
-	_tcpButtonHost->setText("HOST GAME");
-	_tcpButtonHost->onMouseClick((ActionHandler)&CoopMenu::hostTCPGame);
-	_tcpButtonHost->onKeyboardPress((ActionHandler)&CoopMenu::hostTCPGame, Options::keyOk);
+	_tcpButtonHost->setText("START HOST");
+	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
+	_tcpButtonHost->onKeyboardPress((ActionHandler)&HostMenu::hostTCPGame, Options::keyOk);
 	_tcpButtonHost->setVisible(true);
 
 	_btnStartHotseat->setText("ENABLE HOTSEAT");
-	_btnStartHotseat->onMouseClick((ActionHandler)&CoopMenu::startHotseat);
-	_btnStartHotseat->onKeyboardPress((ActionHandler)&CoopMenu::startHotseat, Options::keyOk);
+	_btnStartHotseat->onMouseClick((ActionHandler)&HostMenu::startHotseat);
+	_btnStartHotseat->onKeyboardPress((ActionHandler)&HostMenu::startHotseat, Options::keyOk);
 	_btnStartHotseat->setVisible(false);
 
-	_btnCancel->setText("CANCEL");
-	_btnCancel->onMouseClick((ActionHandler)&CoopMenu::btnCancelClick);
-	_btnCancel->onKeyboardPress((ActionHandler)&CoopMenu::btnCancelClick, Options::keyCancel);
+	_btnCancel->setText(tr("CANCEL"));
+	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
+	_btnCancel->onKeyboardPress((ActionHandler)&HostMenu::btnCancelClick, Options::keyCancel);
 
 	// game modes
 	_gamemodeTypes.push_back("GAMEMODE: PVE");
@@ -216,7 +153,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_gamemodeTypes.push_back("GAMEMODE: HOTSEAT");
 
 	_cbxGameMode->setOptions(_gamemodeTypes, false);
-	_cbxGameMode->onChange((ActionHandler)&CoopMenu::cbxGameModeChange);
+	_cbxGameMode->onChange((ActionHandler)&HostMenu::cbxGameModeChange);
 
 	// check if campaign mission
 	if (!_game->getSavedGame()->getCountries()->empty())
@@ -234,9 +171,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	{
 
 		// hide
-		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
-		_ipAddress->setVisible(false);
 		_port->setVisible(false);
 		_playerName->setVisible(false);
 
@@ -251,14 +186,8 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
 	{
 
-		_hostPing->setVisible(true);
-		_clientPing->setVisible(true);
-		_btnMessage->setVisible(true);
-		_btnChat->setVisible(true);
-		_ipAddress->setVisible(false);
 		_port->setVisible(false);
 		_playerName->setVisible(false);
-		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_txtInfo->setVisible(false);
 
@@ -267,14 +196,8 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
-		_hostPing->setVisible(false);
-		_clientPing->setVisible(false);
-		_btnMessage->setVisible(false);
-		_btnChat->setVisible(false);
-		_ipAddress->setVisible(true);
 		_port->setVisible(true);
 		_playerName->setVisible(true);
-		_tcpButtonJoin->setVisible(true);
 		_tcpButtonHost->setVisible(true);
 		_txtInfo->setVisible(false);
 
@@ -339,7 +262,6 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 					playerName = "Player";
 				}
 
-				_ipAddress->setText(ipAddress);
 				_port->setText(port);
 				_playerName->setText(playerName); 
 			}
@@ -359,7 +281,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 /**
  *
  */
-CoopMenu::~CoopMenu()
+HostMenu::~HostMenu()
 {
 }
 
@@ -367,7 +289,7 @@ CoopMenu::~CoopMenu()
  * Resets the menu music and savegame
  * when coming back from the battlescape.
  */
-void CoopMenu::init()
+void HostMenu::init()
 {
 
 	// hotseat
@@ -375,9 +297,7 @@ void CoopMenu::init()
 	{
 
 		// hide
-		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
-		_ipAddress->setVisible(false);
 		_port->setVisible(false);
 		_playerName->setVisible(false);
 
@@ -388,14 +308,8 @@ void CoopMenu::init()
 	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
 	{
 
-		_hostPing->setVisible(true);
-		_clientPing->setVisible(true);
-		_btnMessage->setVisible(true);
-		_btnChat->setVisible(true);
-		_ipAddress->setVisible(false);
 		_port->setVisible(false);
 		_playerName->setVisible(false);
-		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_txtInfo->setVisible(false);
 
@@ -404,14 +318,8 @@ void CoopMenu::init()
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
-		_hostPing->setVisible(false);
-		_clientPing->setVisible(false);
-		_btnMessage->setVisible(false);
-		_btnChat->setVisible(false);
-		_ipAddress->setVisible(true);
 		_port->setVisible(true);
 		_playerName->setVisible(true);
-		_tcpButtonJoin->setVisible(true);
 		_tcpButtonHost->setVisible(true);
 		_txtInfo->setVisible(false);
 
@@ -444,7 +352,7 @@ void CoopMenu::init()
 
 }
 
-void CoopMenu::convertUnits()
+void HostMenu::convertUnits()
 {
 
 	// Convert single-player save to multiplayer save (PvE)
@@ -596,7 +504,7 @@ void CoopMenu::convertUnits()
 
 }
 
-void CoopMenu::btnChatClick(Action* action)
+void HostMenu::btnChatClick(Action* action)
 {
 
 	if (_game->getCoopMod()->getChatMenu())
@@ -608,27 +516,13 @@ void CoopMenu::btnChatClick(Action* action)
 
 }
 
-void CoopMenu::showGamemode()
-{
-
-	if ((_game->getCoopMod()->isConnected() == -1) && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_isHotseatActive == false)
-	{
-		_cbxGameMode->setVisible(true);
-	}
-
-	_cbxGameMode->setVisible(false);
-
-}
-
-void CoopMenu::cbxGameModeChange(Action* action)
+void HostMenu::cbxGameModeChange(Action* action)
 {
 
 	int selected_gamemode = _cbxGameMode->getSelected();
 
 	// show
-	_tcpButtonJoin->setVisible(true);
 	_tcpButtonHost->setVisible(true);
-	_ipAddress->setVisible(true);
 	_port->setVisible(true);
 	_playerName->setVisible(true);
 
@@ -638,33 +532,31 @@ void CoopMenu::cbxGameModeChange(Action* action)
 	// PVE
 	if (selected_gamemode == 0)
 	{
-		current_gamemode = 1;
+		_current_gamemode = 1;
 	}
 	// PVE2
 	else if (selected_gamemode == 1)
 	{
-		current_gamemode = 4;
+		_current_gamemode = 4;
 	}
 	// PVP
 	else if (selected_gamemode == 2)
 	{
-		current_gamemode = 2;
+		_current_gamemode = 2;
 	}
 	// PVP2
 	else if (selected_gamemode == 3)
 	{
-		current_gamemode = 3;
+		_current_gamemode = 3;
 	}
 	// HOTSEAT
 	else if (selected_gamemode == 4)
 	{
 
-		current_gamemode = 1;
+		_current_gamemode = 1;
 
 		// hide
-		_tcpButtonJoin->setVisible(false);
 		_tcpButtonHost->setVisible(false);
-		_ipAddress->setVisible(false);
 		_port->setVisible(false);
 		_playerName->setVisible(false);
 
@@ -675,82 +567,18 @@ void CoopMenu::cbxGameModeChange(Action* action)
 
 }
 
-void CoopMenu::joinTCPGame(Action *action)
+void HostMenu::hostTCPGame(Action* action)
 {
 
-	// coop chat menu
-	if (!_game->getCoopMod()->getChatMenu())
+	if (_current_gamemode != 0)
 	{
-		Font* smallFont = _game->getMod()->getFont("FONT_SMALL");
-		_game->getCoopMod()->setChatMenu(new ChatMenu(smallFont, _game));
-	}
-
-	// JOIN GAME
-	_game->getCoopMod()->setCoopSession(false);
-
-	_game->getCoopMod()->setPlayerTurn(3);
-
-	bool convert = true;
-
-	if (_game->getSavedGame()->getSavedBattle())
-	{
-
-		// check if already converted units...
-		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getCoop() == 1)
-			{
-
-				convert = false;
-				break;
-			}
-		}
-	}
-	else
-	{
-
-		convert = false;
-	}
-
-	if (convert == true)
-	{
-		convertUnits();
-	}
-
-	_game->pushState(new CoopState(15));
-
-	_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
-}
-
-void CoopMenu::hostTCPGame(Action *action)
-{
-
-	// coop chat menu
-	if (!_game->getCoopMod()->getChatMenu())
-	{
-		Font* smallFont = _game->getMod()->getFont("FONT_SMALL");
-		_game->getCoopMod()->setChatMenu(new ChatMenu(smallFont, _game));
-	}
-
-	if (current_gamemode != 0)
-	{
-		connectionTCP::_coopGamemode = current_gamemode;
+		connectionTCP::_coopGamemode = _current_gamemode;
 	}
 
 	_game->getCoopMod()->setCoopSession(false);
 
-	std::string name = _playerName->getText();
-	std::string ping = "0";
-	_hostPing->setText("Player: " + name + " | Latency: " + ping + " ms");
-
-	_hostPing->setVisible(true);
-	_btnMessage->setVisible(true);
-	_btnChat->setVisible(true);
-	_ipAddress->setVisible(false);
 	_port->setVisible(false);
 	_playerName->setVisible(false);
-	_tcpButtonJoin->setVisible(false);
 	_tcpButtonHost->setVisible(false);
 
 	_cbxGameMode->setVisible(false);
@@ -787,20 +615,20 @@ void CoopMenu::hostTCPGame(Action *action)
 		convertUnits();
 	}
 
-
 	// HOST GAME
 	_game->getCoopMod()->hostTCPServer(_playerName->getText(), _port->getText());
+
+	_game->popState();
+
 }
 
-void CoopMenu::startHotseat(Action* action)
+void HostMenu::startHotseat(Action* action)
 {
 
 	_game->getCoopMod()->_isHotseatActive = !_game->getCoopMod()->_isHotseatActive;
 
 	// hide
-	_tcpButtonJoin->setVisible(false);
 	_tcpButtonHost->setVisible(false);
-	_ipAddress->setVisible(false);
 	_playerName->setVisible(false);
 
 	// show
@@ -819,150 +647,13 @@ void CoopMenu::startHotseat(Action* action)
 
 }
 
-// DISCONNECT BUTTON
-void CoopMenu::disconnect(Action *action)
-{
-
-	_hostPing->setVisible(false);
-	_clientPing->setVisible(false);
-	_btnMessage->setVisible(false);
-	_btnChat->setVisible(false);
-	_tcpButtonHost->setVisible(true);
-	_tcpButtonJoin->setVisible(true);
-	_ipAddress->setVisible(true);
-	_port->setVisible(true);
-	_playerName->setVisible(true);
-
-	_cbxGameMode->setVisible(true);
-
-	_game->getCoopMod()->disconnectTCP();
-
-	
-
-	if (_game->getSavedGame()->getSavedBattle())
-	{
-
-		// check if already converted units...
-		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
-			{
-
-				_cbxGameMode->setVisible(false);
-
-				break;
-			}
-		}
-	}
-
-	// coop
-	/*
-	if (Options::debugCoopMenu == true)
-	{
-		Options::debugCoopMenu = false;
-	}
-	*/
-
-}
-
-
 /**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
-void CoopMenu::btnCancelClick(Action *)
+void HostMenu::btnCancelClick(Action*)
 {
-
-	/*
-	if (Options::debugCoopMenu == false)
-	{
-
-		_game->popState();
-
-	}
-	else
-	{
-
-		for (auto* state : _game->getStatesCoop())
-		{
-			if (!state)
-				continue;
-
-			auto* coop = _game->getCoopMod();
-
-			const std::string msg =
-				std::string("state: ") + typeid(*state).name() +
-				" | session: " + std::string(coop->isCoopSession() ? "true" : "false") +
-				" | connected: " + std::to_string(coop->isConnected()) +
-				" | host: " + std::string(coop->getHost() ? "true" : "false");
-
-			DebugLog(msg);
-		}
-
-	}
-	*/
-
-}
-
-void CoopMenu::think()
-{
-
-	State::think();
-
-	static Uint32 lastUpdate = 0;
-	static Uint32 lastUpdateGamemode = 0;
-	static Uint32 pingSentTime = 0;
-	Uint32 now = SDL_GetTicks();
-
-	if (_game->getCoopMod()->isCoopSession() == false || _game->getCoopMod()->getCoopStatic() == false)
-	{
-		_clientPing->setVisible(false);
-	}
-
-	if ((_game->getCoopMod()->isCoopSession() == true || _game->getCoopMod()->getServerOwner() == true) && now - lastUpdateGamemode >= 1000)
-	{
-		std::string str_disconnect2 = "";
-
-		if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
-		{
-			str_disconnect2 = "DISCONNECT (PVE)";
-		}
-		else if (_game->getCoopMod()->getCoopGamemode() == 2)
-		{
-			str_disconnect2 = "DISCONNECT (PVP)";
-		}
-		else if (_game->getCoopMod()->getCoopGamemode() == 3)
-		{
-			str_disconnect2 = "DISCONNECT (PVP2)";
-		}
-		else if (_game->getCoopMod()->getCoopGamemode() == 4)
-		{
-			str_disconnect2 = "DISCONNECT (PVE2)";
-		}
-		_btnMessage->setText(str_disconnect2);
-
-		lastUpdateGamemode = now;
-
-	}
-
-	if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getCoopStatic() == true && now - lastUpdate >= 1000 && _game->getCoopMod()->getChatMenu())
-	{
-
-		_clientPing->setVisible(true);
-		
-		std::string host_name = _game->getCoopMod()->getHostName();
-		_hostPing->setText("Player: " + host_name + " | Latency: " + "0" + " ms");
-
-		std::string name = _game->getCoopMod()->getCurrentClientName();
-		std::string ping = _game->getCoopMod()->getPing();
-
-		_clientPing->setText("Player: " + name + " | Latency: " + ping + " ms");
-
-		lastUpdate = now;
-
-	}
-
+	_game->popState();
 }
 
 }

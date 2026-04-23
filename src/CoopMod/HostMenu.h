@@ -84,15 +84,15 @@ class File;
  * of options to configure a new
  * standalone mission.
  */
-class CoopMenu : public State
+class HostMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_btnMessage, *_tcpButtonJoin, *_tcpButtonHost, *_btnChat, *_btnStartHotseat;
+	TextButton *_btnCancel, *_tcpButtonHost, *_btnStartHotseat;
 	TextList *_lstSaves;
-	TextEdit *_ipAddress, *_playerName, *_port;
+	TextEdit *_playerName, *_port;
 	ComboBox* _cbxGameMode;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo, *_hostPing, *_clientPing;
+	Text *_txtTitle, *_txtData, *_txtInfo;
 	std::map<Surface *, bool> _surfaceBackup;
 	std::vector<std::string> _gamemodeTypes;
 	Craft *_craft;
@@ -103,22 +103,17 @@ class CoopMenu : public State
 	void convertUnits();
   public:
 	/// Creates the New Battle state.
-	CoopMenu();
+	HostMenu();
 	/// Cleans up the New Battle state.
-	~CoopMenu();
+	~HostMenu();
 	/// Resets state.
 	void init() override;
 	/// Handler for clicking the OK button
-	void disconnect(Action *action);
 	void btnCancelClick(Action *action);
-	void joinTCPGame(Action *action);
-	void btnChatClick(Action* action);
-	void hostTCPGame(Action* action);
+	void hostTCPGame(Action *action);
 	void startHotseat(Action* action);
+	void btnChatClick(Action* action);
 	void cbxGameModeChange(Action* action);
-	void showGamemode();
-	/// Runs the timers and handles popups.
-	void think() override;
 };
 
 }
