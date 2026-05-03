@@ -118,24 +118,27 @@ ServerList::ServerList() : _sortable(true)
 	// Create objects
 	_window = new Window(this, 320, 200, 0, 0, POPUP_BOTH);
 
-	int y = 172;
+	int y = 179; // 172
 	int h = 16;
 
 	int wHost = 50;
 	int wDirect = 84;
 	int wAdd = 72;
-	int wFilter = 44;
-	int wCancel = 55;
+	int wRefresh = 55;
+	int wCancel = 44;
 
 	int x = 8;
+
+	_search = new TextEdit(this, 100, h, x + 55, y - 18);
+	_btnFilter = new TextButton(wHost, h, x, y - 18);
 	_btnHost = new TextButton(wHost, h, x, y);
 	x += wHost;
 	_btnDirectConnect = new TextButton(wDirect, h, x, y);
 	x += wDirect;
 	_btnAddServer = new TextButton(wAdd, h, x, y);
 	x += wAdd;
-	_btnFilter = new TextButton(wFilter, h, x, y);
-	x += wFilter;
+	_btnRefresh = new TextButton(wRefresh, h, x, y);
+	x += wRefresh;
 	_btnCancel = new TextButton(wCancel, h, x, y);
 
 	//_btnCancel = new TextButton(80, 16, 120, 172);
@@ -145,8 +148,8 @@ ServerList::ServerList() : _sortable(true)
 	_txtName = new Text(150, 9, 16, isMobile ? 40 : 32);
 	_txtPlayers = new Text(110, 9, 204, isMobile ? 40 : 32);
 	_txtLatency = new Text(110, 9, 263, isMobile ? 40 : 32);
-	_lstServers = new TextList(288, isMobile ? 104 : 112, 8, isMobile ? 50 : 42);
-	_txtDetails = new Text(288, 16, 16, 156);
+	_lstServers = new TextList(288, isMobile ? 96 : 104, 8, isMobile ? 50 : 42);
+	_txtDetails = new Text(288, 16, 16, 148);
 	_sortName = new ArrowButton(ARROW_NONE, 11, 8, 16, isMobile ? 40 : 32);
 	_sortPlayers = new ArrowButton(ARROW_NONE, 11, 8, 204, isMobile ? 40 : 32);
 	_sortLatency = new ArrowButton(ARROW_NONE, 11, 8, 263, isMobile ? 40 : 32);
@@ -156,10 +159,12 @@ ServerList::ServerList() : _sortable(true)
 	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "saveMenus");
+	add(_search);
+	add(_btnFilter, "button", "saveMenus");
 	add(_btnHost, "button", "saveMenus");
 	add(_btnDirectConnect, "button", "saveMenus");
 	add(_btnAddServer, "button", "saveMenus");
-	add(_btnFilter, "button", "saveMenus");
+	add(_btnRefresh, "button", "saveMenus");
 	add(_btnCancel, "button", "saveMenus");
 	add(_txtTitle, "text", "saveMenus");
 	add(_txtJoin, "text", "saveMenus");
@@ -176,17 +181,34 @@ ServerList::ServerList() : _sortable(true)
 	// Set up objects
 	setWindowBackground(_window, "saveMenus");
 
+	Uint8 color = 239; // 239 or 255
+
+	if (_game->getSavedGame())
+	{
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+			color = 255;
+		}
+	}
+
+	_search->setColor(color);
+	_search->setBorderColor(color);
+	_search->setText("Search servers...");
+	_search->setVisible(true);
+
+	_btnFilter->setText("Filter");
+	_btnFilter->onMouseClick((ActionHandler)&ServerList::btnFilterClick);
+
 	_btnHost->setText("Host");
 	_btnHost->onMouseClick((ActionHandler)&ServerList::btnHostClick);
-	_btnHost->onKeyboardPress((ActionHandler)&ServerList::btnHostClick, Options::keyCancel);
 
 	_btnDirectConnect->setText("Direct Connect");
 	_btnDirectConnect->onMouseClick((ActionHandler)&ServerList::btnDirectConnectClick);
-	_btnDirectConnect->onKeyboardPress((ActionHandler)&ServerList::btnDirectConnectClick, Options::keyCancel);
 
 	_btnAddServer->setText("Add Server");
-	_btnFilter->setText("Filter");
-	_btnFilter->onMouseClick((ActionHandler)&ServerList::btnFilterClick);
+
+	_btnRefresh->setText("Refresh");
+	_btnRefresh->onMouseClick((ActionHandler)&ServerList::btnRefreshClick);
 
 	_btnCancel->setText(tr("STR_CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&ServerList::btnCancelClick);
@@ -235,6 +257,17 @@ ServerList::ServerList() : _sortable(true)
 	_sortLatency->onMouseClick((ActionHandler)&ServerList::sortLatencyClick);
 
 	updateArrows();
+
+	// check if campaign
+	if (!_game->getSavedGame()->getCountries()->empty())
+	{
+		_game->getCoopMod()->setCoopCampaign(true);
+	}
+	else
+	{
+		_game->getCoopMod()->setCoopCampaign(false);
+	}
+
 }
 
 /**
@@ -261,7 +294,7 @@ void ServerList::init()
 		_game->pushState(new LobbyMenu());
 
 	}
-
+	
 	_origin = OPT_MENU;
 
 	if (_game->getSavedGame())
@@ -279,6 +312,33 @@ void ServerList::init()
 
 	try
 	{
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Gamemode: PVE, Mods: NO, Password: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
+		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
 		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
 
 		_lstServers->clearList();
@@ -394,6 +454,10 @@ void ServerList::btnCancelClick(Action*)
 void ServerList::btnFilterClick(Action* action)
 {
 
+}
+
+void ServerList::btnRefreshClick(Action* action)
+{
 }
 
 void ServerList::btnHostClick(Action* action)

@@ -294,6 +294,349 @@ std::vector<SaveInfo> SavedGame::getList(Language *lang, bool autoquick)
 	return info;
 }
 
+void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, Language* lang, const std::string& key)
+{
+
+	const auto& coopFiles = connectionTCP::getServerOwner()
+								? connectionTCP::coopFilesHost
+								: connectionTCP::coopFilesClient;
+
+	auto it = coopFiles.find(key);
+	if (it == coopFiles.end())
+	{
+		DebugLog("Error reading from hash map with key: " + key);
+		return;
+	}
+
+	YAML::YamlRootNodeReader documents(
+		YAML::YamlString{it->second},
+		"<memory>",
+		false);
+
+	// Get brief save info
+	const auto& header = documents[0];
+	_time->load(header["time"]);
+	header.readNode("name", _name, filename);
+	header.tryRead("ironman", _ironman);
+
+	// Get full save data
+	const auto& reader = documents[1].useIndex();
+	reader.tryRead("difficulty", _difficulty);
+	reader.tryRead("end", _end);
+	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
+		RNG::setSeed(reader["rng"].readVal<uint64_t>());
+	reader.tryRead("monthsPassed", _monthsPassed);
+
+	// coop
+	reader.tryRead("saveID", connectionTCP::saveID);
+	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	{
+		reader.tryRead("no_bases", connectionTCP::no_bases);
+	}
+
+	reader.tryRead("daysPassed", _daysPassed);
+	reader.tryRead("vehiclesLost", _vehiclesLost);
+	reader.tryRead("graphRegionToggles", _graphRegionToggles);
+	reader.tryRead("graphCountryToggles", _graphCountryToggles);
+	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
+	reader.tryRead("funds", _funds);
+	reader.tryRead("maintenance", _maintenance);
+	reader.tryRead("userNotes", _userNotes);
+	reader.tryRead("geoscapeDebugLog", _geoscapeDebugLog);
+	reader.tryRead("researchScores", _researchScores);
+	reader.tryRead("incomes", _incomes);
+	reader.tryRead("expenditures", _expenditures);
+	reader.tryRead("warned", _warned);
+	reader.tryRead("togglePersonalLight", _togglePersonalLight);
+	reader.tryRead("toggleNightVision", _toggleNightVision);
+	reader.tryRead("toggleBrightness", _toggleBrightness);
+	reader.tryRead("globeLon", _globeLon);
+	reader.tryRead("globeLat", _globeLat);
+	reader.tryRead("globeZoom", _globeZoom);
+	reader.tryRead("ids", _ids);
+
+	for (const auto& country : reader["countries"].children())
+	{
+		std::string type = country["type"].readVal<std::string>();
+		if (mod->getCountry(type))
+		{
+			Country* c = new Country(mod->getCountry(type), false);
+			c->load(country, mod->getScriptGlobal());
+			_countries.push_back(c);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load country " << type;
+		}
+	}
+
+	for (const auto& region : reader["regions"].children())
+	{
+		std::string type = region["type"].readVal<std::string>();
+		if (mod->getRegion(type))
+		{
+			Region* r = new Region(mod->getRegion(type));
+			r->load(region);
+			_regions.push_back(r);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load region " << type;
+		}
+	}
+
+	// Alien bases must be loaded before alien missions
+	for (const auto& alienBase : reader["alienBases"].children())
+	{
+		std::string deployment = alienBase["deployment"].readVal<std::string>("STR_ALIEN_BASE_ASSAULT");
+		if (mod->getDeployment(deployment))
+		{
+			AlienBase* b = new AlienBase(mod->getDeployment(deployment), 0);
+			b->load(alienBase);
+			_alienBases.push_back(b);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load deployment for alien base " << deployment;
+		}
+	}
+
+	// Missions must be loaded before UFOs.
+	for (const auto& alienMission : reader["alienMissions"].children())
+	{
+		std::string missionType = alienMission["type"].readVal<std::string>();
+		if (mod->getAlienMission(missionType))
+		{
+			const RuleAlienMission& mRule = *mod->getAlienMission(missionType);
+			AlienMission* mission = new AlienMission(mRule);
+			mission->load(alienMission, *this, mod);
+			_activeMissions.push_back(mission);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load mission " << missionType;
+		}
+	}
+
+	for (const auto& ufo : reader["ufos"].children())
+	{
+		std::string type = ufo["type"].readVal<std::string>();
+		if (mod->getUfo(type))
+		{
+			Ufo* u = new Ufo(mod->getUfo(type), 0);
+			u->load(ufo, mod->getScriptGlobal(), *mod, *this);
+			_ufos.push_back(u);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load UFO " << type;
+		}
+	}
+
+	for (const auto& geoEvent : reader["geoscapeEvents"].children())
+	{
+		std::string eventName = geoEvent["name"].readVal<std::string>();
+		if (mod->getEvent(eventName))
+		{
+			const RuleEvent& eventRule = *mod->getEvent(eventName);
+			GeoscapeEvent* event = new GeoscapeEvent(eventRule);
+			event->load(geoEvent);
+			_geoscapeEvents.push_back(event);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load geoscape event " << eventName;
+		}
+	}
+
+	for (const auto& waypoint : reader["waypoints"].children())
+	{
+		Waypoint* w = new Waypoint();
+		w->load(waypoint);
+		_waypoints.push_back(w);
+	}
+
+	// Backwards compatibility
+	for (const auto& terrorSite : reader["terrorSites"].children())
+	{
+		std::string type = "STR_ALIEN_TERROR";
+		std::string deployment = "STR_TERROR_MISSION";
+		if (mod->getAlienMission(type) && mod->getDeployment(deployment))
+		{
+			MissionSite* m = new MissionSite(mod->getAlienMission(type), mod->getDeployment(deployment), nullptr);
+			m->load(terrorSite);
+			_missionSites.push_back(m);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load mission " << type << " deployment " << deployment;
+		}
+	}
+
+	for (const auto& missionSite : reader["missionSites"].children())
+	{
+		std::string type = missionSite["type"].readVal<std::string>();
+		std::string deployment = missionSite["deployment"].readVal<std::string>("STR_TERROR_MISSION");
+		std::string alienWeaponDeploy = missionSite["missionCustomDeploy"].readVal<std::string>("");
+		if (mod->getAlienMission(type) && mod->getDeployment(deployment))
+		{
+			MissionSite* m = new MissionSite(mod->getAlienMission(type), mod->getDeployment(deployment), mod->getDeployment(alienWeaponDeploy));
+			m->load(missionSite);
+			_missionSites.push_back(m);
+			// link with UFO
+			if (m->getUfoUniqueId() > 0)
+			{
+				Ufo* ufo = nullptr;
+				for (auto* u : _ufos)
+				{
+					if (u->getUniqueId() == m->getUfoUniqueId())
+					{
+						ufo = u;
+						break;
+					}
+				}
+				if (ufo)
+				{
+					m->setUfo(ufo);
+				}
+			}
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load mission " << type << " deployment " << deployment;
+		}
+	}
+
+	// Discovered Techs Should be loaded before Bases (e.g. for PSI evaluation)
+	for (const auto& discovery : reader["discovered"].children())
+	{
+		std::string research = discovery.readVal<std::string>();
+		if (RuleResearch* researchRule = mod->getResearch(research))
+		{
+			_discovered.push_back(researchRule);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load research " << research;
+		}
+	}
+	sortReserchVector(_discovered);
+
+	// Research Diary
+	{
+		std::string name;
+		for (const auto& researchDiaryEntryReader : reader["researchDiary"].children())
+		{
+			researchDiaryEntryReader.readNode("name", name);
+			// only valid topics are loaded
+			if (RuleResearch* research = mod->getResearch(name, false))
+			{
+				ResearchDiaryEntry* entry = new ResearchDiaryEntry(research);
+				entry->load(researchDiaryEntryReader, mod);
+				_researchDiary.push_back(entry);
+			}
+		}
+	}
+
+	reader.tryRead("generatedEvents", _generatedEvents);
+	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
+	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
+	reader.tryRead("researchRuleStatus", _researchRuleStatus);
+	reader.tryRead("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
+	reader.tryRead("hiddenPurchaseItems", _hiddenPurchaseItemsMap);
+	reader.tryRead("customRuleCraftDeployments", _customRuleCraftDeployments);
+
+	for (const auto& base : reader["bases"].children())
+	{
+		Base* b = new Base(mod);
+		b->load(base, this, false);
+		_bases.push_back(b);
+	}
+
+	// Finish loading crafts after bases (more specifically after all crafts) are loaded, because of references between crafts (i.e. friendly escorts)
+	for (size_t i = 0; i < _bases.size(); ++i)
+		_bases[i]->finishLoading(reader["bases"][i], this);
+
+	// Finish loading UFOs after all craft and all other UFOs are loaded
+	for (const auto& ufoReader : reader["ufos"].children())
+	{
+		int uniqueUfoId = ufoReader["uniqueId"].readVal(0);
+		if (uniqueUfoId > 0)
+		{
+			Ufo* ufo = 0;
+			for (auto* u : _ufos)
+			{
+				if (u->getUniqueId() == uniqueUfoId)
+				{
+					ufo = u;
+					break;
+				}
+			}
+			if (ufo)
+			{
+				ufo->finishLoading(ufoReader, *this);
+			}
+		}
+	}
+
+	for (const auto& popped : reader["poppedResearch"].children())
+	{
+		std::string id = popped.readVal<std::string>();
+		if (mod->getResearch(id))
+		{
+			_poppedResearch.push_back(mod->getResearch(id));
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load popped research " << id;
+		}
+	}
+	_alienStrategy->load(reader["alienStrategy"], mod);
+
+	for (const auto& weHardlyKnewYe : reader["deadSoldiers"].children())
+	{
+		std::string type = weHardlyKnewYe["type"].readVal(mod->getSoldiersList().front());
+		if (mod->getSoldier(type))
+		{
+			Soldier* soldier = new Soldier(mod->getSoldier(type), nullptr, 0 /*nationality*/);
+			soldier->load(weHardlyKnewYe, mod, this, mod->getScriptGlobal());
+			_deadSoldiers.push_back(soldier);
+		}
+		else
+		{
+			Log(LOG_ERROR) << "Failed to load dead soldier " << type;
+		}
+	}
+
+	loadTemplates(reader, mod);
+
+	for (const auto& missionStats : reader["missionStatistics"].children())
+	{
+		MissionStatistics* ms = new MissionStatistics();
+		ms->load(missionStats);
+		_missionStatistics.push_back(ms);
+	}
+
+	for (const auto& autoSale : reader["autoSales"].children())
+	{
+		std::string itype = autoSale.readVal<std::string>();
+		if (mod->getItem(itype))
+		{
+			_autosales.insert(mod->getItem(itype));
+		}
+	}
+
+	if (const YAML::YamlNodeReader& battle = reader["battleGame"])
+	{
+		_battleGame = new SavedBattleGame(mod, lang);
+		_battleGame->load(battle, mod, this);
+	}
+
+	_scriptValues.load(reader, mod->getScriptGlobal());
+}
+
 /**
  * Gets the info of a specific save file.
  * @param file Save filename.
@@ -378,6 +721,11 @@ void SavedGame::setMonthsPassed(int months)
 	_monthsPassed = months;
 }
 
+void SavedGame::setDaysPassed(int days)
+{
+	_daysPassed = days;
+}
+
 /**
  * Add a ResearchProject to the list of already discovered ResearchProject
  * @param research The newly found ResearchProject
@@ -416,7 +764,9 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("monthsPassed", _monthsPassed);
 
 	// coop
+	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
@@ -790,6 +1140,235 @@ void saveVectorIf(YAML::YamlNodeWriter& writer,
 	}
 }
 
+void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const
+{
+	YAML::YamlRootNodeWriter headerWriter;
+	headerWriter.setAsMap();
+	// Saves the brief game info used in the saves list
+
+	headerWriter.write("name", _name);
+	headerWriter.write("version", OPENXCOM_VERSION_SHORT);
+	headerWriter.write("engine", OPENXCOM_VERSION_ENGINE);
+	std::string git_sha = OPENXCOM_VERSION_GIT;
+	if (!git_sha.empty() && git_sha[0] == '.')
+		git_sha.erase(0, 1);
+	headerWriter.write("build", git_sha);
+	_time->save(headerWriter["time"]);
+	if (_battleGame != 0)
+	{
+		headerWriter.write("mission", _battleGame->getMissionType());
+		headerWriter.write("target", _battleGame->getMissionTarget());
+		headerWriter.write("craftOrBase", _battleGame->getMissionCraftOrBase()).setAsQuotedAndEscaped();
+		headerWriter.write("turn", _battleGame->getTurn());
+	}
+
+	// only save mods that work with the current master
+	std::vector<std::string> modsList;
+	for (const auto* modInfo : Options::getActiveMods())
+		modsList.push_back(modInfo->getId() + " ver: " + modInfo->getVersion());
+	headerWriter.write("mods", modsList);
+
+	if (_ironman)
+		headerWriter.write("ironman", _ironman);
+
+	// Saves the full game data to the save
+	YAML::YamlRootNodeWriter writer(1000000); // 1MB starting buffer
+	writer.setAsMap();
+	writer.write("difficulty", _difficulty);
+	writer.write("end", _end);
+
+	// coop
+	writer.write("saveID", connectionTCP::saveID);
+	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	writer.write("no_bases", connectionTCP::no_bases);
+
+	writer.write("monthsPassed", _monthsPassed);
+	writer.write("daysPassed", _daysPassed);
+	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("graphRegionToggles", _graphRegionToggles);
+	writer.write("graphCountryToggles", _graphCountryToggles);
+	writer.write("graphFinanceToggles", _graphFinanceToggles);
+	writer.write("rng", RNG::getSeed());
+	writer.write("funds", _funds);
+	writer.write("maintenance", _maintenance);
+	writer.write("userNotes", _userNotes);
+	if (Options::oxceGeoscapeDebugLogMaxEntries > 0 && _geoscapeDebugLog.size() > 0)
+	{
+		auto geoDebugLog = writer["geoscapeDebugLog"];
+		geoDebugLog.setAsSeq();
+		size_t lastEntriesToWrite = std::min(_geoscapeDebugLog.size(), (size_t)Options::oxceGeoscapeDebugLogMaxEntries);
+		for (size_t j = _geoscapeDebugLog.size() - lastEntriesToWrite; j < _geoscapeDebugLog.size(); ++j)
+			geoDebugLog.write(_geoscapeDebugLog[j]);
+	}
+
+	writer.write("researchScores", _researchScores);
+	writer.write("incomes", _incomes);
+	writer.write("expenditures", _expenditures);
+	writer.write("warned", _warned);
+	writer.write("togglePersonalLight", _togglePersonalLight);
+	writer.write("toggleNightVision", _toggleNightVision);
+	writer.write("toggleBrightness", _toggleBrightness);
+	writer.write("globeLon", _globeLon);
+	writer.write("globeLat", _globeLat);
+	writer.write("globeZoom", _globeZoom);
+	writer.write("ids", _ids);
+
+	saveVector(writer, _countries, "countries", mod->getScriptGlobal());
+	saveVector(writer, _regions, "regions");
+
+	bool error = false;
+	bool found = false;
+
+	for (auto& base : _bases)
+	{
+
+		if (base->_coopBase == false)
+		{
+			found = true;
+		}
+
+		if (base->getName().empty() || (base->getLongitude() == 0 && base->getLatitude() == 0))
+		{
+			error = true;
+			break;
+		}
+	}
+
+	if ((error == true || found == false) && connectionTCP::no_bases == false && connectionTCP::_coopCampaign == true)
+	{
+		connectionTCP::saveError = true;
+		return;
+	}
+
+	// coop
+	saveVectorIf(writer, _bases, "bases",
+				 [](const Base* b)
+				 { return !b->_coopIcon; });
+
+	saveVector(writer, _waypoints, "waypoints");
+
+	// coop
+	saveVectorIf(writer, _missionSites, "missionSites",
+				 [](const MissionSite* ms)
+				 { return !ms->_coop; });
+
+	// Alien bases must be saved before alien missions.
+	// coop
+	saveVectorIf(writer, _alienBases, "alienBases",
+				 [](const AlienBase* ab)
+				 { return !ab->_coop; });
+
+	// Missions must be saved before UFOs, but after alien bases.
+	// coop
+	saveVectorIf(writer, _activeMissions, "alienMissions",
+				 [](const AlienMission* am)
+				 { return !am->_coop; });
+	// UFOs must be after missions
+	// coop
+	const bool isNewGame = (getMonthsPassed() == -1);
+
+	saveVectorIf(
+		writer, _ufos, "ufos",
+		[](const Ufo* u)
+		{ return !u->_coop; },
+		mod->getScriptGlobal(), isNewGame);
+
+	saveVector(writer, _geoscapeEvents, "geoscapeEvents");
+	if (!_discovered.empty())
+	{
+		auto discoveredWriter = writer["discovered"];
+		discoveredWriter.setAsSeq();
+		{
+			auto discoveredCopy = _discovered;
+			std::sort(discoveredCopy.begin(), discoveredCopy.end(), [&](const RuleResearch* a, const RuleResearch* b)
+					  { return a->getName().compare(b->getName()) < 0; });
+			for (const auto* research : discoveredCopy)
+			{
+				discoveredWriter.write(research->getName());
+			}
+		}
+	}
+	saveVector(writer, _researchDiary, "researchDiary");
+	writer.write("poppedResearch", _poppedResearch,
+				 [](YAML::YamlNodeWriter& w, const RuleResearch* r)
+				 { w.write(r->getName()); });
+	writer.write("generatedEvents", _generatedEvents);
+	writer.write("ufopediaRuleStatus", _ufopediaRuleStatus);
+	writer.write("manufactureRuleStatus", _manufactureRuleStatus);
+	writer.write("researchRuleStatus", _researchRuleStatus);
+	writer.write("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
+	writer.write("hiddenPurchaseItems", _hiddenPurchaseItemsMap);
+	writer.write("customRuleCraftDeployments", _customRuleCraftDeployments);
+	_alienStrategy->save(writer["alienStrategy"]);
+
+	saveVector(writer, _deadSoldiers, "deadSoldiers", mod->getScriptGlobal());
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		if (!_globalEquipmentLayout[j].empty())
+			saveVector(writer, _globalEquipmentLayout[j], writer.saveString("globalEquipmentLayout" + std::to_string(j)));
+		if (!_globalEquipmentLayoutName[j].empty())
+			writer.write(writer.saveString("globalEquipmentLayoutName" + std::to_string(j)), _globalEquipmentLayoutName[j]);
+		if (!_globalEquipmentLayoutArmor[j].empty())
+			writer.write(writer.saveString("globalEquipmentLayoutArmor" + std::to_string(j)), _globalEquipmentLayoutArmor[j]);
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		if (!_globalCraftLoadout[j]->getContents()->empty())
+			_globalCraftLoadout[j]->save(writer[writer.saveString("globalCraftLoadout" + std::to_string(j))]);
+		if (!_globalCraftLoadoutName[j].empty())
+			writer.write(writer.saveString("globalCraftLoadoutName" + std::to_string(j)), _globalCraftLoadoutName[j]);
+	}
+	if (Options::soldierDiaries)
+		saveVector(writer, _missionStatistics, "missionStatistics");
+
+	if (!_autosales.empty())
+	{
+		auto autoSales = writer["autoSales"];
+		autoSales.setAsSeq();
+		{
+			std::vector<const RuleItem*> autosalesVector(_autosales.begin(), _autosales.end());
+			std::sort(autosalesVector.begin(), autosalesVector.end(), [&](const RuleItem* a, const RuleItem* b)
+					  { return a->getType().compare(b->getType()) < 0; });
+			for (const auto* sale : autosalesVector)
+			{
+				autoSales.write(sale->getType());
+			}
+		}
+	}
+	// snapshot of the user options (just for debugging purposes)
+	auto optionsWriter = writer["options"];
+	optionsWriter.setAsMap();
+	for (const auto& optionInfo : Options::getOptionInfo())
+		optionInfo.save(optionsWriter);
+
+	if (_battleGame)
+		_battleGame->save(writer["battleGame"]);
+	_scriptValues.save(writer.toBase(), mod->getScriptGlobal());
+
+	// concatenate header + separator + body
+	// per yaml standard, "bare documents" in a yaml "stream" can be separated by either a "document end" or "directives end" marker line
+	YAML::YamlString headerString = headerWriter.emit();
+	std::string directivesEndMarker = "---\n";
+	YAML::YamlString bodyString = writer.emit();
+	std::string finalString;
+	finalString.reserve(headerString.yaml.size() + directivesEndMarker.size() + bodyString.yaml.size());
+	finalString += headerString.yaml;
+	finalString += directivesEndMarker;
+	finalString += bodyString.yaml;
+
+	// Save to memory
+	if (connectionTCP::getServerOwner() == true)
+	{
+		connectionTCP::coopFilesHost[key] = std::move(finalString);
+	}
+	else
+	{
+		connectionTCP::coopFilesClient[key] = std::move(finalString);
+	}
+
+}
+
 /**
  * Saves a saved game's contents to a YAML file.
  * @param filename YAML filename.
@@ -833,7 +1412,9 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.write("end", _end);
 
 	// coop
+	writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
 
 	writer.write("monthsPassed", _monthsPassed);

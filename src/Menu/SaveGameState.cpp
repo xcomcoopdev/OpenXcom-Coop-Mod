@@ -189,6 +189,20 @@ void SaveGameState::think()
 		// Save the game
 		try
 		{
+		
+			// HostSaveProgress
+			if ((_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
+			{
+
+				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
+				{
+					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
+				}
+
+				CoopState* coopWindow = new CoopState(54);
+				_game->pushState(coopWindow);
+
+			}
 
 			std::string backup = _filename + ".bak";
 			_game->getSavedGame()->save(backup, _game->getMod());

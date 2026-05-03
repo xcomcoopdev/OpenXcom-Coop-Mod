@@ -46,7 +46,7 @@ namespace OpenXcom
  * @param filename Name of the save file without extension.
  * @param palette Parent state palette.
  */
-LoadGameState::LoadGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette) : _firstRun(0), _origin(origin), _filename(filename)
+LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey, bool loadCoopProgress) : _firstRun(0), _origin(origin), _filename(filename), _coopKey(coopKey), _loadCoopProgress(loadCoopProgress)
 {
 
 	// coop
@@ -178,7 +178,17 @@ void LoadGameState::think()
 		SavedGame *s = new SavedGame();
 		try
 		{
-			s->load(_filename, _game->getMod(), _game->getLanguage());
+
+			// coop
+			if (_coopKey.empty())
+			{
+				s->load(_filename, _game->getMod(), _game->getLanguage());
+			}
+			else
+			{
+				s->loadCoopSaveFromMemory(_filename, _game->getMod(), _game->getLanguage(), _coopKey);
+			}
+
 			_game->setSavedGame(s);
 			if (_game->getSavedGame()->getEnding() != END_NONE)
 			{
@@ -198,6 +208,13 @@ void LoadGameState::think()
 					origBattleState->resetPalettes();
 				}
 				_game->setState(new GeoscapeState);
+
+				// coop fix
+				if (_loadCoopProgress == true)
+				{
+					_game->getSavedGame()->setBattleGame(0);
+				}
+
 				if (_game->getSavedGame()->getSavedBattle() != 0)
 				{
 					_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
@@ -205,7 +222,7 @@ void LoadGameState::think()
 					Options::baseYResolution = Options::baseYBattlescape;
 					_game->getScreen()->resetDisplay(false);
 					BattlescapeState *bs = new BattlescapeState;
-
+	
 					// COOP
 					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->inventory_battle_window == true))
 					{

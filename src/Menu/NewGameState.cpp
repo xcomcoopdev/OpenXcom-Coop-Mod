@@ -126,6 +126,13 @@ NewGameState::NewGameState()
 	_txtIronman->setWordWrap(true);
 	_txtIronman->setVerticalAlign(ALIGN_MIDDLE);
 	_txtIronman->setText(tr("STR_IRONMAN_DESC"));
+
+	// coop
+	if (connectionTCP::_host_save_progress == true && connectionTCP::getCoopStatic() == true)
+	{
+		_btnCancel->setVisible(false);
+	}
+
 }
 
 /**
@@ -201,6 +208,7 @@ void NewGameState::btnOkClick(Action *)
 		// custom location, custom name
 		_game->pushState(new BuildNewBaseState(base, gs->getGlobe(), true));
 	}
+
 }
 
 /**

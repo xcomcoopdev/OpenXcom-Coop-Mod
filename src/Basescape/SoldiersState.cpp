@@ -618,129 +618,113 @@ void SoldiersState::btnOkClick(Action *)
 	{
 
 		// save the other player's base (CLIENT only), e.g., soldiers, etc.
-		std::string filename = "";
+		std::string filename = "basehost";
 
-		if (_game->getCoopMod()->getServerOwner() == true)
+		SavedGame* basehost_save = new SavedGame();
+
+		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+		// if save found
+		if (basehost_save)
 		{
 
-			filename = "host/basehost.data";
-		}
-		else
-		{
-
-			filename = "client/basehost.data";
-		}
-
-		std::string filepath = Options::getMasterUserFolder() + filename;
-
-		if (OpenXcom::CrossPlatform::fileExists(filepath))
-		{
-
-			SavedGame* basehost_save = new SavedGame();
-
-			basehost_save->load(filename, _game->getMod(), _game->getLanguage());
-
-			// if save found
-			if (basehost_save)
+			for (auto& saved_base : *basehost_save->getBases())
 			{
 
-				for (auto& saved_base : *basehost_save->getBases())
+				// poista ensiksi kaikki jotka ei -1 tukikohdasta!
+				auto& soldiers = *saved_base->getSoldiers(); // Viitataan vektoriin
+
+				// Vapautetaan muistissa olevat sotilaat, joiden coopBase != -1
+				for (auto it = soldiers.begin(); it != soldiers.end(); /* ei ++it */)
 				{
+					if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
+					{
+						delete *it;              // Vapautetaan muistista sotilas
+						it = soldiers.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
+					}
+					else
+					{
+						++it; // Siirrytään seuraavaan vain jos ei poistettu
+					}
+				}
 
-					// poista ensiksi kaikki jotka ei -1 tukikohdasta!
-					auto& soldiers = *saved_base->getSoldiers(); // Viitataan vektoriin
+				// Myös ajoneuvot
+				auto& crafts = *saved_base->getCrafts(); // Viitataan vektoriin, joka sisältää Craft*-olioita
 
-					// Vapautetaan muistissa olevat sotilaat, joiden coopBase != -1
-					for (auto it = soldiers.begin(); it != soldiers.end(); /* ei ++it */)
+				for (auto& craft : crafts) // Jokainen craft on yksittäinen alus
+				{
+					auto& vehicles = *craft->getVehicles(); // Viitataan aluksen ajoneuvovektoriin
+
+					for (auto it = vehicles.begin(); it != vehicles.end(); /* ei ++it */)
 					{
 						if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
 						{
-							delete *it;              // Vapautetaan muistista sotilas
-							it = soldiers.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
+							delete *it;              // Vapautetaan muistista ajoneuvo
+							it = vehicles.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
 						}
 						else
 						{
 							++it; // Siirrytään seuraavaan vain jos ei poistettu
 						}
 					}
-
-					// Myös ajoneuvot
-					auto& crafts = *saved_base->getCrafts(); // Viitataan vektoriin, joka sisältää Craft*-olioita
-
-					for (auto& craft : crafts) // Jokainen craft on yksittäinen alus
-					{
-						auto& vehicles = *craft->getVehicles(); // Viitataan aluksen ajoneuvovektoriin
-
-						for (auto it = vehicles.begin(); it != vehicles.end(); /* ei ++it */)
-						{
-							if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
-							{
-								delete *it;              // Vapautetaan muistista ajoneuvo
-								it = vehicles.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
-							}
-							else
-							{
-								++it; // Siirrytään seuraavaan vain jos ei poistettu
-							}
-						}
-					}
 				}
+			}
 
-				// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
-				auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
+			// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
+			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
 
-				for (auto* soldier : *_base->getSoldiers())
-				{
-					if (soldier->getCraft())
-					{
-
-						soldier->setCoopCraft(soldier->getCraft()->getId());
-						soldier->setCoopCraftType(soldier->getCraft()->getType());
-					}
-
-					soldier->setCoopBase(_base->_coop_base_id);
-					soldier->setCoopName(soldier->getName());
-
-					target_soldiers.push_back(soldier);
-				}
-
-				auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
-
-				// lisätään uudet ajoneuvot
-				for (auto* craft : *_base->getCrafts())
+			for (auto* soldier : *_base->getSoldiers())
+			{
+				if (soldier->getCraft())
 				{
 
-					for (auto* vehicle : *craft->getVehicles())
-					{
-
-						vehicle->setCoopBase(_base->_coop_base_id);
-						vehicle->setCoopCraft(craft->getId());
-						vehicle->setCoopCraftType(craft->getType());
-
-						target_vehicles.push_back(vehicle);
-					}
+					soldier->setCoopCraft(soldier->getCraft()->getId());
+					soldier->setCoopCraftType(soldier->getCraft()->getType());
 				}
 
-				// save changes
-				basehost_save->save(filename, _game->getMod());
+				soldier->setCoopBase(_base->_coop_base_id);
+				soldier->setCoopName(soldier->getName());
 
-				// estetaan dublikaatio tallenuksen jalkeen...
-				auto& soldiers = *_base->getSoldiers();
-				for (auto it = soldiers.begin(); it != soldiers.end();)
+				target_soldiers.push_back(soldier);
+			}
+
+			auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
+
+			// lisätään uudet ajoneuvot
+			for (auto* craft : *_base->getCrafts())
+			{
+
+				for (auto* vehicle : *craft->getVehicles())
 				{
 
-					if ((*it)->getCoopBase() == -1)
-					{
-						delete *it;              // Vapautetaan muisti
-						it = soldiers.erase(it); // Poistetaan listasta ja päivitetään iteraattori
-					}
-					else
-					{
-						++it; // Siirrytään seuraavaan elementtiin vain, jos ei poistettu
-					}
+					vehicle->setCoopBase(_base->_coop_base_id);
+					vehicle->setCoopCraft(craft->getId());
+					vehicle->setCoopCraftType(craft->getType());
+
+					target_vehicles.push_back(vehicle);
+				}
+			}
+
+			// save changes
+			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
+		
+			// estetaan dublikaatio tallenuksen jalkeen...
+			auto& soldiers = *_base->getSoldiers();
+			for (auto it = soldiers.begin(); it != soldiers.end();)
+			{
+
+				if ((*it)->getCoopBase() == -1)
+				{
+					delete *it;              // Vapautetaan muisti
+					it = soldiers.erase(it); // Poistetaan listasta ja päivitetään iteraattori
+				}
+				else
+				{
+					++it; // Siirrytään seuraavaan elementtiin vain, jos ei poistettu
 				}
 			}
 		}
+		
 	}
 
 	// coop

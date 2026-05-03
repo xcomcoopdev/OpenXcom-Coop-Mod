@@ -35,6 +35,7 @@
 #include "../version.h"
 
 #include "../CoopMod/ServerList.h"
+#include "../CoopMod/HostMenu.h"
 
 namespace OpenXcom
 {
@@ -151,7 +152,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	}
 
 	// battlescape
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false)
 	{
 
 		_btnLoad->setVisible(false);
@@ -186,10 +187,19 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		}
 	}
 
-	//  coop
-	if (origin == OPT_GEOSCAPE)
+	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == false)
 	{
+		_btnSave->setVisible(false);
+	}
 
+	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == true)
+	{
+		_btnSave->setVisible(true);
+	}
+
+	//  coop
+	if (origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
+	{
 		_btnSave->setVisible(true);
 	}
 
@@ -201,6 +211,16 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	}
 
 	_game->getCoopMod()->setPauseOn();
+
+	// check if campaign
+	if (!_game->getSavedGame()->getCountries()->empty())
+	{
+		_game->getCoopMod()->setCoopCampaign(true);
+	}
+	else
+	{
+		_game->getCoopMod()->setCoopCampaign(false);
+	}
 
 }
 
@@ -238,14 +258,22 @@ void PauseState::btnSaveClick(Action *)
 		_game->pushState(new ListSaveState(_origin));
 	}
 
-
 }
 
 // Opens COOP view
 void PauseState::btnCoopClick(Action *)
 {
 
-	_game->pushState(new ServerList());
+	// Open the host menu if the host saves the players' campaign progress, the client joins the game through the main menu (New Battle)
+	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
+	{
+
+		_game->pushState(new HostMenu());
+	}
+	else
+	{
+		_game->pushState(new ServerList());
+	}
 
 }
 

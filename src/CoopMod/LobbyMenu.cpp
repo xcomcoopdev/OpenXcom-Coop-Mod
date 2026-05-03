@@ -35,6 +35,8 @@
 #include "../Interface/ToggleTextButton.h"
 #include "../Interface/ArrowButton.h"
 
+#include "HostMenu.h"
+
 namespace OpenXcom
 {
 
@@ -197,7 +199,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 
 	updateArrows();
 
-	_connectedPlayers.push_back(playerInfo({1, _game->getCoopMod()->getHostName(), "0", false, "Funds: 2000, Bases: 4"}));
+	_connectedPlayers.push_back(playerInfo({1, _game->getCoopMod()->getHostName(), "0", false, "Funds: 1000000, Bases: 3, Crafts: 6"}));
 
 }
 
@@ -312,11 +314,19 @@ void LobbyMenu::btnCancelClick(Action*)
 void LobbyMenu::btnDisconnectClick(Action* action)
 {
 
-	_game->getCoopMod()->disconnectTCP();
-
 	_game->popState();
 
-	_game->pushState(new ServerList());
+	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
+	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+	{
+		_game->getCoopMod()->disconnectTCP();
+		_game->pushState(new HostMenu());
+	}
+	else
+	{
+		_game->getCoopMod()->disconnectTCP();
+		_game->pushState(new ServerList());
+	}
 
 }
 

@@ -47,6 +47,7 @@ CutsceneState::CutsceneState(const std::string &cutsceneId)
 
 		root["state"] = "cutscene";
 		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
+		root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
 		root["cutsceneId"] = cutsceneId;
 		root["ending"] = (int)_game->getSavedGame()->getEnding();
 

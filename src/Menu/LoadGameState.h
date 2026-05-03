@@ -39,9 +39,11 @@ private:
 	OptionsOrigin _origin;
 	Text *_txtStatus;
 	std::string _filename;
-public:
+	std::string _coopKey;
+	bool _loadCoopProgress;
+  public:
 	/// Creates the Load Game state.
-	LoadGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette);
+	LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey = "", bool loadCoopProgress = false);
 	/// Creates the Load Game state.
 	LoadGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette);
 	/// Cleans up the Load Game state.

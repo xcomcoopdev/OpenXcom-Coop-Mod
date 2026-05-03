@@ -638,15 +638,7 @@ void BasescapeState::btnGeoscapeClick(Action *)
 	{
 		_game->popState();
 
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "host/basehost.data", _palette));
-		}
-		else
-		{
-
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, "client/basehost.data", _palette));
-		}
+		_game->pushState(new LoadGameState(OPT_GEOSCAPE, "basehost", _palette, "basehost"));
 	}
 	else
 	{

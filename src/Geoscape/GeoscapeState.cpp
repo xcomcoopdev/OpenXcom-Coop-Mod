@@ -759,6 +759,19 @@ void GeoscapeState::handle(Action *action)
 void GeoscapeState::init()
 {
 
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_isLoadProgress == true)
+	{
+
+		Json::Value root;
+		root["state"] = "close_load_progress";
+		root["data"] = _game->getCoopMod()->_loadProgress;
+
+		_game->getCoopMod()->_isLoadProgress = false;
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 	// missionStatistics
 	if (_game->getSavedGame() && _game->getCoopMod()->coopMissionEnd == false && _game->getCoopMod()->getServerOwner() == true)
 	{
@@ -845,6 +858,16 @@ void GeoscapeState::init()
 
 	}
 
+	// If a client player is inside another player's base when progress saving should start (special case)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && _game->getCoopMod()->ready_coop_save_progress == true)
+	{
+
+		_game->getCoopMod()->sendSaveProgressFile();
+
+		_game->getCoopMod()->ready_coop_save_progress = false;
+
+	}
+
 	// HOST AFTER THE BATTLE
 	// Make sure the other player's units aren't saved in single-player mode.
 	if ((_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false) && _game->getCoopMod()->coopMissionEnd == true)
@@ -914,56 +937,90 @@ void GeoscapeState::init()
 
 		SavedGame *newsave = new SavedGame();
 
-		std::string filename = "client/basehost.data";
-
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			filename = "host/basehost.data";
-		}
-
+		
+		std::string filename = "coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav";
 		std::string filepath = Options::getMasterUserFolder() + filename;
 
-		// Check if the coop_geoscape save exists!
-		if (!OpenXcom::CrossPlatform::fileExists(filepath))
+		std::string coopKey = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+
+		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		{
+			// If the player’s save file isn’t found, try to find the basehost file in memory.
+			if (!_game->getCoopMod()->hasCoopFile(coopKey))
+			{
+				coopKey = "basehost";
+			}
+
+			newsave->loadCoopSaveFromMemory(coopKey, _game->getMod(), _game->getLanguage(), coopKey);
+		}
+		else
 		{
 
-			filename = "coop_geoscape.sav";
+			filename = "coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav";
 			filepath = Options::getMasterUserFolder() + filename;
 
-		}
+			bool found = false;
 
-		// Check if the _autogeo_.asav save exists!
-		if (!OpenXcom::CrossPlatform::fileExists(filepath))
-		{
+			// Check if the coop_geoscape.sav save exists!
+			if (OpenXcom::CrossPlatform::fileExists(filepath))
+			{
+				found = true;
+			}
 
-			filename = "_autogeo_.asav";
-			filepath = Options::getMasterUserFolder() + filename;
+			// Check if the _autogeo_.asav save exists!
+			if (found == false)
+			{
 
-		}
-
-		if (OpenXcom::CrossPlatform::fileExists(filepath))
-		{
+				filename = "_autogeo_.asav";
+				filepath = Options::getMasterUserFolder() + filename;
+			}
 
 			newsave->load(filename, _game->getMod(), _game->getLanguage());
 
-			// OLD SAVE SOLDIERS FROM BATTLE (CLIENT)
-			Base *base_selected = new Base(*_game->getSavedGame()->getSelectedBase());
+		}
+		
 
-			// RANK PROMOTION
-			for (auto& base : *newsave->getBases())
+		// OLD SAVE SOLDIERS FROM BATTLE (CLIENT)
+		Base *base_selected = new Base(*_game->getSavedGame()->getSelectedBase());
+
+		// RANK PROMOTION
+		for (auto& base : *newsave->getBases())
+		{
+
+			auto& soldiers = *base->getSoldiers();
+			auto& selected_soldiers = *base_selected->getSoldiers();
+
+			for (auto it = soldiers.begin(); it != soldiers.end();)
 			{
+				Soldier* client_soldier = *it;
+				bool found = false;
 
-				auto& soldiers = *base->getSoldiers();
-				auto& selected_soldiers = *base_selected->getSoldiers();
-
-				for (auto it = soldiers.begin(); it != soldiers.end();)
+				for (auto* soldier : selected_soldiers)
 				{
-					Soldier* client_soldier = *it;
-					bool found = false;
+					if (soldier->getCoopName() == client_soldier->getCoopName() && soldier->getCoopName() != "" && client_soldier->getCoopName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
+					{
+
+						// Copy stats and update rank and counts
+						UnitStats copiedStats = *soldier->getCurrentStats();
+						client_soldier->setBothStats(&copiedStats);
+						client_soldier->setCoopRank(soldier->getRank());
+						client_soldier->addKillCount(soldier->getKills());
+						client_soldier->addMissionCount();
+						client_soldier->addStunCount(soldier->getStuns());
+
+						client_soldier->setName(soldier->getName());
+
+						found = true;
+						break;
+					}
+				}
+
+				if (!found)
+				{
 
 					for (auto* soldier : selected_soldiers)
 					{
-						if (soldier->getCoopName() == client_soldier->getCoopName() && soldier->getCoopName() != "" && client_soldier->getCoopName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
+						if (soldier->getName() == client_soldier->getName() && soldier->getName() != "" && client_soldier->getName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
 						{
 
 							// Copy stats and update rank and counts
@@ -974,6 +1031,11 @@ void GeoscapeState::init()
 							client_soldier->addMissionCount();
 							client_soldier->addStunCount(soldier->getStuns());
 
+							if (client_soldier->getCoopName() == "")
+							{
+								client_soldier->setCoopName(soldier->getName());
+							}
+
 							client_soldier->setName(soldier->getName());
 
 							found = true;
@@ -981,90 +1043,73 @@ void GeoscapeState::init()
 						}
 					}
 
-					if (!found)
-					{
+				}
 
-						for (auto* soldier : selected_soldiers)
+				if (!found)
+				{
+
+					for (auto* soldier : selected_soldiers)
+					{
+						if (soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu)
 						{
-							if (soldier->getName() == client_soldier->getName() && soldier->getName() != "" && client_soldier->getName() != "" && soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu && client_soldier->getCoopBase() == soldier->getCoopBase())
+
+							// Copy stats and update rank and counts
+							UnitStats copiedStats = *soldier->getCurrentStats();
+							client_soldier->setBothStats(&copiedStats);
+							client_soldier->setCoopRank(soldier->getRank());
+							client_soldier->addKillCount(soldier->getKills());
+							client_soldier->addMissionCount();
+							client_soldier->addStunCount(soldier->getStuns());
+
+							if (client_soldier->getCoopName() == "")
 							{
-
-								// Copy stats and update rank and counts
-								UnitStats copiedStats = *soldier->getCurrentStats();
-								client_soldier->setBothStats(&copiedStats);
-								client_soldier->setCoopRank(soldier->getRank());
-								client_soldier->addKillCount(soldier->getKills());
-								client_soldier->addMissionCount();
-								client_soldier->addStunCount(soldier->getStuns());
-
-								if (client_soldier->getCoopName() == "")
-								{
-									client_soldier->setCoopName(soldier->getName());
-								}
-
-								client_soldier->setName(soldier->getName());
-
-								found = true;
-								break;
+								client_soldier->setCoopName(soldier->getName());
 							}
+
+							client_soldier->setName(soldier->getName());
+
+							found = true;
+							break;
 						}
-
-					}
-
-					if (!found)
-					{
-
-						for (auto* soldier : selected_soldiers)
-						{
-							if (soldier->getNationality() == client_soldier->getNationality() && soldier->getInitStats() && client_soldier->getInitStats() && soldier->getInitStats()->tu == client_soldier->getInitStats()->tu)
-							{
-
-								// Copy stats and update rank and counts
-								UnitStats copiedStats = *soldier->getCurrentStats();
-								client_soldier->setBothStats(&copiedStats);
-								client_soldier->setCoopRank(soldier->getRank());
-								client_soldier->addKillCount(soldier->getKills());
-								client_soldier->addMissionCount();
-								client_soldier->addStunCount(soldier->getStuns());
-
-								if (client_soldier->getCoopName() == "")
-								{
-									client_soldier->setCoopName(soldier->getName());
-								}
-
-								client_soldier->setName(soldier->getName());
-
-								found = true;
-								break;
-							}
-						}
-					}
-
-					if (!found && client_soldier->getCoopBase() != -1)
-					{
-						// Remove soldier permanently
-						delete client_soldier;
-						it = soldiers.erase(it);
-					}
-					else
-					{
-						++it;
 					}
 				}
 
+				if (!found && client_soldier->getCoopBase() != -1)
+				{
+					// Remove soldier permanently
+					delete client_soldier;
+					it = soldiers.erase(it);
+				}
+				else
+				{
+					++it;
+				}
 			}
+
+		}
 	
-			// save
+		// save
+		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		{
+			newsave->saveCoopToMemory(coopKey, _game->getMod(), coopKey);
+		}
+		else
+		{
 			newsave->save(filename, _game->getMod());
-
-
 		}
 
 		_game->getCoopMod()->inventory_battle_window = true;
 
 		_game->popState();
 
-		_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette));
+		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		{
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, coopKey, _palette, coopKey));
+		}
+		else
+		{
+			_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette));
+		}
 
 		// COOP FIX
 		if (_game->getCoopMod()->getServerOwner() == true)
@@ -1462,6 +1507,12 @@ void GeoscapeState::think()
 					root["ufos"][ufo_index]["land_id"] = ufo->getLandId();
 					root["ufos"][ufo_index]["speed"] = ufo->getSpeed();
 
+					// new !!!
+					root["ufos"][ufo_index]["hyperDetected"] = ufo->getHyperDetected();
+					root["ufos"][ufo_index]["shield"] = ufo->getShield();
+					root["ufos"][ufo_index]["isHunterKiller"] = ufo->isHunterKiller();
+					root["ufos"][ufo_index]["isEscort"] = ufo->isEscort();
+
 					if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
 					{
 
@@ -1557,7 +1608,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame()->getTime())
+	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame() && _game->getSavedGame()->getTime())
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();
@@ -1575,6 +1626,11 @@ void GeoscapeState::think()
 			root["hour"] = current_time->getHour();
 			root["minute"] = current_time->getMinute();
 			root["second"] = current_time->getSecond();
+
+			// new !!!
+			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
+			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
+
 		}
 	
 		root["time_speed"] = "";

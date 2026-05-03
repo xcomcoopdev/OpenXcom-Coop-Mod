@@ -131,7 +131,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_playerName->setText("Player");
 	_playerName->setVisible(false);
 	
-	_tcpButtonJoin->setText("JOIN GAME");
+	_tcpButtonJoin->setText("JOIN");
 	_tcpButtonJoin->onMouseClick((ActionHandler)&DirectConnect::joinTCPGame);
 	_tcpButtonJoin->onKeyboardPress((ActionHandler)&DirectConnect::joinTCPGame, Options::keyOk);
 	_tcpButtonJoin->setVisible(true);

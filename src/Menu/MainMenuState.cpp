@@ -263,7 +263,11 @@ void MainMenuState::init()
 	}
 
 	// coop
-	_game->getCoopMod()->disconnectTCP();
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+		_game->getCoopMod()->disconnectTCP();
+	}
+
 	connectionTCP::_coopGamemode = 0;
 	_game->getCoopMod()->coopMissionEnd = false;
 	_game->getCoopMod()->coopInventory = false;

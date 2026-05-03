@@ -30,6 +30,7 @@ class TextButton;
 class Window;
 class Text;
 class TextList;
+class TextEdit;
 class ArrowButton;
 class ToggleTextButton;
 
@@ -40,7 +41,8 @@ class ToggleTextButton;
 class ServerList : public State
 {
 protected:
-	TextButton *_btnHost, *_btnDirectConnect, *_btnAddServer, *_btnFilter, *_btnCancel;
+	TextButton *_btnHost, *_btnDirectConnect, *_btnAddServer, *_btnRefresh, *_btnCancel, *_btnFilter;
+	TextEdit *_search;
 	Window *_window;
 	ToggleTextButton* _btnJoin;
 	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtLatency, *_txtJoin, *_txtDetails;
@@ -65,6 +67,7 @@ public:
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	void btnFilterClick(Action* action);
+	void btnRefreshClick(Action* action);
 	void btnHostClick(Action* action);
 	void btnDirectConnectClick(Action* action);
 	/// Handler for moving the mouse over a list item.

@@ -204,9 +204,10 @@ private:
 	ScriptValues<SavedGame> _scriptValues;
 
 	static SaveInfo getSaveInfo(const std::string &file, Language *lang);
-public:
+  public:
 	// coop
 	void setMonthsPassed(int months);
+	void setDaysPassed(int days);
 	static const std::string AUTOSAVE_GEOSCAPE, AUTOSAVE_BATTLESCAPE, QUICKSAVE;
 	/// Creates a new saved game.
 	SavedGame();
@@ -216,11 +217,13 @@ public:
 	static std::string sanitizeModName(const std::string &name);
 	/// Gets list of saves in the user directory.
 	static std::vector<SaveInfo> getList(Language *lang, bool autoquick);
+	void loadCoopSaveFromMemory(const std::string& filename, Mod* mod, Language* lang, const std::string& key);
 	/// Loads a saved game from YAML.
 	void load(const std::string &filename, Mod *mod, Language *lang);
 	void loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod);
 	void loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader);
 	/// Saves a saved game to YAML.
+	void saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const;
 	void save(const std::string &filename, Mod *mod) const;
 	/// Gets the game name.
 	std::string getName() const;

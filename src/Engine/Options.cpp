@@ -579,6 +579,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "resetTimeUnitsOnTurnChangePVP", &resetTimeUnitsOnTurnChangePVP, true, "Reset Time Units when PVP turn changes", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "HostSaveProgress", &HostSaveProgress, true, "Only Host Can Save Each Player's Progress", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));

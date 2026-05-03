@@ -97,6 +97,7 @@ OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;
 OPT bool EnableXcomEquipmentAliensPVP;
 OPT bool resetTimeUnitsOnTurnChangePVP;
+OPT bool HostSaveProgress;
 OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;

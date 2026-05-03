@@ -154,6 +154,19 @@ void BaseNameState::btnOkClick(Action *)
 		{
 			_game->pushState(new PlaceLiftState(_base, _globe, _first));
 		}
+
+		// coop
+		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopStatic() == true && _first)
+		{
+
+			Json::Value root;
+			root["state"] = "close_load_progress";
+			root["data"] = _game->getCoopMod()->_loadProgress;
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		}
+
 	}
 }
 

@@ -610,6 +610,11 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
+	if (_game->getCoopMod()->getCoopCampaign() == true && connectionTCP::_host_save_progress == true)
+	{
+		convert = false;
+	}
+
 	if (convert == true)
 	{
 		convertUnits();
@@ -618,7 +623,19 @@ void HostMenu::hostTCPGame(Action* action)
 	// HOST GAME
 	_game->getCoopMod()->hostTCPServer(_playerName->getText(), _port->getText());
 
-	_game->popState();
+	_game->getCoopMod()->setServerOwner(true);
+
+	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
+	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+		_game->popState();
+
+		_game->pushState(new LobbyMenu());
+	}
+	else
+	{
+		_game->popState();
+	}
 
 }
 

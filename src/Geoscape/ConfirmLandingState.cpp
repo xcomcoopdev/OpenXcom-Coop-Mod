@@ -275,7 +275,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 			// fix
 			CoopState* coopWindow = new CoopState(88);
 			_game->pushState(coopWindow);
-		
+			
 
 		}
 

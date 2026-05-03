@@ -368,11 +368,11 @@ void MonthlyReportState::btnOkClick(Action *)
 			_game->pushState(new PsiTrainingState);
 		}
 		// Autosave
-		if (_game->getSavedGame()->isIronman())
+		if (_game->getSavedGame()->isIronman() && (_game->getCoopMod()->getCoopStatic() == false || connectionTCP::_host_save_progress == false || (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true)))
 		{
 			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN, _palette));
 		}
-		else if (Options::autosave)
+		else if (Options::autosave && (_game->getCoopMod()->getCoopStatic() == false || connectionTCP::_host_save_progress == false || (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true)))
 		{
 			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _palette));
 		}
@@ -396,7 +396,7 @@ void MonthlyReportState::btnOkClick(Action *)
 			}
 
 			_game->pushState(new CutsceneState(cutsceneId));
-			if (_game->getSavedGame()->isIronman())
+			if (_game->getSavedGame()->isIronman() && (_game->getCoopMod()->getCoopStatic() == false || connectionTCP::_host_save_progress == false || (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true)))
 			{
 				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN, _palette));
 			}

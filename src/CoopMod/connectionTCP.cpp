@@ -40,6 +40,8 @@
 #include "../Mod/RuleCraftWeapon.h"
 #include "../Savegame/CraftWeapon.h"
 
+#include "../Menu/NewGameState.h"
+
 namespace OpenXcom
 {
 
@@ -52,6 +54,9 @@ bool sendFileClient = false;
 bool sendFileBase = false;
 // allow sending a file to the host
 bool sendFileHost = false;
+// allow sending a file to the host
+bool sendProgressSaveFileToHost = false;
+std::string sendProgressLoadFileToClient = "";
 // is the file to be sent a saved file?
 bool sendFileSave = false;
 // map data
@@ -64,9 +69,6 @@ NewBattleState* _battleState;
 GeoscapeState* _geo;
 Craft* _selectedCraft;
 Pathfinding* _selectedPath;
-
-// are we receiving map data? If not, wait.
-int gettingData = 0;
 
 // ip address
 std::string ipAddress = "";
@@ -102,7 +104,9 @@ bool isWaitMap = true;
 // trading
 Json::Value waitedTrades;
 
-int connectionTCP::_coopGamemode = 0; 
+int connectionTCP::_coopGamemode = 0;
+
+int connectionTCP::coop_save_owner_player_id = 0; 
 
 bool connectionTCP::_isChatActiveStatic = false;
 
@@ -124,6 +128,8 @@ bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
+bool connectionTCP::_host_save_progress = false;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -143,6 +149,25 @@ bool connectionTCP::_isHotseatActive = false;
 bool connectionTCP::show_inactive_player_inventory = false;
 
 bool connectionTCP::pauseSound = false;
+
+bool connectionTCP::saveError = false;
+
+// saveID is only used when the host saves each player's progress. This ensures that players load the correct save data.
+long long connectionTCP::saveID = 0;
+
+int connectionTCP::_weekday = 0;
+int connectionTCP::_day = 0;
+int connectionTCP::_month = 0;
+int connectionTCP::_year = 0;
+int connectionTCP::_hour = 0;
+int connectionTCP::_minute = 0;
+int connectionTCP::_second = 0;
+
+int connectionTCP::monthsPassed = 0;
+int connectionTCP::daysPassed = 0;
+
+std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesHost{};
+std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesClient{};
 
 std::string current_ping = "";
 
@@ -259,6 +284,15 @@ void logError(const std::string& msg)
 	DebugLog((msg + "\n").c_str());
 }
 
+bool connectionTCP::hasCoopFile(const std::string& key)
+{
+	const auto& coopFiles = getServerOwner()
+								? coopFilesHost
+								: coopFilesClient;
+
+	return coopFiles.find(key) != coopFiles.end();
+}
+
 // in the loop, load the map file data between host and client
 void connectionTCP::loopData()
 {
@@ -268,21 +302,59 @@ void connectionTCP::loopData()
 		{
 			if (sendFileClient)
 			{
-
 				int fileindex = 0;
-				std::string side = server_owner ? "host" : "client";
-				std::string filename = sendFileSave ? side + "/battlehost.data" : (sendFileBase ? side + "/basehost.data" : side + "/battlehost.data");
 
-				std::string filepath = Options::getMasterUserFolder() + filename;
+				std::string filepath = "";
 
-				std::ifstream myfile(filepath);
-				if (!myfile.is_open())
-					throw std::runtime_error("Failed to open file: " + filepath);
+				if (sendProgressLoadFileToClient != "")
+				{
+					filepath = sendProgressLoadFileToClient;
+				}
+				else if (sendFileBase)
+				{
+					filepath = "basehost";
+				}
+				else
+				{
+					filepath = "battlehost";
+				}
+	
+				std::ifstream fileStream;
+				std::istringstream memoryStream;
+				std::istream* myfile = nullptr;
+
+				if (sendProgressLoadFileToClient == "")
+				{
+					// Read from memory
+					const auto& coopFiles = server_owner
+												? connectionTCP::coopFilesHost
+												: connectionTCP::coopFilesClient;
+
+					auto it = coopFiles.find(filepath);
+					if (it == coopFiles.end())
+					{
+						throw std::runtime_error("Failed to read from hash map with key: " + filepath);
+					}
+
+					memoryStream.str(it->second);
+					myfile = &memoryStream;
+				}
+				else
+				{
+					// Read from file
+					fileStream.open(filepath);
+					if (!fileStream.is_open())
+					{
+						throw std::runtime_error("Failed to open file: " + filepath);
+					}
+
+					myfile = &fileStream;
+				}
 
 				std::string line;
 				std::string result;
 
-				while (getline(myfile, line))
+				while (std::getline(*myfile, line))
 				{
 					while (!isWaitMap)
 						SDL_Delay(20);
@@ -335,23 +407,57 @@ void connectionTCP::loopData()
 										   ? "{\"state\" : \"MAP_RESULT_CLIENT_BASE\"}"
 										   : "{\"state\" : \"MAP_RESULT_CLIENT\"}";
 
+				if (sendProgressLoadFileToClient != "")
+				{
+					jsonData = "{\"state\" : \"MAP_RESULT_LOAD_PROGRESS\"}";
+				}
+
 				sendTCPPacketStaticData(jsonData);
 				sendFileBase = false;
 				sendFileClient = false;
 				sendFileSave = false;
+				sendProgressLoadFileToClient = "";
 			}
 			else if (sendFileHost)
 			{
-
 				int fileindex = 0;
-				std::string side = server_owner ? "host" : "client";
-				std::string filename = sendFileSave ? side + "/battlehost.data" : (sendFileBase ? side + "/basehost.data" : (connectionTCP::_coopCampaign ? side + "/basehost.data" : side + "/battlehost.data"));
 
-				std::string filepath = Options::getMasterUserFolder() + filename;
+				std::string filepath;
 
-				std::ifstream myfile(filepath);
-				if (!myfile.is_open())
-					throw std::runtime_error("Failed to open file: " + filepath);
+				if (sendProgressSaveFileToHost)
+				{
+					filepath = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+				}
+				else if (sendFileSave)
+				{
+					filepath = "battlehost";
+				}
+				else if (sendFileBase)
+				{
+					filepath = "basehost";
+				}
+				else if (connectionTCP::_coopCampaign)
+				{
+					filepath = "basehost";
+				}
+				else
+				{
+					filepath = "battlehost";
+				}
+
+				const auto& coopFiles = server_owner
+											? connectionTCP::coopFilesHost
+											: connectionTCP::coopFilesClient;
+
+				std::string coopKey = filepath; // tai filename, jos mapin avain on filename
+
+				auto it = coopFiles.find(coopKey);
+				if (it == coopFiles.end())
+				{
+					throw std::runtime_error("Failed to read from hash map with key: " + coopKey);
+				}
+
+				std::istringstream myfile(it->second);
 
 				std::string line;
 				std::string result;
@@ -409,10 +515,16 @@ void connectionTCP::loopData()
 										   ? "{\"state\" : \"MAP_RESULT_HOST_BASE\"}"
 										   : "{\"state\" : \"MAP_RESULT_HOST\"}";
 
+				if (sendProgressSaveFileToHost)
+				{
+					jsonData = "{\"state\" : \"MAP_RESULT_SAVE_PROGRESS\"}";
+				}
+
 				sendTCPPacketStaticData(jsonData);
 				sendFileBase = false;
 				sendFileHost = false;
 				sendFileSave = false;
+				sendProgressSaveFileToHost = false;
 			}
 		}
 		catch (const std::exception& e)
@@ -453,6 +565,14 @@ void connectionTCP::createLoopdataThread()
 void connectionTCP::updateCoopTask()
 {
 
+	if (connectionTCP::saveError == true)
+	{
+
+		connectionTCP::saveError = false;
+		_game->pushState(new CoopState(995));
+
+	}
+
 	// battlescape
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame())
 	{
@@ -483,9 +603,12 @@ void connectionTCP::updateCoopTask()
 		if (_game->getSavedGame())
 		{
 
-			GameTime new_time(_weekday, _day, _month, _year, _hour, _minute, _second);
+			GameTime new_time(connectionTCP::_weekday, connectionTCP::_day, connectionTCP::_month, connectionTCP::_year, connectionTCP::_hour, connectionTCP::_minute, connectionTCP::_second);
 
 			_game->getSavedGame()->setTime(new_time);
+
+			_game->getSavedGame()->setMonthsPassed(connectionTCP::monthsPassed);
+			_game->getSavedGame()->setDaysPassed(connectionTCP::daysPassed);
 
 		}
 
@@ -917,10 +1040,10 @@ void resetCoopState(bool isHost)
 	isWaitMap = true;
 	onceTime = false;
 	sendFileClient = false;
+	sendProgressSaveFileToHost = false;
 	sendFileBase = false;
 	sendFileHost = false;
 	sendFileSave = false;
-	gettingData = 0;
 
 	mapData.clear();
 
@@ -1503,6 +1626,19 @@ void connectionTCP::startTCPHost()
 	return;
 }
 
+long long connectionTCP::getDateTimeCoop() const
+{
+	time_t now = time(0);
+	tm* timeInfo = localtime(&now);
+
+	return (timeInfo->tm_year + 1900) * 10000000000LL +
+		   (timeInfo->tm_mon + 1) * 100000000LL +
+		   timeInfo->tm_mday * 1000000LL +
+		   timeInfo->tm_hour * 10000LL +
+		   timeInfo->tm_min * 100LL +
+		   timeInfo->tm_sec;
+}
+
 // TCP
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
@@ -1643,6 +1779,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		std::string cutsceneId = obj["cutsceneId"].asString();
 		int monthsPassed = obj["monthsPassed"].asInt();
+		int daysPassed = obj["daysPassed"].asInt();
 		int ending = obj["ending"].asInt();
 
 		if (_game->getSavedGame())
@@ -1651,6 +1788,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->getSavedGame()->setEnding((GameEnding)ending);
 
 			_game->getSavedGame()->setMonthsPassed(monthsPassed);
+			_game->getSavedGame()->setMonthsPassed(daysPassed);
 		}
 
 		allow_cutscene = false;
@@ -1677,6 +1815,62 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			_chatMenu->addMessage(msg_time, msg_player, msg_text);
 		}
+	}
+
+	if (stateString == "new_game")
+	{
+
+		_game->pushState(new NewGameState);
+
+	}
+
+	if (stateString == "request_load_progress")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			bool found = false;
+
+			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
+			std::string filepath = Options::getMasterUserFolder() + filename;
+
+			if (OpenXcom::CrossPlatform::fileExists(filepath))
+			{
+				found = true;
+			}
+
+			if (found == false)
+			{
+
+				// not found, create new save game
+				Json::Value root;
+				root["state"] = "new_game";
+
+				sendTCPPacketData(root.toStyledString());
+
+			}
+			else
+			{
+
+				// found!
+				sendFileClient = true;
+				sendProgressLoadFileToClient = filepath;
+
+			}
+
+		}
+
+	}
+
+	if (stateString == "sendProgressSaveRequest")
+	{
+
+		long long saveID = obj["saveID"].asInt64();
+		connectionTCP::saveID = saveID;
+
+		sendSaveProgressFile();
+
 	}
 
 	if (stateString == "sendCraft")
@@ -1860,47 +2054,31 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
-		std::string filename = "";
-
-		if (getServerOwner() == true)
-		{
-
-			filename = "host/basehost.data";
-		}
-		else
-		{
-
-			filename = "client/basehost.data";
-		}
+		std::string filename = "basehost";
 
 		SavedGame* file_units = new SavedGame();
-		std::string filepath = Options::getMasterUserFolder() + filename;
 
-		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		bool save = false;
+
+		file_units->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+		for (auto& base : *file_units->getBases())
 		{
 
-			bool save = false;
-
-			file_units->load(filename, _game->getMod(), _game->getLanguage());
-
-			for (auto& base : *file_units->getBases())
+			if (base->getName() == old_name)
 			{
 
-				if (base->getName() == old_name)
-				{
-
-					base->setName(new_name);
-					save = true;
-					break;
-				}
-			}
-
-			if (save)
-			{
-
-				file_units->save(filename, _game->getMod());
+				base->setName(new_name);
+				save = true;
+				break;
 			}
 		}
+
+		if (save)
+		{
+			file_units->saveCoopToMemory(filename, _game->getMod(), filename);
+		}
+		
 	}
 
 	// TRADING AND EXPORTING GOODS
@@ -1944,13 +2122,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			int minute = obj["minute"].asInt();
 			int second = obj["second"].asInt();
 
-			_weekday = weekday;
-			_day = day;
-			_month = month;
-			_year = year;
-			_hour = hour;
-			_minute = minute;
-			_second = second;
+			connectionTCP::_weekday = weekday;
+			connectionTCP::_day = day;
+			connectionTCP::_month = month;
+			connectionTCP::_year = year;
+			connectionTCP::_hour = hour;
+			connectionTCP::_minute = minute;
+			connectionTCP::_second = second;
+
+			int monthsPassed = obj["monthsPassed"].asInt();
+			int daysPassed = obj["daysPassed"].asInt();
+
+			connectionTCP::monthsPassed = monthsPassed;
+			connectionTCP::daysPassed = daysPassed;
+
 		}
 
 		std::string time_speed = obj["time_speed"].asString();
@@ -4082,6 +4267,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				int speed = obj["ufos"][i]["speed"].asInt();
 
+				// new!!!
+				bool hyperDetected = obj["ufos"][i]["hyperDetected"].asBool();
+				int shield = obj["ufos"][i]["shield"].asInt();
+				bool isHunterKiller = obj["ufos"][i]["isHunterKiller"].asBool();
+				bool isEscort = obj["ufos"][i]["isEscort"].asBool();
+
 				// alien mission
 				AlienMission* alien_mission = 0;
 
@@ -4176,16 +4367,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				ufo->setLatitude(d_lat);
 				ufo->setLongitude(d_lon);
 
+				// new !!!
+				ufo->setShield(shield);
+				ufo->setHunterKiller(isHunterKiller);
+				ufo->setEscort(isEscort);
+
 				if (getCoopGamemode() == 2 && getHost() == false)
 				{
 					ufo->setDetectedCoop(true);
+					ufo->setHyperDetected(true);
 				}
 				else if (getCoopGamemode() == 3 && getHost() == true)
 				{
 					ufo->setDetectedCoop(true);
+					ufo->setHyperDetected(true);
 				}
 				else
 				{
+					ufo->setHyperDetected(hyperDetected);
 					ufo->setDetectedCoop(detected);
 				}
 
@@ -5050,6 +5249,50 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_waitBH = true;
 	}
 
+	if (stateString == "close_save_progress")
+	{
+
+		// Closing save progress popup
+		_game->popState();
+
+	}
+
+	if (stateString == "MAP_RESULT_LOAD_PROGRESS")
+	{
+
+		writeHostMapLoadProgressFile();
+
+		_isLoadProgress = true;
+
+		CoopState* coop = new CoopState(555);
+		coop->loadWorld();
+
+	}
+
+	if (stateString == "close_load_progress")
+	{
+
+		sendTCPPacketData(obj["data"].toStyledString());
+
+	}
+
+	if (stateString == "MAP_RESULT_SAVE_PROGRESS")
+	{
+
+		std::string jsonData333 = "{\"state\" : \"close_save_progress\"}";
+		sendTCPPacketData(jsonData333);
+
+		// Closing save progress popup
+		_game->popState();
+
+		// WRITE THE FILE RECEIVED FROM THE CLIENT TO THE HOST
+		if (_game->getSavedGame())
+		{
+			writeHostMapSaveProgressFile();
+		}
+
+	}
+
 	if (stateString == "MAP_RESULT_HOST" && onTcpHost == true)
 	{
 
@@ -5073,7 +5316,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sendTCPPacketData(jsonData2);
 		}
 
-		gettingData = 0;
 	}
 
 	if (stateString == "MAP_RESULT_CLIENT" && onTcpHost == false)
@@ -5083,8 +5325,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		writeHostMapFile();
 		loadHostMap();
-
-		gettingData = 0;
 
 		// if not save file
 		if (inventory_battle_window == true)
@@ -5108,8 +5348,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 		try
 		{
-
-			gettingData = 1;
 
 			if (obj.isMember("data") && obj["data"].isString())
 			{
@@ -5184,26 +5422,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			std::cerr << "Failed to open file for writing." << std::endl;
 		}
 
-		// file (host)
-		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/host"))
-		{
-			DebugLog("host folder created!");
-		}
-		else
-		{
-			DebugLog("host folder failed created!");
-		}
-
-		// file (client)
-		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/client"))
-		{
-			DebugLog("client folder created!");
-		}
-		else
-		{
-			DebugLog("client folder failed created!");
-		}
-
 		// IF THE HOST IS IN BATTLE, INCLUDE JOINERS; OTHERWISE DO NOTHING
 		// DISPLAY THE CLIENT PLAYER'S BASE
 		std::string playername = obj.get("playername", "defaultState").asString();
@@ -5251,6 +5469,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// UnbalancedCraftSoldiersLimit
 		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
 		root["unbalanced_craft_soldiers_limit"] = _unbalanced_craft_soldiers_limit;
+
+		// HostSaveProgress
+		connectionTCP::_host_save_progress = Options::HostSaveProgress;
+		root["host_save_progress"] = _host_save_progress;
+
+		if (connectionTCP::saveID == 0)
+		{
+			connectionTCP::saveID = getDateTimeCoop();
+		}
+
+		// saveID
+		root["saveID"] = connectionTCP::saveID;
 
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
@@ -5313,6 +5543,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_HOST" && onTcpHost == false)
 	{
 
+		// HostSaveProgress
+		bool host_save_progress = obj["host_save_progress"].asBool();
+		connectionTCP::_host_save_progress = host_save_progress;
+
+		if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == false && _loadProgress == Json::nullValue)
+		{
+
+			long long saveID = obj["saveID"].asInt64();
+			connectionTCP::saveID = saveID;
+
+			_game->pushState(new CoopState(52));
+
+			Json::Value root;
+
+			root["state"] = "request_load_progress";
+
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+			_loadProgress = obj;
+
+			return;
+
+		}
+
+		_loadProgress = Json::nullValue;
+		
 		fixCoopSave();
 
 		// coop fix bases..
@@ -5354,26 +5610,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			std::cerr << "Failed to open file for writing." << std::endl;
 		}
 
-		// file (host)
-		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/host"))
-		{
-			DebugLog("host folder created!");
-		}
-		else
-		{
-			DebugLog("host folder failed created!");
-		}
-
-		// file (client)
-		if (std::filesystem::create_directory(Options::getMasterUserFolder() + "/client"))
-		{
-			DebugLog("client folder created!");
-		}
-		else
-		{
-			DebugLog("client folder failed created!");
-		}
-
 		// campaign check
 		bool host_coop_campaign = obj["coop_campaign"].asBool();
 		bool client_coop_campaign = _coopCampaign;
@@ -5385,8 +5621,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (host_coop_campaign == true)
 			{
 
-				connectionTCP::no_bases = true;
-				_game->pushState(new GeoscapeState());
+				if (connectionTCP::_host_save_progress == false)
+				{
+					connectionTCP::no_bases = true;
+					_game->pushState(new GeoscapeState());
+				}
 
 			}
 			// if new battle
@@ -5497,7 +5736,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		// DISPLAY THE CLIENT PLAYER'S BASE
-		if (connectionTCP::no_bases == false)
+		if (connectionTCP::no_bases == false && connectionTCP::_host_save_progress == false)
 		{
 			_game->popState();
 		}
@@ -5519,7 +5758,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false && base->_coopIcon == false)
+				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 				{
 
 					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -5649,7 +5888,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false)
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -5751,7 +5990,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false)
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -6032,12 +6271,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sendBaseFile();
 
 			// Save the geospace file so the player can return to it later
-			if (_game->getCoopMod()->getCoopCampaign() == true)
+			if (_game->getCoopMod()->getCoopCampaign() == true && connectionTCP::_host_save_progress == false)
 			{
-				_game->getSavedGame()->setName("coop_geoscape");
-				_game->getSavedGame()->save("coop_geoscape.sav", _game->getMod());
+				_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
+				_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
 			}
-
 
 		}
 
@@ -6098,7 +6336,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// INFORMATION FROM HOST TO CLIENT ABOUT MAP LOADING!
 	if (stateString == "SEND_FILE_HOST_TRUE" && onTcpHost == true)
 	{
-
 		Json::Value root;
 
 		root["state"] = "SEND_FILE_HOST";
@@ -6110,20 +6347,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "SEND_FILE_HOST" && onTcpHost == false)
 	{
 
+		sendBaseFile();
+
+		// Save the geospace file so the player can return to it later
+		if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+		{
+			_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
+			_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
+		}
+
 		_game->getCoopMod()->load_state = "Sending base data";  
 
 		sendFileHost = true;
 	}
 
+	if (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS")
+	{
+
+		Json::Value root;
+
+		root["state"] = "SEND_FILE_HOST_SAVE_PROGRESS";
+
+		sendTCPPacketData(root.toStyledString());
+	}
+
+	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS")
+	{
+
+		_game->getCoopMod()->load_state = "Saving";
+
+		sendFileHost = true;
+		sendProgressSaveFileToHost = true;
+	}
+
 	// BASES
 	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false)
 	{
-
-		if (gettingData == 1)
-		{
-			gettingData = 2;
-			return;
-		}
 
 		sendBaseFile();
 
@@ -6133,12 +6392,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true)
 	{
-
-		if (gettingData == 1)
-		{
-			gettingData = 2;
-			return;
-		}
 
 		sendBaseFile();
 
@@ -6154,15 +6407,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopState* coopWindow = new CoopState(55);
 		coopWindow->loadWorld();
 
-		// send the file immediately if needed...
-		if (gettingData == 2)
-		{
-
-			sendFileHost = true;
-			sendFileBase = true;
-		}
-
-		gettingData = 0;
 	}
 
 	if (stateString == "MAP_RESULT_HOST_BASE" && onTcpHost == true)
@@ -6173,52 +6417,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopState* coopWindow = new CoopState(55);
 		coopWindow->loadWorld();
 
-		// lahetetaan samantien tiedosto jos tarvetta...
-		if (gettingData == 2)
-		{
-
-			sendFileClient = true;
-			sendFileBase = true;
-		}
-
-		gettingData = 0;
 	}
 }
 
 void connectionTCP::sendBaseFile()
 {
 
-	if (_game->getCoopMod()->getHost() == false)
+	// saving is not allowed if in battle and inside another player's base!
+	if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
 	{
-		// saving is not allowed if in battle and inside another player's base!
-		if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
+		if (_game->getCoopMod()->coopMissionEnd == false)
 		{
-
-			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
-			{
-				_game->getSavedGame()->save("host/basehost.data", _game->getMod());
-			}
-			else if (_game->getCoopMod()->coopMissionEnd == false)
-			{
-				_game->getSavedGame()->save("client/basehost.data", _game->getMod());
-			}
-		}
-	}
-	else
-	{
-
-		// do not allow saving if in battle and inside another player's base!
-		if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
-		{
-
-			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
-			{
-				_game->getSavedGame()->save("host/basehost.data", _game->getMod());
-			}
-			else if (_game->getCoopMod()->coopMissionEnd == false)
-			{
-				_game->getSavedGame()->save("client/basehost.data", _game->getMod());
-			}
+			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
 		}
 	}
 
@@ -6227,38 +6437,11 @@ void connectionTCP::sendBaseFile()
 void connectionTCP::setPauseOn()
 {
 
-	// coop
-	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false && _battleInit == true)
-	{
-
-		/*
-		Json::Value root;
-
-		root["state"] = "GamePausedON";
-
-		sendTCPPacketData(root.toStyledString().c_str());
-		*/
-
-
-	}
 }
 
 void connectionTCP::setPauseOff()
 {
 
-	// coop
-	if (getCoopStatic() == true && _isActivePlayerSync == false && gamePaused == 0 && _battleWindow == false && _isActiveAISync == false && _battleInit == true)
-	{
-
-		/*
-		Json::Value root;
-
-		root["state"] = "GamePausedOFF";
-
-		sendTCPPacketData(root.toStyledString().c_str());
-		*/
-
-	}
 }
 
 std::string connectionTCP::getPing()
@@ -6274,6 +6457,11 @@ bool connectionTCP::isCoopSession()
 void connectionTCP::setCoopSession(bool session)
 {
 	coopSession = session;
+}
+
+void connectionTCP::setServerOwner(bool owner)
+{
+	server_owner = owner;
 }
 
 void connectionTCP::setCoopCampaign(bool coop)
@@ -6318,24 +6506,22 @@ void connectionTCP::sendTCPPacketStaticData2(std::string data)
 
 void connectionTCP::writeHostMapFile2()
 {
-	std::string filename = "";
+	
+	if (mapData.empty())
+		return;
 
-	if (getServerOwner() == true)
+	if (connectionTCP::getServerOwner() == true)
 	{
-		filename = "host/baseclient.data";
+		connectionTCP::coopFilesHost["baseclient"] = std::move(mapData);
 	}
 	else
 	{
-		filename = "client/baseclient.data";
+		connectionTCP::coopFilesClient["baseclient"] = std::move(mapData);
 	}
-
-	std::string filepath = Options::getMasterUserFolder() + filename;
-	std::ofstream file(filepath);
-	std::string my_string = mapData;
-	file << my_string;
 
 	// the map data must be reset for the next use (fix)
 	mapData = "";
+
 }
 
 void connectionTCP::setHost(bool host)
@@ -6404,14 +6590,11 @@ void connectionTCP::sendMissionFile()
 			// saving files
 			if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
 			{
-				_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
-
+				_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 			}
 			else if (_game->getCoopMod()->coopMissionEnd == false)
 			{
-
-				_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
-
+				_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 			}
 
 			_game->getCoopMod()->load_state = "Saving";
@@ -6426,13 +6609,19 @@ void connectionTCP::sendMissionFile()
 	else
 	{
 
+		// Save the player ID that owns the co-op save
+		if (_game->getCoopMod()->getServerOwner() == false)
+		{
+			connectionTCP::coop_save_owner_player_id = 1;
+		}
+
 		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
 		else if (_game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
 
 		Json::Value obj;
@@ -6464,11 +6653,46 @@ void connectionTCP::sendMissionFile()
 
 		}
 
-
-
 		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
+}
+
+void connectionTCP::sendSaveProgressFile()
+{
+
+	if (_game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	{
+
+		// Go to the Geoscape to begin saving progress.
+			
+		_game->getCoopMod()->playerInsideCoopBase = false;
+
+		_game->getCoopMod()->ready_coop_save_progress = true;
+
+		CoopState* coopWindow = new CoopState(67);
+		_game->pushState(coopWindow);
+			
+	}
+	else
+	{
+
+		CoopState* coopWindow = new CoopState(53);
+		_game->pushState(coopWindow);
+
+		// saving files
+		std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+
+		_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+
+		_game->getCoopMod()->load_state = "Saving";
+
+		Json::Value obj;
+		obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
+
+		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
+	
 }
 
 int connectionTCP::getCurrentTurn()
@@ -7234,7 +7458,7 @@ void connectionTCP::disconnectTCP()
 		connectionTCP::_coopGamemode = 0;
 		connectionTCP::show_inactive_player_inventory = false;
 
-		if (connectionTCP::no_bases == true)
+		if (connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false))
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -7253,8 +7477,6 @@ void connectionTCP::disconnectTCP()
 
 		_clientPanicHandle = false;
 
-		// new values
-		gettingData = 0;
 		sendFileClient = false;
 		sendFileBase = false;
 		sendFileHost = false;
@@ -7302,31 +7524,114 @@ std::string connectionTCP::getHostName()
 
 void connectionTCP::writeHostMapFile()
 {
-	std::string filename = "";
 
 	if (mapData.empty())
 		return;
 
-	if (getServerOwner() == true)
+	if (connectionTCP::getServerOwner() == true)
 	{
-		filename = "host/battleclient.data";
+
+		std::string filename = "battleclient";
+
+		connectionTCP::coopFilesHost[filename] = std::move(mapData);
+
+		// RECEIVE CLIENT DATA
+		SavedGame* client_save = new SavedGame();
+
+		client_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+		if (client_save && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+		{
+
+			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
+
+			client_save->save(filename, _game->getMod());
+
+		}
+
 	}
 	else
 	{
-		filename = "client/battleclient.data";
+		connectionTCP::coopFilesClient["battleclient"] = std::move(mapData);
 	}
-
-	std::string filepath = Options::getMasterUserFolder() + filename;
-	std::ofstream file(filepath);
-	std::string my_string = mapData;
-	file << my_string;
 
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 }
 
+void connectionTCP::writeHostMapSaveProgressFile()
+{
 
+	std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
 
+	if (mapData.empty())
+		return;
+
+	connectionTCP::coopFilesHost[filename] = std::move(mapData);
+
+	SavedGame* coopFile = new SavedGame();
+	coopFile->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+	bool error = false;
+	bool found = false;
+
+	if (coopFile)
+	{
+
+		for (auto& base : *coopFile->getBases())
+		{
+
+			if (base->_coopBase == false)
+			{
+				found = true;
+			}
+
+			if (base->getName().empty() || (base->getLongitude() == 0 && base->getLatitude() == 0))
+			{
+				error = true;
+				break;
+			}
+
+		}
+
+	}
+	else
+	{
+		error = true;
+	}
+
+	if (error == false && coopFile && found == true)
+	{
+
+		coopFile->save(filename, _game->getMod());
+
+	}
+	else
+	{
+
+		_game->pushState(new CoopState(994));
+
+	}
+
+	// the map data must be reset for the next use (fix)
+	mapData = "";
+
+}
+
+void connectionTCP::writeHostMapLoadProgressFile()
+{
+
+	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+
+	if (mapData.empty())
+		return;
+
+	connectionTCP::coopFilesClient[filename] = std::move(mapData);
+
+	// the map data must be reset for the next use (fix)
+	mapData = "";
+
+}
 
 }
 

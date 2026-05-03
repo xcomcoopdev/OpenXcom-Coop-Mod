@@ -165,6 +165,7 @@ class connectionTCP
 	// research
 	Json::Value waitedResearch;
 	static bool _isChatActiveStatic;
+	long long getDateTimeCoop() const;
 	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();
 	void updateCoopTask();
@@ -188,6 +189,7 @@ class connectionTCP
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();
+	void sendSaveProgressFile();
 	int gamePaused = 0; // 0 = no set, 1 = team, 2 = your
 	bool cancel_connect = false;
 	int getCurrentTurn();
@@ -204,9 +206,11 @@ class connectionTCP
 	std::string getPing();
 	bool isCoopSession(); // is the co-op session created? (does not consider whether a player has joined)
 	void setCoopSession(bool session);
+	void setServerOwner(bool owner);
 	static bool _coopCampaign;
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
+	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
 	bool getCoopCampaign();
 	// no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int getCoopGamemode();
@@ -214,9 +218,12 @@ class connectionTCP
 	static void sendTCPPacketStaticData2(std::string data);
 	void writeHostMapFile2();
 	void writeHostMapFile();
+	void writeHostMapSaveProgressFile();
+	void writeHostMapLoadProgressFile();
 	bool inventory_battle_window = true; // Do not use inventory if another player joins a saved game
 	static bool getServerOwner();
 	bool ready_coop_battle = false; // notify the other player that the co-op mission is starting
+	bool ready_coop_save_progress = false; // Notify the other player that progress saving is starting
 	std::vector<Soldier*> coopSoldiers;
 	std::string current_base_name = "";
 	int64_t coopFunds = 0;
@@ -294,18 +301,23 @@ class connectionTCP
 
 	static bool _unbalanced_craft_soldiers_limit;
 
+	static bool _host_save_progress;
+
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
 
 	// time
-	int _weekday = 0;
-	int _day = 0;
-	int _month = 0;
-	int _year = 0;
-	int _hour = 0;
-	int _minute = 0;
-	int _second = 0;
+	static int _weekday;
+	static int _day;
+	static int _month;
+	static int _year;
+	static int _hour;
+	static int _minute;
+	static int _second;
+
+	static int monthsPassed;
+	static int daysPassed;
 
 	int _AIProgressCoop = -1;
 	bool _AISecondMoveCoop = false;
@@ -385,6 +397,19 @@ class connectionTCP
 
 	// pause
 	static bool pauseSound;
+
+	// LOAD_PROGRESS
+	Json::Value _loadProgress = Json::nullValue;
+	bool _isLoadProgress = false;
+
+	// Stores coop files in a hash map instead of separate files in the host folders
+	static std::unordered_map<std::string, std::string> coopFilesHost;
+	// Stores coop files in a hash map instead of separate files in the client folders
+	static std::unordered_map<std::string, std::string> coopFilesClient;
+	static bool hasCoopFile(const std::string& key);
+
+	static bool saveError;
+	static long long saveID;
 
 };
 

@@ -1666,6 +1666,32 @@ void BattlescapeState::think()
 				_game->getCoopMod()->_isActiveAISync = false;
 
 				_battleGame->cancelAllActions();
+		
+				// Read the co-op save owner player ID to check whether the current player is the host
+				if (_game->getCoopMod()->getServerOwner() == true)
+				{
+
+					if (connectionTCP::coop_save_owner_player_id == 0)
+					{
+						_game->getCoopMod()->setHost(true);
+					}
+					else
+					{
+						_game->getCoopMod()->setHost(false);
+					}
+				}
+				else
+				{
+
+					if (connectionTCP::coop_save_owner_player_id == 1)
+					{
+						_game->getCoopMod()->setHost(true);
+					}
+					else
+					{
+						_game->getCoopMod()->setHost(false);
+					}
+				}
 
 				// PVP
 				if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)

@@ -498,129 +498,114 @@ void CraftInfoState::btnOkClick(Action *)
 	{
 
 		// save the other player's base (CLIENT only), e.g., soldiers, etc.
-		std::string filename = "";
+		std::string filename = "basehost";
+	
+		SavedGame* basehost_save = new SavedGame();
 
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			filename = "host/basehost.data";
-		}
-		else
-		{
-			filename = "client/basehost.data";
-		}
+		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
-		std::string filepath = Options::getMasterUserFolder() + filename;
-
-		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		// if save found
+		if (basehost_save)
 		{
 
-			SavedGame* basehost_save = new SavedGame();
-
-			basehost_save->load(filename, _game->getMod(), _game->getLanguage());
-
-			// if save found
-			if (basehost_save)
+			for (auto& saved_base : *basehost_save->getBases())
 			{
 
-				for (auto& saved_base : *basehost_save->getBases())
+				// First, remove everything that isn't from base -1!
+				auto& soldiers = *saved_base->getSoldiers(); 
+
+				// Free any soldiers in memory whose coopBase != -1.
+				for (auto it = soldiers.begin(); it != soldiers.end(); )
 				{
-
-					// First, remove everything that isn't from base -1!
-					auto& soldiers = *saved_base->getSoldiers(); 
-
-					// Free any soldiers in memory whose coopBase != -1.
-					for (auto it = soldiers.begin(); it != soldiers.end(); )
+					if ((*it)->getCoopBase() == _base->_coop_base_id) // Check coopBase
 					{
-						if ((*it)->getCoopBase() == _base->_coop_base_id) // Check coopBase
-						{
-							delete *it;              // Free the soldier from memory
-							it = soldiers.erase(it); // Remove the pointer from the vector and update the iterator
-						}
-						else
-						{
-							++it; // Advance to the next only if nothing was removed
-						}
-					}
-
-					// Also vehicles
-					auto& crafts = *saved_base->getCrafts(); // Refer to the vector that contains Craft* objects
-
-					for (auto& craft : crafts)
-					{
-						auto& vehicles = *craft->getVehicles();
-
-						for (auto it = vehicles.begin(); it != vehicles.end();)
-						{
-							if ((*it)->getCoopBase() == _base->_coop_base_id)  // Check coopBase
-							{
-								delete *it;              // Free the vehicle from memory
-								it = vehicles.erase(it); // Remove the pointer from the vector and update the iterator
-							}
-							else
-							{
-								++it; // Move to the next only if not removed
-							}
-						}
-					}
-				}
-
-				// Add the new soldiers to the first base's soldier list
-				auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-				for (auto* soldier : *_base->getSoldiers())
-				{
-					if (soldier->getCraft())
-					{
-
-						soldier->setCoopCraft(soldier->getCraft()->getId());
-						soldier->setCoopCraftType(soldier->getCraft()->getType());
-
-					}
-
-					soldier->setCoopBase(_base->_coop_base_id);
-					soldier->setCoopName(soldier->getName());
-
-					target_soldiers.push_back(soldier);
-
-				}
-
-				auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
-
-				// add the new vehicles
-				for (auto* craft : *_base->getCrafts())
-				{
-
-					for (auto* vehicle : *craft->getVehicles())
-					{
-
-						vehicle->setCoopBase(_base->_coop_base_id);
-						vehicle->setCoopCraft(craft->getId());
-						vehicle->setCoopCraftType(craft->getType());
-
-						target_vehicles.push_back(vehicle);
-					}
-				}
-
-				// save changes
-				basehost_save->save(filename, _game->getMod());
-
-				// prevent duplication after saving...
-				auto& soldiers = *_base->getSoldiers();
-				for (auto it = soldiers.begin(); it != soldiers.end();)
-				{
-
-					if ((*it)->getCoopBase() == -1)
-					{
-						delete *it;             // Free the memory
-						it = soldiers.erase(it); // Remove from the list and update the iterator
+						delete *it;              // Free the soldier from memory
+						it = soldiers.erase(it); // Remove the pointer from the vector and update the iterator
 					}
 					else
 					{
-						++it; // Advance to the next element only if not removed
+						++it; // Advance to the next only if nothing was removed
 					}
 				}
 
+				// Also vehicles
+				auto& crafts = *saved_base->getCrafts(); // Refer to the vector that contains Craft* objects
+
+				for (auto& craft : crafts)
+				{
+					auto& vehicles = *craft->getVehicles();
+
+					for (auto it = vehicles.begin(); it != vehicles.end();)
+					{
+						if ((*it)->getCoopBase() == _base->_coop_base_id)  // Check coopBase
+						{
+							delete *it;              // Free the vehicle from memory
+							it = vehicles.erase(it); // Remove the pointer from the vector and update the iterator
+						}
+						else
+						{
+							++it; // Move to the next only if not removed
+						}
+					}
+				}
 			}
+
+			// Add the new soldiers to the first base's soldier list
+			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
+
+			for (auto* soldier : *_base->getSoldiers())
+			{
+				if (soldier->getCraft())
+				{
+
+					soldier->setCoopCraft(soldier->getCraft()->getId());
+					soldier->setCoopCraftType(soldier->getCraft()->getType());
+
+				}
+
+				soldier->setCoopBase(_base->_coop_base_id);
+				soldier->setCoopName(soldier->getName());
+
+				target_soldiers.push_back(soldier);
+
+			}
+
+			auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
+
+			// add the new vehicles
+			for (auto* craft : *_base->getCrafts())
+			{
+
+				for (auto* vehicle : *craft->getVehicles())
+				{
+
+					vehicle->setCoopBase(_base->_coop_base_id);
+					vehicle->setCoopCraft(craft->getId());
+					vehicle->setCoopCraftType(craft->getType());
+
+					target_vehicles.push_back(vehicle);
+				}
+			}
+
+			// save changes
+			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
+
+			// prevent duplication after saving...
+			auto& soldiers = *_base->getSoldiers();
+			for (auto it = soldiers.begin(); it != soldiers.end();)
+			{
+
+				if ((*it)->getCoopBase() == -1)
+				{
+					delete *it;             // Free the memory
+					it = soldiers.erase(it); // Remove from the list and update the iterator
+				}
+				else
+				{
+					++it; // Advance to the next element only if not removed
+				}
+			}
+
 		}
 	}
 

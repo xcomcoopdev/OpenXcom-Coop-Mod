@@ -117,6 +117,68 @@ CoopState::CoopState(int state)
 	_btnYes->onMouseClick((ActionHandler)&CoopState::btnYesClick);
 	_btnYes->onKeyboardPress((ActionHandler)&CoopState::btnYesClick, Options::keyOk);
 
+	// HostLoadProgress (client)
+	if (state == 52)
+	{
+		_game->getCoopMod()->load_state = "Loading";
+
+		_txtTitle->setText(_game->getCoopMod()->load_state + "...");
+
+		_btnBack->setText("Disconnect");
+		_btnBack->setVisible(true);
+	}
+
+	// save error
+	if (state == 994)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Save failed (FILE), please try again.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+
+	}
+
+	// save error 2
+	if (state == 995)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Save failed (MEMORY), please try again.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// HostSaveProgress (host)
+	if (state == 54)
+	{
+		
+		_game->getCoopMod()->load_state = "Saving";
+		_txtTitle->setText(_game->getCoopMod()->load_state + "...");
+
+		Json::Value obj;
+		obj["state"] = "sendProgressSaveRequest";
+		obj["saveID"] = connectionTCP::saveID;
+		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+
+		_btnBack->setText(tr("STR_CANCEL_UC"));
+		_btnBack->setVisible(true);
+
+	}
+
+	// HostSaveProgress (client)
+	if (state == 53)
+	{
+		_game->getCoopMod()->load_state = "Saving";
+
+		_txtTitle->setText(_game->getCoopMod()->load_state + "...");
+
+		_btnBack->setText("Disconnect");
+		_btnBack->setVisible(true);
+	}
+
 	// Main campaign base defense
 	if (state == 77)
 	{
@@ -196,6 +258,13 @@ CoopState::CoopState(int state)
 	{
 		_txtTitle->setSmall();
 		_txtTitle->setText("Go to Geoscape to begin the co-op mission.");
+		_btnBack->setVisible(true);
+	}
+
+	if (state == 67)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setText("Go to Geoscape to begin saving progress.");
 		_btnBack->setVisible(true);
 	}
 
@@ -486,7 +555,7 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == 4)
+		else if (global_state == 4 || global_state == 54 || global_state == 53)
 		{
 
 			if (state_counter == 0)
@@ -569,7 +638,7 @@ void CoopState::previous(Action *)
 {
 
 	// disconnect
-	if (global_state == 50 || global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15)
+	if (global_state == 50 || global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53)
 	{
 
 		if (global_state == 15)
@@ -614,14 +683,7 @@ void CoopState::loadWorld()
 	if (global_state == 765)
 	{
 
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			_game->pushState(new LoadGameState(_origin, "host/battlehost.data", _palette));
-		}
-		else
-		{
-			_game->pushState(new LoadGameState(_origin, "client/battlehost.data", _palette));
-		}
+		_game->pushState(new LoadGameState(_origin, "battlehost", _palette, "battlehost"));
 
 	}
 	// set client soldier
@@ -629,64 +691,54 @@ void CoopState::loadWorld()
 	{
 
 		// own path
-		std::string filename = "host/battleclient.data";
+		std::string filename = "battleclient";
 
-		if (_game->getCoopMod()->getServerOwner() == false)
+
+		Base* selected_base = 0;
+
+		// fix
+		if (_game->getCoopMod()->getSelectedCraft())
 		{
-			filename = "client/battleclient.data";
+
+			selected_base = _game->getCoopMod()->getSelectedCraft()->getBase();
+		}
+		else
+		{
+			selected_base = _game->getSavedGame()->getSelectedBase();
 		}
 
-		std::string filepath = Options::getMasterUserFolder() + filename;
+		// RECEIVE CLIENT DATA
+		SavedGame* client_save = new SavedGame();
 
-		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		client_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+		if (client_save && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			Base* selected_base = 0;
+			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
 
-			// fix
-			if (_game->getCoopMod()->getSelectedCraft())
+			client_save->save(filename, _game->getMod());
+
+		}
+
+		Craft* selected_craft = _game->getCoopMod()->getSelectedCraft();
+
+		int space_available = 0;
+
+		if (selected_craft)
+		{
+			space_available = _game->getCoopMod()->getSelectedCraft()->getNumTotalSoldiers() + _game->getCoopMod()->getSelectedCraft()->getSpaceAvailable();
+		}
+
+		// HOST SOLDIERS
+		for (auto& host_soldier : *selected_base->getSoldiers())
+		{
+
+			if (host_soldier->getCraft())
 			{
 
-				selected_base = _game->getCoopMod()->getSelectedCraft()->getBase();
-			}
-			else
-			{
-				selected_base = _game->getSavedGame()->getSelectedBase();
-			}
-
-			// RECEIVE CLIENT DATA
-			SavedGame* client_save = new SavedGame();
-
-			client_save->load(filename, _game->getMod(), _game->getLanguage());
-
-			Craft* selected_craft = _game->getCoopMod()->getSelectedCraft();
-
-			int space_available = 0;
-
-			if (selected_craft)
-			{
-				space_available = _game->getCoopMod()->getSelectedCraft()->getNumTotalSoldiers() + _game->getCoopMod()->getSelectedCraft()->getSpaceAvailable();
-			}
-
-			// HOST SOLDIERS
-			for (auto& host_soldier : *selected_base->getSoldiers())
-			{
-
-				if (host_soldier->getCraft())
-				{
-
-					// if same craft
-					if (host_soldier->getCraft() == selected_craft)
-					{
-
-						host_soldier->setCoop(0);
-						host_soldier->setCoopBase(-1);
-
-					}
-
-				}
-				// base defense
-				else if (_game->getCoopMod()->_isMainCampaignBaseDefense == true)
+				// if same craft
+				if (host_soldier->getCraft() == selected_craft)
 				{
 
 					host_soldier->setCoop(0);
@@ -695,72 +747,65 @@ void CoopState::loadWorld()
 				}
 
 			}
-
-
-			// CLIENT SOLDIERS
-			for (auto& client_base : *client_save->getBases())
+			// base defense
+			else if (_game->getCoopMod()->_isMainCampaignBaseDefense == true)
 			{
 
-				// Iterate soldiers
-				for (auto& soldier : *client_base->getSoldiers())
+				host_soldier->setCoop(0);
+				host_soldier->setCoopBase(-1);
+
+			}
+
+		}
+
+
+		// CLIENT SOLDIERS
+		for (auto& client_base : *client_save->getBases())
+		{
+
+			// Iterate soldiers
+			for (auto& soldier : *client_base->getSoldiers())
+			{
+
+				// check if match
+				if ((soldier->getCoopBase() == selected_base->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
 				{
 
-					// check if match
-					if ((soldier->getCoopBase() == selected_base->_coop_base_id) || _game->getCoopMod()->getCoopCampaign() == false)
+					if (soldier->getCoopCraft() != -1 || _game->getCoopMod()->_isMainCampaignBaseDefense == true)
 					{
 
-						if (soldier->getCoopCraft() != -1 || _game->getCoopMod()->_isMainCampaignBaseDefense == true)
+						// if the same craft
+						std::vector<Soldier*>* soldiers = selected_base->getSoldiers();
+
+						int lastId = 0;
+						Soldier* lastSoldier = nullptr;
+
+						if (soldiers && !soldiers->empty())
+						{
+							auto it = std::max_element(
+								soldiers->begin(), soldiers->end(),
+								[](const Soldier* a, const Soldier* b)
+								{
+									// Treat nullptr as smaller
+									if (!a)
+										return true;
+									if (!b)
+										return false;
+									return a->getId() < b->getId();
+								});
+
+							if (it != soldiers->end() && *it)
+							{
+								lastSoldier = *it;
+								lastId = (*it)->getId();
+							}
+						}
+		
+						if (selected_craft)
 						{
 
-							// if the same craft
-							std::vector<Soldier*>* soldiers = selected_base->getSoldiers();
-
-							int lastId = 0;
-							Soldier* lastSoldier = nullptr;
-
-							if (soldiers && !soldiers->empty())
-							{
-								auto it = std::max_element(
-									soldiers->begin(), soldiers->end(),
-									[](const Soldier* a, const Soldier* b)
-									{
-										// Treat nullptr as smaller
-										if (!a)
-											return true;
-										if (!b)
-											return false;
-										return a->getId() < b->getId();
-									});
-
-								if (it != soldiers->end() && *it)
-								{
-									lastSoldier = *it;
-									lastId = (*it)->getId();
-								}
-							}
-		
-							if (selected_craft)
-							{
-
-								// If there is space, add a new one
-								if ((space_available > 0 && selected_craft->getId() == soldier->getCoopCraft() && selected_craft->getRules()->getType() == soldier->getCoopCraftType()))
-								{
-
-									int newId = lastId + 1;
-
-									soldier->setId(newId);
-									soldier->setCoop(1);
-									soldier->calcStatString(_game->getMod()->getStatStrings(), false);
-									soldiers->push_back(soldier);
-
-									soldier->setCraftAndMoveEquipment(selected_craft, selected_base, _game->getSavedGame()->getMonthsPassed() == -1);
-
-									space_available--;
-								}
-
-
-							}
-							else if (_game->getCoopMod()->_isMainCampaignBaseDefense == true)
+							// If there is space, add a new one
+							if ((space_available > 0 && selected_craft->getId() == soldier->getCoopCraft() && selected_craft->getRules()->getType() == soldier->getCoopCraftType()))
 							{
 
 								int newId = lastId + 1;
@@ -772,83 +817,98 @@ void CoopState::loadWorld()
 
 								soldier->setCraftAndMoveEquipment(selected_craft, selected_base, _game->getSavedGame()->getMonthsPassed() == -1);
 
+								space_available--;
 							}
 
 
 						}
-					}
-				}
-
-				if (selected_craft)
-				{
-
-
-					// HOST VEHICLES
-					for (auto& host_vehicle : *_game->getCoopMod()->getSelectedCraft()->getVehicles())
-					{
-
-						host_vehicle->setCoop(0);
-						host_vehicle->setCoopBase(-1);
-					}
-
-					// CLIENT VEHICLES
-					for (auto& client_craft : *client_base->getCrafts())
-					{
-
-						for (auto& vehicle : *client_craft->getVehicles())
+						else if (_game->getCoopMod()->_isMainCampaignBaseDefense == true)
 						{
 
-							// check if this vehicle item exists in the base inventory
-							int vehicle_count = selected_base->getItemsCoop()->getItem(vehicle->getRules());
-						
-							if ((selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && vehicle->getCoopBase() == selected_base->_coop_base_id && (vehicle_count > 0)) || _game->getCoopMod()->getCoopCampaign() == false)
-							{
+							int newId = lastId + 1;
 
-								selected_craft->makeCoopVehicle(vehicle);
+							soldier->setId(newId);
+							soldier->setCoop(1);
+							soldier->calcStatString(_game->getMod()->getStatStrings(), false);
+							soldiers->push_back(soldier);
 
-							}
+							soldier->setCraftAndMoveEquipment(selected_craft, selected_base, _game->getSavedGame()->getMonthsPassed() == -1);
+
 						}
+
+
 					}
+				}
+			}
+
+			if (selected_craft)
+			{
 
 
+				// HOST VEHICLES
+				for (auto& host_vehicle : *_game->getCoopMod()->getSelectedCraft()->getVehicles())
+				{
+
+					host_vehicle->setCoop(0);
+					host_vehicle->setCoopBase(-1);
 				}
 
+				// CLIENT VEHICLES
+				for (auto& client_craft : *client_base->getCrafts())
+				{
+
+					for (auto& vehicle : *client_craft->getVehicles())
+					{
+
+						// check if this vehicle item exists in the base inventory
+						int vehicle_count = selected_base->getItemsCoop()->getItem(vehicle->getRules());
+						
+						if ((selected_craft->getId() == vehicle->getCoopCraft() && selected_craft->getType() == vehicle->getCoopCraftType() && vehicle->getCoopBase() == selected_base->_coop_base_id && (vehicle_count > 0)) || _game->getCoopMod()->getCoopCampaign() == false)
+						{
+
+							selected_craft->makeCoopVehicle(vehicle);
+
+						}
+					}
+				}
 
 
 			}
+
+
+
 		}
+		
 	}
 	else if (global_state == 888)
 	{
-		if (_game->getCoopMod()->getServerOwner() == true)
-		{
-			_game->pushState(new LoadGameState(_origin, "host/battleclient.data", _palette));
-		}
-		else
-		{
-			_game->pushState(new LoadGameState(_origin, "client/battleclient.data", _palette));
-		}
+		_game->pushState(new LoadGameState(_origin, "battleclient", _palette, "battleclient"));
+	}
+	else if (global_state == 555)
+	{
+		std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+		_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette, filename, true));
 	}
 	else if (global_state == 777)
 	{
 		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("host/basehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
 		}
 		else if (_game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("client/basehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
 		}
 	}
 	else if (global_state == 666)
 	{
 		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("host/battlehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
 		else if (_game->getCoopMod()->coopMissionEnd == false)
 		{
-			_game->getSavedGame()->save("client/battlehost.data", _game->getMod());
+			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
 
 	}
@@ -863,146 +923,120 @@ void CoopState::loadWorld()
 
 			std::string filename = "";
 
-			if (_game->getCoopMod()->getServerOwner() == true)
-			{
-				// write
-				_game->getCoopMod()->coopFunds = oldsave->getFunds();
-				oldsave->save("host/basehost.data", _game->getMod());
-
-				filename = "host/baseclient.data"; 
-
-			}
-			else
-			{
-				// write
-				_game->getCoopMod()->coopFunds = oldsave->getFunds();
-				oldsave->save("client/basehost.data", _game->getMod());
-
-				filename = "client/baseclient.data"; 
-
-			}
+			// write
+			_game->getCoopMod()->coopFunds = oldsave->getFunds();
+			oldsave->saveCoopToMemory("basehost", _game->getMod(), "basehost");
+			filename = "baseclient"; 
 
 			std::vector<Soldier*> current_soldiers;
 
-			std::string filepath = Options::getMasterUserFolder() + filename;
+			newsave->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
-			if (OpenXcom::CrossPlatform::fileExists(filepath))
+			for (auto& newbase : *newsave->getBases())
 			{
 
-				newsave->load(filename, _game->getMod(), _game->getLanguage());
+				newbase->isCoopBase(true);
 
+				// clear all vehicles and soldiers from the base
+				newbase->getSoldiers()->clear();
 
-				for (auto& newbase : *newsave->getBases())
+				for (auto &temp_craft : *newbase->getCrafts())
+				{
+				
+					auto& vehicles = *temp_craft->getVehicles();
+
+					for (auto it = vehicles.begin(); it != vehicles.end();)
+					{
+						Vehicle* temp_vehicle = *it;
+
+						const RuleItem* rule = temp_vehicle->getRules();
+						newbase->getItemsCoop()->addItem(rule);
+
+						if (rule->getVehicleClipAmmo())
+						{
+							newbase->getItemsCoop()->addItem(rule->getVehicleClipAmmo(), rule->getVehicleClipsLoaded());
+						}
+
+						it = vehicles.erase(it);
+						delete temp_vehicle;
+					}
+				
+				}
+
+				newbase->getVehicles()->clear();
+
+				newbase->cleanupDefenses(false);
+
+				for (auto* unit_base : *oldsave->getBases())
 				{
 
-					newbase->isCoopBase(true);
-
-					// clear all vehicles and soldiers from the base
-					newbase->getSoldiers()->clear();
-
-					for (auto &temp_craft : *newbase->getCrafts())
-					{
-				
-						auto& vehicles = *temp_craft->getVehicles();
-
-						for (auto it = vehicles.begin(); it != vehicles.end();)
-						{
-							Vehicle* temp_vehicle = *it;
-
-							const RuleItem* rule = temp_vehicle->getRules();
-							newbase->getItemsCoop()->addItem(rule);
-
-							if (rule->getVehicleClipAmmo())
-							{
-								newbase->getItemsCoop()->addItem(rule->getVehicleClipAmmo(), rule->getVehicleClipsLoaded());
-							}
-
-							it = vehicles.erase(it);
-							delete temp_vehicle;
-						}
-				
-					}
-
-					newbase->getVehicles()->clear();
-
-					newbase->cleanupDefenses(false);
-
-					for (auto* unit_base : *oldsave->getBases())
+					// vehicles
+					for (auto& old_craft : *unit_base->getCrafts())
 					{
 
-						// vehicles
-						for (auto& old_craft : *unit_base->getCrafts())
+						for (auto& old_vehicle : *old_craft->getVehicles())
 						{
 
-							for (auto& old_vehicle : *old_craft->getVehicles())
+							for (auto& new_craft : *newbase->getCrafts())
 							{
 
-								for (auto& new_craft : *newbase->getCrafts())
+								// find the old co-op vehicle that matches the new co-op vehicle
+								if (old_vehicle->getCoopBase() == newbase->_coop_base_id && new_craft->getType() == old_vehicle->getCoopCraftType() && new_craft->getId() == old_vehicle->getCoopCraft())
 								{
 
-									// find the old co-op vehicle that matches the new co-op vehicle
-									if (old_vehicle->getCoopBase() == newbase->_coop_base_id && new_craft->getType() == old_vehicle->getCoopCraftType() && new_craft->getId() == old_vehicle->getCoopCraft())
+									// check if this vehicle item exists in the base inventory
+									int vehicle_count = newbase->getItemsCoop()->getItem(old_vehicle->getRules());
+
+									if (vehicle_count > 0)
 									{
 
-										// check if this vehicle item exists in the base inventory
-										int vehicle_count = newbase->getItemsCoop()->getItem(old_vehicle->getRules());
+										Vehicle* deep_vehicle = old_vehicle->clone();
 
-										if (vehicle_count > 0)
-										{
+										new_craft->getVehicles()->push_back(deep_vehicle);
 
-											Vehicle* deep_vehicle = old_vehicle->clone();
+										const RuleItem* v_rule = deep_vehicle->getRules();
 
-											new_craft->getVehicles()->push_back(deep_vehicle);
+										newbase->getItemsCoop()->removeItem(v_rule);
 
-											const RuleItem* v_rule = deep_vehicle->getRules();
+										const RuleItem* ammo = v_rule->getVehicleClipAmmo();
+										int ammoPerVehicle = v_rule->getVehicleClipsLoaded();
 
-											newbase->getItemsCoop()->removeItem(v_rule);
-
-											const RuleItem* ammo = v_rule->getVehicleClipAmmo();
-											int ammoPerVehicle = v_rule->getVehicleClipsLoaded();
-
-											newbase->getItemsCoop()->removeItem(ammo, ammoPerVehicle);
-
-										}
-
-
-										break;
+										newbase->getItemsCoop()->removeItem(ammo, ammoPerVehicle);
 
 									}
+
+
+									break;
 
 								}
 
 							}
 
 						}
-						
-						// soldiers
-						for (auto& soldier : *unit_base->getSoldiers())
-						{
-
-							// if a co-op soldier is found in the co-op base
-							if (soldier->getCoopBase() == newbase->_coop_base_id)
-							{
-
-								Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
-
-								newbase->getSoldiers()->push_back(deep_copied_soldier);
-
-							}
-						}
-
 
 					}
+						
+					// soldiers
+					for (auto& soldier : *unit_base->getSoldiers())
+					{
+
+						// if a co-op soldier is found in the co-op base
+						if (soldier->getCoopBase() == newbase->_coop_base_id)
+						{
+
+							Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
+
+							newbase->getSoldiers()->push_back(deep_copied_soldier);
+
+						}
+					}
+
+
+				}
 
 				
 
-				}
-		
-
-
-
 			}
-
 
 
 			_game->setSavedGame(newsave);
@@ -1029,43 +1063,19 @@ void CoopState::loadWorld()
 		if (_game->getCoopMod()->getHost() == true)
 		{
 
-			if (_game->getCoopMod()->getServerOwner() == true)
-			{
-				_game->pushState(new LoadGameState(_origin, "host/battleclient.data", _palette));
-			}
-			else
-			{
-				_game->pushState(new LoadGameState(_origin, "client/battleclient.data", _palette));
-			}
+			_game->pushState(new LoadGameState(_origin, "battleclient", _palette, "battleclient"));
 
 		}
 		else
 		{
 
-			if (_game->getCoopMod()->getServerOwner() == true)
-			{
-				
-				// save the co-op mission so it can be continued later
-				SavedGame *oldsave = new SavedGame(*_game->getSavedGame());
-				oldsave->setName("coop_mission");
-				oldsave->save("coop_mission.sav", _game->getMod());
+			// save the co-op mission so it can be continued later
+			SavedGame *oldsave = new SavedGame(*_game->getSavedGame());
+			oldsave->setName("coop_mission");
+			oldsave->save("coop_mission.sav", _game->getMod());
 
-				// load battle
-				_game->pushState(new LoadGameState(_origin, "host/battleclient.data", _palette));
-
-			}
-			else
-			{
-
-				// save the co-op mission so it can be continued later
-				SavedGame *oldsave = new SavedGame(*_game->getSavedGame());
-				oldsave->setName("coop_mission");
-				oldsave->save("coop_mission.sav", _game->getMod());
-
-				// load the battle
-				_game->pushState(new LoadGameState(_origin, "client/battleclient.data", _palette));
-
-			}
+			// load battle
+			_game->pushState(new LoadGameState(_origin, "battleclient", _palette, "battleclient"));
 
 		}
 	}
