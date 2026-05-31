@@ -42,13 +42,15 @@ class LobbyMenu : public State
 protected:
 	TextButton *_btnDisconnect, *_btnChat, *_btnCancel;
 	Window *_window;
-	Text *_txtTitle, *_txtName, *_txtLatency, *_txtDetails;
+	Text *_txtTitle, *_txtName, *_txtLatency, *_txtDetails, *_txtTeam, *_txtChangeTeam;
 	TextList *_lstPlayers;
-	ArrowButton *_sortName,  *_sortLatency;
+	ArrowButton *_sortName, *_sortLatency, *_sortTeam;
 	OptionsOrigin _origin;
 	std::vector<playerInfo> _connectedPlayers;
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
+	bool _timerStarted = false;
+	int _countdown = 60; // seconds
 	void updateArrows();
 public:
 	/// Creates the Game state.
@@ -78,6 +80,7 @@ public:
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action* action);
 	void sortLatencyClick(Action* action);
+	void sortTeamClick(Action* action);
 };
 
 }

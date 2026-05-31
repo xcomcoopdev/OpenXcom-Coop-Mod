@@ -38,7 +38,7 @@
 namespace OpenXcom
 {
 
-Profile::Profile(bool clientInBattle, bool inBattle) : _clientInBattle(clientInBattle), _inBattle(inBattle)
+Profile::Profile()
 {
 
 	int x = 50;
@@ -105,49 +105,7 @@ Profile::Profile(bool clientInBattle, bool inBattle) : _clientInBattle(clientInB
 
 void Profile::buttonOK(Action *)
 {
-
 	_game->popState();
-
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		// if the client is in battle and the host is not, send the host a file and a notification
-		if (_clientInBattle == true && _inBattle == false)
-		{
-
-			// client only!
-			if (_game->getCoopMod()->getHost() == false)
-			{
-
-				Json::Value root;
-
-				root["state"] = "SEND_FILE_HOST_SAVE";
-
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-			}
-		}
-		// CHECK IF THE HOST IS IN BATTLE — IF SO, ADD JOINERS; OTHERWISE DO NOTHING
-		else if (_inBattle == true)
-		{
-
-			// only client!
-			if (_game->getCoopMod()->getHost() == false)
-			{
-
-				Json::Value root;
-
-				root["state"] = "SEND_FILE_CLIENT_SAVE";
-
-				_game->getCoopMod()->inventory_battle_window = false;
-
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-				_game->pushState(new CoopState(1));
-			}
-		}
-
-	}
-
 }
 
 Profile::~Profile()

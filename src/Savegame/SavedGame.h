@@ -99,16 +99,18 @@ struct SaveInfo
 
 struct ServerInfo
 {
+	std::string id;
 	std::string name;
 	std::string player;
-	std::string address;
-	int port;
-	bool online;
-	int maxPlayers;
-	int currentPlayers;
-	int latency;
+	uint32_t maxPlayers;
+	uint32_t currentPlayers;
+	std::string region;
 	bool reserved;
-	std::string details; // description, gamemode, mods, 
+	bool isUDP;
+	std::string passwordRequired;
+	bool isLanDiscovery;
+	std::string lanHost;
+	uint16_t lanPort;
 };
 
 struct playerInfo
@@ -117,6 +119,7 @@ struct playerInfo
 	std::string name;
 	std::string latency;
 	bool reserved;
+	std::string team; // 0 = xcom, 1 = alien
 	std::string details; // stats
 };
 

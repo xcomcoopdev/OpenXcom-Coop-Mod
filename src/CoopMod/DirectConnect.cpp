@@ -19,13 +19,9 @@
  */
 
 #include "DirectConnect.h"
-#include "../Menu/SaveGameState.h"
-#include "../Menu/LoadGameState.h"
-#include "CoopState.h"
-#include "../Mod/ExtraSprites.h"
 #include "../Engine/Surface.h"
-#include "Profile.h"
-#include "ChatMenu.h"
+#include "connectionUDP/connection_rendezvous_glue.h"
+#include "PasswordCheckMenu.h"
 
 namespace OpenXcom
 {
@@ -37,13 +33,6 @@ namespace OpenXcom
 DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MISSION), _isRightClick(false)
 {
 
-	// coop chat menu
-	if (!_game->getCoopMod()->getChatMenu())
-	{
-		Font* smallFont = _game->getMod()->getFont("FONT_SMALL");
-		_game->getCoopMod()->setChatMenu(new ChatMenu(smallFont, _game));
-	}
-
 	_screen = false;
 
 	int x = 20;
@@ -52,6 +41,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(180, 18, x + 18, 60);
 
+	_cbxNetworkProtocol = new ComboBox(this, 180, 18, x + 18, 50);
 	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
 	_port = new TextEdit(this, 180, 18, x + 18, 92);
 	_playerName = new TextEdit(this, 180, 18, x + 18, 112);
@@ -70,6 +60,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "pauseMenu");
+	add(_cbxNetworkProtocol, "button", "pauseMenu");
 	add(_ipAddress);
 	add(_port);
 	add(_playerName);
@@ -111,6 +102,11 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_txtInfo->setAlign(ALIGN_CENTER);
 	_txtInfo->setSmall();
 
+	_networkProtocolTypes.push_back("NETWORK: TCP");
+	_networkProtocolTypes.push_back("NETWORK: UDP");
+	_cbxNetworkProtocol->setOptions(_networkProtocolTypes, false);
+	_cbxNetworkProtocol->onChange((ActionHandler)&DirectConnect::cbxNetworkProtocolChange);
+
 	// ip address
 	_ipAddress->setColor(color);
 	_ipAddress->setBig();
@@ -130,6 +126,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_playerName->setBorderColor(color);
 	_playerName->setText("Player");
 	_playerName->setVisible(false);
+	_playerName->onChange((ActionHandler)&DirectConnect::edtPlayerNameChange);
 	
 	_tcpButtonJoin->setText("JOIN");
 	_tcpButtonJoin->onMouseClick((ActionHandler)&DirectConnect::joinTCPGame);
@@ -424,14 +421,43 @@ void DirectConnect::convertUnits()
 
 }
 
-void DirectConnect::btnChatClick(Action* action)
+bool DirectConnect::parseUdpPort(const std::string& text, uint16_t& outPort)
+{
+	if (text.empty())
+		return false;
+
+	char* end = nullptr;
+	long value = std::strtol(text.c_str(), &end, 10);
+
+	if (*end != '\0')
+		return false;
+
+	if (value < 1 || value > 65535)
+		return false;
+
+	outPort = static_cast<uint16_t>(value);
+	return true;
+}
+
+void DirectConnect::edtPlayerNameChange(Action* action)
+{
+	_game->getCoopMod()->setHostName(_playerName->getText());
+}
+
+void DirectConnect::cbxNetworkProtocolChange(Action* action)
 {
 
-	if (_game->getCoopMod()->getChatMenu())
+	int selected_gamemode = _cbxNetworkProtocol->getSelected();
+
+	// TCP
+	if (selected_gamemode == 0)
 	{
-
-		_game->getCoopMod()->getChatMenu()->setActive(!_game->getCoopMod()->getChatMenu()->isActive());
-
+		isUDP = false;
+	}
+	// UDP
+	else if (selected_gamemode == 1)
+	{
+		isUDP = true;
 	}
 
 }
@@ -474,7 +500,48 @@ void DirectConnect::joinTCPGame(Action* action)
 
 	_game->pushState(new CoopState(15));
 
-	_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
+	// TCP
+	if (isUDP == false)
+	{
+		_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
+	}
+	// UDP
+	else
+	{
+
+		uint16_t hostUdpPort = 0;
+
+		if (!parseUdpPort(_port->getText(), hostUdpPort))
+		{
+			DebugLog(("Direct LAN: invalid host UDP port: " + _port->getText() + "\n").c_str());
+
+			return;
+		}
+		
+		OpenXcom::joinLanRoomByAddressViaRendezvousAsync(
+			_ipAddress->getText(),					// Host LAN IP from Direct Connect menu.
+			"",										// Must match host password. Empty is allowed.
+			_game->getCoopMod()->getHostName(),		// Client player name.
+			hostUdpPort,							// client local UDP port, 0 = automatic
+			[this, hostUdpPort](bool ok)
+			{
+				if (ok)
+				{
+					// Direct LAN connection started.
+					return;
+				}
+
+				connectionTCP::forceCloseCoopStateMenu = true;
+
+				// Direct LAN failed. Most likely wrong password, host not found,
+				// firewall, or wrong port.
+				// If this room/server requires a password, open passwordCheck menu.
+				_game->pushState(new PasswordCheckMenu(_ipAddress->getText(), _game->getCoopMod()->getHostName(), hostUdpPort, true, true));
+			}
+		);
+		
+	}
+
 }
 
 /**

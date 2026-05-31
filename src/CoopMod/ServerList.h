@@ -44,16 +44,16 @@ protected:
 	TextButton *_btnHost, *_btnDirectConnect, *_btnAddServer, *_btnRefresh, *_btnCancel, *_btnFilter;
 	TextEdit *_search;
 	Window *_window;
-	ToggleTextButton* _btnJoin;
-	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtLatency, *_txtJoin, *_txtDetails;
+	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtRegion, *_txtJoin, *_txtPasswordRequired;
 	TextList *_lstServers;
-	ArrowButton *_sortName, *_sortPlayers,  *_sortLatency;
+	ArrowButton *_sortName, *_sortPlayers, *_sortRegion, *_sortPassword;
 	OptionsOrigin _origin;
 	std::vector<ServerInfo> _servers;
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
 	void updateArrows();
-public:
+	void updateServerList();
+  public:
 	/// Creates the Saved Game state.
 	ServerList();
 	/// Cleans up the Saved Game state.
@@ -71,18 +71,21 @@ public:
 	void btnHostClick(Action* action);
 	void btnDirectConnectClick(Action* action);
 	/// Handler for moving the mouse over a list item.
-	void lstSavesMouseOver(Action *action);
+	void lstServerMouseOver(Action *action);
 	/// Handler for moving the mouse outside the list borders.
-	void lstSavesMouseOut(Action *action);
-	/// Handler for clicking the Saves list.
-	virtual void lstSavesPress(Action *action);
+	void lstServerMouseOut(Action *action);
+	/// Handler for clicking the Server list.
+	virtual void lstServerPress(Action *action);
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action *action);
 	/// Handler for clicking the Date arrow.
 	void sortPlayersClick(Action *action);
-	void sortLatencyClick(Action* action);
+	void sortRegionClick(Action* action);
+	void sortPasswordClick(Action* action);
 	/// disables the sort buttons.
 	void disableSort();
+	/// Runs the timers and handles popups.
+	void think() override;
 };
 
 }

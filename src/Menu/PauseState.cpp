@@ -151,7 +151,6 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_btnLoad->setVisible(false);
 	}
 
-	// battlescape
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false)
 	{
 
@@ -198,13 +197,13 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	}
 
 	//  coop
-	if (origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
+	if (_origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
 	{
 		_btnSave->setVisible(true);
 	}
 
 	// coop
-	if (_game->getCoopMod()->isCoopSession() == false)
+	if (_game->getCoopMod()->isCoopSession() == false && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_btnLoad->setVisible(true);
 		_btnSave->setVisible(true);
@@ -265,7 +264,7 @@ void PauseState::btnCoopClick(Action *)
 {
 
 	// Open the host menu if the host saves the players' campaign progress, the client joins the game through the main menu (New Battle)
-	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
+	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
 	{
 
 		_game->pushState(new HostMenu());
@@ -273,6 +272,54 @@ void PauseState::btnCoopClick(Action *)
 	else
 	{
 		_game->pushState(new ServerList());
+	}
+
+}
+
+void PauseState::init()
+{
+
+	// coop
+	// geoscape
+	if (_game->getCoopMod()->getCoopStatic() == true || _game->getCoopMod()->getServerOwner() == true)
+	{
+		_btnLoad->setVisible(false);
+	}
+
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false)
+	{
+		_btnLoad->setVisible(false);
+		_btnSave->setVisible(false);
+	}
+
+	// Client-side error
+	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
+	{
+		// Show the save button only for bugs that have occurred!
+		_btnSave->setVisible(true);
+	}
+
+	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == false)
+	{
+		_btnSave->setVisible(false);
+	}
+
+	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == true)
+	{
+		_btnSave->setVisible(true);
+	}
+
+	//  coop
+	if (_origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
+	{
+		_btnSave->setVisible(true);
+	}
+
+	// coop
+	if (_game->getCoopMod()->isCoopSession() == false && _game->getCoopMod()->getServerOwner() == false)
+	{
+		_btnLoad->setVisible(true);
+		_btnSave->setVisible(true);
 	}
 
 }
@@ -317,13 +364,6 @@ void PauseState::btnCancelClick(Action *)
 	_game->getCoopMod()->setPauseOff();
 
 	_game->popState();
-}
-
-
-
-void PauseState::setGeo(GeoscapeState *geostate)
-{
-	_geostate = geostate;
 }
 
 }

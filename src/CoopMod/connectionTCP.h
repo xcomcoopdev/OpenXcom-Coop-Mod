@@ -23,6 +23,14 @@
 #include <fstream>
 #include <thread>
 #include <vector>
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <utility>
 
 #include <filesystem>
 #include <cctype> // std::isdigit
@@ -82,58 +90,72 @@ template <size_t N>
 struct SPSCQueue
 {
 	std::array<std::string, N> buf{};
-	std::atomic<size_t> head{0}; // producer writes
-	std::atomic<size_t> tail{0}; // consumer reads
+	std::atomic<size_t> head{0};
+	std::atomic<size_t> tail{0};
+	mutable std::mutex mutex;
 
+	// The original queue was single-producer/single-consumer. Battlescape sync can
+	// enqueue from more than one code path, so protect the bounded ring buffer with
+	// a small mutex to avoid rare string corruption and lost packets.
 	bool push(std::string&& s)
 	{
+		std::lock_guard<std::mutex> lock(mutex);
 		size_t h = head.load(std::memory_order_relaxed);
 		size_t n = (h + 1) % N;
-		if (n == tail.load(std::memory_order_acquire))
+		if (n == tail.load(std::memory_order_relaxed))
 			return false; // full
 		buf[h] = std::move(s);
-		head.store(n, std::memory_order_release);
+		head.store(n, std::memory_order_relaxed);
 		return true;
 	}
 
 	bool pop(std::string& out)
 	{
+		std::lock_guard<std::mutex> lock(mutex);
 		size_t t = tail.load(std::memory_order_relaxed);
-		if (t == head.load(std::memory_order_acquire))
+		if (t == head.load(std::memory_order_relaxed))
 			return false; // empty
 		out = std::move(buf[t]);
-		tail.store((t + 1) % N, std::memory_order_release);
+		tail.store((t + 1) % N, std::memory_order_relaxed);
 		return true;
 	}
 
 	bool empty() const
 	{
-		return tail.load(std::memory_order_acquire) ==
-			   head.load(std::memory_order_acquire);
+		std::lock_guard<std::mutex> lock(mutex);
+		return tail.load(std::memory_order_relaxed) ==
+		       head.load(std::memory_order_relaxed);
 	}
 
 	bool full() const
 	{
+		std::lock_guard<std::mutex> lock(mutex);
 		size_t h = head.load(std::memory_order_relaxed);
 		size_t n = (h + 1) % N;
-		return n == tail.load(std::memory_order_acquire);
+		return n == tail.load(std::memory_order_relaxed);
 	}
 };
+
+static const size_t kNetworkQueueSize = 8192;
 
 namespace OpenXcom
 {
 
-extern SPSCQueue<1024> g_txQ;
-extern SPSCQueue<1024> g_rxQ;
+// Shared network queues used by both connectionTCP and connectionUDP.
+// Definitions must exist exactly once in a .cpp file, normally connectionTCP.cpp:
+extern SPSCQueue<kNetworkQueueSize> g_txQ;
+extern SPSCQueue<kNetworkQueueSize> g_rxQ;
 
+// Existing name kept for compatibility: this only enqueues to g_txQ.
+// It does not have to mean that the active transport is TCP.
 void sendTCPPacketStaticData(std::string data);
 
 // Single place for enqueue logic.
-// Returns false if queue is full (packet dropped).
+// Returns false if queue is full, so caller may log/drop/retry.
 bool enqueueTx(std::string&& s);
 
- class Game;
- class Ufo;
+class Game;
+class Ufo;
 
 class connectionTCP
 {
@@ -141,8 +163,6 @@ class connectionTCP
 	std::thread _loopThread;
 	std::thread _clientThread;
 	std::thread _hostThread;
-	inline static SPSCQueue<1024> txQ{};
-	inline static SPSCQueue<1024> rxQ{};
 	// chat menu
 	ChatMenu* _chatMenu = nullptr;
 	Game* _game;
@@ -165,12 +185,18 @@ class connectionTCP
 	// research
 	Json::Value waitedResearch;
 	static bool _isChatActiveStatic;
+	void initProfile(bool clientInBattle, bool inBattle);
 	long long getDateTimeCoop() const;
 	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();
 	void updateCoopTask();
 	std::string getCurrentClientName();
+	std::string getCurrentClientServer();
+	void setCurrentClientServer(std::string servername);
 	std::string getHostName();
+	std::string getHostServer();
+	void setHostName(std::string playername);
+	void setHostServer(std::string servername);
 	void setClientSoldiers();
 	void deleteAllCoopBases();
 	void updateAllCoopBases();
@@ -184,8 +210,8 @@ class connectionTCP
 	bool getLanding();
 	void setSelectedCraft(Craft* selectedCraft);
 	Craft* getSelectedCraft();
-	void hostTCPServer(std::string playername, std::string port);
-	void connectTCPServer(std::string playername, std::string ipaddress, std::string port);
+	void hostTCPServer(std::string servername, std::string port);
+	void connectTCPServer(std::string servername, std::string ipaddress, std::string port);
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();
@@ -226,7 +252,10 @@ class connectionTCP
 	bool ready_coop_save_progress = false; // Notify the other player that progress saving is starting
 	std::vector<Soldier*> coopSoldiers;
 	std::string current_base_name = "";
-	int64_t coopFunds = 0;
+	int64_t coopFunds = 0; // Stores the current player’s funds
+	int64_t playersFunds = 0; // Stores the funds of all players
+	int64_t playersCrafts = 0;  // Stores the crafts of all players
+	int64_t playersBases = 0; // Stores the bases of all players
 	void setHost(bool host);
 	static bool playerInsideCoopBase; // is the player really in another player's base?
 	bool coopMissionEnd = false; // is the co-op mission completed?
@@ -245,7 +274,7 @@ class connectionTCP
 	// is the player actually connected?
 	int isConnected();
 	void setConnected(int state);
-	void disconnectTCP();
+	void disconnectTCP(bool isMain = false);
 	ChatMenu* getChatMenu();
 	void setChatMenu(ChatMenu* menu);
 
@@ -399,7 +428,6 @@ class connectionTCP
 	static bool pauseSound;
 
 	// LOAD_PROGRESS
-	Json::Value _loadProgress = Json::nullValue;
 	bool _isLoadProgress = false;
 
 	// Stores coop files in a hash map instead of separate files in the host folders
@@ -408,9 +436,22 @@ class connectionTCP
 	static std::unordered_map<std::string, std::string> coopFilesClient;
 	static bool hasCoopFile(const std::string& key);
 
+	// save
 	static bool saveError;
 	static long long saveID;
 
+	// password
+	static bool isPasswordRequired;
+	static std::string password;
+	Json::Value _checkPassword = Json::nullValue;
+
+	// lobby menu
+	static bool isCoopSessionLocked;
+	static bool isPlayerReady;
+	static bool isPlayersReady;
+	static int LobbyFileStatus;
+	static int lobby_timer;
+	static bool forceCloseCoopStateMenu;
 };
 
 }

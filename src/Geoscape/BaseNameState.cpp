@@ -156,12 +156,11 @@ void BaseNameState::btnOkClick(Action *)
 		}
 
 		// coop
-		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopStatic() == true && _first)
+		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == false)
 		{
 
 			Json::Value root;
 			root["state"] = "close_load_progress";
-			root["data"] = _game->getCoopMod()->_loadProgress;
 
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 

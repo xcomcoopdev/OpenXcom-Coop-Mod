@@ -37,10 +37,18 @@
 
 #include  "HostMenu.h"
 #include "DirectConnect.h"
+#include "connectionUDP/connection_rendezvous_glue.h"
+#include "PasswordCheckMenu.h"
 
 
 namespace OpenXcom
 {
+
+std::mutex _serverListMutex;
+std::vector<OpenXcom::RendezvousClient::RoomInfo> _pendingRooms;
+bool _pendingRoomsOk = false;
+bool _hasPendingRooms = false;
+bool _isRefreshingServers = false;
 
 struct compareServerName
 {
@@ -80,17 +88,36 @@ struct compareServerPlayers
 	}
 };
 
-struct compareServerLatency
+struct compareServerRegion
 {
 	bool _reverse;
 
-	compareServerLatency(bool reverse) : _reverse(reverse) {}
+	compareServerRegion(bool reverse) : _reverse(reverse) {}
 
 	bool operator()(const ServerInfo& a, const ServerInfo& b) const
 	{
 		if (a.reserved == b.reserved)
 		{
-			return a.latency < b.latency;
+			return Unicode::naturalCompare(a.region, b.region);
+		}
+		else
+		{
+			return _reverse ? b.reserved : a.reserved;
+		}
+	}
+};
+
+struct compareServerPassword
+{
+	bool _reverse;
+
+	compareServerPassword(bool reverse) : _reverse(reverse) {}
+
+	bool operator()(const ServerInfo& a, const ServerInfo& b) const
+	{
+		if (a.reserved == b.reserved)
+		{
+			return Unicode::naturalCompare(a.passwordRequired, b.passwordRequired);
 		}
 		else
 		{
@@ -145,15 +172,16 @@ ServerList::ServerList() : _sortable(true)
 
 	_txtTitle = new Text(310, 17, 5, 7);
 	_txtJoin = new Text(310, 9, 5, 23);
-	_txtName = new Text(150, 9, 16, isMobile ? 40 : 32);
-	_txtPlayers = new Text(110, 9, 204, isMobile ? 40 : 32);
-	_txtLatency = new Text(110, 9, 263, isMobile ? 40 : 32);
-	_lstServers = new TextList(288, isMobile ? 96 : 104, 8, isMobile ? 50 : 42);
-	_txtDetails = new Text(288, 16, 16, 148);
+	_txtName = new Text(115, 9, 16, isMobile ? 40 : 32);
+	_txtPlayers = new Text(50, 9, 126, isMobile ? 40 : 32); 
+	_txtRegion = new Text(50, 9, 238, isMobile ? 40 : 32);
+	_txtPasswordRequired = new Text(50, 9, 178, isMobile ? 40 : 32); 
+	_lstServers = new TextList(298, isMobile ? 96 : 104, 8, isMobile ? 50 : 42);
+
 	_sortName = new ArrowButton(ARROW_NONE, 11, 8, 16, isMobile ? 40 : 32);
-	_sortPlayers = new ArrowButton(ARROW_NONE, 11, 8, 204, isMobile ? 40 : 32);
-	_sortLatency = new ArrowButton(ARROW_NONE, 11, 8, 263, isMobile ? 40 : 32);
-	_btnJoin = new ToggleTextButton(288, 16, 16, 23);
+	_sortPlayers = new ArrowButton(ARROW_NONE, 11, 8, 126, isMobile ? 40 : 32);
+	_sortRegion = new ArrowButton(ARROW_NONE, 11, 8, 238, isMobile ? 40 : 32);
+	_sortPassword = new ArrowButton(ARROW_NONE, 11, 8, 178, isMobile ? 40 : 32);
 
 	// Set palette
 	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
@@ -170,13 +198,13 @@ ServerList::ServerList() : _sortable(true)
 	add(_txtJoin, "text", "saveMenus");
 	add(_txtName, "text", "saveMenus");
 	add(_txtPlayers, "text", "saveMenus");
-	add(_txtLatency, "text", "saveMenus");
+	add(_txtPasswordRequired, "text", "saveMenus");
+	add(_txtRegion, "text", "saveMenus");
 	add(_lstServers, "list", "saveMenus");
-	add(_txtDetails, "text", "saveMenus");
 	add(_sortName, "text", "saveMenus");
 	add(_sortPlayers, "text", "saveMenus");
-	add(_sortLatency, "text", "saveMenus");
-	add(_btnJoin, "button", "saveMenus");
+	add(_sortRegion, "text", "saveMenus");
+	add(_sortPassword, "text", "saveMenus");
 
 	// Set up objects
 	setWindowBackground(_window, "saveMenus");
@@ -220,32 +248,26 @@ ServerList::ServerList() : _sortable(true)
 
 	if (isMobile)
 	{
-		_txtJoin->setVisible(false);
-		_btnJoin->setText("Left click to join.");
+		_txtJoin->setText("Left click to join.");
 	}
 	else
 	{
-		_btnJoin->setVisible(false);
 		_txtJoin->setAlign(ALIGN_CENTER);
 		_txtJoin->setText("Left click to join.");
 	}
 
 	_txtName->setText("Server");
-
 	_txtPlayers->setText("Players");
+	_txtRegion->setText("Region");
+	_txtPasswordRequired->setText("Password");
 
-	_txtLatency->setText("Latency");
-
-	_lstServers->setColumns(3, 188, 60, 40);
+	_lstServers->setColumns(4, 110, 53, 57, 77); 
 	_lstServers->setSelectable(true);
 	_lstServers->setBackground(_window);
 	_lstServers->setMargin(8);
-	_lstServers->onMouseOver((ActionHandler)&ServerList::lstSavesMouseOver);
-	_lstServers->onMouseOut((ActionHandler)&ServerList::lstSavesMouseOut);
-	_lstServers->onMousePress((ActionHandler)&ServerList::lstSavesPress);
-
-	_txtDetails->setWordWrap(true);
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
+	_lstServers->onMouseOver((ActionHandler)&ServerList::lstServerMouseOver);
+	_lstServers->onMouseOut((ActionHandler)&ServerList::lstServerMouseOut);
+	_lstServers->onMousePress((ActionHandler)&ServerList::lstServerPress);
 
 	_sortName->setX(_sortName->getX() + _txtName->getTextWidth() + 5);
 	_sortName->onMouseClick((ActionHandler)&ServerList::sortNameClick);
@@ -253,8 +275,11 @@ ServerList::ServerList() : _sortable(true)
 	_sortPlayers->setX(_sortPlayers->getX() + _txtPlayers->getTextWidth() + 5);
 	_sortPlayers->onMouseClick((ActionHandler)&ServerList::sortPlayersClick);
 
-	_sortLatency->setX(_sortLatency->getX() + _txtLatency->getTextWidth() + 5);
-	_sortLatency->onMouseClick((ActionHandler)&ServerList::sortLatencyClick);
+	_sortRegion->setX(_sortRegion->getX() + _txtRegion->getTextWidth() + 5);
+	_sortRegion->onMouseClick((ActionHandler)&ServerList::sortRegionClick);
+
+	_sortPassword->setX(_sortPassword->getX() + _txtPasswordRequired->getTextWidth() + 5);
+	_sortPassword->onMouseClick((ActionHandler)&ServerList::sortPasswordClick);
 
 	updateArrows();
 
@@ -267,6 +292,8 @@ ServerList::ServerList() : _sortable(true)
 	{
 		_game->getCoopMod()->setCoopCampaign(false);
 	}
+
+	updateServerList();
 
 }
 
@@ -284,6 +311,8 @@ ServerList::~ServerList()
 void ServerList::init()
 {
 	State::init();
+
+	updateServerList();
 
 	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
 	if (_game->getCoopMod()->isConnected() == 1 || _game->getCoopMod()->getServerOwner() == true)
@@ -310,44 +339,6 @@ void ServerList::init()
 		applyBattlescapeTheme("saveMenus");
 	}
 
-	try
-	{
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Gamemode: PVE, Mods: NO, Password: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, true, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-		_servers.push_back(ServerInfo({"test", "player1", "127.0.0.1", 3000, false, 2, 1, 0, false, "Description: test, Gamemode: PVE, Mods: NO"}));
-
-		_lstServers->clearList();
-		sortList(Options::serverOrder);
-	}
-	catch (Exception &e)
-	{
-		Log(LOG_ERROR) << e.what();
-	}
 }
 
 /**
@@ -358,7 +349,7 @@ void ServerList::updateArrows()
 {
 	_sortName->setShape(ARROW_NONE);
 	_sortPlayers->setShape(ARROW_NONE);
-	_sortLatency->setShape(ARROW_NONE);
+	_sortRegion->setShape(ARROW_NONE);
 	switch (Options::serverOrder)
 	{
 	case SORT_SERVER_ASC:
@@ -373,14 +364,32 @@ void ServerList::updateArrows()
 	case SORT_PLAYERS_DESC:
 		_sortPlayers->setShape(ARROW_SMALL_DOWN);
 		break;
-	case SORT_LATENCY_ASC:
-		_sortLatency->setShape(ARROW_SMALL_UP);
+	case SORT_REGION_ASC:
+		_sortRegion->setShape(ARROW_SMALL_UP);
 		break;
-	case SORT_LATENCY_DESC:
-		_sortLatency->setShape(ARROW_SMALL_DOWN);
+	case SORT_REGION_DESC:
+		_sortRegion->setShape(ARROW_SMALL_DOWN);
 		break;
 	}
 
+}
+
+void ServerList::updateServerList()
+{
+	if (_isRefreshingServers)
+		return;
+
+	_isRefreshingServers = true;
+
+	OpenXcom::refreshServerListViaRendezvousAsync(
+		[this](bool ok, std::vector<OpenXcom::RendezvousClient::RoomInfo> rooms)
+		{
+			std::lock_guard<std::mutex> lock(_serverListMutex);
+
+			_pendingRoomsOk = ok;
+			_pendingRooms = std::move(rooms);
+			_hasPendingRooms = true;
+		});
 }
 
 /**
@@ -403,11 +412,17 @@ void ServerList::sortList(serverSort sort)
 	case SORT_PLAYERS_DESC:
 		std::sort(_servers.rbegin(), _servers.rend(), compareServerPlayers(true));
 		break;
-	case SORT_LATENCY_ASC:
-		std::sort(_servers.begin(), _servers.end(), compareServerLatency(false));
+	case SORT_REGION_ASC:
+		std::sort(_servers.begin(), _servers.end(), compareServerRegion(false));
 		break;
-	case SORT_LATENCY_DESC:
-		std::sort(_servers.rbegin(), _servers.rend(), compareServerLatency(true));
+	case SORT_REGION_DESC:
+		std::sort(_servers.rbegin(), _servers.rend(), compareServerRegion(true));
+		break;
+	case SORT_PASSWORD_ASC:
+		std::sort(_servers.begin(), _servers.end(), compareServerPassword(false));
+		break;
+	case SORT_PASSWORD_DESC:
+		std::sort(_servers.rbegin(), _servers.rend(), compareServerPassword(true));
 		break;
 	}
 	updateList();
@@ -424,16 +439,11 @@ void ServerList::updateList()
 	for (const auto& serverInfo : _servers)
 	{
 
-		std::string isOnline = "Offline";
-		if (serverInfo.online)
-		{
-			isOnline = "Online";
-		}
-
-		std::string server = serverInfo.name + " [" + isOnline + "]"; 
+		std::string server = serverInfo.name; 
 		std::string players = std::to_string(serverInfo.currentPlayers) + "/" + std::to_string(serverInfo.maxPlayers);
-		std::string latency = std::to_string(serverInfo.latency) + " ms";
-		_lstServers->addRow(3, server, players, latency);
+		std::string region = serverInfo.region;
+		std::string password = serverInfo.passwordRequired;
+		_lstServers->addRow(4, server.c_str(), players.c_str(), password.c_str(), region.c_str());
 		if (serverInfo.reserved && _origin != OPT_BATTLESCAPE)
 		{
 			_lstServers->setRowColor(row, color);
@@ -458,6 +468,7 @@ void ServerList::btnFilterClick(Action* action)
 
 void ServerList::btnRefreshClick(Action* action)
 {
+	updateServerList();
 }
 
 void ServerList::btnHostClick(Action* action)
@@ -471,50 +482,80 @@ void ServerList::btnDirectConnectClick(Action* action)
 }
 
 /**
- * Shows the details of the currently hovered save.
+ * Shows the details of the currently hovered server.
  * @param action Pointer to an action.
  */
-void ServerList::lstSavesMouseOver(Action*)
+void ServerList::lstServerMouseOver(Action*)
 {
-	int sel = _lstServers->getSelectedRow() - _firstValidRow;
-	std::string wstr;
-	if (sel >= 0 && sel < (int)_servers.size())
-	{
-		wstr = _servers[sel].details;
-	}
-	_txtDetails->setText(tr("STR_DETAILS").arg(wstr));
 }
 
 /**
  * Clears the details.
  * @param action Pointer to an action.
  */
-void ServerList::lstSavesMouseOut(Action*)
+void ServerList::lstServerMouseOut(Action*)
 {
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
 }
 
 /**
  * Deletes the selected save.
  * @param action Pointer to an action.
  */
-void ServerList::lstSavesPress(Action* action)
+void ServerList::lstServerPress(Action* action)
 {
-
-	/*
-	if ((action->getDetails()->button.button == SDL_BUTTON_RIGHT || _btnDelete->getPressed()) && _lstSaves->getSelectedRow() >= _firstValidRow)
+	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
-		_game->pushState(new DeleteGameState(_origin, _saves[_lstSaves->getSelectedRow() - _firstValidRow].fileName));
-	}
-	*/
 
-	/*
-	if (action->getDetails()->button.button == SDL_BUTTON_LEFT && !_btnDelete->getPressed())
-	{
-		loadSave(_lstSaves->getSelectedRow());
-	}
-	*/
+		int sel = _lstServers->getSelectedRow() - _firstValidRow;
+		std::string wstr;
+		if (sel >= 0 && sel < (int)_servers.size())
+		{
 
+			std::string udpPassword = "";
+
+			if (_servers[sel].isUDP == true)
+			{
+
+				if (_servers[sel].passwordRequired == "YES")
+				{
+
+					_game->pushState(new PasswordCheckMenu(&_servers[sel], _game->getCoopMod()->getHostName(), true, false));
+
+				}
+				else
+				{
+
+					_game->pushState(new CoopState(15));
+
+					if (_servers[sel].isLanDiscovery = true)
+					{
+
+						OpenXcom::joinLanRoomViaRendezvousAsync(
+							_servers[sel].id,                   // Rendezvous room id.
+							_servers[sel].lanHost,              // LAN IP found by UDP discovery, e.g. 192.168.1.50.
+							_servers[sel].lanPort,              // Host LAN UDP port, usually 3001 if 3000 is discovery.
+							"",                                 // Empty if no password.
+							_game->getCoopMod()->getHostName(), // Local player name.
+							0                                   // Client local UDP port. 0 = automatic.
+						);
+					}
+					else
+					{
+
+						OpenXcom::joinListedViaRendezvousAsync(
+							_servers[sel].id,                   // Room ID from the selected server-list entry. This identifies which room to join.
+							"",                                 // Room password. Empty string means no password; must match host password if one is set.
+							_game->getCoopMod()->getHostName(), // Local player name sent to the rendezvous server / shown to the host or lobby.
+							0                                   // Local UDP port. 0 = let the OS choose a free UDP port automatically.
+						);
+					}
+
+				}
+
+			}
+
+		}
+	}
 }
 
 /**
@@ -561,17 +602,35 @@ void ServerList::sortPlayersClick(Action*)
 	}
 }
 
-void ServerList::sortLatencyClick(Action* action)
+void ServerList::sortRegionClick(Action* action)
 {
 	if (_sortable)
 	{
-		if (Options::serverOrder == SORT_LATENCY_ASC)
+		if (Options::serverOrder == SORT_REGION_ASC)
 		{
-			Options::serverOrder = SORT_LATENCY_DESC;
+			Options::serverOrder = SORT_REGION_DESC;
 		}
 		else
 		{
-			Options::serverOrder = SORT_LATENCY_ASC;
+			Options::serverOrder = SORT_REGION_ASC;
+		}
+		updateArrows();
+		_lstServers->clearList();
+		sortList(Options::serverOrder);
+	}
+}
+
+void ServerList::sortPasswordClick(Action* action)
+{
+	if (_sortable)
+	{
+		if (Options::serverOrder == SORT_PASSWORD_ASC)
+		{
+			Options::serverOrder = SORT_PASSWORD_DESC;
+		}
+		else
+		{
+			Options::serverOrder = SORT_PASSWORD_ASC;
 		}
 		updateArrows();
 		_lstServers->clearList();
@@ -582,6 +641,69 @@ void ServerList::sortLatencyClick(Action* action)
 void ServerList::disableSort()
 {
 	_sortable = false;
+}
+
+void ServerList::think()
+{
+	State::think();
+
+	// Handle completed async server-list refresh on the main thread.
+	bool hasPending = false;
+	bool ok = false;
+	std::vector<OpenXcom::RendezvousClient::RoomInfo> rooms;
+
+	{
+		std::lock_guard<std::mutex> lock(_serverListMutex);
+
+		if (_hasPendingRooms)
+		{
+			hasPending = true;
+			ok = _pendingRoomsOk;
+			rooms = std::move(_pendingRooms);
+			_hasPendingRooms = false;
+		}
+	}
+
+	if (hasPending)
+	{
+		_isRefreshingServers = false;
+
+		if (ok)
+		{
+			_servers.clear();
+
+			for (const auto& room : rooms)
+			{
+				std::string password = room.passwordRequired ? "YES" : "NO";
+
+				_servers.push_back(ServerInfo({room.roomId,
+											   room.name,
+											   room.hostName,
+											   room.maxPlayers,
+											   room.players,
+											   room.region,
+											   false,
+											   true,
+											   password,
+											   room.isLan,
+											   room.lanHost,
+											   room.lanPort}));
+			}
+		}
+
+		_lstServers->clearList();
+		sortList(Options::serverOrder);
+	}
+
+	// Start a new refresh every 30 seconds.
+	static Uint32 lastUpdate = 0;
+	Uint32 now = SDL_GetTicks();
+
+	if (now - lastUpdate >= 30000)
+	{
+		lastUpdate = now;
+		updateServerList();
+	}
 }
 
 }

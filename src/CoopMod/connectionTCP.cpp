@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  * Copyright 2010-2016 OpenXcom Developers.
  * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
  *
@@ -19,6 +19,12 @@
  */
 
 #include "connectionTCP.h"
+
+#include <chrono>
+#include <cstring>
+#include <memory>
+#include <sstream>
+#include <unordered_set>
 
 #include "../Engine/Game.h"
 #include "../Menu/MainMenuState.h"
@@ -41,6 +47,8 @@
 #include "../Savegame/CraftWeapon.h"
 
 #include "../Menu/NewGameState.h"
+
+#include "./connectionUDP/connection_rendezvous_glue.h"
 
 namespace OpenXcom
 {
@@ -81,6 +89,12 @@ bool onTcpHost = false;
 
 // is the server owner the one who creates the server?
 bool server_owner = false;
+
+// the local server name
+std::string sendTcpServerName = "Server";
+
+// the recipient player's name
+std::string tcpServerName = "Server";
 
 // the local player's name
 std::string sendTcpPlayer = "Player";
@@ -152,6 +166,21 @@ bool connectionTCP::pauseSound = false;
 
 bool connectionTCP::saveError = false;
 
+bool connectionTCP::isPasswordRequired = false;
+std::string connectionTCP::password = "";
+
+bool connectionTCP::isCoopSessionLocked = false;
+
+bool connectionTCP::isPlayerReady = false;
+
+bool connectionTCP::isPlayersReady = false;
+
+int connectionTCP::LobbyFileStatus = -1;
+
+int connectionTCP::lobby_timer = -1;
+
+bool connectionTCP::forceCloseCoopStateMenu = false;
+
 // saveID is only used when the host saves each player's progress. This ensures that players load the correct save data.
 long long connectionTCP::saveID = 0;
 
@@ -194,8 +223,8 @@ connectionTCP::~connectionTCP()
 
 }
 
-SPSCQueue<1024> g_txQ{};
-SPSCQueue<1024> g_rxQ{};
+SPSCQueue<kNetworkQueueSize> g_txQ{};
+SPSCQueue<kNetworkQueueSize> g_rxQ{};
 
 // ===== Time helper =====
 static inline uint64_t now_ms()
@@ -217,7 +246,22 @@ static inline void sendJSONNoLock(const Json::Value& v)
 
 bool enqueueTx(std::string&& s)
 {
-	return g_txQ.push(std::move(s));
+	if (s.empty())
+		return false;
+
+	if (!g_txQ.push(std::move(s)))
+	{
+		static uint64_t lastQueueFullLog = 0;
+		const uint64_t now = now_ms();
+		if (now - lastQueueFullLog > 1000)
+		{
+			lastQueueFullLog = now;
+			DebugLog("TX queue full, dropping packet\n");
+		}
+		return false;
+	}
+
+	return true;
 }
 
 // HOST: emit PING once per second (independent from client)
@@ -255,12 +299,7 @@ static inline bool maybeHandlePongOnHost(const Json::Value& obj)
 
 void sendTCPPacketStaticData(std::string data)
 {
-	if (data.empty())
-		return;
-	if (!g_txQ.push(std::move(data)))
-	{
-		DebugLog("TX queue full, dropping packet\n");
-	}
+	enqueueTx(std::move(data));
 }
 
 // CLIENT: if incoming JSON is PING, reply with PONG (mirror host behavior)
@@ -744,7 +783,7 @@ void connectionTCP::updateCoopTask()
 				// debug mode
 				if (Options::logPacketMessages == true && Options::logInfoToFile == true)
 				{
-				
+
 					std::string str_debug =
 						std::string("task completed: ") + (_coop_task_completed ? "true" : "false") +
 						"   packet name: " + stateString +
@@ -761,9 +800,12 @@ void connectionTCP::updateCoopTask()
 					 stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
-				if (consumeNow)
+				if (consumeNow || onConnect == -1)
 				{
-					onTCPMessage(stateString, obj);
+					if (onConnect != -1)
+					{
+						onTCPMessage(stateString, obj);
+					}
 					++consumedThisPass;
 				}
 				else
@@ -1052,6 +1094,13 @@ void resetCoopState(bool isHost)
 	onConnect = -1;
 	connectionTCP::no_bases = false;
 	connectionTCP::isCoopBaseLoading = false;
+	connectionTCP::isCoopSessionLocked = false;
+	connectionTCP::isPlayerReady = false;
+	connectionTCP::isPlayersReady = false;
+	connectionTCP::LobbyFileStatus = -1;
+	connectionTCP::lobby_timer = -1;
+	connectionTCP::forceCloseCoopStateMenu = false;
+
 }
 
 // SERVER SETUP
@@ -1059,43 +1108,6 @@ void resetCoopState(bool isHost)
 
 // ===== Constants =====
 static constexpr uint32_t kMaxMsgLen = 4u * 1024u * 1024u; // Safety cap: 4 MB per message
-
-// ===== Lock-free SPSC ring buffers (single-producer, single-consumer) =====
-// Producer: game thread, Consumer: network thread (TX queue)
-// Producer: network thread, Consumer: game thread (RX queue)
-template <size_t N>
-struct SPSCQueue
-{
-	std::array<std::string, N> buf{};
-	std::atomic<size_t> head{0}; // producer writes
-	std::atomic<size_t> tail{0}; // consumer reads
-
-	bool push(std::string&& s)
-	{
-		size_t h = head.load(std::memory_order_relaxed);
-		size_t n = (h + 1) % N;
-		if (n == tail.load(std::memory_order_acquire))
-			return false; // full
-		buf[h] = std::move(s);
-		head.store(n, std::memory_order_release);
-		return true;
-	}
-	bool pop(std::string& out)
-	{
-		size_t t = tail.load(std::memory_order_relaxed);
-		if (t == head.load(std::memory_order_acquire))
-			return false; // empty
-		out = std::move(buf[t]);
-		tail.store((t + 1) % N, std::memory_order_release);
-		return true;
-	}
-	bool empty() const
-	{
-		return tail.load(std::memory_order_acquire) == head.load(std::memory_order_acquire);
-	}
-};
-
-
 
 // ===== TCP helpers =====
 
@@ -1383,8 +1395,9 @@ void connectionTCP::startTCPClient()
 		{
 			initSent = true;
 			Json::Value hello;
-			hello["state"] = "COOP_READY_CLIENT";
+			hello["state"] = "INIT_SERVER";
 			hello["playername"] = sendTcpPlayer;
+			hello["servername"] = sendTcpServerName;
 			sendJSONNoLock(hello);
 		}
 
@@ -1626,6 +1639,41 @@ void connectionTCP::startTCPHost()
 	return;
 }
 
+void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
+{
+	if (_game->getCoopMod()->getServerOwner() == false && (connectionTCP::_host_save_progress == true || connectionTCP::no_bases == true))
+	{
+		_game->pushState(new LobbyMenu);
+	}
+
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		// if the client is in battle and the host is not, send the host a file and a notification
+		if (clientInBattle == true && inBattle == false)
+		{
+
+			// client only!
+			if (_game->getCoopMod()->getHost() == false)
+			{
+
+				connectionTCP::LobbyFileStatus = 1;
+			}
+		}
+		// CHECK IF THE HOST IS IN BATTLE — IF SO, ADD JOINERS; OTHERWISE DO NOTHING
+		else if (inBattle == true)
+		{
+
+			// only client!
+			if (_game->getCoopMod()->getHost() == false)
+			{
+
+				connectionTCP::LobbyFileStatus = 2;
+			}
+		}
+	}
+}
+
 long long connectionTCP::getDateTimeCoop() const
 {
 	time_t now = time(0);
@@ -1643,7 +1691,46 @@ long long connectionTCP::getDateTimeCoop() const
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
-	coopSession = true;
+	if (stateString == "lobby_ready")
+	{
+
+		connectionTCP::isCoopSessionLocked = true;
+
+	}
+
+	if (stateString == "lobby_timer")
+	{
+
+		int timer = obj["timer"].asInt();
+		connectionTCP::lobby_timer = timer;
+
+	}
+
+	if (stateString == "coop_session_locked")
+	{
+
+		bool isPlayerReady = obj["isPlayerReady"].asBool();
+		connectionTCP::isPlayersReady = isPlayerReady;
+
+		if (connectionTCP::isPlayersReady == false)
+		{
+			connectionTCP::lobby_timer = -1;
+		}
+
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
+		{
+			connectionTCP::isCoopSessionLocked = true;
+		}
+
+	}
+
+	if (stateString == "change_team")
+	{
+
+		int gamemode = obj["gamemode"].asInt();
+		connectionTCP::_coopGamemode = gamemode;
+
+	}
 
 	if (stateString == "giveUnit")
 	{
@@ -3348,7 +3435,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		// make sure a new projectile is not created immediately when a unit is hit
-		_hasHitUnit = -1;
+		_hasHitUnit = -2;
 
 	}
 
@@ -4084,6 +4171,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false)
 		{
+
+			// funds
+			int64_t funds = obj["funds"].asInt64();
+			playersFunds = funds;
+
+			// crafts
+			int64_t crafts = obj["craft_count"].asInt64();
+			playersCrafts = crafts;
+
+			// bases
+			int64_t base_count = obj["base_count"].asInt64();
+			playersBases = base_count;
 
 			// bases
 			for (int i = 0; i < obj["bases"].size(); i++)
@@ -5269,10 +5368,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "close_load_progress")
+	if (stateString == "close_load_progress" && server_owner == true)
 	{
 
-		sendTCPPacketData(obj["data"].toStyledString());
+		Json::Value root;
+		root["state"] = "COOP_READY_CLIENT_REQUEST"; 
+
+		sendTCPPacketData(root.toStyledString());
 
 	}
 
@@ -5381,57 +5483,191 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
-	if (stateString == "COOP_READY_CLIENT" && onTcpHost == true)
+	if (stateString == "COOP_READY_SAVE_PROGRESS" && onTcpHost == false)
 	{
 
-		fixCoopSave();
+		_game->pushState(new Profile);
 
-		// coop fix bases..
-		j_markers = "";
+		// HostSaveProgress
+		bool host_save_progress = obj["host_save_progress"].asBool();
+		connectionTCP::_host_save_progress = host_save_progress;
 
-		if (onceTime == true)
+		long long saveID = obj["saveID"].asInt64();
+		connectionTCP::saveID = saveID;
+
+		_game->pushState(new CoopState(52));
+
+		Json::Value root;
+
+		root["state"] = "request_load_progress";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
+	if (stateString == "COOP_READY_CLIENT_REQUEST" && onTcpHost == false)
+	{
+
+		Json::Value root;
+		root["state"] = "COOP_READY_CLIENT";
+		sendTCPPacketData(root.toStyledString());
+
+	}
+
+	if (stateString == "COOP_READY_CLIENT_REQUEST_PROFILE" && onTcpHost == false)
+	{
+
+		connectionTCP::forceCloseCoopStateMenu = true;
+
+		_game->pushState(new Profile);
+
+		Json::Value root;
+		root["state"] = "COOP_READY_CLIENT";
+		sendTCPPacketData(root.toStyledString());
+
+	}
+
+	if (stateString == "INIT_SERVER" && onTcpHost == true)
+	{
+
+		// This runs once...
+		if (onceTime == false)
 		{
-			return;
+
+			fixCoopSave();
+
+			j_markers = "";
+
+			_battleInit = false;
+
+			// Define the file path and values to write
+			std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
+
+			// Create JSON object
+			Json::Value root133;
+			root133["ip"] = ipAddress;
+			root133["port"] = tcp_port;
+			root133["name"] = sendTcpPlayer;
+			root133["server"] = sendTcpServerName;
+
+			// Write JSON to file
+			std::ofstream file(filename);
+			if (file.is_open())
+			{
+				Json::StreamWriterBuilder writer;
+				file << Json::writeString(writer, root133);
+				file.close();
+
+				std::cout << "IP address and player name written to " << filename << std::endl;
+			}
+			else
+			{
+				std::cerr << "Failed to open file for writing." << std::endl;
+			}
+
+			// RESET ALL SOLDIERS OUT OF THE BASES
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* soldier : *base->getSoldiers())
+				{
+
+					if (soldier->getCraft())
+					{
+						// if co-op soldiers exceed 50%
+						if (soldier->getCraft()->getSpaceAvailable() < 0)
+						{
+							soldier->setCraftAndMoveEquipment(0, base, _game->getSavedGame()->getMonthsPassed() == -1);
+						}
+					}
+				}
+			}
+
+			onceTime = true;
+
 		}
 
-		onceTime = true;
+		std::string playername = obj.get("playername", "defaultState").asString();
+		std::string servername = obj.get("servername", "defaultState").asString();
+		tcpPlayerName = playername;
+		tcpServerName = servername;
 
-		_battleInit = false;
+		Json::Value root;
 
-		// Define the file path and values to write
-		std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
+		// HostSaveProgress
+		connectionTCP::_host_save_progress = Options::HostSaveProgress;
 
-		// Create JSON object
-		Json::Value root133;
-		root133["ip"] = ipAddress;
-		root133["port"] = tcp_port;
-		root133["name"] = sendTcpPlayer;
-
-		// Write JSON to file
-		std::ofstream file(filename);
-		if (file.is_open())
+		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true)
 		{
-			Json::StreamWriterBuilder writer;
-			file << Json::writeString(writer, root133);
-			file.close();
+			root["state"] = "COOP_READY_SAVE_PROGRESS";
+			root["host_save_progress"] = _host_save_progress;
 
-			std::cout << "IP address and player name written to " << filename << std::endl;
+			if (connectionTCP::saveID == 0)
+			{
+				connectionTCP::saveID = getDateTimeCoop();
+			}
+
+			// saveID
+			root["saveID"] = connectionTCP::saveID;
 		}
 		else
 		{
-			std::cerr << "Failed to open file for writing." << std::endl;
+			root["state"] = "COOP_READY_CLIENT_REQUEST_PROFILE";
 		}
 
-		// IF THE HOST IS IN BATTLE, INCLUDE JOINERS; OTHERWISE DO NOTHING
-		// DISPLAY THE CLIENT PLAYER'S BASE
-		std::string playername = obj.get("playername", "defaultState").asString();
+		sendTCPPacketData(root.toStyledString());
 
-		tcpPlayerName = playername;
+		_game->pushState(new Profile);
+
+	}
+
+	if (stateString == "COOP_READY_CLIENT" && onTcpHost == true)
+	{
+
+		coopSession = true;
 
 		Json::Value root;
 		root["state"] = "COOP_READY_HOST";
-		root["playername"] = sendTcpPlayer;
+		root["playername"] = sendTcpPlayer; // Client player ID will be added later...
+		root["servername"] = sendTcpServerName; // Client player ID will be added later...
 		root["gamemode"] = connectionTCP::_coopGamemode;
+
+		// funds
+		int64_t funds = 0;
+		if (_game->getSavedGame() && _game->getSavedGame()->getFunds())
+		{
+			funds = _game->getSavedGame()->getFunds();
+		}
+		root["funds"] = funds;
+
+		int64_t base_count = 0;
+		int64_t craft_count = 0;
+		if (_game->getSavedGame() && _game->getSavedGame()->getBases())
+		{
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase == false)
+				{
+
+					for (auto& craft : *base->getCrafts())
+					{
+						craft_count++;
+					}
+
+					base_count++;
+				}
+			}
+		}
+
+		root["base_count"] = base_count;
+		root["craft_count"] = craft_count;
+
+		// is session locked?
+		root["isCoopSessionLocked"] = connectionTCP::isCoopSessionLocked;
+		root["isPlayerReady"] = connectionTCP::isPlayerReady;
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::isCoopSessionLocked == false)
+		{
+			connectionTCP::isCoopSessionLocked = true;
+		}
 
 		// research option
 		_enable_research_sync = Options::EnableResearchSync;
@@ -5469,18 +5705,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// UnbalancedCraftSoldiersLimit
 		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
 		root["unbalanced_craft_soldiers_limit"] = _unbalanced_craft_soldiers_limit;
-
-		// HostSaveProgress
-		connectionTCP::_host_save_progress = Options::HostSaveProgress;
-		root["host_save_progress"] = _host_save_progress;
-
-		if (connectionTCP::saveID == 0)
-		{
-			connectionTCP::saveID = getDateTimeCoop();
-		}
-
-		// saveID
-		root["saveID"] = connectionTCP::saveID;
 
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
@@ -5522,53 +5746,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendTCPPacketData(root.toStyledString());
 
-		// RESET ALL SOLDIERS OUT OF THE BASES (HAPPENS ONCE IN AN ERROR SITUATION)
-		for (auto* base : *_game->getSavedGame()->getBases())
-		{
-			for (auto* soldier : *base->getSoldiers())
-			{
-
-				if (soldier->getCraft())
-				{
-					// if co-op soldiers exceed 50%
-					if (soldier->getCraft()->getSpaceAvailable() < 0)
-					{
-						soldier->setCraftAndMoveEquipment(0, base, _game->getSavedGame()->getMonthsPassed() == -1);
-					}
-				}
-			}
-		}
 	}
 
 	if (stateString == "COOP_READY_HOST" && onTcpHost == false)
 	{
 
-		// HostSaveProgress
-		bool host_save_progress = obj["host_save_progress"].asBool();
-		connectionTCP::_host_save_progress = host_save_progress;
+		coopSession = true;
 
-		if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == false && _loadProgress == Json::nullValue)
-		{
-
-			long long saveID = obj["saveID"].asInt64();
-			connectionTCP::saveID = saveID;
-
-			_game->pushState(new CoopState(52));
-
-			Json::Value root;
-
-			root["state"] = "request_load_progress";
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-			_loadProgress = obj;
-
-			return;
-
-		}
-
-		_loadProgress = Json::nullValue;
-		
 		fixCoopSave();
 
 		// coop fix bases..
@@ -5583,8 +5767,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		onceTime = true;
 
+		// is session locked?
+		connectionTCP::isCoopSessionLocked = obj["isCoopSessionLocked"].asBool();
+		connectionTCP::isPlayersReady = obj["isPlayerReady"].asBool();
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::isCoopSessionLocked == false)
+		{
+			connectionTCP::isCoopSessionLocked = true;
+		}
+
 		// set current gamemode
 		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
+
+		// funds
+		int64_t funds = obj["funds"].asInt64();
+		playersFunds = funds;
+
+		// crafts
+		int64_t crafts = obj["craft_count"].asInt64();
+		playersCrafts = crafts;
+
+		// bases
+		int64_t base_count = obj["base_count"].asInt64();
+		playersBases = base_count;
 
 		// Define the file path and values to write
 		std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
@@ -5594,6 +5798,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		root135["ip"] = ipAddress;
 		root135["port"] = tcp_port;
 		root135["name"] = sendTcpPlayer;
+		root135["server"] = sendTcpServerName;
 
 		// Write JSON to file
 		std::ofstream file(filename);
@@ -5724,10 +5929,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		std::string playername = obj.get("playername", "defaultState").asString();
+		std::string servername = obj.get("servername", "defaultState").asString();
 
 		bool inBattle = obj["battle"].asBool();
 
 		tcpPlayerName = playername;
+		tcpServerName = servername;
 
 		if (clientInBattle == false)
 		{
@@ -5735,13 +5942,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			coop->loadWorld();
 		}
 
-		// DISPLAY THE CLIENT PLAYER'S BASE
-		if (connectionTCP::no_bases == false && connectionTCP::_host_save_progress == false)
-		{
-			_game->popState();
-		}
-
-		_game->pushState(new Profile(clientInBattle, inBattle));
+		initProfile(clientInBattle, inBattle);
 
 		// if neither the client nor the host is in battle, then create base icons
 
@@ -5750,6 +5951,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		markers["state"] = "coopBase";
 		markers["battle"] = inBattle;
+
+		// funds
+		int64_t funds2 = 0;
+		if (_game->getSavedGame() && _game->getSavedGame()->getFunds())
+		{
+			funds2 = _game->getSavedGame()->getFunds();
+		}
+		markers["funds"] = funds2;
+
+		// crafts
+		int64_t base_count2 = 0;
+		int64_t craft_count2 = 0;
+		if (_game->getSavedGame() && _game->getSavedGame()->getBases())
+		{
+			for (auto &base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase == false)
+				{
+
+					for (auto &craft : *base->getCrafts())
+					{
+						craft_count2++;
+					}
+
+					base_count2++;
+				}
+			}
+		}
+
+		markers["base_count"] = base_count2;
+		markers["craft_count"] = craft_count2;
 
 		if (connectionTCP::no_bases == false)
 		{
@@ -5813,8 +6045,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		bool inBattle = obj["battle"].asBool();
 
+		// funds
+		int64_t funds = obj["funds"].asInt64();
+		playersFunds = funds;
+
+		// crafts
+		int64_t crafts = obj["crafts"].asInt64();
+		playersCrafts = crafts;
+
 		// show host profile
-		_game->pushState(new Profile(false, inBattle));
+		initProfile(false, inBattle);
 
 		Json::Value m_markers;
 		Json::Reader reader;
@@ -5883,6 +6123,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		Json::Value markers;
 
 		markers["state"] = "coopBase2";
+		markers["gamemode"] = connectionTCP::_coopGamemode;
 
 		int index = 0;
 		for (auto base : *_game->getSavedGame()->getBases())
@@ -6028,6 +6269,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 
 			markers["state"] = "coopBase2";
+			markers["gamemode"] = connectionTCP::_coopGamemode;
 
 			sendTCPPacketData(markers.toStyledString());
 		}
@@ -6036,6 +6278,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// COOP BASE CLIENT
 	if (stateString == "coopBase2" && onTcpHost == false)
 	{
+
+		if (getServerOwner() == false)
+		{
+			int gamemode = obj["gamemode"].asInt();
+			connectionTCP::_coopGamemode = gamemode;
+		}
 
 		Json::Value m_markers;
 		Json::Reader reader;
@@ -6496,12 +6744,7 @@ void connectionTCP::createCoopMenu()
 
 void connectionTCP::sendTCPPacketStaticData2(std::string data)
 {
-	if (data.empty())
-		return;
-	if (!enqueueTx(std::move(data)))
-	{ // fastest path
-		DebugLog("TX queue full, dropping packet\n");
-	}
+	enqueueTx(std::move(data));
 }
 
 void connectionTCP::writeHostMapFile2()
@@ -7261,9 +7504,10 @@ bool valid_port(const std::string& s)
 	return port >= 0 && port <= 65535;
 }
 
-void connectionTCP::hostTCPServer(std::string playername, std::string str_port)
+void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 {
 
+	sendTcpServerName = servername;
 	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
@@ -7289,11 +7533,6 @@ void connectionTCP::hostTCPServer(std::string playername, std::string str_port)
 		tcp_port = port;
 	}
 
-	if (playername != "")
-	{
-		sendTcpPlayer = playername;
-	}
-
 	if (_hostThread.joinable())
 	{
 		_hostStop = true;
@@ -7305,10 +7544,10 @@ void connectionTCP::hostTCPServer(std::string playername, std::string str_port)
 
 }
 
-void connectionTCP::connectTCPServer(std::string playername, std::string ipaddress, std::string str_port)
+void connectionTCP::connectTCPServer(std::string servername, std::string ipaddress, std::string str_port)
 {
 	ipAddress = ipaddress;
-	sendTcpPlayer = playername;
+	//sendTcpPlayer = playername;
 	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
@@ -7420,8 +7659,24 @@ void connectionTCP::setConnected(int state)
 }
 
 // disconnect the connection
-void connectionTCP::disconnectTCP()
+void connectionTCP::disconnectTCP(bool isMain)
 {
+
+		_waitBC = false;
+		_waitBH = false;
+		coopSession = false;
+		connectionTCP::lobby_timer = -1;
+		connectionTCP::isCoopSessionLocked = false;
+		connectionTCP::isPlayerReady = false;
+		connectionTCP::isPlayersReady = false;
+		connectionTCP::password = "";
+
+		connectionTCP::LobbyFileStatus = -1;
+		connectionTCP::_coopGamemode = 0;
+		connectionTCP::show_inactive_player_inventory = false;
+		connectionTCP::forceCloseCoopStateMenu = false;
+
+	    OpenXcom::disconnectRendezvousUdp();
 
 		deleteAllCoopBases();
 
@@ -7429,9 +7684,8 @@ void connectionTCP::disconnectTCP()
 		if (server_owner == true && onConnect == -2)
 		{
 
-			coopSession = true;
 			onConnect = 2;
-			_waitBC = false;
+			_game->pushState(new LobbyMenu);
 
 		}
 		// client
@@ -7439,8 +7693,6 @@ void connectionTCP::disconnectTCP()
 		{
 
 			onConnect = -1;
-			coopSession = false;
-			_waitBH = false;
 
 			if (_chatMenu)
 			{
@@ -7455,10 +7707,7 @@ void connectionTCP::disconnectTCP()
 		}
 
 		// both
-		connectionTCP::_coopGamemode = 0;
-		connectionTCP::show_inactive_player_inventory = false;
-
-		if (connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false))
+		if ((connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false)) && !isMain && connectionTCP::_coopCampaign == true)
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -7506,20 +7755,41 @@ void connectionTCP::disconnectTCP()
 				}
 			}
 		}
-
-	
-	
 }
 
 std::string connectionTCP::getCurrentClientName()
 {
-
 	return tcpPlayerName;
+}
+
+std::string connectionTCP::getCurrentClientServer()
+{
+	return tcpServerName;
+}
+
+void connectionTCP::setCurrentClientServer(std::string servername)
+{
+	tcpServerName = servername;
 }
 
 std::string connectionTCP::getHostName()
 {
 	return sendTcpPlayer;
+}
+
+std::string connectionTCP::getHostServer()
+{
+	return sendTcpServerName;
+}
+
+void connectionTCP::setHostName(std::string playername)
+{
+	sendTcpPlayer = playername;
+}
+
+void connectionTCP::setHostServer(std::string servername)
+{
+	sendTcpServerName = servername;
 }
 
 void connectionTCP::writeHostMapFile()

@@ -78,33 +78,28 @@ class Screen;
 class BattleUnit;
 class File;
 
-
-/**
- * New Battle that displays a list
- * of options to configure a new
- * standalone mission.
- */
 class HostMenu : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonHost, *_btnStartHotseat;
 	TextList *_lstSaves;
-	TextEdit *_playerName, *_port;
-	ComboBox* _cbxGameMode;
+	TextEdit *_serverName, *_port, *_password;
+	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo;
+	Text *_txtTitle;
 	std::map<Surface *, bool> _surfaceBackup;
-	std::vector<std::string> _gamemodeTypes;
+	std::vector<std::string> _visibilityTypes, _maxplayersTypes, _regionTypes;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
 	bool _isRightClick;
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
+	std::string selectedRegion = "NORTH AMERICA";
 	void convertUnits();
   public:
-	/// Creates the New Battle state.
+	/// Creates the New Host state.
 	HostMenu();
-	/// Cleans up the New Battle state.
+	/// Cleans up the New Host state.
 	~HostMenu();
 	/// Resets state.
 	void init() override;
@@ -113,7 +108,9 @@ class HostMenu : public State
 	void hostTCPGame(Action *action);
 	void startHotseat(Action* action);
 	void btnChatClick(Action* action);
-	void cbxGameModeChange(Action* action);
+	void cbxVisibilityChange(Action* action);
+	void cbxMaxPlayersChange(Action* action);
+	void cbxRegionChange(Action* action);
 };
 
 }

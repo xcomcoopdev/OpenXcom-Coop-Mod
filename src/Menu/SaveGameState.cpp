@@ -191,7 +191,7 @@ void SaveGameState::think()
 		{
 		
 			// HostSaveProgress
-			if ((_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
+			if ((_game->getCoopMod()->isCoopSession() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)

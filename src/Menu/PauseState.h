@@ -57,7 +57,8 @@ public:
 	void btnCancelClick(Action *action);
 	/// coop button
 	void btnCoopClick(Action *action);
-	void setGeo(GeoscapeState *geostate);
+	/// Resets state.
+	void init() override;
 };
 
 }

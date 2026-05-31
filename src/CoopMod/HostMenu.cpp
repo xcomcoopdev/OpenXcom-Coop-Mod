@@ -26,11 +26,10 @@
 #include "../Engine/Surface.h"
 #include "Profile.h"
 #include "ChatMenu.h"
+#include "connectionUDP/connection_rendezvous_glue.h"
 
 namespace OpenXcom
 {
-
-int _current_gamemode = 0;
 
 /**
  * Initializes all the elements in the New Battle window.
@@ -55,17 +54,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_lstSaves = new TextList(180, 18, x + 18, 60);
 
 	_port = new TextEdit(this, 180, 18, x + 18, 92);
-	_playerName = new TextEdit(this, 180, 18, x + 18, 112);
-
-	_tcpButtonHost = new TextButton(180, 18, x + 18, 132);
-
+	_serverName = new TextEdit(this, 180, 18, x + 18, 72);
+	_tcpButtonHost = new TextButton(90, 18, x + 18, 152);
 	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
-
-	_cbxGameMode = new ComboBox(this, 180, 18, x + 18, 52);
-
-	_txtInfo = new Text(180, 18, x + 18, 95);
-	_btnCancel = new TextButton(180, 18, x + 18, 152);
-	_txtData = new Text(206, 17, x + 5, 50);
+	_cbxVisibility = new ComboBox(this, 180, 18, x + 18, 50);
+	_cbxRegions = new ComboBox(this, 90, 18, x + 18, 112); 
+	_cbxMaxPlayers = new ComboBox(this, 90, 18, x + 108, 112); 
+	_password = new TextEdit(this, 180, 18, x + 18, 132);
+	_btnCancel = new TextButton(90, 18, x + 108, 152);
 	_txtTitle = new Text(206, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
@@ -78,13 +74,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	add(_window, "window", "pauseMenu");
 	add(_port);
-	add(_playerName);
+	add(_serverName);
+	add(_password);
 	add(_tcpButtonHost, "button", "pauseMenu");
 	add(_btnStartHotseat, "button", "pauseMenu");
-	add(_cbxGameMode, "button", "pauseMenu");
-	add(_txtInfo, "text", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
-	add(_txtData, "text", "pauseMenu");
+	add(_cbxVisibility, "button", "pauseMenu");
+	add(_cbxRegions, "button", "pauseMenu");
+	add(_cbxMaxPlayers, "button", "pauseMenu");
 	add(_txtTitle, "text", "pauseMenu");
 
 	centerAllSurfaces();
@@ -109,15 +106,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_txtTitle->setBig();
 	_txtTitle->setText(tr("HOST"));
 
-	_txtData->setAlign(ALIGN_CENTER);
-	_txtData->setBig();
-	_txtData->setText("HELLO");
-	_txtData->setVisible(false);
-
-	_txtInfo->setVisible(false);
-	_txtInfo->setAlign(ALIGN_CENTER);
-	_txtInfo->setSmall();
-
 	// port
 	_port->setColor(color);
 	_port->setBig();
@@ -125,35 +113,57 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_port->setText("PORT");
 	_port->setVisible(false);
 
-	_playerName->setColor(color);
-	_playerName->setBig();
-	_playerName->setBorderColor(color);
-	_playerName->setText("Player");
-	_playerName->setVisible(false);
+	_serverName->setColor(color);
+	_serverName->setBig();
+	_serverName->setBorderColor(color);
+	_serverName->setText("Server");
+	_serverName->setVisible(false);
 	
 	_tcpButtonHost->setText("START HOST");
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
-	_tcpButtonHost->onKeyboardPress((ActionHandler)&HostMenu::hostTCPGame, Options::keyOk);
 	_tcpButtonHost->setVisible(true);
 
 	_btnStartHotseat->setText("ENABLE HOTSEAT");
 	_btnStartHotseat->onMouseClick((ActionHandler)&HostMenu::startHotseat);
-	_btnStartHotseat->onKeyboardPress((ActionHandler)&HostMenu::startHotseat, Options::keyOk);
 	_btnStartHotseat->setVisible(false);
 
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&HostMenu::btnCancelClick, Options::keyCancel);
 
-	// game modes
-	_gamemodeTypes.push_back("GAMEMODE: PVE");
-	_gamemodeTypes.push_back("GAMEMODE: PVE2");
-	_gamemodeTypes.push_back("GAMEMODE: PVP");
-	_gamemodeTypes.push_back("GAMEMODE: PVP2");
-	_gamemodeTypes.push_back("GAMEMODE: HOTSEAT");
+	_visibilityTypes.push_back("VISIBILITY: PRIVATE (TCP)");
+	_visibilityTypes.push_back("VISIBILITY: PUBLIC (UDP)");
+	_visibilityTypes.push_back("HOTSEAT MODE");
+	_cbxVisibility->setOptions(_visibilityTypes, false);
+	_cbxVisibility->onChange((ActionHandler)&HostMenu::cbxVisibilityChange);
 
-	_cbxGameMode->setOptions(_gamemodeTypes, false);
-	_cbxGameMode->onChange((ActionHandler)&HostMenu::cbxGameModeChange);
+	_regionTypes.push_back("NORTH AMERICA");
+	_regionTypes.push_back("ARCTIC");
+	_regionTypes.push_back("ANTARCTICA");
+	_regionTypes.push_back("SOUTH AMERICA");
+	_regionTypes.push_back("EUROPE");
+	_regionTypes.push_back("NORTH AFRICA");
+	_regionTypes.push_back("SOUTHERN AFRICA");
+	_regionTypes.push_back("CENTRAL ASIA");
+	_regionTypes.push_back("SOUTH EAST ASIA");
+	_regionTypes.push_back("SIBERIA");
+	_regionTypes.push_back("AUSTRALASIA");
+	_regionTypes.push_back("PACIFIC");
+	_regionTypes.push_back("NORTH ATLANTIC");
+	_regionTypes.push_back("SOUTH ATLANTIC");
+	_regionTypes.push_back("INDIAN OCEAN");
+	_cbxRegions->setOptions(_regionTypes, false);
+	_cbxRegions->onChange((ActionHandler)&HostMenu::cbxRegionChange);
+
+	_maxplayersTypes.push_back("MAX PLAYERS: 2");
+	_cbxMaxPlayers->setOptions(_maxplayersTypes, false);
+	_cbxMaxPlayers->onChange((ActionHandler)&HostMenu::cbxMaxPlayersChange);
+
+	_password->setColor(color);
+	_password->setBig();
+	_password->setBorderColor(color);
+	_password->setText("Password");
+	_password->setVisible(false);
 
 	// check if campaign mission
 	if (!_game->getSavedGame()->getCountries()->empty())
@@ -173,44 +183,32 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
-		_playerName->setVisible(false);
-
+		_serverName->setVisible(false);
+		_cbxVisibility->setVisible(false);
+		_password->setVisible(false);
 
 		// show
 		_btnStartHotseat->setVisible(true);
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
-
-		_cbxGameMode->setVisible(false);
 
 	}
 	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
 	{
 
 		_port->setVisible(false);
-		_playerName->setVisible(false);
+		_serverName->setVisible(false);
 		_tcpButtonHost->setVisible(false);
-		_txtInfo->setVisible(false);
+		_cbxVisibility->setVisible(false);
+		_password->setVisible(false);
 
-		_cbxGameMode->setVisible(false);
-	
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
 		_port->setVisible(true);
-		_playerName->setVisible(true);
+		_serverName->setVisible(true);
 		_tcpButtonHost->setVisible(true);
-		_txtInfo->setVisible(false);
-
-		_cbxGameMode->setVisible(false);
-
-		if (_game->getCoopMod()->getServerOwner() == false)
-		{
-
-			_cbxGameMode->setVisible(true);
-
-		}
-
-
+		_cbxVisibility->setVisible(true);
+		_password->setVisible(true);
 
 	}
 
@@ -222,7 +220,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	std::string ipAddress;
 	std::string port;
-	std::string playerName;
+	std::string serverName;
 
 	if (OpenXcom::CrossPlatform::fileExists(filepath))
 	{
@@ -240,7 +238,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 			{
 				ipAddress = root.get("ip", "").asString();
 				port = root.get("port", "").asString();
-				playerName = root.get("name", "").asString();
+				serverName = root.get("server", "").asString();
 
 				
 				if (ipAddress.empty())
@@ -256,14 +254,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 				}
 
 
-				if (playerName == "")
+				if (serverName == "")
 				{
 					// name is empty
-					playerName = "Player";
+					serverName = "Server";
 				}
 
 				_port->setText(port);
-				_playerName->setText(playerName); 
+				_serverName->setText(serverName); 
 			}
 			else
 			{
@@ -299,57 +297,34 @@ void HostMenu::init()
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
-		_playerName->setVisible(false);
+		_serverName->setVisible(false);
+		_cbxVisibility->setVisible(false);
+		_password->setVisible(false);
 
 		// show
 		_btnStartHotseat->setVisible(true);
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
+
 	}
 	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
 	{
 
 		_port->setVisible(false);
-		_playerName->setVisible(false);
+		_serverName->setVisible(false);
 		_tcpButtonHost->setVisible(false);
-		_txtInfo->setVisible(false);
-
-		_cbxGameMode->setVisible(false);
+		_cbxVisibility->setVisible(false);
+		_password->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
 		_port->setVisible(true);
-		_playerName->setVisible(true);
+		_serverName->setVisible(true);
 		_tcpButtonHost->setVisible(true);
-		_txtInfo->setVisible(false);
+		_cbxVisibility->setVisible(true);
+		_password->setVisible(true);
 
-		_cbxGameMode->setVisible(false);
-
-		if (_game->getCoopMod()->getServerOwner() == false)
-		{
-
-			_cbxGameMode->setVisible(true);
-
-		}
 	}
-
-	if (_game->getSavedGame()->getSavedBattle())
-	{
-
-		// check if already converted units...
-		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_PLAYER && unit->getCoop() == 1)
-			{
-
-					_cbxGameMode->setVisible(false);
-
-					break;
-			}
-		}
-	}
-
 }
 
 void HostMenu::convertUnits()
@@ -516,53 +491,62 @@ void HostMenu::btnChatClick(Action* action)
 
 }
 
-void HostMenu::cbxGameModeChange(Action* action)
+void HostMenu::cbxVisibilityChange(Action* action)
 {
 
-	int selected_gamemode = _cbxGameMode->getSelected();
+	int selected_gamemode = _cbxVisibility->getSelected();
 
 	// show
 	_tcpButtonHost->setVisible(true);
 	_port->setVisible(true);
-	_playerName->setVisible(true);
+	_serverName->setVisible(true);
+	_password->setVisible(true);
 
 	// hide
 	_btnStartHotseat->setVisible(false);
 
-	// PVE
-	if (selected_gamemode == 0)
-	{
-		_current_gamemode = 1;
-	}
-	// PVE2
-	else if (selected_gamemode == 1)
-	{
-		_current_gamemode = 4;
-	}
-	// PVP
-	else if (selected_gamemode == 2)
-	{
-		_current_gamemode = 2;
-	}
-	// PVP2
-	else if (selected_gamemode == 3)
-	{
-		_current_gamemode = 3;
-	}
 	// HOTSEAT
-	else if (selected_gamemode == 4)
+	if (selected_gamemode == 2)
 	{
-
-		_current_gamemode = 1;
 
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
-		_playerName->setVisible(false);
+		_serverName->setVisible(false);
+		_password->setVisible(false);
 
 		// show
 		_btnStartHotseat->setVisible(true);
+	}
+	// UDP
+	else if (selected_gamemode == 1)
+	{
+		_isUDPconnection = true;
+	}
+	// TCP
+	else if (selected_gamemode == 0)
+	{
+		_isUDPconnection = false;
+	}
 
+}
+
+void HostMenu::cbxMaxPlayersChange(Action* action)
+{
+}
+
+void HostMenu::cbxRegionChange(Action*)
+{
+
+	int selected_region = _cbxRegions->getSelected();
+
+	if (_cbxRegions->getSelected() && selected_region >= 0 && selected_region < _regionTypes.size())
+	{
+		selectedRegion = _regionTypes[selected_region];
+	}
+	else
+	{
+		selectedRegion = "NORTH AMERICA";
 	}
 
 }
@@ -570,18 +554,24 @@ void HostMenu::cbxGameModeChange(Action* action)
 void HostMenu::hostTCPGame(Action* action)
 {
 
-	if (_current_gamemode != 0)
+	// password
+	if (_password->getText() != "" && _password->getText() != "Password")
 	{
-		connectionTCP::_coopGamemode = _current_gamemode;
+
+		connectionTCP::password = _password->getText();
+		connectionTCP::isPasswordRequired = true;
+
 	}
+
+	connectionTCP::_coopGamemode = 1;
 
 	_game->getCoopMod()->setCoopSession(false);
 
 	_port->setVisible(false);
-	_playerName->setVisible(false);
+	_serverName->setVisible(false);
 	_tcpButtonHost->setVisible(false);
-
-	_cbxGameMode->setVisible(false);
+	_cbxVisibility->setVisible(false);
+	_password->setVisible(false);
 
 	_game->getCoopMod()->setPlayerTurn(3);
 
@@ -621,7 +611,45 @@ void HostMenu::hostTCPGame(Action* action)
 	}
 
 	// HOST GAME
-	_game->getCoopMod()->hostTCPServer(_playerName->getText(), _port->getText());
+	// TCP
+	if (_isUDPconnection == false)
+	{
+		_game->getCoopMod()->hostTCPServer(_serverName->getText(), _port->getText());
+	}
+	// UDP
+	else
+	{
+
+		std::string udpPassword = "";
+
+		// password
+		if (_password->getText() != "" && _password->getText() != "Password")
+		{
+			udpPassword = _password->getText();
+		}
+
+		_game->getCoopMod()->setHostServer(_serverName->getText());
+
+		// init
+		_game->getCoopMod()->_waitBC = false;
+		_game->getCoopMod()->_waitBH = false;
+		_game->getCoopMod()->_battleWindow = false;
+		_game->getCoopMod()->_battleInit = false;
+		_game->getCoopMod()->coopInventory = false;
+		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->inventory_battle_window = true;
+
+		OpenXcom::hostListedViaRendezvousAsync(
+			_game->getCoopMod()->getHostServer(),  // Public room name shown in the server list.
+			udpPassword,						   // Room password. Empty string means public room without password.
+			_game->getCoopMod()->getHostName(),	   // Host player name shown to the other player / lobby.
+			selectedRegion,                        // Region selected by host, for example "EU", "US", "Asia".
+			"",									   // Mod hash. Empty for now; later use this to check matching mod setup.
+			true,								   // Listed room flag. true = visible in server list, false = private/unlisted.
+			std::stoi(_port->getText())			   // Local UDP port. 0 = let the OS choose a free port automatically.
+		);
+
+	}
 
 	_game->getCoopMod()->setServerOwner(true);
 
@@ -645,8 +673,11 @@ void HostMenu::startHotseat(Action* action)
 	_game->getCoopMod()->_isHotseatActive = !_game->getCoopMod()->_isHotseatActive;
 
 	// hide
+	_port->setVisible(false);
 	_tcpButtonHost->setVisible(false);
-	_playerName->setVisible(false);
+	_serverName->setVisible(false);
+	_cbxVisibility->setVisible(false);
+	_password->setVisible(false);
 
 	// show
 	_btnStartHotseat->setVisible(true);
@@ -654,12 +685,13 @@ void HostMenu::startHotseat(Action* action)
 	if (_game->getCoopMod()->_isHotseatActive)
 	{
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
-		_cbxGameMode->setVisible(false);
 	}
 	else
 	{
 		_btnStartHotseat->setText("ENABLE HOTSEAT");
-		_cbxGameMode->setVisible(true);
+
+		_cbxVisibility->setVisible(true);
+
 	}
 
 }

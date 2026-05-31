@@ -40,13 +40,12 @@ class Profile : public State
   private:
 	Surface *_bg;
 	Text *_txtName;
-	const bool _clientInBattle, _inBattle;
 	TextButton *_btnOk;
 	ImageButton* _avatar;
 	Window *_window;
   public:
 	/// Creates the Profile state.
-	Profile(bool clientInBattle, bool inBattle);
+	Profile();
 	/// Cleans up the Profile state.
 	~Profile();
   private:

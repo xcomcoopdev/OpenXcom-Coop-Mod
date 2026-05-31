@@ -95,10 +95,14 @@ class DirectConnect : public State
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
+	ComboBox* _cbxNetworkProtocol;
+	std::vector<std::string> _networkProtocolTypes;
 	bool _isRightClick;
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
 	void convertUnits();
+	bool isUDP = false;
+	bool parseUdpPort(const std::string& text, uint16_t& outPort);
   public:
 	/// Creates the New Battle state.
 	DirectConnect();
@@ -108,7 +112,9 @@ class DirectConnect : public State
 	void init() override;
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
-	void btnChatClick(Action* action);
+	/// Handler for changing the text on the Name edit.
+	void edtPlayerNameChange(Action* action);
+	void cbxNetworkProtocolChange(Action* action);
 };
 
 }

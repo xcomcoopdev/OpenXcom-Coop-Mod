@@ -364,6 +364,7 @@ CoopState::CoopState(int state)
 		_txtTitle->setSmall();
 		_txtTitle->setText("Server error.\nConnection closed.");
 		_btnBack->setVisible(true);
+		_game->getCoopMod()->setServerOwner(false);
 		_game->getCoopMod()->disconnectTCP();
 		_game->popState();
 
@@ -534,6 +535,15 @@ void CoopState::think()
 
 	if (now - lastUpdate >= 500)
 	{
+
+		// Force-close the co-op state menu
+		if (connectionTCP::forceCloseCoopStateMenu == true)
+		{
+
+			connectionTCP::forceCloseCoopStateMenu = false;
+			_game->popState();
+	
+		}
 
 		if (global_state == 1)
 		{

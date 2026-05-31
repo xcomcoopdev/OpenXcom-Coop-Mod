@@ -60,7 +60,8 @@ protected:
 
 	SDL_Color _palette[256];
 	Uint8 _cursorColor;
-public:
+	bool _isUDPconnection = false;
+  public:
 	/// Creates a new state linked to a game.
 	State();
 	/// Cleans up the state.

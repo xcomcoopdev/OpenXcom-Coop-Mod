@@ -35,6 +35,7 @@
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
 #include <fstream>
+#include "../CoopMod/connectionUDP/rendezvous_config.h"
 
 namespace OpenXcom
 {
@@ -244,7 +245,9 @@ MainMenuState::MainMenuState(bool updateCheck)
 	// coop version
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
-	_textCoopVersion->setText("Coop Mod 1.7.3 [v2026-04-11]");
+
+	std::string coopVersion = std::string("Coop Mod ") + OpenXcom::kRendezvousGameVersion;
+	_textCoopVersion->setText(coopVersion);
 
 }
 
@@ -263,10 +266,8 @@ void MainMenuState::init()
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-		_game->getCoopMod()->disconnectTCP();
-	}
+	_game->getCoopMod()->setServerOwner(false);
+	_game->getCoopMod()->disconnectTCP(true);
 
 	connectionTCP::_coopGamemode = 0;
 	_game->getCoopMod()->coopMissionEnd = false;

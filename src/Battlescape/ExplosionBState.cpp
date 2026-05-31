@@ -384,7 +384,7 @@ void ExplosionBState::think()
 {
 
 	//  coop
-	if (coopTaskCompleted && _parent->getCoopMod()->_hasHitUnit == -1)
+	if (coopTaskCompleted && (_parent->getCoopMod()->_hasHitUnit == -1 || _parent->getCoopMod()->_hasHitUnit == -2))
 	{
 		coopTaskCompleted = false;
 		_parent->popState();

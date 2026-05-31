@@ -764,7 +764,6 @@ void GeoscapeState::init()
 
 		Json::Value root;
 		root["state"] = "close_load_progress";
-		root["data"] = _game->getCoopMod()->_loadProgress;
 
 		_game->getCoopMod()->_isLoadProgress = false;
 
@@ -1156,7 +1155,6 @@ void GeoscapeState::init()
 		}
 	
 		Json::Value markers;
-
 		markers["state"] = "baseRequest";
 
 		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
@@ -1361,6 +1359,36 @@ void GeoscapeState::think()
 			Json::Value root;
 
 			root["state"] = "target_positions";
+
+			// funds
+			int64_t funds = 0;
+			if (_game->getSavedGame() && _game->getSavedGame()->getFunds())
+			{
+				funds = _game->getSavedGame()->getFunds();
+			}
+			root["funds"] = funds;
+
+			int base_count = 0;
+			int craft_count = 0;
+			if (_game->getSavedGame() && _game->getSavedGame()->getBases())
+			{
+				for (auto& base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase == false)
+					{
+
+						for (auto& craft : *base->getCrafts())
+						{
+							craft_count++;
+						}
+
+						base_count++;
+					}
+				}
+			}
+
+			root["base_count"] = base_count;
+			root["craft_count"] = craft_count;
 
 			int craft_index = 0;
 			int base_index = 0;
