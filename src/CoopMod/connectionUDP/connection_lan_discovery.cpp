@@ -67,6 +67,7 @@ namespace
                 existing.lanHost = lanRoom.lanHost;
                 existing.lanPort = lanRoom.lanPort;
                 if (!lanRoom.region.empty()) existing.region = lanRoom.region;
+                existing.isCampaign = lanRoom.isCampaign;
                 return;
             }
         }
@@ -95,6 +96,7 @@ namespace
         room.players = msg.get("players", 1).asUInt();
         room.maxPlayers = msg.get("max_players", 2).asUInt();
         room.passwordRequired = msg.get("password_required", false).asBool();
+        room.isCampaign = msg.get("is_campaign", false).asBool();
         room.gameVersion = msg.get("game_version", "").asString();
         room.modHash = msg.get("mod_hash", "").asString();
         room.lanHost = ipToString(sourceAddress);
@@ -125,7 +127,8 @@ namespace
         UDPsocket sock = SDLNet_UDP_Open(kLanDiscoveryPort);
         if (!sock)
         {
-            DebugLog("LAN discovery: could not open UDP port 3000; LAN list will be disabled\n");
+            DebugLog(("LAN discovery: could not open UDP port " + std::to_string(kLanDiscoveryPort) +
+                      "; LAN list will be disabled\n").c_str());
             return;
         }
 
@@ -137,7 +140,8 @@ namespace
             return;
         }
 
-        DebugLog("LAN discovery: responder listening on UDP 3000\n");
+        DebugLog(("LAN discovery: responder listening on UDP " +
+                  std::to_string(kLanDiscoveryPort) + "\n").c_str());
 
         while (!g_lanStop.load())
         {
@@ -177,6 +181,7 @@ namespace
                 out["players"] = Json::UInt(room.players);
                 out["max_players"] = Json::UInt(room.maxPlayers);
                 out["password_required"] = room.passwordRequired;
+                out["is_campaign"] = room.isCampaign;
                 out["game_version"] = room.gameVersion;
                 out["mod_hash"] = room.modHash;
                 out["udp_port"] = Json::UInt(room.lanPort);

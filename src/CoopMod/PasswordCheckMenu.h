@@ -108,6 +108,8 @@ class PasswordCheckMenu : public State
 	void init() override;
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
+	/// Runs the timers and handles popups.
+	void think() override;
 };
 
 }

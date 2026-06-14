@@ -13,6 +13,7 @@ OPT std::string language, useOpenGLShader;
 OPT KeyboardType keyboardMode;
 OPT SaveSort saveOrder;
 OPT serverSort serverOrder;
+OPT modSort modOrder;
 OPT playerSort playerOrder;
 OPT MusicFormat preferredMusic;
 OPT SoundFormat preferredSound;

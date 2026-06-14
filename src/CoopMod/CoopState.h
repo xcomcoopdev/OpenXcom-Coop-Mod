@@ -42,7 +42,8 @@ class CoopState : public State
 	Window *_window;
 	Text *_txtTitle;
 	TextButton *_btnMessage, *_btnBack, *_btnYes;
-
+	int global_state = 0;
+	int state_counter = 0;
   public:
 	/// Creates the Pause state.
 	CoopState(int state);

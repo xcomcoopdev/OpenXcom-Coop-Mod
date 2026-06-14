@@ -84,35 +84,37 @@ class File;
  * of options to configure a new
  * standalone mission.
  */
-class DirectConnect : public State
+class AddServerMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_tcpButtonJoin;
-	TextEdit *_ipAddress, *_playerName, *_port;
+	TextButton *_btnCancel, *_btnAdd;
+	TextEdit *_ipAddress, *_serverName, *_port;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo;
+	Text *_txtTitle, *_txtInfo;
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
+	std::vector<std::string> _campaignTypes, _regionTypes;
 	NewBattleSelectType _selectType;
-	ComboBox* _cbxNetworkProtocol;
+	ComboBox *_cbxNetworkProtocol, *_cbxRegions, *_cbxCampaign;
 	std::vector<std::string> _networkProtocolTypes;
 	bool _isRightClick;
+	std::string selectedRegion = "NORTH AMERICA";
+	bool isCampaign = true;
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
-	void convertUnits();
 	bool isUDP = false;
 	bool parseUdpPort(const std::string& text, uint16_t& outPort);
   public:
 	/// Creates the New Battle state.
-	DirectConnect();
+	AddServerMenu();
 	/// Cleans up the New Battle state.
-	~DirectConnect();
+	~AddServerMenu();
 	/// Resets state.
 	void init() override;
 	void btnCancelClick(Action *action);
-	void joinTCPGame(Action *action);
-	/// Handler for changing the text on the Name edit.
-	void edtPlayerNameChange(Action* action);
+	void btnCAddServerClick(Action* action);
+	void cbxRegionChange(Action* action);
+	void cbxRCampaignChange(Action* action);
 	void cbxNetworkProtocolChange(Action* action);
 };
 

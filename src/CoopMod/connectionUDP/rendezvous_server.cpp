@@ -80,6 +80,7 @@ namespace
         std::string region;
         std::string gameVersion;
         std::string modHash;
+        bool isCampaign = false;
 
         bool listed = true;
         bool passwordRequired = false;
@@ -388,6 +389,7 @@ namespace
         r["max_players"] = Json::UInt(room.desiredPlayers);
         r["locked"] = room.locked || room.sessionKeyReady || room.closed;
         r["password_required"] = room.passwordRequired;
+        r["is_campaign"] = room.isCampaign;
         r["game_version"] = room.gameVersion;
         r["mod_hash"] = room.modHash;
         r["created_at_ms"] = std::to_string(room.createdAtMs);
@@ -647,6 +649,7 @@ namespace
         if (region.size() > 32) region.resize(32);
         const std::string gameVersion = req.get("game_version", "").asString();
         const std::string modHash = req.get("mod_hash", "").asString();
+        const bool isCampaign = req.get("is_campaign", false).asBool();
 
         std::string roomId;
         std::string hostToken = randomTokenB64(32);
@@ -658,6 +661,7 @@ namespace
         if (room->hostName.size() > 32) room->hostName.resize(32);
         room->listed = listed;
         room->passwordRequired = passwordRequired;
+        room->isCampaign = isCampaign;
         room->gameVersion = gameVersion;
         room->modHash = modHash;
         room->sessionId = randomSessionId();
@@ -731,6 +735,20 @@ namespace
                 sendError(sock, clientPk.data(), "wrong room password");
                 return false;
             }
+
+            const std::string requestedGameVersion = req.get("game_version", "").asString();
+            const std::string requestedModHash = req.get("mod_hash", "").asString();
+            if (!requestedGameVersion.empty() && !room->gameVersion.empty() && requestedGameVersion != room->gameVersion)
+            {
+                sendError(sock, clientPk.data(), "incompatible mods");
+                return false;
+            }
+            if (!requestedModHash.empty() && !room->modHash.empty() && requestedModHash != room->modHash)
+            {
+                sendError(sock, clientPk.data(), "incompatible mods");
+                return false;
+            }
+
             p->playerId = static_cast<uint32_t>(room->players.size() + 1);
             room->players.push_back(p);
             room->lastHeartbeatMs = nowMs();
@@ -795,6 +813,20 @@ namespace
                     sendError(sock, clientPk.data(), "wrong room password");
                     return false;
                 }
+
+                const std::string requestedGameVersion = req.get("game_version", "").asString();
+                const std::string requestedModHash = req.get("mod_hash", "").asString();
+                if (!requestedGameVersion.empty() && !room->gameVersion.empty() && requestedGameVersion != room->gameVersion)
+                {
+                    sendError(sock, clientPk.data(), "incompatible mods");
+                    return false;
+                }
+                if (!requestedModHash.empty() && !room->modHash.empty() && requestedModHash != room->modHash)
+                {
+                    sendError(sock, clientPk.data(), "incompatible mods");
+                    return false;
+                }
+
                 if (room->players.size() >= room->desiredPlayers || room->sessionKeyReady || room->locked)
                 {
                     sendError(sock, clientPk.data(), "room is full or already locked");

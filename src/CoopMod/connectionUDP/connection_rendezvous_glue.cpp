@@ -44,6 +44,7 @@ namespace
     bool g_roomCloseDone = false;
     bool g_roomCloseMonitorRunning = false;
     std::atomic<bool> g_cancelRendezvous(false);
+    std::atomic<bool> g_rendezvousFlowActive(false);
 
     std::string g_closeHost;
     uint16_t g_closeTcpPort = 0;
@@ -64,6 +65,7 @@ namespace
         std::string region;
         std::string gameVersion;
         std::string modHash;
+        bool isCampaign = false;
         bool listed = true;
         uint16_t localUdpPort = 0;
         RendezvousClient::ServerKeys keys;
@@ -72,6 +74,15 @@ namespace
     std::mutex g_relistMutex;
     LastHostConfig g_lastHostConfig;
     bool g_relistInProgress = false;
+
+    std::mutex g_clientCompatMutex;
+    std::string g_lastClientGameVersion;
+    std::string g_lastClientModHash;
+}
+
+bool isRendezvousConnectionActive()
+{
+    return g_rendezvousFlowActive.load();
 }
 
 static bool readKeyFile(const std::string& path, unsigned char* out, size_t n)
@@ -110,6 +121,44 @@ static void fillCommon(RendezvousClient::CommonConfig& cfg,
     };
 }
 
+static void setOnConnectFromRendezvousJoinError(const std::string& err)
+{
+    if (err == "wrong room password")
+    {
+        onConnect = -5;
+        return;
+    }
+
+    if (err == "incompatible mods")
+    {
+        onConnect = -4;
+        return;
+    }
+
+    onConnect = -3;
+}
+
+static void clearRendezvousFlowAfterFailedJoin(const std::string& err)
+{
+    // A failed client join attempt must not leave disconnectTCP() thinking
+    // this process still owns a rendezvous/server-list flow.
+    g_rendezvousFlowActive.store(false);
+    setOnConnectFromRendezvousJoinError(err);
+}
+
+static void rememberClientCompatibility(const std::string& gameVersion, const std::string& modHash)
+{
+    std::lock_guard<std::mutex> lock(g_clientCompatMutex);
+    g_lastClientGameVersion = gameVersion;
+    g_lastClientModHash = modHash;
+}
+
+static std::string lastClientModHash()
+{
+    std::lock_guard<std::mutex> lock(g_clientCompatMutex);
+    return g_lastClientModHash;
+}
+
 static bool startUdpFromRendezvousResult(const RendezvousClient::Result& rv,
                                          const std::string& playerName)
 {
@@ -138,13 +187,16 @@ static bool loadBuiltInKeysOrFail(RendezvousClient::ServerKeys& keys)
 
 static uint16_t normalizeHostLocalUdpPortForLanDiscovery(uint16_t localUdpPort)
 {
-    // UDP 3000 is reserved for LAN discovery. If the host explicitly tries to
-    // use 3000 for the game transport, move the game UDP port to 3001 so the
-    // discovery responder can keep listening on 3000.
+    // kLanDiscoveryPort is reserved for LAN discovery. If the host explicitly
+    // tries to use that same port for the game transport, move the game UDP
+    // port by one so the discovery responder can keep listening.
     if (localUdpPort == kLanDiscoveryPort)
     {
-        DebugLog("LAN discovery: UDP 3000 is reserved; using game UDP port 3001 instead\n");
-        return static_cast<uint16_t>(3001);
+        const uint16_t fallback = static_cast<uint16_t>(kLanDiscoveryPort + 1);
+        DebugLog(("LAN discovery: UDP " + std::to_string(kLanDiscoveryPort) +
+                  " is reserved; using game UDP port " + std::to_string(fallback) +
+                  " instead\n").c_str());
+        return fallback;
     }
     return localUdpPort;
 }
@@ -156,6 +208,7 @@ static void publishLanRoomForDiscovery(const std::string& roomId,
                                        bool passwordRequired,
                                        const std::string& gameVersion,
                                        const std::string& modHash,
+                                       bool isCampaign,
                                        uint32_t desiredPlayers,
                                        uint16_t localUdpPort)
 {
@@ -171,13 +224,15 @@ static void publishLanRoomForDiscovery(const std::string& roomId,
     room.maxPlayers = desiredPlayers == 0 ? 2 : desiredPlayers;
     room.locked = false;
     room.passwordRequired = passwordRequired;
+    room.isCampaign = isCampaign;
     room.gameVersion = gameVersion;
     room.modHash = modHash;
     room.isLan = true;
     room.lanPort = localUdpPort;
 
     startLanDiscoveryHost(room);
-    DebugLog(("LAN discovery: advertising room " + roomId + " on UDP 3000, game UDP port " +
+    DebugLog(("LAN discovery: advertising room " + roomId + " on UDP " +
+              std::to_string(kLanDiscoveryPort) + ", game UDP port " +
               std::to_string(localUdpPort) + "\n").c_str());
 }
 
@@ -200,6 +255,7 @@ static void rememberLastHostConfig(const std::string& rendezvousHost,
                                    const std::string& region,
                                    const std::string& gameVersion,
                                    const std::string& modHash,
+                                   bool isCampaign,
                                    bool listed,
                                    uint16_t localUdpPort,
                                    const RendezvousClient::ServerKeys& keys)
@@ -215,6 +271,7 @@ static void rememberLastHostConfig(const std::string& rendezvousHost,
     g_lastHostConfig.region = region;
     g_lastHostConfig.gameVersion = gameVersion;
     g_lastHostConfig.modHash = modHash;
+    g_lastHostConfig.isCampaign = isCampaign;
     g_lastHostConfig.listed = listed;
     g_lastHostConfig.localUdpPort = localUdpPort;
     g_lastHostConfig.keys = keys;
@@ -271,6 +328,7 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
         cfg.password = cfgCopy.roomPassword;
         cfg.passwordRequired = !cfgCopy.roomPassword.empty();
         cfg.listed = cfgCopy.listed;
+        cfg.isCampaign = cfgCopy.isCampaign;
         cfg.gameVersion = cfgCopy.gameVersion;
         cfg.modHash = cfgCopy.modHash;
         cfg.desiredPlayers = 2;
@@ -291,7 +349,7 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
                                      partial);
             publishLanRoomForDiscovery(roomId, cfgCopy.roomName, cfgCopy.playerName, cfgCopy.region,
                                        !cfgCopy.roomPassword.empty(), cfgCopy.gameVersion,
-                                       cfgCopy.modHash, 2, actualLocalUdpPort);
+                                       cfgCopy.modHash, cfgCopy.isCampaign, 2, actualLocalUdpPort);
         };
 
         RendezvousClient::Result rv;
@@ -300,6 +358,7 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
         if (!ok)
         {
             DebugLog(("Rendezvous relist after disconnect failed: " + err + "\n").c_str());
+            g_rendezvousFlowActive.store(false);
             if (err != "rendezvous cancelled")
                 onConnect = -3;
 
@@ -318,6 +377,10 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
                                      cfgCopy.keys,
                                      rv);
         }
+        else
+        {
+            g_rendezvousFlowActive.store(false);
+        }
 
         std::lock_guard<std::mutex> lock(g_relistMutex);
         g_relistInProgress = false;
@@ -331,6 +394,7 @@ static void setHostWaitingState()
     // but do NOT mark coopSession true yet. coopSession becomes true only
     // after PEER_READY arrives and startUdpPeer(...) successfully starts the
     // real UDP peer connection.
+    g_rendezvousFlowActive.store(true);
     g_cancelRendezvous.store(false);
     coopSession = false;
     server_owner = true;
@@ -454,6 +518,13 @@ void cancelRendezvousOperations()
 
 void disconnectRendezvousUdp()
 {
+    // connectionTCP::disconnectTCP() is still shared by the old TCP-only path
+    // and the rendezvous/UDP path. If this process is not currently using
+    // rendezvous/server-list flow and no UDP peer is running, do not touch
+    // rendezvous room state, LAN discovery or UDP state.
+    if (!g_rendezvousFlowActive.load() && !isConnectionUDPActive())
+        return;
+
     // connectionTCP::disconnectTCP() decides the branch from the current
     // onConnect value. Do not overwrite full-close state here.
     const bool hostFullDisconnect = server_owner && onConnect == -1;
@@ -464,6 +535,7 @@ void disconnectRendezvousUdp()
 
     if (hostFullDisconnect)
     {
+        g_rendezvousFlowActive.store(false);
         server_owner = false;
         onTcpHost = false;
         coopSession = false;
@@ -472,23 +544,37 @@ void disconnectRendezvousUdp()
 
     if (remotePeerLeftHostAlive)
     {
+        // Host stays in the rendezvous/server-list flow and relists for a new
+        // player, so keep g_rendezvousFlowActive true.
+        g_rendezvousFlowActive.store(true);
         resetLobbyStateAfterRemoteDisconnect();
         coopSession = false;
         // connectionTCP::disconnectTCP() may turn -2 into 2. If it does not,
         // the relist worker will still expose waiting state before it creates
         // the fresh listed room.
         reopenHostRoomAfterRemoteDisconnectAsync();
+        return;
     }
+
+    // Client disconnect or any non-host rendezvous disconnect.
+    if (!server_owner)
+        g_rendezvousFlowActive.store(false);
 }
 
 void handleUdpRemotePeerLost()
 {
+    // Drop packets from the old peer before the host relists or the client
+    // returns to menus. This matches a fresh process start more closely.
+    clearNetworkSessionQueues();
+
     // Called by connectionUDP glue when the UDP worker stops by itself. This
     // covers both a graceful F_CLOSE and a forced client shutdown detected by
     // UDP timeout. Do not call disconnectRendezvousUdp() here because this may
     // run from the UDP monitor thread; stopUdpPeer() would try to join itself.
     if (server_owner && onConnect != -1)
     {
+        // Host stays alive and relists the room for another player.
+        g_rendezvousFlowActive.store(true);
         onConnect = -2;
         resetLobbyStateAfterRemoteDisconnect();
         coopSession = false;
@@ -499,11 +585,13 @@ void handleUdpRemotePeerLost()
     if (!server_owner && onConnect != -1)
     {
         // Client lost the host/peer. This is a remote loss, not a user-requested
-        // full host shutdown.
+        // full host shutdown, and the client's rendezvous flow is over.
+        g_rendezvousFlowActive.store(false);
         onConnect = -2;
         coopSession = false;
     }
 }
+
 
 
 // Short UI-facing API. Uses rendezvous_config.cpp for host/ports/version/keys.
@@ -574,9 +662,46 @@ bool hostListedViaRendezvous(const std::string& roomName,
 bool hostListedViaRendezvous(const std::string& roomName,
                              const std::string& roomPassword,
                              const std::string& playerName,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
+                             uint16_t localUdpPort)
+{
+    return hostListedViaRendezvous(roomName,
+                                   roomPassword,
+                                   playerName,
+                                   std::string(),
+                                   modHash,
+                                   listed,
+                                   isCampaign,
+                                   localUdpPort);
+}
+
+bool hostListedViaRendezvous(const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
                              const std::string& region,
                              const std::string& modHash,
                              bool listed,
+                             uint16_t localUdpPort)
+{
+    return hostListedViaRendezvous(roomName,
+                                   roomPassword,
+                                   playerName,
+                                   region,
+                                   modHash,
+                                   listed,
+                                   false,
+                                   localUdpPort);
+}
+
+bool hostListedViaRendezvous(const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& region,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
                              uint16_t localUdpPort)
 {
     const BuiltInRendezvousConfig cfg = getBuiltInRendezvousConfig();
@@ -590,12 +715,26 @@ bool hostListedViaRendezvous(const std::string& roomName,
                                    cfg.gameVersion,
                                    modHash,
                                    listed,
+                                   isCampaign,
                                    localUdpPort);
 }
 
 bool joinListedViaRendezvous(const std::string& roomId,
                              const std::string& roomPassword,
                              const std::string& playerName,
+                             uint16_t localUdpPort)
+{
+    return joinListedViaRendezvous(roomId,
+                                   roomPassword,
+                                   playerName,
+                                   lastClientModHash(),
+                                   localUdpPort);
+}
+
+bool joinListedViaRendezvous(const std::string& roomId,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& modHash,
                              uint16_t localUdpPort)
 {
     const BuiltInRendezvousConfig cfg = getBuiltInRendezvousConfig();
@@ -605,6 +744,8 @@ bool joinListedViaRendezvous(const std::string& roomId,
                                    roomId,
                                    roomPassword,
                                    playerName,
+                                   cfg.gameVersion,
+                                   modHash,
                                    localUdpPort);
 }
 
@@ -613,6 +754,23 @@ bool joinLanRoomViaRendezvous(const std::string& roomId,
                               uint16_t lanPort,
                               const std::string& roomPassword,
                               const std::string& playerName,
+                              uint16_t localUdpPort)
+{
+    return joinLanRoomViaRendezvous(roomId,
+                                    lanHost,
+                                    lanPort,
+                                    roomPassword,
+                                    playerName,
+                                    lastClientModHash(),
+                                    localUdpPort);
+}
+
+bool joinLanRoomViaRendezvous(const std::string& roomId,
+                              const std::string& lanHost,
+                              uint16_t lanPort,
+                              const std::string& roomPassword,
+                              const std::string& playerName,
+                              const std::string& modHash,
                               uint16_t localUdpPort)
 {
     const BuiltInRendezvousConfig cfg = getBuiltInRendezvousConfig();
@@ -624,6 +782,8 @@ bool joinLanRoomViaRendezvous(const std::string& roomId,
                                     lanPort,
                                     roomPassword,
                                     playerName,
+                                    cfg.gameVersion,
+                                    modHash,
                                     localUdpPort);
 }
 
@@ -632,13 +792,44 @@ bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
                                        const std::string& playerName,
                                        uint16_t localUdpPort)
 {
+    return joinLanRoomByAddressViaRendezvous(hostLanIp,
+                                             roomPassword,
+                                             playerName,
+                                             lastClientModHash(),
+                                             localUdpPort);
+}
+
+bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
+                                       const std::string& roomPassword,
+                                       const std::string& playerName,
+                                       const std::string& modHash,
+                                       uint16_t localUdpPort)
+{
     const BuiltInRendezvousConfig cfg = getBuiltInRendezvousConfig();
 
     RendezvousClient::RoomInfo room;
-    if (!findLanRoomByAddress(hostLanIp, room, cfg.gameVersion, std::string(), true, 750))
+    if (!findLanRoomByAddress(hostLanIp, room, std::string(), std::string(), false, 750))
     {
-        DebugLog(("LAN direct connect: no rendezvous LAN room found at " + hostLanIp + ":3000\n").c_str());
+        DebugLog(("LAN direct connect: no rendezvous LAN room found at " + hostLanIp + ":" +
+                  std::to_string(kLanDiscoveryPort) + "\n").c_str());
+        g_rendezvousFlowActive.store(false);
         onConnect = -3;
+        return false;
+    }
+
+    if (!cfg.gameVersion.empty() && !room.gameVersion.empty() && room.gameVersion != cfg.gameVersion)
+    {
+        DebugLog(("LAN direct connect: incompatible game version for room=" + room.roomId + "\n").c_str());
+        g_rendezvousFlowActive.store(false);
+        onConnect = -4;
+        return false;
+    }
+
+    if (!modHash.empty() && !room.modHash.empty() && room.modHash != modHash)
+    {
+        DebugLog(("LAN direct connect: incompatible mods for room=" + room.roomId + "\n").c_str());
+        g_rendezvousFlowActive.store(false);
+        onConnect = -4;
         return false;
     }
 
@@ -650,6 +841,7 @@ bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
                                     room.lanPort,
                                     roomPassword,
                                     playerName,
+                                    modHash,
                                     localUdpPort);
 }
 
@@ -750,19 +942,61 @@ void hostListedViaRendezvousAsync(const std::string& roomName,
 void hostListedViaRendezvousAsync(const std::string& roomName,
                                   const std::string& roomPassword,
                                   const std::string& playerName,
+                                  const std::string& modHash,
+                                  bool listed,
+                                  bool isCampaign,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback)
+{
+    hostListedViaRendezvousAsync(roomName,
+                                 roomPassword,
+                                 playerName,
+                                 std::string(),
+                                 modHash,
+                                 listed,
+                                 isCampaign,
+                                 localUdpPort,
+                                 std::move(callback));
+}
+
+void hostListedViaRendezvousAsync(const std::string& roomName,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
                                   const std::string& region,
                                   const std::string& modHash,
                                   bool listed,
                                   uint16_t localUdpPort,
                                   RendezvousBoolCallback callback)
 {
-    std::thread([roomName, roomPassword, playerName, region, modHash, listed, localUdpPort, callback]() mutable {
+    hostListedViaRendezvousAsync(roomName,
+                                 roomPassword,
+                                 playerName,
+                                 region,
+                                 modHash,
+                                 listed,
+                                 false,
+                                 localUdpPort,
+                                 std::move(callback));
+}
+
+void hostListedViaRendezvousAsync(const std::string& roomName,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
+                                  const std::string& region,
+                                  const std::string& modHash,
+                                  bool listed,
+                                  bool isCampaign,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback)
+{
+    std::thread([roomName, roomPassword, playerName, region, modHash, listed, isCampaign, localUdpPort, callback]() mutable {
         const bool ok = hostListedViaRendezvous(roomName,
                                                 roomPassword,
                                                 playerName,
                                                 region,
                                                 modHash,
                                                 listed,
+                                                isCampaign,
                                                 localUdpPort);
         callBoolCallback(std::move(callback), ok);
     }).detach();
@@ -774,13 +1008,29 @@ void joinListedViaRendezvousAsync(const std::string& roomId,
                                   uint16_t localUdpPort,
                                   RendezvousBoolCallback callback)
 {
-    std::thread([roomId, roomPassword, playerName, localUdpPort, callback]() mutable {
+    joinListedViaRendezvousAsync(roomId,
+                                 roomPassword,
+                                 playerName,
+                                 lastClientModHash(),
+                                 localUdpPort,
+                                 std::move(callback));
+}
+
+void joinListedViaRendezvousAsync(const std::string& roomId,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
+                                  const std::string& modHash,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback)
+{
+    std::thread([roomId, roomPassword, playerName, modHash, localUdpPort, callback]() mutable {
         // Intentional async delay before joining. This does not freeze the UI.
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         const bool ok = joinListedViaRendezvous(roomId,
                                                 roomPassword,
                                                 playerName,
+                                                modHash,
                                                 localUdpPort);
         callBoolCallback(std::move(callback), ok);
     }).detach();
@@ -794,7 +1044,26 @@ void joinLanRoomViaRendezvousAsync(const std::string& roomId,
                                    uint16_t localUdpPort,
                                    RendezvousBoolCallback callback)
 {
-    std::thread([roomId, lanHost, lanPort, roomPassword, playerName, localUdpPort, callback]() mutable {
+    joinLanRoomViaRendezvousAsync(roomId,
+                                  lanHost,
+                                  lanPort,
+                                  roomPassword,
+                                  playerName,
+                                  lastClientModHash(),
+                                  localUdpPort,
+                                  std::move(callback));
+}
+
+void joinLanRoomViaRendezvousAsync(const std::string& roomId,
+                                   const std::string& lanHost,
+                                   uint16_t lanPort,
+                                   const std::string& roomPassword,
+                                   const std::string& playerName,
+                                   const std::string& modHash,
+                                   uint16_t localUdpPort,
+                                   RendezvousBoolCallback callback)
+{
+    std::thread([roomId, lanHost, lanPort, roomPassword, playerName, modHash, localUdpPort, callback]() mutable {
         // Same async delay as internet join. This runs in the worker thread.
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
@@ -803,6 +1072,7 @@ void joinLanRoomViaRendezvousAsync(const std::string& roomId,
                                                  lanPort,
                                                  roomPassword,
                                                  playerName,
+                                                 modHash,
                                                  localUdpPort);
         callBoolCallback(std::move(callback), ok);
     }).detach();
@@ -814,10 +1084,26 @@ void joinLanRoomByAddressViaRendezvousAsync(const std::string& hostLanIp,
                                             uint16_t localUdpPort,
                                             RendezvousBoolCallback callback)
 {
-    std::thread([hostLanIp, roomPassword, playerName, localUdpPort, callback]() mutable {
+    joinLanRoomByAddressViaRendezvousAsync(hostLanIp,
+                                           roomPassword,
+                                           playerName,
+                                           lastClientModHash(),
+                                           localUdpPort,
+                                           std::move(callback));
+}
+
+void joinLanRoomByAddressViaRendezvousAsync(const std::string& hostLanIp,
+                                            const std::string& roomPassword,
+                                            const std::string& playerName,
+                                            const std::string& modHash,
+                                            uint16_t localUdpPort,
+                                            RendezvousBoolCallback callback)
+{
+    std::thread([hostLanIp, roomPassword, playerName, modHash, localUdpPort, callback]() mutable {
         const bool ok = joinLanRoomByAddressViaRendezvous(hostLanIp,
                                                           roomPassword,
                                                           playerName,
+                                                          modHash,
                                                           localUdpPort);
         callBoolCallback(std::move(callback), ok);
     }).detach();
@@ -883,6 +1169,8 @@ bool refreshServerListViaRendezvous(const std::string& rendezvousHost,
     cfg.modHash = modHash;
     cfg.compatibleOnly = compatibleOnly;
 
+    rememberClientCompatibility(gameVersion, modHash);
+
     std::string err;
     if (!RendezvousClient::listRooms(cfg, outRooms, &err))
     {
@@ -927,10 +1215,63 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
                              const std::string& roomName,
                              const std::string& optionalPassword,
                              const std::string& playerName,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
+                             uint16_t localUdpPort)
+{
+    return hostListedViaRendezvous(rendezvousHost,
+                                   rendezvousTcpPort,
+                                   rendezvousUdpPort,
+                                   roomName,
+                                   optionalPassword,
+                                   playerName,
+                                   std::string(),
+                                   gameVersion,
+                                   modHash,
+                                   listed,
+                                   isCampaign,
+                                   localUdpPort);
+}
+
+bool hostListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomName,
+                             const std::string& optionalPassword,
+                             const std::string& playerName,
                              const std::string& region,
                              const std::string& gameVersion,
                              const std::string& modHash,
                              bool listed,
+                             uint16_t localUdpPort)
+{
+    return hostListedViaRendezvous(rendezvousHost,
+                                   rendezvousTcpPort,
+                                   rendezvousUdpPort,
+                                   roomName,
+                                   optionalPassword,
+                                   playerName,
+                                   region,
+                                   gameVersion,
+                                   modHash,
+                                   listed,
+                                   false,
+                                   localUdpPort);
+}
+
+bool hostListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomName,
+                             const std::string& optionalPassword,
+                             const std::string& playerName,
+                             const std::string& region,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
                              uint16_t localUdpPort)
 {
     RendezvousClient::ServerKeys keys;
@@ -941,7 +1282,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
 
     rememberLastHostConfig(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort,
                            roomName, optionalPassword, playerName, region, gameVersion,
-                           modHash, listed, hostGameUdpPort, keys);
+                           modHash, isCampaign, listed, hostGameUdpPort, keys);
 
     setHostWaitingState();
 
@@ -953,6 +1294,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     cfg.password = optionalPassword;
     cfg.passwordRequired = !optionalPassword.empty();
     cfg.listed = listed;
+    cfg.isCampaign = isCampaign;
     cfg.gameVersion = gameVersion;
     cfg.modHash = modHash;
     cfg.desiredPlayers = 2;
@@ -968,7 +1310,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
         partial.hostToken = hostToken;
         rememberHostRoomForClose(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys, partial);
         publishLanRoomForDiscovery(roomId, roomName, playerName, region, !optionalPassword.empty(),
-                                   gameVersion, modHash, 2, actualLocalUdpPort);
+                                   gameVersion, modHash, isCampaign, 2, actualLocalUdpPort);
     };
 
     RendezvousClient::Result rv;
@@ -976,6 +1318,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::createRoomAndWait(cfg, rv, &err))
     {
         DebugLog(("Rendezvous create failed: " + err + "\n").c_str());
+        g_rendezvousFlowActive.store(false);
         if (err == "rendezvous cancelled")
             onConnect = -2;
         else
@@ -989,6 +1332,10 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     if (udpOk)
     {
         rememberHostRoomForClose(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys, rv);
+    }
+    else
+    {
+        g_rendezvousFlowActive.store(false);
     }
     return udpOk;
 }
@@ -1061,10 +1408,32 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
                              const std::string& playerName,
                              uint16_t localUdpPort)
 {
+    return joinListedViaRendezvous(rendezvousHost,
+                                   rendezvousTcpPort,
+                                   rendezvousUdpPort,
+                                   roomIdFromServerList,
+                                   optionalPassword,
+                                   playerName,
+                                   std::string(),
+                                   std::string(),
+                                   localUdpPort);
+}
+
+bool joinListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomIdFromServerList,
+                             const std::string& optionalPassword,
+                             const std::string& playerName,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             uint16_t localUdpPort)
+{
     RendezvousClient::ServerKeys keys;
     if (!loadBuiltInKeysOrFail(keys))
         return false;
 
+    g_rendezvousFlowActive.store(true);
     g_cancelRendezvous.store(false);
 
     RendezvousClient::JoinRoomConfig cfg;
@@ -1072,6 +1441,8 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
     cfg.roomId = roomIdFromServerList;
     cfg.playerName = playerName;
     cfg.password = optionalPassword;
+    cfg.gameVersion = gameVersion;
+    cfg.modHash = modHash;
     cfg.localUdpPort = localUdpPort;
 
     RendezvousClient::Result rv;
@@ -1079,10 +1450,13 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::joinRoomAndWait(cfg, rv, &err))
     {
         DebugLog(("Rendezvous join failed: " + err + "\n").c_str());
-        onConnect = -3;
+        clearRendezvousFlowAfterFailedJoin(err);
         return false;
     }
-    return startUdpFromRendezvousResult(rv, playerName);
+    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+    if (!udpOk)
+        g_rendezvousFlowActive.store(false);
+    return udpOk;
 }
 
 bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
@@ -1095,10 +1469,36 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
                               const std::string& playerName,
                               uint16_t localUdpPort)
 {
+    return joinLanRoomViaRendezvous(rendezvousHost,
+                                    rendezvousTcpPort,
+                                    rendezvousUdpPort,
+                                    roomIdFromServerList,
+                                    lanHost,
+                                    lanPort,
+                                    optionalPassword,
+                                    playerName,
+                                    std::string(),
+                                    std::string(),
+                                    localUdpPort);
+}
+
+bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
+                              uint16_t rendezvousTcpPort,
+                              uint16_t rendezvousUdpPort,
+                              const std::string& roomIdFromServerList,
+                              const std::string& lanHost,
+                              uint16_t lanPort,
+                              const std::string& optionalPassword,
+                              const std::string& playerName,
+                              const std::string& gameVersion,
+                              const std::string& modHash,
+                              uint16_t localUdpPort)
+{
     RendezvousClient::ServerKeys keys;
     if (!loadBuiltInKeysOrFail(keys))
         return false;
 
+    g_rendezvousFlowActive.store(true);
     g_cancelRendezvous.store(false);
 
     RendezvousClient::JoinRoomConfig cfg;
@@ -1106,6 +1506,8 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
     cfg.roomId = roomIdFromServerList;
     cfg.playerName = playerName;
     cfg.password = optionalPassword;
+    cfg.gameVersion = gameVersion;
+    cfg.modHash = modHash;
     cfg.localUdpPort = localUdpPort;
 
     RendezvousClient::Result rv;
@@ -1113,7 +1515,7 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::joinRoomAndWait(cfg, rv, &err))
     {
         DebugLog(("Rendezvous LAN join failed: " + err + "\n").c_str());
-        onConnect = -3;
+        clearRendezvousFlowAfterFailedJoin(err);
         return false;
     }
 
@@ -1125,7 +1527,10 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
     DebugLog(("Rendezvous LAN join using endpoint " + lanHost + ":" +
               std::to_string(lanPort) + "\n").c_str());
 
-    return startUdpFromRendezvousResult(rv, playerName);
+    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+    if (!udpOk)
+        g_rendezvousFlowActive.store(false);
+    return udpOk;
 }
 
 bool startViaRendezvous(const std::string& rendezvousHost,
@@ -1140,6 +1545,7 @@ bool startViaRendezvous(const std::string& rendezvousHost,
     if (!loadBuiltInKeysOrFail(keys))
         return false;
 
+    g_rendezvousFlowActive.store(true);
     g_cancelRendezvous.store(false);
 
     RendezvousClient::Config cfg;
@@ -1156,10 +1562,13 @@ bool startViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::perform(cfg, rv, &err))
     {
         DebugLog(("Rendezvous failed: " + err + "\n").c_str());
-        onConnect = -3;
+        clearRendezvousFlowAfterFailedJoin(err);
         return false;
     }
-    return startUdpFromRendezvousResult(rv, playerName);
+    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+    if (!udpOk)
+        g_rendezvousFlowActive.store(false);
+    return udpOk;
 }
 
 
@@ -1199,6 +1608,8 @@ bool refreshServerListViaRendezvous(const std::string& rendezvousHost,
     cfg.gameVersion = gameVersion;
     cfg.modHash = modHash;
     cfg.compatibleOnly = compatibleOnly;
+
+    rememberClientCompatibility(gameVersion, modHash);
 
     std::string err;
     if (!RendezvousClient::listRooms(cfg, outRooms, &err))
@@ -1263,7 +1674,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
 
     rememberLastHostConfig(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort,
                            roomName, optionalPassword, playerName, region, gameVersion,
-                           modHash, listed, hostGameUdpPort, keys);
+                           modHash, false, listed, hostGameUdpPort, keys);
 
     setHostWaitingState();
 
@@ -1275,6 +1686,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     cfg.password = optionalPassword;
     cfg.passwordRequired = !optionalPassword.empty();
     cfg.listed = listed;
+    cfg.isCampaign = false;
     cfg.gameVersion = gameVersion;
     cfg.modHash = modHash;
     cfg.desiredPlayers = 2;
@@ -1290,7 +1702,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
         partial.hostToken = hostToken;
         rememberHostRoomForClose(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys, partial);
         publishLanRoomForDiscovery(roomId, roomName, playerName, region, !optionalPassword.empty(),
-                                   gameVersion, modHash, 2, actualLocalUdpPort);
+                                   gameVersion, modHash, false, 2, actualLocalUdpPort);
     };
 
     RendezvousClient::Result rv;
@@ -1298,6 +1710,7 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::createRoomAndWait(cfg, rv, &err))
     {
         DebugLog(("Rendezvous create failed: " + err + "\n").c_str());
+        g_rendezvousFlowActive.store(false);
         if (err == "rendezvous cancelled")
             onConnect = -2;
         else
@@ -1311,6 +1724,10 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
     if (udpOk)
     {
         rememberHostRoomForClose(rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys, rv);
+    }
+    else
+    {
+        g_rendezvousFlowActive.store(false);
     }
     return udpOk;
 }
@@ -1332,6 +1749,9 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
         return false;
     }
 
+    g_rendezvousFlowActive.store(true);
+    g_cancelRendezvous.store(false);
+
     RendezvousClient::JoinRoomConfig cfg;
     fillCommon(cfg, rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys);
     cfg.roomId = roomIdFromServerList;
@@ -1344,10 +1764,13 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::joinRoomAndWait(cfg, rv, &err))
     {
         DebugLog(("Rendezvous join failed: " + err + "\n").c_str());
-        onConnect = -3;
+        clearRendezvousFlowAfterFailedJoin(err);
         return false;
     }
-    return startUdpFromRendezvousResult(rv, playerName);
+    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+    if (!udpOk)
+        g_rendezvousFlowActive.store(false);
+    return udpOk;
 }
 
 // Manual invite-code API. If room does not exist, server creates it; otherwise
@@ -1369,6 +1792,9 @@ bool startViaRendezvous(const std::string& rendezvousHost,
         return false;
     }
 
+    g_rendezvousFlowActive.store(true);
+    g_cancelRendezvous.store(false);
+
     RendezvousClient::Config cfg;
     fillCommon(cfg, rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys);
     cfg.roomId = roomId;
@@ -1383,10 +1809,13 @@ bool startViaRendezvous(const std::string& rendezvousHost,
     if (!RendezvousClient::perform(cfg, rv, &err))
     {
         DebugLog(("Rendezvous failed: " + err + "\n").c_str());
-        onConnect = -3;
+        clearRendezvousFlowAfterFailedJoin(err);
         return false;
     }
-    return startUdpFromRendezvousResult(rv, playerName);
+    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+    if (!udpOk)
+        g_rendezvousFlowActive.store(false);
+    return udpOk;
 }
 
 // Compatibility wrappers for names used in the previous drafts.

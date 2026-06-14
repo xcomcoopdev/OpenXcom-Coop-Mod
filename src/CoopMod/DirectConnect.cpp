@@ -39,7 +39,6 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	
 	// Create objects
 	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
-	_lstSaves = new TextList(180, 18, x + 18, 60);
 
 	_cbxNetworkProtocol = new ComboBox(this, 180, 18, x + 18, 50);
 	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
@@ -60,11 +59,11 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "pauseMenu");
-	add(_cbxNetworkProtocol, "button", "pauseMenu");
 	add(_ipAddress);
 	add(_port);
 	add(_playerName);
 	add(_tcpButtonJoin, "button", "pauseMenu");
+	add(_cbxNetworkProtocol, "button", "pauseMenu");
 	add(_txtInfo, "text", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_txtData, "text", "pauseMenu");
@@ -124,7 +123,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_playerName->setColor(color);
 	_playerName->setBig();
 	_playerName->setBorderColor(color);
-	_playerName->setText("Player");
+	_playerName->setText(_game->getCoopMod()->getHostName());
 	_playerName->setVisible(false);
 	_playerName->onChange((ActionHandler)&DirectConnect::edtPlayerNameChange);
 	
@@ -503,13 +502,27 @@ void DirectConnect::joinTCPGame(Action* action)
 	// TCP
 	if (isUDP == false)
 	{
-		_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
+		_game->getCoopMod()->connectTCPServer(_ipAddress->getText(), _port->getText());
 	}
 	// UDP
 	else
 	{
 
 		uint16_t hostUdpPort = 0;
+
+		_game->getCoopMod()->_waitBC = false;
+		_game->getCoopMod()->_waitBH = false;
+		_game->getCoopMod()->_battleWindow = false;
+		_game->getCoopMod()->_battleInit = false;
+		_game->getCoopMod()->coopInventory = false;
+		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->inventory_battle_window = true;
+
+		// Ensure the coop state menu does not close immediately.
+		connectionTCP::forceCloseCoopStateMenu = false;
+
+		// Ensure the password check menu does not close immediately.
+		connectionTCP::forceClosePasswordCheckMenu = false;
 
 		if (!parseUdpPort(_port->getText(), hostUdpPort))
 		{
@@ -525,6 +538,7 @@ void DirectConnect::joinTCPGame(Action* action)
 			hostUdpPort,							// client local UDP port, 0 = automatic
 			[this, hostUdpPort](bool ok)
 			{
+
 				if (ok)
 				{
 					// Direct LAN connection started.

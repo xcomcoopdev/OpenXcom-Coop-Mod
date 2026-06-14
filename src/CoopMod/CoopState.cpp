@@ -50,8 +50,6 @@
 namespace OpenXcom
 {
 
-int global_state = 0;
-int state_counter = 0;
 Globe *currentGlobe = 0;
 
 /**
@@ -128,6 +126,17 @@ CoopState::CoopState(int state)
 		_btnBack->setVisible(true);
 	}
 
+	// Player was kicked
+	if (state == 123456)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("You have been kicked.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
 	// save error
 	if (state == 994)
 	{
@@ -138,6 +147,15 @@ CoopState::CoopState(int state)
 		_btnBack->setText(tr("OK"));
 		_btnBack->setVisible(true);
 
+	}
+
+	// Warning: logPacketMessages is enabled
+	if (state == 942)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setText("Disable Write packet messages to log files\n to avoid latency or crashes.");
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
 	}
 
 	// save error 2
@@ -357,6 +375,20 @@ CoopState::CoopState(int state)
 
 	}
 
+	// WRONG PASSWORD
+	if (state == 441)
+	{
+
+		connectionTCP::forceCloseCoopStateMenu = true;
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Incorrect password.\nConnection closed.");
+		_btnBack->setVisible(true);
+		_game->getCoopMod()->setServerOwner(false);
+		_game->getCoopMod()->disconnectTCP();
+
+	}
+
 	// SERVER ERROR
 	if (state == 440)
 	{
@@ -489,6 +521,57 @@ CoopState::CoopState(int state)
 		_game->popState();
 	}
 
+	// kick player
+	if (state == 12345)
+	{
+
+		std::string message =
+			"Kick this player?";
+
+		_txtTitle->setSmall();
+		_txtTitle->setText(message);
+		_btnBack->setVisible(true);
+
+		_btnBack->setText(tr("STR_NO"));
+
+		_btnBack->setX(136);
+		_btnBack->setY(150);
+		_btnBack->setWidth(80);
+		_btnBack->setHeight(20);
+
+		_txtTitle->setHeight(40);
+		_txtTitle->setY(80);
+
+		_btnYes->setVisible(true);
+
+	}
+
+	// Remove manually added server
+	if (state == 1234)
+	{
+
+		std::string message =
+			"Remove this manually added server?\n\n"
+			"Removes it from your saved server list.";
+
+		_txtTitle->setSmall();
+		_txtTitle->setText(message);
+		_btnBack->setVisible(true);
+
+		_btnBack->setText(tr("STR_NO"));
+
+		_btnBack->setX(136);
+		_btnBack->setY(150);
+		_btnBack->setWidth(80);
+		_btnBack->setHeight(20);
+
+		_txtTitle->setHeight(40);
+		_txtTitle->setY(80);
+
+		_btnYes->setVisible(true);
+
+	}
+
 	// Client-side error
 	if (state == 123)
 	{
@@ -536,11 +619,12 @@ void CoopState::think()
 	if (now - lastUpdate >= 500)
 	{
 
+		lastUpdate = now;
+
 		// Force-close the co-op state menu
-		if (connectionTCP::forceCloseCoopStateMenu == true)
+		if (connectionTCP::forceCloseCoopStateMenu == true && global_state == 15)
 		{
 
-			connectionTCP::forceCloseCoopStateMenu = false;
 			_game->popState();
 	
 		}
@@ -626,9 +710,6 @@ void CoopState::think()
 
 		}
 
-
-		lastUpdate = now;
-
 	}
 
 	//  coop fix
@@ -681,6 +762,27 @@ void CoopState::btnYesClick(Action *)
 	{
 
 		_game->pushState(new ListSaveState(_origin));
+
+	}
+
+	if (global_state == 1234)
+	{
+
+		connectionTCP::canRemoveManuallyAddedServer = true;
+
+		_game->popState();
+
+	}
+
+	if (global_state == 12345)
+	{
+
+		Json::Value root;
+		root["state"] = "kick_player";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		_game->popState();
 
 	}
 

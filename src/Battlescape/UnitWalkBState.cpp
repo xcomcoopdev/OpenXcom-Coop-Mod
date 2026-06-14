@@ -384,7 +384,7 @@ void UnitWalkBState::think()
 			}
 			// check for reaction fire
 			// coop
-			if (!_falling && !_fallingWhenStopped && connectionTCP::_enable_reaction_shoot == true)
+			if (!_falling && !_fallingWhenStopped && ((connectionTCP::_enable_reaction_shoot == true && connectionTCP::_isHotseatActive == false) || (connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true)))
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{

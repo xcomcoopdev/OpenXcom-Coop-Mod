@@ -81,7 +81,7 @@ class File;
 class HostMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_tcpButtonHost, *_btnStartHotseat;
+	TextButton *_btnCancel, *_tcpButtonHost, *_btnStartHotseat, *_btnReactionFire;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -95,6 +95,7 @@ class HostMenu : public State
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
 	std::string selectedRegion = "NORTH AMERICA";
+	bool isListed = false;
 	void convertUnits();
   public:
 	/// Creates the New Host state.
@@ -107,6 +108,7 @@ class HostMenu : public State
 	void btnCancelClick(Action *action);
 	void hostTCPGame(Action *action);
 	void startHotseat(Action* action);
+	void btnReactionFireClick(Action* action);
 	void btnChatClick(Action* action);
 	void cbxVisibilityChange(Action* action);
 	void cbxMaxPlayersChange(Action* action);

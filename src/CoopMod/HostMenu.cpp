@@ -57,6 +57,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_serverName = new TextEdit(this, 180, 18, x + 18, 72);
 	_tcpButtonHost = new TextButton(90, 18, x + 18, 152);
 	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
+	_btnReactionFire = new TextButton(180, 18, x + 18, 132);
 	_cbxVisibility = new ComboBox(this, 180, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 90, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 90, 18, x + 108, 112); 
@@ -78,6 +79,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_password);
 	add(_tcpButtonHost, "button", "pauseMenu");
 	add(_btnStartHotseat, "button", "pauseMenu");
+	add(_btnReactionFire, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -127,11 +129,24 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_btnStartHotseat->onMouseClick((ActionHandler)&HostMenu::startHotseat);
 	_btnStartHotseat->setVisible(false);
 
+	if (connectionTCP::_isHotseatReactionFireEnabled == true)
+	{
+		_btnReactionFire->setText("DISABLE REACTION FIRE");
+	}
+	else
+	{
+		_btnReactionFire->setText("ENABLE REACTION FIRE");
+	}
+
+	_btnReactionFire->onMouseClick((ActionHandler)&HostMenu::btnReactionFireClick);
+	_btnReactionFire->setVisible(false);
+
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&HostMenu::btnCancelClick, Options::keyCancel);
 
 	_visibilityTypes.push_back("VISIBILITY: PRIVATE (TCP)");
+	_visibilityTypes.push_back("VISIBILITY: PRIVATE (UDP)");
 	_visibilityTypes.push_back("VISIBILITY: PUBLIC (UDP)");
 	_visibilityTypes.push_back("HOTSEAT MODE");
 	_cbxVisibility->setOptions(_visibilityTypes, false);
@@ -186,6 +201,9 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_serverName->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
+		_btnReactionFire->setVisible(false);
 
 		// show
 		_btnStartHotseat->setVisible(true);
@@ -200,6 +218,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_tcpButtonHost->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -209,6 +229,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_tcpButtonHost->setVisible(true);
 		_cbxVisibility->setVisible(true);
 		_password->setVisible(true);
+		_cbxMaxPlayers->setVisible(true);
+		_cbxRegions->setVisible(true);
 
 	}
 
@@ -300,9 +322,21 @@ void HostMenu::init()
 		_serverName->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
+
+		if (connectionTCP::_isHotseatReactionFireEnabled == true)
+		{
+			_btnReactionFire->setText("DISABLE REACTION FIRE");
+		}
+		else
+		{
+			_btnReactionFire->setText("ENABLE REACTION FIRE");
+		}
 
 		// show
 		_btnStartHotseat->setVisible(true);
+		_btnReactionFire->setVisible(false);
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
 
 	}
@@ -314,6 +348,8 @@ void HostMenu::init()
 		_tcpButtonHost->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -323,6 +359,8 @@ void HostMenu::init()
 		_tcpButtonHost->setVisible(true);
 		_cbxVisibility->setVisible(true);
 		_password->setVisible(true);
+		_cbxMaxPlayers->setVisible(true);
+		_cbxRegions->setVisible(true);
 
 	}
 }
@@ -501,12 +539,15 @@ void HostMenu::cbxVisibilityChange(Action* action)
 	_port->setVisible(true);
 	_serverName->setVisible(true);
 	_password->setVisible(true);
+	_cbxMaxPlayers->setVisible(true);
+	_cbxRegions->setVisible(true);
 
 	// hide
 	_btnStartHotseat->setVisible(false);
+	_btnReactionFire->setVisible(false);
 
 	// HOTSEAT
-	if (selected_gamemode == 2)
+	if (selected_gamemode == 3)
 	{
 
 		// hide
@@ -514,14 +555,24 @@ void HostMenu::cbxVisibilityChange(Action* action)
 		_port->setVisible(false);
 		_serverName->setVisible(false);
 		_password->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
 
 		// show
 		_btnStartHotseat->setVisible(true);
+		_btnReactionFire->setVisible(true);
 	}
-	// UDP
+	// UDP (private)
 	else if (selected_gamemode == 1)
 	{
 		_isUDPconnection = true;
+		isListed = false;
+	}
+	// UDP (public)
+	else if (selected_gamemode == 2)
+	{
+		_isUDPconnection = true;
+		isListed = true;
 	}
 	// TCP
 	else if (selected_gamemode == 0)
@@ -554,6 +605,9 @@ void HostMenu::cbxRegionChange(Action*)
 void HostMenu::hostTCPGame(Action* action)
 {
 
+	connectionTCP::password = "";
+	connectionTCP::isPasswordRequired = false;
+
 	// password
 	if (_password->getText() != "" && _password->getText() != "Password")
 	{
@@ -572,6 +626,8 @@ void HostMenu::hostTCPGame(Action* action)
 	_tcpButtonHost->setVisible(false);
 	_cbxVisibility->setVisible(false);
 	_password->setVisible(false);
+	_cbxMaxPlayers->setVisible(false);
+	_cbxRegions->setVisible(false);
 
 	_game->getCoopMod()->setPlayerTurn(3);
 
@@ -639,13 +695,23 @@ void HostMenu::hostTCPGame(Action* action)
 		_game->getCoopMod()->coopMissionEnd = false;
 		_game->getCoopMod()->inventory_battle_window = true;
 
+		// mod compatibility
+		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
+		std::string str_hash;
+
+		for (const auto& mod_name : mod_names)
+		{
+			str_hash += mod_name + ";";
+		}
+
 		OpenXcom::hostListedViaRendezvousAsync(
 			_game->getCoopMod()->getHostServer(),  // Public room name shown in the server list.
 			udpPassword,						   // Room password. Empty string means public room without password.
 			_game->getCoopMod()->getHostName(),	   // Host player name shown to the other player / lobby.
 			selectedRegion,                        // Region selected by host, for example "EU", "US", "Asia".
-			"",									   // Mod hash. Empty for now; later use this to check matching mod setup.
-			true,								   // Listed room flag. true = visible in server list, false = private/unlisted.
+			str_hash,                              // Mod hash. Use this to check matching mod setup.
+			isListed,							   // Listed room flag. true = visible in server list, false = private/unlisted.
+			_game->getCoopMod()->getCoopCampaign(),// Is it Campaign or Custom Battle.
 			std::stoi(_port->getText())			   // Local UDP port. 0 = let the OS choose a free port automatically.
 		);
 
@@ -678,20 +744,43 @@ void HostMenu::startHotseat(Action* action)
 	_serverName->setVisible(false);
 	_cbxVisibility->setVisible(false);
 	_password->setVisible(false);
+	_cbxMaxPlayers->setVisible(false);
+	_cbxRegions->setVisible(false);
 
 	// show
 	_btnStartHotseat->setVisible(true);
 
+	// fix
+	_cbxVisibility->setSelected(2);
+
 	if (_game->getCoopMod()->_isHotseatActive)
 	{
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
+		_btnReactionFire->setVisible(false);
 	}
 	else
 	{
 		_btnStartHotseat->setText("ENABLE HOTSEAT");
 
 		_cbxVisibility->setVisible(true);
+		_btnReactionFire->setVisible(true);
 
+	}
+
+}
+
+void HostMenu::btnReactionFireClick(Action* action)
+{
+
+	connectionTCP::_isHotseatReactionFireEnabled = !connectionTCP::_isHotseatReactionFireEnabled;
+
+	if (connectionTCP::_isHotseatReactionFireEnabled == true)
+	{
+		_btnReactionFire->setText("DISABLE REACTION FIRE");
+	}
+	else
+	{
+		_btnReactionFire->setText("ENABLE REACTION FIRE");
 	}
 
 }

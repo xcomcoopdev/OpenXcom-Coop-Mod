@@ -1372,6 +1372,12 @@ void BattlescapeState::think()
 			if ((_game->getCoopMod()->_playerTurn == 1 || _game->getCoopMod()->_playerTurn == 3 || _game->getCoopMod()->_playerTurn == 4) && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && (_game->getCoopMod()->_battleInit == true || _game->getCoopMod()->isCoopSession() == false))
 			{
 
+					// mouse cursor fix
+					if (_game->getCoopMod()->_isActiveAISync == false)
+					{
+						_mouseOverIcons = false;
+					}
+				
 					// fix
 					if (_btnKneel->getVisible() == true)
 					{
@@ -1934,14 +1940,7 @@ void BattlescapeState::mapPress(Action *action)
  * @param action Pointer to an action.
  */
 void BattlescapeState::mapClick(Action *action)
-{
-
-	// coop
-	if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
-	{
-		return;
-	}
-	
+{	
 	// The following is the workaround for a rare problem where sometimes
 	// the mouse-release event is missed for any reason.
 	// However if the SDL is also missed the release event, then it is to no avail :(
@@ -1986,6 +1985,13 @@ void BattlescapeState::mapClick(Action *action)
 	// right-click aborts walking state
 	if (_game->isRightClick(action))
 	{
+
+		// coop
+		if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
+		{
+			return;
+		}
+
 		if (_battleGame->cancelCurrentAction())
 		{
 			return;
@@ -2024,6 +2030,13 @@ void BattlescapeState::mapClick(Action *action)
 		}
 		else if (_game->isLeftClick(action, true))
 		{
+
+			// coop
+			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
+			{
+				return;
+			}
+
 			_battleGame->primaryAction(pos);
 		}
 		else if (_game->isMiddleClick(action, true))
@@ -2037,7 +2050,12 @@ void BattlescapeState::mapClick(Action *action)
 				tile->setVisible(true);
 			}
 
-			_battleGame->cancelCurrentAction();
+			// coop
+			if (((_battleGame->isYourTurn != 1 && _battleGame->isYourTurn != 3 && _battleGame->isYourTurn != 4) || _game->getCoopMod()->getCoopStatic() == false))
+			{
+				_battleGame->cancelCurrentAction();
+			}
+
 			BattleUnit *bu = _save->selectUnit(pos);
 			if (bu && (bu->getVisible() || _save->getDebugMode()))
 			{

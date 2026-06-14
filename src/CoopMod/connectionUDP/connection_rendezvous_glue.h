@@ -13,6 +13,10 @@ namespace OpenXcom
 using RendezvousBoolCallback = std::function<void(bool ok)>;
 using RendezvousListCallback = std::function<void(bool ok, std::vector<RendezvousClient::RoomInfo> rooms)>;
 
+// True when the current multiplayer flow uses rendezvous/server-list/UDP.
+// TCP-only disconnects use this to avoid closing stale rendezvous state.
+bool isRendezvousConnectionActive();
+
 // -----------------------------------------------------------------------------
 // Short UI-facing API.
 // Uses rendezvous_config.cpp for host, ports, game version and public keys.
@@ -40,14 +44,34 @@ bool hostListedViaRendezvous(const std::string& roomName,
 bool hostListedViaRendezvous(const std::string& roomName,
                              const std::string& roomPassword,
                              const std::string& playerName,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
+                             uint16_t localUdpPort);
+bool hostListedViaRendezvous(const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
                              const std::string& region,
                              const std::string& modHash,
                              bool listed,
+                             uint16_t localUdpPort);
+bool hostListedViaRendezvous(const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& region,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
                              uint16_t localUdpPort);
 
 bool joinListedViaRendezvous(const std::string& roomId,
                              const std::string& roomPassword,
                              const std::string& playerName,
+                             uint16_t localUdpPort);
+bool joinListedViaRendezvous(const std::string& roomId,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& modHash,
                              uint16_t localUdpPort);
 
 // LAN discovery / NAT hairpin path. This still joins the same rendezvous room
@@ -59,14 +83,26 @@ bool joinLanRoomViaRendezvous(const std::string& roomId,
                               const std::string& roomPassword,
                               const std::string& playerName,
                               uint16_t localUdpPort);
+bool joinLanRoomViaRendezvous(const std::string& roomId,
+                              const std::string& lanHost,
+                              uint16_t lanPort,
+                              const std::string& roomPassword,
+                              const std::string& playerName,
+                              const std::string& modHash,
+                              uint16_t localUdpPort);
 
 // Direct Connect helper for LAN hosts that were created with
 // hostListedViaRendezvousAsync(...). The user only provides the host LAN IP;
-// this function queries that host on UDP 3000 to get roomId/lanPort, then joins
+// this function queries that host on kLanDiscoveryPort to get roomId/lanPort, then joins
 // the same rendezvous room through the LAN endpoint.
 bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
                                        const std::string& roomPassword,
                                        const std::string& playerName,
+                                       uint16_t localUdpPort);
+bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
+                                       const std::string& roomPassword,
+                                       const std::string& playerName,
+                                       const std::string& modHash,
                                        uint16_t localUdpPort);
 
 bool startViaRendezvous(const std::string& roomId,
@@ -105,15 +141,38 @@ void hostListedViaRendezvousAsync(const std::string& roomName,
 void hostListedViaRendezvousAsync(const std::string& roomName,
                                   const std::string& roomPassword,
                                   const std::string& playerName,
+                                  const std::string& modHash,
+                                  bool listed,
+                                  bool isCampaign,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback = RendezvousBoolCallback());
+void hostListedViaRendezvousAsync(const std::string& roomName,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
                                   const std::string& region,
                                   const std::string& modHash,
                                   bool listed,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback = RendezvousBoolCallback());
+void hostListedViaRendezvousAsync(const std::string& roomName,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
+                                  const std::string& region,
+                                  const std::string& modHash,
+                                  bool listed,
+                                  bool isCampaign,
                                   uint16_t localUdpPort,
                                   RendezvousBoolCallback callback = RendezvousBoolCallback());
 
 void joinListedViaRendezvousAsync(const std::string& roomId,
                                   const std::string& roomPassword,
                                   const std::string& playerName,
+                                  uint16_t localUdpPort,
+                                  RendezvousBoolCallback callback = RendezvousBoolCallback());
+void joinListedViaRendezvousAsync(const std::string& roomId,
+                                  const std::string& roomPassword,
+                                  const std::string& playerName,
+                                  const std::string& modHash,
                                   uint16_t localUdpPort,
                                   RendezvousBoolCallback callback = RendezvousBoolCallback());
 
@@ -124,10 +183,24 @@ void joinLanRoomViaRendezvousAsync(const std::string& roomId,
                                    const std::string& playerName,
                                    uint16_t localUdpPort,
                                    RendezvousBoolCallback callback = RendezvousBoolCallback());
+void joinLanRoomViaRendezvousAsync(const std::string& roomId,
+                                   const std::string& lanHost,
+                                   uint16_t lanPort,
+                                   const std::string& roomPassword,
+                                   const std::string& playerName,
+                                   const std::string& modHash,
+                                   uint16_t localUdpPort,
+                                   RendezvousBoolCallback callback = RendezvousBoolCallback());
 
 void joinLanRoomByAddressViaRendezvousAsync(const std::string& hostLanIp,
                                             const std::string& roomPassword,
                                             const std::string& playerName,
+                                            uint16_t localUdpPort,
+                                            RendezvousBoolCallback callback = RendezvousBoolCallback());
+void joinLanRoomByAddressViaRendezvousAsync(const std::string& hostLanIp,
+                                            const std::string& roomPassword,
+                                            const std::string& playerName,
+                                            const std::string& modHash,
                                             uint16_t localUdpPort,
                                             RendezvousBoolCallback callback = RendezvousBoolCallback());
 
@@ -170,6 +243,17 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
                              const std::string& modHash,
                              bool listed,
                              uint16_t localUdpPort);
+bool hostListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
+                             uint16_t localUdpPort);
 
 bool hostListedViaRendezvous(const std::string& rendezvousHost,
                              uint16_t rendezvousTcpPort,
@@ -181,6 +265,18 @@ bool hostListedViaRendezvous(const std::string& rendezvousHost,
                              const std::string& gameVersion,
                              const std::string& modHash,
                              bool listed,
+                             uint16_t localUdpPort);
+bool hostListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomName,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& region,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             bool listed,
+                             bool isCampaign,
                              uint16_t localUdpPort);
 
 void hostListedViaRendezvousAsync(const std::string& rendezvousHost,
@@ -215,6 +311,15 @@ bool joinListedViaRendezvous(const std::string& rendezvousHost,
                              const std::string& roomPassword,
                              const std::string& playerName,
                              uint16_t localUdpPort);
+bool joinListedViaRendezvous(const std::string& rendezvousHost,
+                             uint16_t rendezvousTcpPort,
+                             uint16_t rendezvousUdpPort,
+                             const std::string& roomId,
+                             const std::string& roomPassword,
+                             const std::string& playerName,
+                             const std::string& gameVersion,
+                             const std::string& modHash,
+                             uint16_t localUdpPort);
 
 bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
                               uint16_t rendezvousTcpPort,
@@ -224,6 +329,17 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
                               uint16_t lanPort,
                               const std::string& roomPassword,
                               const std::string& playerName,
+                              uint16_t localUdpPort);
+bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
+                              uint16_t rendezvousTcpPort,
+                              uint16_t rendezvousUdpPort,
+                              const std::string& roomId,
+                              const std::string& lanHost,
+                              uint16_t lanPort,
+                              const std::string& roomPassword,
+                              const std::string& playerName,
+                              const std::string& gameVersion,
+                              const std::string& modHash,
                               uint16_t localUdpPort);
 
 void joinListedViaRendezvousAsync(const std::string& rendezvousHost,

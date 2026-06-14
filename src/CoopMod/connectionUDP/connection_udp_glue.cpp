@@ -12,8 +12,6 @@
  *    same packet execution path
  *  - static connectionTCP lobby/session variables are updated directly here
  *
- * If you move g_txQ/g_rxQ/onConnect/server_owner into connectionTCP as public
- * static members later, replace the extern globals below with those members.
  */
 
 #include "connection_udp_glue.h"
@@ -36,10 +34,10 @@ namespace OpenXcom
 {
 
 // These are currently globals in the provided connectionTCP.cpp. They are kept
-// here to avoid changing all old TCP code at once. New connectionTCP static
-// state, such as connectionTCP::isCoopSessionLocked, is used directly below.
-extern SPSCQueue<kNetworkQueueSize> g_txQ;
-extern SPSCQueue<kNetworkQueueSize> g_rxQ;
+// here to avoid changing all old TCP code at once. g_txQ and g_rxQ are declared
+// in connectionTCP.h, so do not redeclare them here with another type. New
+// connectionTCP static state, such as connectionTCP::isCoopSessionLocked, is
+// used directly below.
 extern int onConnect;
 extern bool server_owner;
 extern bool onTcpHost;
@@ -256,6 +254,11 @@ bool startUdpPeer(const std::string& remoteHost,
 	if (s_connectionUDP)
 		s_connectionUDP->stop();
 
+	// Start every UDP session with clean shared packet queues.
+	// This prevents stale packets from a previous host/client session from
+	// being delivered after a new peer joins.
+	clearNetworkSessionQueues();
+
 	s_connectionUDP.reset(new connectionUDP());
 
 	connectionUDP::Config cfg;
@@ -409,6 +412,9 @@ void stopUdpPeer()
 		s_connectionUDP.reset();
 	}
 
+	// Drop any queued gameplay packets from the old peer.
+	clearNetworkSessionQueues();
+
 	// Only stop the UDP transport. Do not change onConnect, coopSession,
 	// server_owner or onTcpHost here. The old connectionTCP::disconnectTCP()
 	// logic uses onConnect to choose between full close (-1) and remote
@@ -418,12 +424,7 @@ void stopUdpPeer()
 
 void clearAllReceivedUDPPackets()
 {
-	clearPackets = false;
-
-	std::string drop;
-	while (g_rxQ.pop(drop))
-	{
-	}
+	clearNetworkSessionQueues();
 
 	if (s_connectionUDP)
 		s_connectionUDP->clearQueues();

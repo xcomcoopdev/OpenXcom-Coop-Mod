@@ -50,6 +50,10 @@
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
 
+#include "PasswordCheckMenu.h"
+#include "ModCheckMenu.h"
+#include "connectionUDP/connection_udp_glue.h"
+
 namespace OpenXcom
 {
 
@@ -160,6 +164,8 @@ bool connectionTCP::isCoopBaseLoading = false;
 
 bool connectionTCP::_isHotseatActive = false;
 
+bool connectionTCP::_isHotseatReactionFireEnabled = false;
+
 bool connectionTCP::show_inactive_player_inventory = false;
 
 bool connectionTCP::pauseSound = false;
@@ -180,6 +186,14 @@ int connectionTCP::LobbyFileStatus = -1;
 int connectionTCP::lobby_timer = -1;
 
 bool connectionTCP::forceCloseCoopStateMenu = false;
+
+bool connectionTCP::forceClosePasswordCheckMenu = false;
+
+bool connectionTCP::isLobbyMenuClosed = true;
+
+int connectionTCP::manuallyAddedServerRemoveID = -1;
+
+bool connectionTCP::canRemoveManuallyAddedServer = false;
 
 // saveID is only used when the host saves each player's progress. This ensures that players load the correct save data.
 long long connectionTCP::saveID = 0;
@@ -223,8 +237,13 @@ connectionTCP::~connectionTCP()
 
 }
 
-SPSCQueue<kNetworkQueueSize> g_txQ{};
-SPSCQueue<kNetworkQueueSize> g_rxQ{};
+SPSCQueue<1024> g_txQ{};
+SPSCQueue<1024> g_rxQ{};
+
+// Main-thread hold queue used by updateCoopTask(). Keep it outside the
+// function so disconnect/reconnect cleanup can reset it fully between sessions.
+static std::mutex g_rxHoldMutex;
+static std::deque<std::string> g_rxHold;
 
 // ===== Time helper =====
 static inline uint64_t now_ms()
@@ -251,17 +270,33 @@ bool enqueueTx(std::string&& s)
 
 	if (!g_txQ.push(std::move(s)))
 	{
-		static uint64_t lastQueueFullLog = 0;
-		const uint64_t now = now_ms();
-		if (now - lastQueueFullLog > 1000)
-		{
-			lastQueueFullLog = now;
-			DebugLog("TX queue full, dropping packet\n");
-		}
+		DebugLog("TX queue full, dropping packet\n");
 		return false;
 	}
 
 	return true;
+}
+
+void clearNetworkSessionQueues()
+{
+	// Reset all shared packet queues so a new session starts like a fresh game launch.
+	// This clears stale packets left by the previous TCP/UDP session, including
+	// packets held by updateCoopTask() while the game was not ready to consume them.
+	clearPackets = false;
+
+	std::string drop;
+	while (g_txQ.pop(drop))
+	{
+	}
+
+	while (g_rxQ.pop(drop))
+	{
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+		g_rxHold.clear();
+	}
 }
 
 // HOST: emit PING once per second (independent from client)
@@ -699,6 +734,14 @@ void connectionTCP::updateCoopTask()
 		waitedTrades = newWaitedTrades;
 	}
 
+	// wrong password
+	if (onConnect == -5)
+	{
+
+		// Make sure it calls disconnectTCP, otherwise it may get stuck.
+		_game->pushState(new CoopState(441));
+	}
+
 	// coop
 	// server error!
 	if (onConnect == -3)
@@ -735,29 +778,39 @@ void connectionTCP::updateCoopTask()
 	}
 
 	// coop
-	static std::deque<std::string> rxHold; // local, game-thread only
-
-	// Pull everything currently available from the lock-free queue into our local hold.
+	// Pull everything currently available from the transport queue into the hold queue.
+	// The hold queue is global so disconnect/reconnect cleanup can clear it completely.
 	{
+		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 		std::string msg;
 		while (g_rxQ.pop(msg))
 		{
-			rxHold.emplace_back(std::move(msg));
+			g_rxHold.emplace_back(std::move(msg));
 		}
 	}
 
 	for (;;)
 	{
-		if (rxHold.empty())
-			break;
+		size_t passCount = 0;
+		{
+			std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+			if (g_rxHold.empty())
+				break;
+			passCount = g_rxHold.size();
+		}
 
-		const size_t passCount = rxHold.size();
 		size_t consumedThisPass = 0;
 
 		for (size_t i = 0; i < passCount; ++i)
 		{
-			std::string jsonStr = std::move(rxHold.front());
-			rxHold.pop_front();
+			std::string jsonStr;
+			{
+				std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+				if (g_rxHold.empty())
+					break;
+				jsonStr = std::move(g_rxHold.front());
+				g_rxHold.pop_front();
+			}
 
 			try
 			{
@@ -782,10 +835,10 @@ void connectionTCP::updateCoopTask()
 
 				// debug mode
 				if (Options::logPacketMessages == true && Options::logInfoToFile == true)
-				{
-
+				{			
 					std::string str_debug =
 						std::string("task completed: ") + (_coop_task_completed ? "true" : "false") +
+						"   connection status: " + std::to_string(onConnect) + 
 						"   packet name: " + stateString +
 						"   packet data: " + obj.toStyledString();
 
@@ -800,18 +853,18 @@ void connectionTCP::updateCoopTask()
 					 stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
-				if (consumeNow || onConnect == -1)
+				if (consumeNow)
 				{
-					if (onConnect != -1)
-					{
-						onTCPMessage(stateString, obj);
-					}
+					onTCPMessage(stateString, obj);
 					++consumedThisPass;
 				}
 				else
 				{
-					// Rotate to the back so we can try the next message
-					rxHold.emplace_back(std::move(jsonStr));
+					// Rotate to the back so we can try the next message.
+					{
+						std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+						g_rxHold.emplace_back(std::move(jsonStr));
+					}
 				}
 			}
 			catch (const std::exception& e)
@@ -825,8 +878,11 @@ void connectionTCP::updateCoopTask()
 				// Write a crash-style log file into user/logs/crash_YYYY-MM-DD_HH-MM-SS.log
 				CRASH_LOG(msg);
 
-				// Put back to the *back* to avoid pinning the head
-				rxHold.emplace_back(std::move(jsonStr));
+				// Put back to the *back* to avoid pinning the head.
+				{
+					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+					g_rxHold.emplace_back(std::move(jsonStr));
+				}
 				onConnect = -3;
 				break;
 			}
@@ -855,6 +911,63 @@ void connectionTCP::updateCoopTask()
 
 }
 
+std::vector<std::string> splitVector(std::string s, std::string delimiter)
+{
+	size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+	std::string token;
+	std::vector<std::string> res;
+
+	while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos)
+	{
+		token = s.substr(pos_start, pos_end - pos_start);
+		pos_start = pos_end + delim_len;
+		res.push_back(token);
+	}
+
+	res.push_back(s.substr(pos_start));
+	return res;
+}
+
+std::vector<std::string> connectionTCP::splitVectorMod(std::string s, std::string delimiter)
+{
+	return splitVector(s, delimiter);
+}
+
+bool connectionTCP::hasRequiredMods(const std::string& mod_hash)
+{
+	// Local mods
+	std::vector<std::string> local_mod_names = _game->getMod()->getCoopModList();
+
+	// If server does not require mods, allow join
+	if (mod_hash == "")
+		return true;
+
+	// Required mods from the host/server
+	std::vector<std::string> required_mods =
+		_game->getCoopMod()->splitVectorMod(mod_hash, ";");
+
+	// Remove empty strings, because mod_hash may end with ";"
+	required_mods.erase(
+		std::remove(required_mods.begin(), required_mods.end(), ""),
+		required_mods.end());
+
+	local_mod_names.erase(
+		std::remove(local_mod_names.begin(), local_mod_names.end(), ""),
+		local_mod_names.end());
+
+	// Check that mod count is the same
+	if (local_mod_names.size() != required_mods.size())
+		return false;
+
+	// Check that every required mod exists locally
+	for (const auto& mod : required_mods)
+	{
+		if (std::find(local_mod_names.begin(), local_mod_names.end(), mod) == local_mod_names.end())
+			return false;
+	}
+
+	return true;
+}
 
 void connectionTCP::syncCoopInventory()
 {
@@ -1023,23 +1136,6 @@ void connectionTCP::syncCoopInventory()
 
 }
 
-std::vector<std::string> splitVector(std::string s, std::string delimiter)
-{
-	size_t pos_start = 0, pos_end, delim_len = delimiter.length();
-	std::string token;
-	std::vector<std::string> res;
-
-	while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos)
-	{
-		token = s.substr(pos_start, pos_end - pos_start);
-		pos_start = pos_end + delim_len;
-		res.push_back(token);
-	}
-
-	res.push_back(s.substr(pos_start));
-	return res;
-}
-
 bool isNumber(const std::string& s)
 {
 	for (char c : s)
@@ -1100,6 +1196,7 @@ void resetCoopState(bool isHost)
 	connectionTCP::LobbyFileStatus = -1;
 	connectionTCP::lobby_timer = -1;
 	connectionTCP::forceCloseCoopStateMenu = false;
+	connectionTCP::forceClosePasswordCheckMenu = false;
 
 }
 
@@ -1398,6 +1495,8 @@ void connectionTCP::startTCPClient()
 			hello["state"] = "INIT_SERVER";
 			hello["playername"] = sendTcpPlayer;
 			hello["servername"] = sendTcpServerName;
+			hello["tcp_password"] = connectionTCP::password;
+
 			sendJSONNoLock(hello);
 		}
 
@@ -1691,6 +1790,27 @@ long long connectionTCP::getDateTimeCoop() const
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
+	if (stateString == "kick_player")
+	{
+
+		disconnectTCP();
+
+		_game->pushState(new CoopState(123456));
+
+	}
+
+	if (stateString == "tcp_password")
+	{
+
+		onConnect = -5;
+
+		connectionTCP::forceCloseCoopStateMenu = true;
+
+		// If this room/server requires a password, open passwordCheck menu.
+		_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), tcp_port, false, true));
+
+	}
+
 	if (stateString == "lobby_ready")
 	{
 
@@ -1721,6 +1841,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			connectionTCP::isCoopSessionLocked = true;
 		}
+
+	}
+
+	if (stateString == "change_player_name")
+	{
+
+		std::string name = obj["name"].asString();
+		tcpPlayerName = name;
 
 	}
 
@@ -4908,6 +5036,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					{
 
 						_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+						_coopEnd = 0;
 
 					}
 					
@@ -5437,8 +5566,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
-	if (stateString == "setup_battle" && onTcpHost == true)
+	if (stateString == "setup_battle")
 	{
+
+		DebugLog("setup_battle");
 
 		CoopState* coop = new CoopState(765);
 
@@ -5486,6 +5617,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_SAVE_PROGRESS" && onTcpHost == false)
 	{
 
+		// MODS
+		std::string str_hash;
+		for (Json::Value host_mod : obj["mods"])
+		{
+
+			std::string host_mod_name = host_mod["name"].asString();
+
+			str_hash += host_mod_name + ";";
+		}
+
+		if (!_game->getCoopMod()->hasRequiredMods(str_hash))
+		{
+
+			_game->getCoopMod()->disconnectTCP();
+
+			_game->pushState(new ModCheckMenu(str_hash));
+
+			return;
+		}
+
 		_game->pushState(new Profile);
 
 		// HostSaveProgress
@@ -5517,7 +5668,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_CLIENT_REQUEST_PROFILE" && onTcpHost == false)
 	{
 
+		// MODS
+		std::string str_hash;
+		for (Json::Value host_mod : obj["mods"])
+		{
+
+			std::string host_mod_name = host_mod["name"].asString();
+
+			str_hash += host_mod_name + ";";
+		}
+
+		if (!_game->getCoopMod()->hasRequiredMods(str_hash))
+		{
+
+			_game->getCoopMod()->disconnectTCP();
+
+			_game->pushState(new ModCheckMenu(str_hash));
+
+			return;
+		}
+
 		connectionTCP::forceCloseCoopStateMenu = true;
+		connectionTCP::forceClosePasswordCheckMenu = true;
 
 		_game->pushState(new Profile);
 
@@ -5593,8 +5765,41 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		Json::Value root;
 
+		// mod check
+		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
+
+		int index = 0;
+
+		for (auto mod_name : mod_names)
+		{
+
+			root["mods"][index]["name"] = mod_name;
+
+			index++;
+		}
+
 		// HostSaveProgress
 		connectionTCP::_host_save_progress = Options::HostSaveProgress;
+
+		// password
+		if (connectionTCP::isPasswordRequired == true && !OpenXcom::isConnectionUDPActive())
+		{
+
+			std::string tcp_password = obj.get("tcp_password", "").asString();
+
+			if (tcp_password != connectionTCP::password)
+			{
+
+				Json::Value rootPassword;
+				rootPassword["state"] = "tcp_password";
+
+				sendTCPPacketData(rootPassword.toStyledString());
+
+				return;
+
+			}
+
+		}
 
 		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true)
 		{
@@ -5708,22 +5913,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// campaing check
 		root["coop_campaign"] = _coopCampaign;
-
-		// mod check
-		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
-
-		int index = 0;
-
-		for (auto mod_name : mod_names)
-		{
-
-			root["mods"][index]["name"] = mod_name;
-
-			index++;
-		}
-
-		// mod count
-		root["mods_count"] = Json::UInt(mod_names.size());
 
 		// battle  check
 		bool inBattle = false;
@@ -5883,6 +6072,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
 
+		/*
 		for (Json::Value host_mod : obj["mods"])
 		{
 
@@ -5915,6 +6105,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			return;
 		}
+		*/
 
 		// CHECK IF THE CLIENT IS IN BATTLE; IF SO, INCLUDE THE HOST, OTHERWISE DO NOTHING
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION
@@ -6740,6 +6931,11 @@ void connectionTCP::createCoopMenu()
 		_game->pushState(new ServerList());
 	}
 
+	if (Options::logPacketMessages == true)
+	{
+		_game->pushState(new CoopState(942));
+	}
+
 }
 
 void connectionTCP::sendTCPPacketStaticData2(std::string data)
@@ -7544,10 +7740,9 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 
 }
 
-void connectionTCP::connectTCPServer(std::string servername, std::string ipaddress, std::string str_port)
+void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port)
 {
 	ipAddress = ipaddress;
-	//sendTcpPlayer = playername;
 	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
@@ -7669,14 +7864,17 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::isCoopSessionLocked = false;
 		connectionTCP::isPlayerReady = false;
 		connectionTCP::isPlayersReady = false;
-		connectionTCP::password = "";
 
 		connectionTCP::LobbyFileStatus = -1;
 		connectionTCP::_coopGamemode = 0;
 		connectionTCP::show_inactive_player_inventory = false;
-		connectionTCP::forceCloseCoopStateMenu = false;
 
 	    OpenXcom::disconnectRendezvousUdp();
+
+		// Clear all shared TCP/UDP packet queues after the transport is stopped.
+		// This prevents stale packets from the previous session from affecting
+		// a newly hosted or joined session.
+		OpenXcom::clearNetworkSessionQueues();
 
 		deleteAllCoopBases();
 
@@ -7684,8 +7882,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		if (server_owner == true && onConnect == -2)
 		{
 
-			onConnect = 2;
-			_game->pushState(new LobbyMenu);
+			onConnect = 1;
+
+			if (connectionTCP::isLobbyMenuClosed == true)
+			{
+				_game->pushState(new LobbyMenu);
+			}
 
 		}
 		// client

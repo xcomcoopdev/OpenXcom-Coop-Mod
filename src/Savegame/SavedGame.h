@@ -97,6 +97,13 @@ struct SaveInfo
 	bool reserved;
 };
 
+struct ModInfoCoop
+{
+	std::string modName;
+	std::string modRequired;
+	bool reserved;
+};
+
 struct ServerInfo
 {
 	std::string id;
@@ -111,6 +118,9 @@ struct ServerInfo
 	bool isLanDiscovery;
 	std::string lanHost;
 	uint16_t lanPort;
+	std::string modHash;
+	bool added;
+	bool isCampaign;
 };
 
 struct playerInfo

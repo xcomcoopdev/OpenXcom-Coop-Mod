@@ -39,7 +39,9 @@
 #include "DirectConnect.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
 #include "PasswordCheckMenu.h"
-
+#include "ModCheckMenu.h"
+#include "AddServerMenu.h"
+#include "FilterMenu.h"
 
 namespace OpenXcom
 {
@@ -156,6 +158,7 @@ ServerList::ServerList() : _sortable(true)
 
 	int x = 8;
 
+	_playername = new TextEdit(this, 100, h, x, y - 34);
 	_search = new TextEdit(this, 100, h, x + 55, y - 18);
 	_btnFilter = new TextButton(wHost, h, x, y - 18);
 	_btnHost = new TextButton(wHost, h, x, y);
@@ -187,6 +190,7 @@ ServerList::ServerList() : _sortable(true)
 	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "saveMenus");
+	add(_playername);
 	add(_search);
 	add(_btnFilter, "button", "saveMenus");
 	add(_btnHost, "button", "saveMenus");
@@ -223,6 +227,14 @@ ServerList::ServerList() : _sortable(true)
 	_search->setBorderColor(color);
 	_search->setText("Search servers...");
 	_search->setVisible(true);
+	_search->onMouseClick((ActionHandler)&ServerList::btnSearchClick);
+	_search->onChange((ActionHandler)&ServerList::edtSearchChange);
+
+	_playername->setColor(color);
+	_playername->setBorderColor(color);
+	_playername->setText(_game->getCoopMod()->getHostName());
+	_playername->setVisible(true);
+	_playername->onChange((ActionHandler)&ServerList::edtPlayerNameChange);
 
 	_btnFilter->setText("Filter");
 	_btnFilter->onMouseClick((ActionHandler)&ServerList::btnFilterClick);
@@ -234,6 +246,7 @@ ServerList::ServerList() : _sortable(true)
 	_btnDirectConnect->onMouseClick((ActionHandler)&ServerList::btnDirectConnectClick);
 
 	_btnAddServer->setText("Add Server");
+	_btnAddServer->onMouseClick((ActionHandler)&ServerList::btnAddServerClick);
 
 	_btnRefresh->setText("Refresh");
 	_btnRefresh->onMouseClick((ActionHandler)&ServerList::btnRefreshClick);
@@ -312,6 +325,15 @@ void ServerList::init()
 {
 	State::init();
 
+	if (connectionTCP::canRemoveManuallyAddedServer == true)
+	{
+
+		connectionTCP::canRemoveManuallyAddedServer = false;
+
+		removeManuallyAddedServerFromFile();
+
+	}
+
 	updateServerList();
 
 	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
@@ -376,6 +398,14 @@ void ServerList::updateArrows()
 
 void ServerList::updateServerList()
 {
+
+	loadFilters();
+
+	loadServersFromJson();
+
+	_lstServers->clearList();
+	sortList(Options::serverOrder);
+
 	if (_isRefreshingServers)
 		return;
 
@@ -390,6 +420,368 @@ void ServerList::updateServerList()
 			_pendingRooms = std::move(rooms);
 			_hasPendingRooms = true;
 		});
+
+}
+
+bool ServerList::parseUdpPort(const std::string& text, uint16_t& outPort)
+{
+	if (text.empty())
+		return false;
+
+	char* end = nullptr;
+	long value = std::strtol(text.c_str(), &end, 10);
+
+	if (*end != '\0')
+		return false;
+
+	if (value < 1 || value > 65535)
+		return false;
+
+	outPort = static_cast<uint16_t>(value);
+	return true;
+}
+
+void ServerList::loadServersFromJson()
+{
+
+	_servers.erase(
+		std::remove_if(_servers.begin(), _servers.end(),
+					   [](const ServerInfo& server)
+					   {
+						   return server.added;
+					   }),
+		_servers.end());
+
+	std::string filename = Options::getMasterUserFolder() + "/servers.json";
+
+	std::ifstream inputFile(filename);
+
+	if (!inputFile.is_open())
+	{
+		std::cerr << "servers.json not found: " << filename << std::endl;
+		return;
+	}
+
+	Json::Value root;
+	Json::CharReaderBuilder reader;
+	JSONCPP_STRING errors;
+
+	if (!Json::parseFromStream(reader, inputFile, &root, &errors))
+	{
+		std::cerr << "Failed to parse servers.json: " << errors << std::endl;
+		return;
+	}
+
+	inputFile.close();
+
+	// Check that "servers" exists and is an array
+	if (!root.isMember("servers") || !root["servers"].isArray())
+	{
+		std::cerr << "servers.json does not contain a valid servers array." << std::endl;
+		return;
+	}
+
+	// Loop all servers
+	for (const Json::Value& server : root["servers"])
+	{
+		std::string servername = server.get("server", "").asString();
+		std::string ipAddress = server.get("ipAddress", "").asString();
+		std::string port = server.get("port", "").asString();
+		std::string region = server.get("region", "").asString();
+		bool isCampaign = server.get("campaign", false).asBool();
+		bool isUDP = server.get("isUDP", false).asBool();
+
+		if (!isAllowedBySearch(servername))
+		{
+			continue;
+		}
+
+		if (!isAllowedByFilters(region, false, isUDP, "", true, isCampaign))
+		{
+			continue;
+		}
+
+		uint16_t hostUdpPort = 0;
+
+		if (!parseUdpPort(port, hostUdpPort))
+		{
+			DebugLog(("Direct LAN: invalid host UDP port: " + port + "\n").c_str());
+		}
+
+		_servers.push_back(ServerInfo({"0",
+						servername,
+						_game->getCoopMod()->getHostName(),
+						0,
+						0,
+						region,
+						false,
+						isUDP,
+						"Unknown",
+						false,
+						ipAddress,
+						hostUdpPort,
+						"",
+						true,
+						isCampaign }));
+
+	}
+}
+
+void ServerList::loadFilters()
+{
+
+	std::string filename = Options::getMasterUserFolder() + "/filters.json";
+
+	std::ifstream inputFile(filename);
+
+	if (!inputFile.is_open())
+	{
+		std::cout << "filters.json not found, using default filters." << std::endl;
+		return;
+	}
+
+	Json::Value root;
+	Json::CharReaderBuilder reader;
+	JSONCPP_STRING errors;
+
+	if (!Json::parseFromStream(reader, inputFile, &root, &errors))
+	{
+		std::cerr << "Failed to parse filters.json: " << errors << std::endl;
+		return;
+	}
+
+	selectedRegion = root.get("Region", "ANY REGION").asString();
+	selectedPassword = root.get("Password", "With or without password").asString();
+	selectedNetworkProtocol = root.get("NetworkProtocol", "NETWORK: ANY").asString();
+	selectedModCompatibility = root.get("ModCompatibility", "All mods").asString();
+	selectedManualServers = root.get("ManualServers", "ANY SERVER").asString();
+	selectedCampaign = root.get("Campaign", "Any game mode").asString();
+
+}
+
+bool ServerList::removeManuallyAddedServerFromFile()
+{
+	std::string filename = Options::getMasterUserFolder() + "/servers.json";
+
+	int removeID = connectionTCP::manuallyAddedServerRemoveID;
+
+	if (removeID < 0 || removeID >= static_cast<int>(_servers.size()))
+	{
+		std::cerr << "Invalid manually added server remove ID." << std::endl;
+		return false;
+	}
+
+	// Server data to remove
+	bool targetCampaign = _servers[removeID].isCampaign;
+	std::string targetName = _servers[removeID].name;
+	std::string targetRegion = _servers[removeID].region;
+	bool targetIsUDP = _servers[removeID].isUDP;
+	std::string targetHost = _servers[removeID].lanHost;
+
+	Json::Value root;
+
+	// Read servers.json
+	{
+		std::ifstream inputFile(filename);
+
+		if (!inputFile.is_open())
+		{
+			std::cerr << "Failed to open servers.json for reading." << std::endl;
+			return false;
+		}
+
+		Json::CharReaderBuilder reader;
+		JSONCPP_STRING errors;
+
+		if (!Json::parseFromStream(reader, inputFile, &root, &errors))
+		{
+			std::cerr << "Failed to parse servers.json: " << errors << std::endl;
+			return false;
+		}
+	}
+
+	if (!root.isMember("servers") || !root["servers"].isArray())
+	{
+		std::cerr << "servers.json does not contain a valid servers array." << std::endl;
+		return false;
+	}
+
+	// Find matching server from JSON
+	for (Json::ArrayIndex i = 0; i < root["servers"].size(); ++i)
+	{
+		Json::Value server = root["servers"][i];
+
+		bool matches =
+			server.get("campaign", false).asBool() == targetCampaign &&
+			server.get("server", "").asString() == targetName &&
+			server.get("region", "").asString() == targetRegion &&
+			server.get("isUDP", false).asBool() == targetIsUDP &&
+			server.get("ipAddress", "").asString() == targetHost;
+
+		if (matches)
+		{
+			Json::Value removedServer;
+			root["servers"].removeIndex(i, &removedServer);
+
+			// Write updated JSON back to file
+			std::ofstream outputFile(filename, std::ios::out | std::ios::trunc);
+
+			if (!outputFile.is_open())
+			{
+				std::cerr << "Failed to open servers.json for writing." << std::endl;
+				return false;
+			}
+
+			Json::StreamWriterBuilder writer;
+			writer["indentation"] = "\t";
+
+			outputFile << Json::writeString(writer, root);
+
+			std::cout << "Manually added server removed from servers.json." << std::endl;
+			return true;
+		}
+	}
+
+	std::cerr << "Matching manually added server was not found in servers.json." << std::endl;
+	return false;
+}
+
+void ServerList::savePlayerNameToIpAddressFile(std::string playerName)
+{
+	std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
+
+	Json::Value root;
+
+	// Read existing file first so other fields are preserved
+	{
+		std::ifstream inputFile(filename);
+
+		if (!inputFile.is_open())
+		{
+			std::cerr << "Failed to open ip_address.json for reading." << std::endl;
+			return;
+		}
+
+		Json::CharReaderBuilder reader;
+		JSONCPP_STRING errors;
+
+		if (!Json::parseFromStream(reader, inputFile, &root, &errors))
+		{
+			std::cerr << "Failed to parse ip_address.json: " << errors << std::endl;
+			return;
+		}
+	}
+
+	// Only update the player name
+	root["name"] = playerName;
+
+	// Write the same JSON back to file
+	std::ofstream outputFile(filename, std::ios::out | std::ios::trunc);
+
+	if (!outputFile.is_open())
+	{
+		std::cerr << "Failed to open ip_address.json for writing." << std::endl;
+		return;
+	}
+
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "\t";
+
+	outputFile << Json::writeString(writer, root);
+
+	std::cout << "Player name saved to ip_address.json." << std::endl;
+}
+
+bool ServerList::isAllowedBySearch(std::string serverName)
+{
+	// Get search text from the search input
+	std::string searchText = _search->getText();
+
+	// Empty search or placeholder text allows all servers
+	if (searchText.empty() || searchText == "Search servers...")
+	{
+		return true;
+	}
+
+	// Convert both strings to lowercase for case-insensitive search
+	std::transform(serverName.begin(), serverName.end(), serverName.begin(),
+				   [](unsigned char c)
+				   { return std::tolower(c); });
+
+	std::transform(searchText.begin(), searchText.end(), searchText.begin(),
+				   [](unsigned char c)
+				   { return std::tolower(c); });
+
+	// Allow server if the server name contains the search text
+	return serverName.find(searchText) != std::string::npos;
+}
+
+bool ServerList::isAllowedByFilters(std::string region, bool passwordRequired, bool isUDP, std::string modHash, bool added, bool isCampaign)
+{
+	if (selectedRegion != "ANY REGION" && region != selectedRegion)
+	{
+		return false;
+	}
+
+	// Password filter
+	if (selectedPassword == "With password" && !passwordRequired)
+	{
+		return false;
+	}
+
+	if (selectedPassword == "Without password" && passwordRequired)
+	{
+		return false;
+	}
+
+	// Network protocol filter
+	if (selectedNetworkProtocol == "NETWORK: TCP ONLY" && isUDP)
+	{
+		return false;
+	}
+
+	if (selectedNetworkProtocol == "NETWORK: UDP ONLY" && !isUDP)
+	{
+		return false;
+	}
+
+	// Mod compatibility filter
+	bool compatibleMods = _game->getCoopMod()->hasRequiredMods(modHash);
+
+	if (selectedModCompatibility == "Compatible mods only" && !compatibleMods)
+	{
+		return false;
+	}
+
+	if (selectedModCompatibility == "Incompatible mods only" && compatibleMods)
+	{
+		return false;
+	}
+
+	// Manually added servers filter
+	if (selectedManualServers == "MANUALLY ADDED ONLY" && !added)
+	{
+		return false;
+	}
+
+	if (selectedManualServers == "NOT MANUALLY ADDED" && added)
+	{
+		return false;
+	}
+
+	// Campaign / Custom battle filter
+	if (selectedCampaign == "Campaign" && !isCampaign)
+	{
+		return false;
+	}
+
+	if (selectedCampaign == "Custom battle" && isCampaign)
+	{
+		return false;
+	}
+
+	// Passed all filters
+	return true;
 }
 
 /**
@@ -463,7 +855,12 @@ void ServerList::btnCancelClick(Action*)
 
 void ServerList::btnFilterClick(Action* action)
 {
+	_game->pushState(new FilterMenu);
+}
 
+void ServerList::btnSearchClick(Action* action)
+{
+	_search->setText("");
 }
 
 void ServerList::btnRefreshClick(Action* action)
@@ -473,12 +870,17 @@ void ServerList::btnRefreshClick(Action* action)
 
 void ServerList::btnHostClick(Action* action)
 {
-	_game->pushState(new HostMenu());
+	_game->pushState(new HostMenu);
 }
 
 void ServerList::btnDirectConnectClick(Action* action)
 {
-	_game->pushState(new DirectConnect());
+	_game->pushState(new DirectConnect);
+}
+
+void ServerList::btnAddServerClick(Action* action)
+{
+	_game->pushState(new AddServerMenu);
 }
 
 /**
@@ -513,7 +915,15 @@ void ServerList::lstServerPress(Action* action)
 
 			std::string udpPassword = "";
 
-			if (_servers[sel].isUDP == true)
+			if (!_servers[sel].added && !_game->getCoopMod()->hasRequiredMods(_servers[sel].modHash))
+			{
+
+				_game->pushState(new ModCheckMenu(_servers[sel].modHash));
+
+				return;
+			}
+
+			if (_servers[sel].isUDP == true && _servers[sel].added == false)
 			{
 
 				if (_servers[sel].passwordRequired == "YES")
@@ -524,6 +934,20 @@ void ServerList::lstServerPress(Action* action)
 				}
 				else
 				{
+
+					_game->getCoopMod()->_waitBC = false;
+					_game->getCoopMod()->_waitBH = false;
+					_game->getCoopMod()->_battleWindow = false;
+					_game->getCoopMod()->_battleInit = false;
+					_game->getCoopMod()->coopInventory = false;
+					_game->getCoopMod()->coopMissionEnd = false;
+					_game->getCoopMod()->inventory_battle_window = true;
+
+					// Ensure the coop state menu does not close immediately.
+					connectionTCP::forceCloseCoopStateMenu = false;
+
+					// Ensure the password check menu does not close immediately.
+					connectionTCP::forceClosePasswordCheckMenu = false;
 
 					_game->pushState(new CoopState(15));
 
@@ -553,9 +977,83 @@ void ServerList::lstServerPress(Action* action)
 				}
 
 			}
+			else if (_servers[sel].added == true)
+			{
+
+				_game->getCoopMod()->_waitBC = false;
+				_game->getCoopMod()->_waitBH = false;
+				_game->getCoopMod()->_battleWindow = false;
+				_game->getCoopMod()->_battleInit = false;
+				_game->getCoopMod()->coopInventory = false;
+				_game->getCoopMod()->coopMissionEnd = false;
+				_game->getCoopMod()->inventory_battle_window = true;
+
+				// Ensure the coop state menu does not close immediately.
+				connectionTCP::forceCloseCoopStateMenu = false;
+
+				// Ensure the password check menu does not close immediately.
+				connectionTCP::forceClosePasswordCheckMenu = false;
+
+				_game->pushState(new CoopState(15));
+
+				if (_servers[sel].isUDP == true)
+				{
+
+					uint16_t port = _servers[sel].lanPort;
+					std::string ipAddress = _servers[sel].lanHost;
+
+					OpenXcom::joinLanRoomByAddressViaRendezvousAsync(
+						ipAddress,                          // Host LAN IP from Direct Connect menu.
+						"",                                 // Must match host password. Empty is allowed.
+						_game->getCoopMod()->getHostName(), // Client player name.
+						port,                               // client local UDP port, 0 = automatic
+						[this, port, ipAddress](bool ok)
+						{
+							if (ok)
+							{
+								// Direct LAN connection started.
+								return;
+							}
+
+							connectionTCP::forceCloseCoopStateMenu = true;
+
+							// Direct LAN failed. Most likely wrong password, host not found,
+							// firewall, or wrong port.
+							// If this room/server requires a password, open passwordCheck menu.
+							_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), port, true, true));
+						});
+
+				}
+				else
+				{
+
+					_game->getCoopMod()->connectTCPServer(_servers[sel].lanHost, std::to_string(_servers[sel].lanPort));
+
+				}
+
+			}
 
 		}
 	}
+	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
+	{
+
+		int sel = _lstServers->getSelectedRow() - _firstValidRow;
+
+		if (sel >= 0 && sel < (int)_servers.size())
+		{
+
+			if (_servers[sel].added == true)
+			{
+				connectionTCP::manuallyAddedServerRemoveID = sel;
+
+				_game->pushState(new CoopState(1234));
+			}
+
+		}
+
+	}
+
 }
 
 /**
@@ -638,6 +1136,21 @@ void ServerList::sortPasswordClick(Action* action)
 	}
 }
 
+void ServerList::edtSearchChange(Action* action)
+{
+
+	updateServerList();
+
+}
+
+void ServerList::edtPlayerNameChange(Action* action)
+{
+	_game->getCoopMod()->setHostName(_playername->getText());
+
+	savePlayerNameToIpAddressFile(_game->getCoopMod()->getHostName());
+
+}
+
 void ServerList::disableSort()
 {
 	_sortable = false;
@@ -670,12 +1183,30 @@ void ServerList::think()
 
 		if (ok)
 		{
-			_servers.clear();
+
+			_servers.erase(
+				std::remove_if(_servers.begin(), _servers.end(),
+							   [](const ServerInfo& server)
+							   {
+								   return !server.added;
+							   }),
+				_servers.end());
 
 			for (const auto& room : rooms)
 			{
-				std::string password = room.passwordRequired ? "YES" : "NO";
 
+				if (!isAllowedBySearch(room.name))
+				{
+					continue;
+				}
+
+				if (!isAllowedByFilters(room.region, room.passwordRequired, true, room.modHash, false, room.isCampaign))
+				{
+					continue;
+				}
+
+				std::string password = room.passwordRequired ? "YES" : "NO";
+				
 				_servers.push_back(ServerInfo({room.roomId,
 											   room.name,
 											   room.hostName,
@@ -687,12 +1218,17 @@ void ServerList::think()
 											   password,
 											   room.isLan,
 											   room.lanHost,
-											   room.lanPort}));
+											   room.lanPort,
+											   room.modHash,
+											   false,
+											   room.isCampaign }));
 			}
+
+			_lstServers->clearList();
+			sortList(Options::serverOrder);
+
 		}
 
-		_lstServers->clearList();
-		sortList(Options::serverOrder);
 	}
 
 	// Start a new refresh every 30 seconds.

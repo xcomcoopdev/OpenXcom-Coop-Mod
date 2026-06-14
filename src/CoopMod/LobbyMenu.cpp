@@ -108,6 +108,8 @@ struct comparePlayerLatency
 LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
+	connectionTCP::isLobbyMenuClosed = false;
+
 	// coop chat menu
 	if (!_game->getCoopMod()->getChatMenu())
 	{
@@ -145,6 +147,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_txtTeam = new Text(110, 9, 204, isMobile ? 40 : 32);
 	_txtLatency = new Text(110, 9, 263, isMobile ? 40 : 32);
 	_lstPlayers = new TextList(288, isMobile ? 104 : 112, 8, isMobile ? 50 : 42);
+	_playername = new TextEdit(this, 100, 16, 16, 140);
 	_txtDetails = new Text(288, 16, 16, 156);
 	_sortName = new ArrowButton(ARROW_NONE, 11, 8, 16, isMobile ? 40 : 32);
 	_sortTeam = new ArrowButton(ARROW_NONE, 11, 8, 204, isMobile ? 40 : 32);
@@ -163,6 +166,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	add(_txtTeam, "text", "saveMenus");
 	add(_txtLatency, "text", "saveMenus");
 	add(_lstPlayers, "list", "saveMenus");
+	add(_playername);
 	add(_txtDetails, "text", "saveMenus");
 	add(_sortName, "text", "saveMenus");
 	add(_sortTeam, "text", "saveMenus");
@@ -189,11 +193,11 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_txtTitle->setBig();
 	_txtTitle->setAlign(ALIGN_CENTER);
 
-	std::string lobby_title = _game->getCoopMod()->getCurrentClientServer() + "'s Server";
+	std::string lobby_title = _game->getCoopMod()->getCurrentClientServer();
 
 	if (_game->getCoopMod()->getServerOwner() == true)
 	{
-		lobby_title = _game->getCoopMod()->getHostServer() + "'s Server";
+		lobby_title = _game->getCoopMod()->getHostServer();
 	}
 
 	_txtTitle->setText(lobby_title);
@@ -223,6 +227,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	}
 
 	connectionTCP::forceCloseCoopStateMenu = false;
+	connectionTCP::forceClosePasswordCheckMenu = false;
 
 	_txtName->setText("Player");
 	_txtTeam->setText("Team");
@@ -235,6 +240,30 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_lstPlayers->onMouseOver((ActionHandler)&LobbyMenu::lstSavesMouseOver);
 	_lstPlayers->onMouseOut((ActionHandler)&LobbyMenu::lstSavesMouseOut);
 	_lstPlayers->onMousePress((ActionHandler)&LobbyMenu::lstSavesPress);
+
+	Uint8 color = 239; // 239 or 255
+
+	if (_game->getSavedGame())
+	{
+		if (_game->getSavedGame()->getSavedBattle())
+		{
+			color = 255;
+		}
+	}
+
+	_playername->setColor(color);
+	_playername->setBorderColor(color);
+	_playername->setText(_game->getCoopMod()->getHostName());
+	_playername->onChange((ActionHandler)&LobbyMenu::edtPlayerNameChange);
+
+	if (connectionTCP::isCoopSessionLocked == true)
+	{
+		_playername->setVisible(false);
+	}
+	else
+	{
+		_playername->setVisible(true);
+	}
 
 	_txtDetails->setWordWrap(true);
 	_txtDetails->setText(tr("STR_DETAILS").arg(""));
@@ -369,15 +398,12 @@ void LobbyMenu::updateArrows()
 void LobbyMenu::btnCancelClick(Action*)
 {
 
+	connectionTCP::isPlayerReady = !connectionTCP::isPlayerReady;
+
 	if (connectionTCP::isCoopSessionLocked == false && _game->getCoopMod()->getCoopStatic() == true)
 	{
-		connectionTCP::isPlayerReady = !connectionTCP::isPlayerReady;
 
-		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
-		{
-			connectionTCP::isCoopSessionLocked = true;
-		}
-		else if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true)
+		if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
 			_countdown = 60;
@@ -399,9 +425,15 @@ void LobbyMenu::btnCancelClick(Action*)
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
+		{
+			connectionTCP::isCoopSessionLocked = true;
+		}
+
 	}
 	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
+		connectionTCP::isLobbyMenuClosed = true;
 		_game->popState();
 
 		if (connectionTCP::LobbyFileStatus == 1 && _game->getCoopMod()->getCoopStatic() == true)
@@ -426,11 +458,25 @@ void LobbyMenu::btnCancelClick(Action*)
 		}
 
 	}
+	// If the session is locked and there is no connection, exit the lobby menu and disconnect
+	else
+	{
+
+		if (_game->getCoopMod()->getServerOwner() == false)
+		{
+			connectionTCP::isLobbyMenuClosed = true;
+			_game->popState();
+			_game->getCoopMod()->disconnectTCP(true);
+		}
+
+	}
 
 }
 
 void LobbyMenu::btnDisconnectClick(Action* action)
 {
+
+	connectionTCP::isLobbyMenuClosed = true;
 
 	_game->popState();
 
@@ -592,20 +638,23 @@ void LobbyMenu::lstSavesPress(Action* action)
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}
-
-	/*
-	if ((action->getDetails()->button.button == SDL_BUTTON_RIGHT || _btnDelete->getPressed()) && _lstSaves->getSelectedRow() >= _firstValidRow)
+	else if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
-		_game->pushState(new DeleteGameState(_origin, _saves[_lstSaves->getSelectedRow() - _firstValidRow].fileName));
-	}
-	*/
 
-	/*
-	if (action->getDetails()->button.button == SDL_BUTTON_LEFT && !_btnDelete->getPressed())
-	{
-		loadSave(_lstSaves->getSelectedRow());
+		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
+		if (sel >= 0 && sel < (int)_connectedPlayers.size())
+		{
+
+			if (sel == 1)
+			{
+
+				_game->pushState(new CoopState(12345));
+
+			}
+
+		}
+
 	}
-	*/
 
 }
 
@@ -636,6 +685,15 @@ void LobbyMenu::think()
 	{
 
 		lastUpdate = now;
+
+		if (connectionTCP::isCoopSessionLocked == true)
+		{
+			_playername->setVisible(false);
+		}
+		else
+		{
+			_playername->setVisible(true);
+		}
 
 		// own player
 		std::string txtTeam = "XCOM";
@@ -689,7 +747,7 @@ void LobbyMenu::think()
 			std::string txtTimer = "";
 
 			// timer
-			if (_timerStarted == true)
+			if (_timerStarted == true && _game->getCoopMod()->getServerOwner() == true)
 			{
 				_countdown--;
 				txtTimer = " (" + std::to_string(_countdown) + "s)";
@@ -707,7 +765,7 @@ void LobbyMenu::think()
 				txtTimer = " (" + std::to_string(connectionTCP::lobby_timer) + "s)";
 			}
 
-			if (_countdown <= 0)
+			if (_countdown <= 0 && _game->getCoopMod()->getServerOwner() == true)
 			{
 				_timerStarted = false;
 
@@ -816,8 +874,6 @@ void LobbyMenu::think()
 		else
 		{
 	
-			_btnCancel->setText("CANCEL");
-
 			const int clientId = 2;
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),
@@ -892,6 +948,71 @@ void LobbyMenu::sortTeamClick(Action* action)
 		_lstPlayers->clearList();
 		sortList(Options::playerOrder);
 	}
+}
+
+void LobbyMenu::savePlayerNameToIpAddressFile(std::string playerName)
+{
+	std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
+
+	Json::Value root;
+
+	// Read existing file first so other fields are preserved
+	{
+		std::ifstream inputFile(filename);
+
+		if (!inputFile.is_open())
+		{
+			std::cerr << "Failed to open ip_address.json for reading." << std::endl;
+			return;
+		}
+
+		Json::CharReaderBuilder reader;
+		JSONCPP_STRING errors;
+
+		if (!Json::parseFromStream(reader, inputFile, &root, &errors))
+		{
+			std::cerr << "Failed to parse ip_address.json: " << errors << std::endl;
+			return;
+		}
+	}
+
+	// Only update the player name
+	root["name"] = playerName;
+
+	// Write the same JSON back to file
+	std::ofstream outputFile(filename, std::ios::out | std::ios::trunc);
+
+	if (!outputFile.is_open())
+	{
+		std::cerr << "Failed to open ip_address.json for writing." << std::endl;
+		return;
+	}
+
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "\t";
+
+	outputFile << Json::writeString(writer, root);
+
+	std::cout << "Player name saved to ip_address.json." << std::endl;
+}
+
+void LobbyMenu::edtPlayerNameChange(Action* action)
+{
+	_game->getCoopMod()->setHostName(_playername->getText());
+
+	savePlayerNameToIpAddressFile(_game->getCoopMod()->getHostName());
+
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		Json::Value root;
+		root["state"] = "change_player_name";
+		root["name"] = _game->getCoopMod()->getHostName();
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 }
 
 }

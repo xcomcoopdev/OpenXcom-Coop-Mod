@@ -2613,7 +2613,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 	int threshold = unit->getReactionScore();
 	// no reaction on civilian turn.
 	// reaction is allowed during the civilian turn in coop PvP mode.
-	if (_save->getSide() != FACTION_NEUTRAL || ((connectionTCP::_isHotseatActive == true || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && _save->getSide() == FACTION_NEUTRAL))
+	if (_save->getSide() != FACTION_NEUTRAL || (((connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true) || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && _save->getSide() == FACTION_NEUTRAL))
 	{
 		for (auto* bu : *_save->getUnits())
 		{
@@ -2630,7 +2630,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 				// closer than 20 tiles
 				Position::distance2dSq(unit->getPosition(), bu->getPosition()) <= getMaxViewDistanceSq() &&
 				// coop (PVP)
-					(((connectionTCP::_isHotseatActive == true || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && bu->getFaction() != FACTION_PLAYER) || (_save->getSide() != FACTION_NEUTRAL))) 
+					((((connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true) || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && bu->getFaction() != FACTION_PLAYER) || (_save->getSide() != FACTION_NEUTRAL))) 
 			{
 				BattleAction falseAction;
 				falseAction.type = BA_SNAPSHOT;

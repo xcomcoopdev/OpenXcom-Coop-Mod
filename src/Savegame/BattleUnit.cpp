@@ -2453,6 +2453,10 @@ void BattleUnit::resetTimeUnitsAndEnergy()
 bool BattleUnit::addToVisibleUnits(BattleUnit *unit)
 {
 
+	// coop fix
+	if (!unit)
+		return false;
+
 	bool add = true;
 	for (auto* bu : _unitsSpottedThisTurn)
 	{
@@ -2537,6 +2541,11 @@ void BattleUnit::clearVisibleUnits()
  */
 bool BattleUnit::addToVisibleTiles(Tile *tile)
 {
+
+	// coop fix
+	if (!tile)
+		return false;
+
 	//Only add once, otherwise we're going to mess up the visibility value and make trouble for the AI (if sneaky).
 	if (_visibleTilesLookup.insert(tile).second)
 	{

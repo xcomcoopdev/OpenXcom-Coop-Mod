@@ -90,61 +90,51 @@ template <size_t N>
 struct SPSCQueue
 {
 	std::array<std::string, N> buf{};
-	std::atomic<size_t> head{0};
-	std::atomic<size_t> tail{0};
-	mutable std::mutex mutex;
+	std::atomic<size_t> head{0}; // producer writes
+	std::atomic<size_t> tail{0}; // consumer reads
 
-	// The original queue was single-producer/single-consumer. Battlescape sync can
-	// enqueue from more than one code path, so protect the bounded ring buffer with
-	// a small mutex to avoid rare string corruption and lost packets.
 	bool push(std::string&& s)
 	{
-		std::lock_guard<std::mutex> lock(mutex);
 		size_t h = head.load(std::memory_order_relaxed);
 		size_t n = (h + 1) % N;
-		if (n == tail.load(std::memory_order_relaxed))
+		if (n == tail.load(std::memory_order_acquire))
 			return false; // full
 		buf[h] = std::move(s);
-		head.store(n, std::memory_order_relaxed);
+		head.store(n, std::memory_order_release);
 		return true;
 	}
 
 	bool pop(std::string& out)
 	{
-		std::lock_guard<std::mutex> lock(mutex);
 		size_t t = tail.load(std::memory_order_relaxed);
-		if (t == head.load(std::memory_order_relaxed))
+		if (t == head.load(std::memory_order_acquire))
 			return false; // empty
 		out = std::move(buf[t]);
-		tail.store((t + 1) % N, std::memory_order_relaxed);
+		tail.store((t + 1) % N, std::memory_order_release);
 		return true;
 	}
 
 	bool empty() const
 	{
-		std::lock_guard<std::mutex> lock(mutex);
-		return tail.load(std::memory_order_relaxed) ==
-		       head.load(std::memory_order_relaxed);
+		return tail.load(std::memory_order_acquire) ==
+			   head.load(std::memory_order_acquire);
 	}
 
 	bool full() const
 	{
-		std::lock_guard<std::mutex> lock(mutex);
 		size_t h = head.load(std::memory_order_relaxed);
 		size_t n = (h + 1) % N;
-		return n == tail.load(std::memory_order_relaxed);
+		return n == tail.load(std::memory_order_acquire);
 	}
 };
-
-static const size_t kNetworkQueueSize = 8192;
 
 namespace OpenXcom
 {
 
 // Shared network queues used by both connectionTCP and connectionUDP.
 // Definitions must exist exactly once in a .cpp file, normally connectionTCP.cpp:
-extern SPSCQueue<kNetworkQueueSize> g_txQ;
-extern SPSCQueue<kNetworkQueueSize> g_rxQ;
+extern SPSCQueue<1024> g_txQ;
+extern SPSCQueue<1024> g_rxQ;
 
 // Existing name kept for compatibility: this only enqueues to g_txQ.
 // It does not have to mean that the active transport is TCP.
@@ -153,6 +143,10 @@ void sendTCPPacketStaticData(std::string data);
 // Single place for enqueue logic.
 // Returns false if queue is full, so caller may log/drop/retry.
 bool enqueueTx(std::string&& s);
+
+// Clears shared TCP/UDP transport queues and the updateCoopTask hold queue.
+// Call this when leaving a multiplayer session before starting a new one.
+void clearNetworkSessionQueues();
 
 class Game;
 class Ufo;
@@ -190,6 +184,8 @@ class connectionTCP
 	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();
 	void updateCoopTask();
+	std::vector<std::string> splitVectorMod(std::string s, std::string delimiter);
+	bool hasRequiredMods(const std::string& mod_hash);
 	std::string getCurrentClientName();
 	std::string getCurrentClientServer();
 	void setCurrentClientServer(std::string servername);
@@ -211,7 +207,7 @@ class connectionTCP
 	void setSelectedCraft(Craft* selectedCraft);
 	Craft* getSelectedCraft();
 	void hostTCPServer(std::string servername, std::string port);
-	void connectTCPServer(std::string servername, std::string ipaddress, std::string port);
+	void connectTCPServer(std::string ipaddress, std::string port);
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();
@@ -410,6 +406,7 @@ class connectionTCP
 
 	// hotseat
 	static bool _isHotseatActive;
+	static bool _isHotseatReactionFireEnabled;
 	bool _changeHotseatTurn = false;
 	bool _isHotseatAlienTurn = false;
 	Json::Value _discoveredTilesAlienTurn;
@@ -443,7 +440,6 @@ class connectionTCP
 	// password
 	static bool isPasswordRequired;
 	static std::string password;
-	Json::Value _checkPassword = Json::nullValue;
 
 	// lobby menu
 	static bool isCoopSessionLocked;
@@ -452,6 +448,12 @@ class connectionTCP
 	static int LobbyFileStatus;
 	static int lobby_timer;
 	static bool forceCloseCoopStateMenu;
+	static bool forceClosePasswordCheckMenu;
+	static bool isLobbyMenuClosed;
+
+	// other
+	static int manuallyAddedServerRemoveID;
+	static bool canRemoveManuallyAddedServer;
 };
 
 }

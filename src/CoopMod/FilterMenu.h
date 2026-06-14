@@ -84,36 +84,43 @@ class File;
  * of options to configure a new
  * standalone mission.
  */
-class DirectConnect : public State
+class FilterMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_tcpButtonJoin;
-	TextEdit *_ipAddress, *_playerName, *_port;
+	TextButton *_btnCancel, *_btnAdd;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo;
+	Text *_txtTitle, *_txtInfo;
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
-	ComboBox* _cbxNetworkProtocol;
-	std::vector<std::string> _networkProtocolTypes;
+	ComboBox *_cbxNetworkProtocol, *_cbxRegions, *_cbxCampaign, *_cbxPassword, *_cbxModCompatibility, *_cbxManualServers;
+	std::vector<std::string> _networkProtocolTypes, _campaignTypes, _regionTypes, _passwordTypes, _modCompatibilityTypes, _customServersTypes, _manualServerTypes;
 	bool _isRightClick;
 	std::vector<size_t> _filtered;
 	static const int TFTD_DEPLOYMENTS = 22;
-	void convertUnits();
-	bool isUDP = false;
+	// selected
+	std::string selectedNetworkProtocol = "NETWORK: ANY";
+	std::string selectedRegion = "ANY REGION";
+	std::string selectedCampaign = "Any game mode";
+	std::string selectedPassword = "With or without password";
+	std::string selectedModCompatibility = "All mods";
+	std::string selectedManualServers = "ANY SERVER";
 	bool parseUdpPort(const std::string& text, uint16_t& outPort);
   public:
 	/// Creates the New Battle state.
-	DirectConnect();
+	FilterMenu();
 	/// Cleans up the New Battle state.
-	~DirectConnect();
+	~FilterMenu();
 	/// Resets state.
 	void init() override;
 	void btnCancelClick(Action *action);
-	void joinTCPGame(Action *action);
-	/// Handler for changing the text on the Name edit.
-	void edtPlayerNameChange(Action* action);
+	void btnOKClick(Action* action);
+	void cbxRegionChange(Action* action);
+	void cbxRCampaignChange(Action* action);
+	void cbxManualServerChange(Action* action);
 	void cbxNetworkProtocolChange(Action* action);
+	void cbxPasswordChange(Action* action);
+	void cbxModCompatibilityChange(Action* action);
 };
 
 }

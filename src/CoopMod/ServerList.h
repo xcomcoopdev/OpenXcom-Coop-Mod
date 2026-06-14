@@ -42,17 +42,31 @@ class ServerList : public State
 {
 protected:
 	TextButton *_btnHost, *_btnDirectConnect, *_btnAddServer, *_btnRefresh, *_btnCancel, *_btnFilter;
-	TextEdit *_search;
+	TextEdit *_search, *_playername;
 	Window *_window;
 	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtRegion, *_txtJoin, *_txtPasswordRequired;
 	TextList *_lstServers;
 	ArrowButton *_sortName, *_sortPlayers, *_sortRegion, *_sortPassword;
 	OptionsOrigin _origin;
 	std::vector<ServerInfo> _servers;
+	// selected
+	std::string selectedNetworkProtocol = "NETWORK: ANY";
+	std::string selectedRegion = "ANY REGION";
+	std::string selectedCampaign = "Any game mode";
+	std::string selectedPassword = "With or without password";
+	std::string selectedModCompatibility = "All mods";
+	std::string selectedManualServers = "ANY SERVER";
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
 	void updateArrows();
 	void updateServerList();
+	void loadServersFromJson();
+	void loadFilters();
+	bool removeManuallyAddedServerFromFile();
+	void savePlayerNameToIpAddressFile(std::string playerName);
+	bool isAllowedBySearch(std::string serverName);
+	bool isAllowedByFilters(std::string region, bool passwordRequired, bool isUDP, std::string modHash, bool added, bool isCampaign);
+	bool parseUdpPort(const std::string& text, uint16_t& outPort);
   public:
 	/// Creates the Saved Game state.
 	ServerList();
@@ -67,9 +81,11 @@ protected:
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	void btnFilterClick(Action* action);
+	void btnSearchClick(Action* action);
 	void btnRefreshClick(Action* action);
 	void btnHostClick(Action* action);
 	void btnDirectConnectClick(Action* action);
+	void btnAddServerClick(Action* action);
 	/// Handler for moving the mouse over a list item.
 	void lstServerMouseOver(Action *action);
 	/// Handler for moving the mouse outside the list borders.
@@ -82,6 +98,8 @@ protected:
 	void sortPlayersClick(Action *action);
 	void sortRegionClick(Action* action);
 	void sortPasswordClick(Action* action);
+	void edtPlayerNameChange(Action* action);
+	void edtSearchChange(Action* action);
 	/// disables the sort buttons.
 	void disableSort();
 	/// Runs the timers and handles popups.

@@ -75,7 +75,7 @@ void PasswordCheckMenu::initMenu()
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
-	_txtTitle->setText(tr("PASSWORD CHECK"));
+	_txtTitle->setText(tr("ENTER PASSWORD"));
 
 	_txtInfo->setVisible(false);
 	_txtInfo->setAlign(ALIGN_CENTER);
@@ -130,6 +130,24 @@ void PasswordCheckMenu::init()
 void PasswordCheckMenu::joinTCPGame(Action* action)
 {
 
+	// Ensure the coop state menu does not close immediately.
+	connectionTCP::forceCloseCoopStateMenu = false;
+
+	// Ensure the password check menu does not close immediately.
+	connectionTCP::forceClosePasswordCheckMenu = false;
+
+	_game->pushState(new CoopState(15));
+
+	_game->getCoopMod()->_waitBC = false;
+	_game->getCoopMod()->_waitBH = false;
+	_game->getCoopMod()->_battleWindow = false;
+	_game->getCoopMod()->_battleInit = false;
+	_game->getCoopMod()->coopInventory = false;
+	_game->getCoopMod()->coopMissionEnd = false;
+	_game->getCoopMod()->inventory_battle_window = true;
+
+	connectionTCP::password = _password->getText();
+
 	if (_serverinfo && _isUDP && !_isDirect)
 	{
 
@@ -168,7 +186,37 @@ void PasswordCheckMenu::joinTCPGame(Action* action)
 		);
 
 	}
+	// TCP
+	else if (!_isUDP && _isDirect)
+	{
 
+		_game->getCoopMod()->connectTCPServer(_ipAddress, std::to_string(_port));
+
+	}
+
+}
+
+void PasswordCheckMenu::think()
+{
+	State::think();
+
+	static Uint32 lastUpdate = 0;
+	Uint32 now = SDL_GetTicks();
+
+	if (now - lastUpdate >= 500)
+	{
+
+		lastUpdate = now;
+
+		// Force-close the co-op state menu
+		if (connectionTCP::forceClosePasswordCheckMenu == true)
+		{
+			connectionTCP::forceClosePasswordCheckMenu = false;
+			_game->popState();
+		}
+
+	}
+	
 }
 
 /**
@@ -177,6 +225,7 @@ void PasswordCheckMenu::joinTCPGame(Action* action)
  */
 void PasswordCheckMenu::btnCancelClick(Action*)
 {
+	connectionTCP::forceCloseCoopStateMenu = true;
 	_game->popState();
 
 }

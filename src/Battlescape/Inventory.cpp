@@ -905,12 +905,23 @@ void Inventory::mouseOver(Action *action, State *state)
  */
 void Inventory::mouseClick(Action *action, State *state)
 {
+
+	// coop fix
+	// If the Inventory selected unit is different from the Battlescape selected unit, set the Inventory selected unit to the Battlescape selected unit
+	if (_game->getCoopMod()->getCoopStatic() == true && _selUnit && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit() != _selUnit)
+	{
+		_game->getSavedGame()->getSavedBattle()->setSelectedUnit(_selUnit);
+	}
+
 	if (_game->isLeftClick(action))
 	{
-		
+
 		// coop
 		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
+		{
+			setSelectedItem(0);
 			return;
+		}
 
 		if (_selUnit == 0)
 			return;

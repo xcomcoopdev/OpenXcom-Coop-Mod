@@ -38,54 +38,39 @@ class ToggleTextButton;
  * Base class for saved game screens which
  * provides the common layout and listing.
  */
-class LobbyMenu : public State
+class ModCheckMenu : public State
 {
 protected:
-	TextButton *_btnDisconnect, *_btnChat, *_btnCancel;
+	TextButton *_btnCancel;
 	Window *_window;
-	Text *_txtTitle, *_txtName, *_txtLatency, *_txtDetails, *_txtTeam, *_txtChangeTeam;
-	TextList *_lstPlayers;
-	TextEdit *_playername;
-	ArrowButton *_sortName, *_sortLatency, *_sortTeam;
+	Text *_txtTitle, *_txtModName, *_txtModRequired;
+	TextList *_lstMods;
+	ArrowButton *_sortModName, *_sortModRequired;
 	OptionsOrigin _origin;
-	std::vector<playerInfo> _connectedPlayers;
+	std::vector<ModInfoCoop> _mods;
+	std::string _modHash;
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
-	bool _timerStarted = false;
-	int _countdown = 60; // seconds
 	void updateArrows();
-	void savePlayerNameToIpAddressFile(std::string playerName);
+	void updateModList();
   public:
-	/// Creates the Game state.
-	LobbyMenu();
-	/// Cleans up the Game state.
-	virtual ~LobbyMenu();
-	/// Sets up the list.
+	/// Creates the Saved Game state.
+	ModCheckMenu(std::string modHash);
+	/// Cleans up the Saved Game state.
+	virtual ~ModCheckMenu();
+	/// Sets up the mod list.
 	void init() override;
 	/// Sorts the server list.
-	void sortList(playerSort sort);
+	void sortList(modSort sort);
 	/// Updates the server list.
 	virtual void updateList();
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
-	void btnDisconnectClick(Action* action);
-	void btnChatClick(Action* action);
-	/// Handler for moving the mouse over a list item.
-	void lstSavesMouseOver(Action *action);
-	/// Handler for moving the mouse outside the list borders.
-	void lstSavesMouseOut(Action *action);
-	/// Handler for clicking the list.
-	virtual void lstSavesPress(Action *action);
+	/// Handler for clicking the Name arrow.
+	void sortModNameClick(Action *action);
+	void sortModRequiredClick(Action* action);
 	/// disables the sort buttons.
 	void disableSort();
-	/// Runs the timers and handles popups.
-	void think() override;
-	/// Handler for clicking the Name arrow.
-	void sortNameClick(Action* action);
-	void sortLatencyClick(Action* action);
-	void sortTeamClick(Action* action);
-	void edtPlayerNameChange(Action* action);
-
 };
 
 }

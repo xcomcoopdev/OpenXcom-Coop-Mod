@@ -720,7 +720,7 @@ void CoopMenu::joinTCPGame(Action *action)
 
 	_game->pushState(new CoopState(15));
 
-	_game->getCoopMod()->connectTCPServer(_playerName->getText(), _ipAddress->getText(), _port->getText());
+	_game->getCoopMod()->connectTCPServer(_ipAddress->getText(), _port->getText());
 }
 
 void CoopMenu::hostTCPGame(Action *action)

@@ -53,6 +53,14 @@ enum playerSort
 	SORT_TEAM_LOBBY_ASC,
 	SORT_TEAM_LOBBY_DESC
 };
+enum modSort
+{
+	SORT_NAME_MOD_ASC,
+	SORT_NAME_MOD_DESC,
+	SORT_REQUIRED_MOD_ASC,
+	SORT_REQUIRED_MOD_DESC
+};
+
 /// Music format preferences.
 enum MusicFormat { MUSIC_AUTO, MUSIC_FLAC, MUSIC_OGG, MUSIC_MP3, MUSIC_MOD, MUSIC_WAV, MUSIC_ADLIB, MUSIC_GM, MUSIC_MIDI };
 /// Sound format preferences.

@@ -56,6 +56,7 @@ public:
         uint32_t maxPlayers = 0;
         bool locked = false;
         bool passwordRequired = false;
+        bool isCampaign = false;
         std::string gameVersion;
         std::string modHash;
 
@@ -83,6 +84,7 @@ public:
         std::string password; // optional, never listed publicly
         bool listed = true;
         bool passwordRequired = false;
+        bool isCampaign = false;
         std::string gameVersion;
         std::string modHash;
         uint32_t desiredPlayers = 2;
@@ -106,6 +108,8 @@ public:
         std::string roomId;
         std::string playerName;
         std::string password; // empty for public rooms
+        std::string gameVersion;
+        std::string modHash;
         uint16_t localUdpPort = 0;
     };
 
@@ -122,6 +126,8 @@ public:
         std::string roomId;
         std::string roomPassword;
         std::string playerName;
+        std::string gameVersion;
+        std::string modHash;
         uint16_t localUdpPort = 0;
         uint32_t desiredPlayers = 2;
     };

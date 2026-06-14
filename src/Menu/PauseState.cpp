@@ -274,6 +274,11 @@ void PauseState::btnCoopClick(Action *)
 		_game->pushState(new ServerList());
 	}
 
+	if (Options::logPacketMessages == true)
+	{
+		_game->pushState(new CoopState(942));
+	}
+
 }
 
 void PauseState::init()

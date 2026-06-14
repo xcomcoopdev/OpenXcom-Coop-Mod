@@ -644,6 +644,7 @@ bool RendezvousClient::listRooms(const ListConfig& cfg,
 				r.maxPlayers = arr[i].get("max_players", 0).asUInt();
 				r.locked = arr[i].get("locked", false).asBool();
 				r.passwordRequired = arr[i].get("password_required", false).asBool();
+				r.isCampaign = arr[i].get("is_campaign", false).asBool();
 				r.gameVersion = arr[i].get("game_version", "").asString();
 				r.modHash = arr[i].get("mod_hash", "").asString();
 				if (!r.roomId.empty())
@@ -676,6 +677,7 @@ bool RendezvousClient::createRoomAndWait(const CreateRoomConfig& cfg,
 	req["password"] = cfg.password;
 	req["listed"] = cfg.listed;
 	req["password_required"] = cfg.passwordRequired || !cfg.password.empty();
+	req["is_campaign"] = cfg.isCampaign;
 	req["game_version"] = cfg.gameVersion;
 	req["mod_hash"] = cfg.modHash;
 	req["desired_players"] = Json::UInt(cfg.desiredPlayers);
@@ -838,6 +840,8 @@ bool RendezvousClient::joinRoomAndWait(const JoinRoomConfig& cfg,
 	req["room_id"] = cfg.roomId;
 	req["player_name"] = cfg.playerName;
 	req["password"] = cfg.password;
+	req["game_version"] = cfg.gameVersion;
+	req["mod_hash"] = cfg.modHash;
 
 	bool ok = createOrJoinAndWait(cfg, "JOIN_ROOM", req, cfg.localUdpPort, cfg.roomId, out, error);
 	if (ok && out.roomId.empty())
@@ -928,6 +932,8 @@ bool RendezvousClient::perform(const Config& cfg,
 	req["room"] = cfg.roomId;
 	req["password"] = cfg.roomPassword;
 	req["player_name"] = cfg.playerName;
+	req["game_version"] = cfg.gameVersion;
+	req["mod_hash"] = cfg.modHash;
 	req["desired_players"] = Json::UInt(cfg.desiredPlayers);
 
 	bool ok = createOrJoinAndWait(cfg, "JOIN", req, cfg.localUdpPort, cfg.roomId, out, error);
