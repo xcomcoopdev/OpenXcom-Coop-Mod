@@ -443,6 +443,10 @@ void LobbyMenu::btnCancelClick(Action*)
 			root["state"] = "SEND_FILE_HOST_SAVE";
 
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+			// fix
+			connectionTCP::LobbyFileStatus = -1;
+
 		}
 		else if (connectionTCP::LobbyFileStatus == 2 && _game->getCoopMod()->getCoopStatic() == true)
 		{
@@ -455,6 +459,10 @@ void LobbyMenu::btnCancelClick(Action*)
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 			_game->pushState(new CoopState(1));
+
+			// fix
+			connectionTCP::LobbyFileStatus = -1;
+
 		}
 
 	}
