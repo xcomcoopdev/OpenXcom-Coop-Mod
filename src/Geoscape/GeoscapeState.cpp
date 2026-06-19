@@ -1316,7 +1316,7 @@ void GeoscapeState::think()
 				for (auto &site : *_game->getSavedGame()->getMissionSites())
 				{
 
-					if (site->getId() == _game->getCoopMod()->show_coop_mission_popup && site->getDetected() == true)
+					if (site->getDetected() == true)
 					{
 
 						popup(new MissionDetectedState(site, this, true));

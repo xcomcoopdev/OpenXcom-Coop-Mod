@@ -52,7 +52,7 @@ protected:
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
 	bool _timerStarted = false;
-	int _countdown = 60; // seconds
+	int _countdown = 30; // seconds
 	void updateArrows();
 	void savePlayerNameToIpAddressFile(std::string playerName);
   public:

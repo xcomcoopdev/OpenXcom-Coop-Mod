@@ -951,7 +951,12 @@ void ServerList::lstServerPress(Action* action)
 
 					_game->pushState(new CoopState(15));
 
-					if (_servers[sel].isLanDiscovery = true)
+					const bool useLanEndpoint =
+						_servers[sel].isLanDiscovery &&
+						!_servers[sel].lanHost.empty() &&
+						_servers[sel].lanPort != 0;
+
+					if (useLanEndpoint)
 					{
 
 						OpenXcom::joinLanRoomViaRendezvousAsync(

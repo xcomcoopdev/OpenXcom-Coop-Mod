@@ -649,7 +649,7 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == 4 || global_state == 54 || global_state == 53)
+		else if (global_state == 4 || global_state == 54 || global_state == 53 || global_state == 52)
 		{
 
 			if (state_counter == 0)

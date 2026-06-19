@@ -1483,54 +1483,76 @@ bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
 }
 
 bool joinLanRoomViaRendezvous(const std::string& rendezvousHost,
-                              uint16_t rendezvousTcpPort,
-                              uint16_t rendezvousUdpPort,
-                              const std::string& roomIdFromServerList,
-                              const std::string& lanHost,
-                              uint16_t lanPort,
-                              const std::string& optionalPassword,
-                              const std::string& playerName,
-                              const std::string& gameVersion,
-                              const std::string& modHash,
-                              uint16_t localUdpPort)
+							  uint16_t rendezvousTcpPort,
+							  uint16_t rendezvousUdpPort,
+							  const std::string& roomIdFromServerList,
+							  const std::string& lanHost,
+							  uint16_t lanPort,
+							  const std::string& optionalPassword,
+							  const std::string& playerName,
+							  const std::string& gameVersion,
+							  const std::string& modHash,
+							  uint16_t localUdpPort)
 {
-    RendezvousClient::ServerKeys keys;
-    if (!loadBuiltInKeysOrFail(keys))
-        return false;
+	RendezvousClient::ServerKeys keys;
+	if (!loadBuiltInKeysOrFail(keys))
+		return false;
 
-    g_rendezvousFlowActive.store(true);
-    g_cancelRendezvous.store(false);
+	g_rendezvousFlowActive.store(true);
+	g_cancelRendezvous.store(false);
 
-    RendezvousClient::JoinRoomConfig cfg;
-    fillCommon(cfg, rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys);
-    cfg.roomId = roomIdFromServerList;
-    cfg.playerName = playerName;
-    cfg.password = optionalPassword;
-    cfg.gameVersion = gameVersion;
-    cfg.modHash = modHash;
-    cfg.localUdpPort = localUdpPort;
+	RendezvousClient::JoinRoomConfig cfg;
+	fillCommon(cfg, rendezvousHost, rendezvousTcpPort, rendezvousUdpPort, keys);
+	cfg.roomId = roomIdFromServerList;
+	cfg.playerName = playerName;
+	cfg.password = optionalPassword;
+	cfg.gameVersion = gameVersion;
+	cfg.modHash = modHash;
+	cfg.localUdpPort = localUdpPort;
 
-    RendezvousClient::Result rv;
-    std::string err;
-    if (!RendezvousClient::joinRoomAndWait(cfg, rv, &err))
-    {
-        DebugLog(("Rendezvous LAN join failed: " + err + "\n").c_str());
-        clearRendezvousFlowAfterFailedJoin(err);
-        return false;
-    }
+	RendezvousClient::Result rv;
+	std::string err;
+	if (!RendezvousClient::joinRoomAndWait(cfg, rv, &err))
+	{
+		DebugLog(("Rendezvous LAN join failed: " + err + "\n").c_str());
+		clearRendezvousFlowAfterFailedJoin(err);
+		return false;
+	}
 
-    // NAT hairpin / loopback fix: rendezvous gave us the public endpoint,
-    // but LAN discovery found the real local endpoint. Keep the same
-    // rendezvous sessionId/sessionKey and only replace the UDP endpoint.
-    rv.remoteHost = lanHost;
-    rv.remotePort = lanPort;
-    DebugLog(("Rendezvous LAN join using endpoint " + lanHost + ":" +
-              std::to_string(lanPort) + "\n").c_str());
+	// Use the LAN endpoint only when LAN discovery returned a valid address.
+	// Otherwise keep the public endpoint returned by the rendezvous server.
+	if (!lanHost.empty() && lanPort != 0)
+	{
+		rv.remoteHost = lanHost;
+		rv.remotePort = lanPort;
 
-    const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
-    if (!udpOk)
-        g_rendezvousFlowActive.store(false);
-    return udpOk;
+		DebugLog(("Rendezvous LAN join using endpoint " +
+				  rv.remoteHost + ":" +
+				  std::to_string(rv.remotePort) + "\n")
+					 .c_str());
+	}
+	else
+	{
+		DebugLog(("Rendezvous LAN join: invalid LAN endpoint; keeping rendezvous endpoint " +
+				  rv.remoteHost + ":" +
+				  std::to_string(rv.remotePort) + "\n")
+					 .c_str());
+	}
+
+	// A valid endpoint is required even after the LAN fallback decision.
+	if (rv.remoteHost.empty() || rv.remotePort == 0)
+	{
+		DebugLog("Rendezvous LAN join failed: no valid remote UDP endpoint\n");
+		g_rendezvousFlowActive.store(false);
+		onConnect = -3;
+		return false;
+	}
+
+	const bool udpOk = startUdpFromRendezvousResult(rv, playerName);
+	if (!udpOk)
+		g_rendezvousFlowActive.store(false);
+
+	return udpOk;
 }
 
 bool startViaRendezvous(const std::string& rendezvousHost,

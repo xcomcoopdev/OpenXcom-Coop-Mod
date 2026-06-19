@@ -285,11 +285,8 @@ void BriefingState::loadCoop()
 
 	// coop
 	// if pvp gamemode
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && connectionTCP::getCoopGamemode() == 2)
 	{
-
-		if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
-		{
 
 			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 			{
@@ -319,7 +316,7 @@ void BriefingState::loadCoop()
 					unit->setUnitRulesCoop(rule);
 				}
 			}
-		}
+
 	}
 	// HOST PVP2
 	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && connectionTCP::getCoopGamemode() == 3)
@@ -666,15 +663,33 @@ void BriefingState::setupCoop()
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
 
-					if (unit->getFaction() == FACTION_HOSTILE)
+					if (_game->getCoopMod()->getServerOwner() == true)
 					{
-						unit->setCoop(1);
+						if (unit->getFaction() == FACTION_HOSTILE)
+						{
+							unit->setCoop(1);
+						}
+						else if (unit->getFaction() == FACTION_PLAYER)
+						{
+
+							unit->setCoop(0);
+						}
 					}
-					else if (unit->getFaction() == FACTION_PLAYER)
+					else
 					{
 
-						unit->setCoop(0);
+						if (unit->getFaction() == FACTION_HOSTILE)
+						{
+							unit->setCoop(0);
+						}
+						else if (unit->getFaction() == FACTION_PLAYER)
+						{
+
+							unit->setCoop(1);
+						}
+
 					}
+
 				}
 		}
 		// pvp2
@@ -684,18 +699,31 @@ void BriefingState::setupCoop()
 				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
 
-					if (unit->getFaction() == FACTION_HOSTILE)
+					if (_game->getCoopMod()->getServerOwner() == true)
+					{
+						if (unit->getFaction() == FACTION_HOSTILE)
+						{
+							unit->setCoop(0);
+						}
+						else if (unit->getFaction() == FACTION_PLAYER)
+						{
+							unit->setCoop(1);
+						}
+					}
+					else
 					{
 
-						unit->setCoop(0);
+						if (unit->getFaction() == FACTION_HOSTILE)
+						{
+							unit->setCoop(1);
+						}
+						else if (unit->getFaction() == FACTION_PLAYER)
+						{
+							unit->setCoop(0);
+						}
 
 					}
-					else if (unit->getFaction() == FACTION_PLAYER)
-					{
-
-						unit->setCoop(1);
-
-					}
+			
 				}
 		}
 		

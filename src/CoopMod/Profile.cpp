@@ -106,6 +106,21 @@ Profile::Profile()
 void Profile::buttonOK(Action *)
 {
 	_game->popState();
+
+	// save progress
+	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::_host_save_progress == true && connectionTCP::saveID != 0)
+	{
+
+		_game->pushState(new CoopState(52));
+
+		Json::Value root;
+
+		root["state"] = "request_load_progress";
+
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	}
+
 }
 
 Profile::~Profile()

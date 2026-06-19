@@ -406,7 +406,7 @@ void LobbyMenu::btnCancelClick(Action*)
 		if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			_countdown = 60;
+			_countdown = 30;
 
 			if (connectionTCP::isPlayerReady == true)
 			{
@@ -492,7 +492,7 @@ void LobbyMenu::btnDisconnectClick(Action* action)
 	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 	{
 		_game->getCoopMod()->setServerOwner(false);
-		_game->getCoopMod()->disconnectTCP();
+		_game->getCoopMod()->disconnectTCP(true);
 		_game->pushState(new HostMenu());
 	}
 	// If the client presses Disconnect and the host is allowed to save player progress, or there are no bases, disconnect and return to the main menu
@@ -653,7 +653,7 @@ void LobbyMenu::lstSavesPress(Action* action)
 		if (sel >= 0 && sel < (int)_connectedPlayers.size())
 		{
 
-			if (sel == 1)
+			if (_connectedPlayers[sel].id != 1)
 			{
 
 				_game->pushState(new CoopState(12345));

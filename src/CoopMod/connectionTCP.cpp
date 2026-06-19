@@ -5637,8 +5637,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
-		_game->pushState(new Profile);
-
 		// HostSaveProgress
 		bool host_save_progress = obj["host_save_progress"].asBool();
 		connectionTCP::_host_save_progress = host_save_progress;
@@ -5646,13 +5644,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		long long saveID = obj["saveID"].asInt64();
 		connectionTCP::saveID = saveID;
 
-		_game->pushState(new CoopState(52));
-
-		Json::Value root;
-
-		root["state"] = "request_load_progress";
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		_game->pushState(new Profile);
 
 	}
 
@@ -6710,7 +6702,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sendBaseFile();
 
 			// Save the geospace file so the player can return to it later
-			if (_game->getCoopMod()->getCoopCampaign() == true && connectionTCP::_host_save_progress == false)
+			if (_game->getCoopMod()->getCoopCampaign() == true && (connectionTCP::_host_save_progress == false || _game->getCoopMod()->getServerOwner() == true))
 			{
 				_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
 				_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
@@ -6787,13 +6779,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		sendBaseFile();
-
-		// Save the geospace file so the player can return to it later
-		if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
-		{
-			_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
-			_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
-		}
 
 		_game->getCoopMod()->load_state = "Sending base data";  
 
@@ -7052,6 +7037,11 @@ void connectionTCP::sendMissionFile()
 		if (_game->getCoopMod()->getServerOwner() == false)
 		{
 			connectionTCP::coop_save_owner_player_id = 1;
+		}
+		// Ensure the server owner's coop_save_owner_player_id value is set to 0.
+		else
+		{
+			connectionTCP::coop_save_owner_player_id = 0;
 		}
 
 		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
@@ -7878,6 +7868,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 		deleteAllCoopBases();
 
+		// both
+		if ((connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false)) && !isMain && connectionTCP::_coopCampaign == true)
+		{
+			_game->setState(new MainMenuState);
+		}
+
 		// host
 		if (server_owner == true && onConnect == -2)
 		{
@@ -7895,6 +7891,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 		{
 
 			onConnect = -1;
+			connectionTCP::_host_save_progress = false;
 
 			if (_chatMenu)
 			{
@@ -7906,12 +7903,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 				setChatMenu(nullptr);
 			}
 
-		}
-
-		// both
-		if ((connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false)) && !isMain && connectionTCP::_coopCampaign == true)
-		{
-			_game->setState(new MainMenuState);
 		}
 
 		connectionTCP::no_bases = false;
