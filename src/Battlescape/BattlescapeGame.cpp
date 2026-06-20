@@ -417,7 +417,11 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 
 		if (isUnitAlreadyTurn == false)
 		{
-			statePushFront(new UnitTurnBState(this, _currentAction));
+			// coop: the unit's TU was already set to the host's post-turn value
+			// above (setTimeUnits), so replay the turn for animation only,
+			// without charging again (chargeTUs = false). Charging here would
+			// double the turn cost on the client.
+			statePushFront(new UnitTurnBState(this, _currentAction, false));
 		}
 		// door fix
 		else

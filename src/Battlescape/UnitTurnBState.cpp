@@ -56,6 +56,52 @@ void UnitTurnBState::deinit()
 	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
 	{
+		// Sync the unit's charged stats, but only if it actually turned this
+		// state. think() is the single authoritative place that charges turn
+		// TUs, so reading getTimeUnits() here (after the turn finishes) gives
+		// the correct, charged-once value. The client mirrors this value and
+		// replays the turn without charging again (chargeTUs == false), so each
+		// side spends the turn cost exactly once.
+		const bool turned = (_coopStartDirection != -1) &&
+							((_coopStartDirection != _unit->getDirection()) ||
+							 (_coopStartTurret != _unit->getTurretDirection()));
+
+		if (turned)
+		{
+			Json::Value turn;
+			turn["state"] = "turnBattlescapeUnit";
+			turn["id"] = _unit->getId();
+
+			turn["coords"]["start"]["x"] = _unit->getPosition().x;
+			turn["coords"]["start"]["y"] = _unit->getPosition().y;
+			turn["coords"]["start"]["z"] = _unit->getPosition().z;
+
+			turn["coords"]["end"]["x"] = _action.target.x;
+			turn["coords"]["end"]["y"] = _action.target.y;
+			turn["coords"]["end"]["z"] = _action.target.z;
+
+			turn["isActionTypeNone"] = (_action.type == BA_NONE);
+
+			turn["tu"] = _unit->getTimeUnits();
+			turn["energy"] = _unit->getEnergy();
+			turn["health"] = _unit->getHealth();
+			turn["morale"] = _unit->getMorale();
+			turn["stunlevel"] = _unit->getStunlevel();
+			turn["mana"] = _unit->getMana();
+
+			if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
+			{
+				int j = 0;
+				for (auto* bu : *_unit->getVisibleUnits())
+				{
+					turn["visible_units"][j]["unit_id"] = _unit->getId();
+					j++;
+				}
+			}
+
+			_parent->getCoopMod()->sendTCPPacketData(turn.toStyledString());
+		}
+
 		Json::Value obj;
 		obj["state"] = "afterBattlescapeUnitTurn";
 
@@ -90,6 +136,12 @@ void UnitTurnBState::init()
 		_parent->popState();
 		return;
 	}
+
+	// coop: remember the facing now so deinit() can tell whether the unit
+	// actually turned (and only then sync the turn / charged stats).
+	_coopStartDirection = _unit->getDirection();
+	_coopStartTurret = _unit->getTurretDirection();
+
 	_action.clearTU();
 	if (_unit->getFaction() == FACTION_PLAYER)
 		_parent->setStateInterval(Options::battleXcomSpeed);
@@ -123,66 +175,9 @@ void UnitTurnBState::init()
 		_parent->popState();
 	}
 
-	// coop
-	const int tu = _chargeTUs ? (_turret ? 1 : _unit->getTurnCost()) : 0;
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true && _unit->spendTimeUnits(tu))
-	{
-		Json::Value obj;
-		obj["state"] = "turnBattlescapeUnit";
-
-		int index = 0;
-
-		obj["id"] = _unit->getId();
-
-		int startx = _unit->getPosition().x;
-		int starty = _unit->getPosition().y;
-		int startz = _unit->getPosition().z;
-
-		obj["coords"]["start"]["x"] = startx;
-		obj["coords"]["start"]["y"] = starty;
-		obj["coords"]["start"]["z"] = startz;
-
-		int endx = _action.target.x;
-		int endy = _action.target.y;
-		int endz = _action.target.z;
-
-		bool isActionTypeNone = false;
-
-		if (_action.type == BA_NONE)
-		{
-			isActionTypeNone = true;
-		}
-
-		// new!
-		obj["isActionTypeNone"] = isActionTypeNone;
-
-		obj["coords"]["end"]["x"] = endx;
-		obj["coords"]["end"]["y"] = endy;
-		obj["coords"]["end"]["z"] = endz;
-
-		obj["tu"] = _unit->getTimeUnits();
-		obj["energy"] = _unit->getEnergy();
-		obj["health"] = _unit->getHealth();
-		obj["morale"] = _unit->getMorale();
-		obj["stunlevel"] = _unit->getStunlevel();
-		obj["mana"] = _unit->getMana();
-
-		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
-		{
-			int j = 0;
-			for (auto* bu : *_unit->getVisibleUnits())
-			{
-
-				obj["visible_units"][j]["unit_id"] = _unit->getId();
-
-				j++;
-			}
-		}
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
-
-
+	// coop: the turn's TU/stats are synced from deinit() once the turn has
+	// completed. think() (below) is the single place that charges turn TUs;
+	// charging here as well previously doubled the cost.
 }
 
 /**
