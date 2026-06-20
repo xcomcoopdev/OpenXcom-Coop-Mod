@@ -491,7 +491,7 @@ Ufo *AlienMission::spawnUfo(SavedGame &game, const Mod &mod, const Globe &globe,
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false)
 	{
 		return 0;
 	}
@@ -1195,7 +1195,7 @@ AlienBase *AlienMission::spawnAlienBase(Country *pactCountry, Game &engine, std:
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false)
 	{
 		return 0;
 	}
@@ -1476,11 +1476,10 @@ MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, con
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false)
 	{
 		return 0;
 	}
-
 
 	Texture *texture = mod.getGlobe()->getTexture(area.texture);
 	AlienDeployment *deployment = nullptr;

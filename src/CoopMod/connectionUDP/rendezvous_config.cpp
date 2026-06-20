@@ -10,7 +10,7 @@ namespace OpenXcom
 const char* kRendezvousHost = "";
 const uint16_t kRendezvousTcpPort = 0;
 const uint16_t kRendezvousUdpPort = 0;
-const char* kRendezvousGameVersion = "1.8.2 [v2026-06-19]";
+const char* kRendezvousGameVersion = "1.8.3 [v2026-06-20]";
 
 static const char* kServerBoxPublicKeyBase64 =
 	""; // PASTE_SERVER_BOX_PUBLIC_KEY_BASE64_HERE
