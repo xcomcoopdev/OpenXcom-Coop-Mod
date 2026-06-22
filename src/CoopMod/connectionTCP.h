@@ -359,6 +359,21 @@ class connectionTCP
 	bool pve2_init = false;
 
 	std::string other_time_speed_coop = "";
+	// coop: teammate's last-reported geoscape time-speed id ("_btn5Secs".."_btn1Day"),
+	// "" if unknown. Unlike other_time_speed_coop (consumed/cleared every timeAdvance),
+	// this persists so the geoscape UI can show which speed the ally has selected.
+	std::string peerTimeSpeedId = "";
+	// coop (host only): wall-clock ms of the last "time" heartbeat received from the
+	// client. The client emits a "time" packet every GeoscapeState::think() it spends
+	// on the geoscape; if the host hasn't seen one recently the client is away
+	// (base/options/etc.) and the host freezes the shared clock. Written on the
+	// packet-handler thread, read on the main thread, hence atomic.
+	std::atomic<Uint32> lastClientTimePacketMs{0};
+	// coop: which geoscape location the teammate is looking at, for the ally marker.
+	// -1 = on the geoscape (use peerTimeSpeedId); 0..5 = a toolbar sub-screen index
+	// (Intercept/Bases/Graphs/Ufopaedia/Options/Funding). Reset to -1 whenever a
+	// "time" packet arrives (those are only sent from the geoscape).
+	std::atomic<int> peerFocusScreen{-1};
 
 	int show_coop_mission_popup = -1;
 

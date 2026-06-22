@@ -1759,7 +1759,7 @@ void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
 				connectionTCP::LobbyFileStatus = 1;
 			}
 		}
-		// CHECK IF THE HOST IS IN BATTLE — IF SO, ADD JOINERS; OTHERWISE DO NOTHING
+		// CHECK IF THE HOST IS IN BATTLE ï¿½ IF SO, ADD JOINERS; OTHERWISE DO NOTHING
 		else if (inBattle == true)
 		{
 
@@ -2355,7 +2355,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		std::string time_speed = obj["time_speed"].asString();
 		other_time_speed_coop = time_speed;
-	
+		// Persistent copy for the geoscape ally-speed indicator (other_time_speed_coop
+		// is cleared every timeAdvance, so it can't drive the UI on its own).
+		peerTimeSpeedId = time_speed;
+		// A "time" packet is only emitted from the geoscape, so its arrival means the
+		// peer is on the geoscape: the ally marker tracks their speed, not a sub-screen.
+		peerFocusScreen = -1;
+		// Host heartbeat: this "time" packet came from the client, so record when we
+		// last heard from them on the geoscape. The host's timeAdvance() freezes the
+		// shared clock if this goes stale (client left for base/options/etc.).
+		if (getServerOwner() == true)
+			lastClientTimePacketMs = SDL_GetTicks();
+
+	}
+
+	if (stateString == "geo_focus")
+	{
+		// coop: the peer navigated to a geoscape sub-screen (0..5 toolbar index). The
+		// ally marker on our geoscape moves to that toolbar button; -1 (back on the
+		// geoscape) is restored by the next "time" packet.
+		peerFocusScreen = obj["screen"].asInt();
 	}
 
 	if (stateString == "changeHost")
@@ -7850,6 +7869,10 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_waitBC = false;
 		_waitBH = false;
 		coopSession = false;
+		// coop: clear the cached teammate geoscape speed/focus so a stale '+' marker
+		// doesn't linger after disconnect.
+		peerTimeSpeedId = "";
+		peerFocusScreen = -1;
 		connectionTCP::lobby_timer = -1;
 		connectionTCP::isCoopSessionLocked = false;
 		connectionTCP::isPlayerReady = false;
