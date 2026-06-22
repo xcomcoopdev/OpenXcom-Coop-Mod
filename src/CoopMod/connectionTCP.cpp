@@ -2358,14 +2358,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Persistent copy for the geoscape ally-speed indicator (other_time_speed_coop
 		// is cleared every timeAdvance, so it can't drive the UI on its own).
 		peerTimeSpeedId = time_speed;
-		// A "time" packet is only emitted from the geoscape, so its arrival means the
-		// peer is on the geoscape: the ally marker tracks their speed, not a sub-screen.
-		peerFocusScreen = -1;
-		// Host heartbeat: this "time" packet came from the client, so record when we
-		// last heard from them on the geoscape. The host's timeAdvance() freezes the
-		// shared clock if this goes stale (client left for base/options/etc.).
-		if (getServerOwner() == true)
-			lastClientTimePacketMs = SDL_GetTicks();
+		// A "time" packet is emitted every geoscape think() and carries where on the
+		// geoscape the sender is: -1 = normal (ally marker tracks their speed), 0 = an
+		// open dogfight window (marker -> Intercept). Navigating to a sub-screen stops
+		// these packets, so the last dedicated geo_focus value sticks instead.
+		peerFocusScreen = obj.get("geo_focus", -1).asInt();
+		// Peer heartbeat (both sides): note when we last heard from the peer on the
+		// geoscape. The host's timeAdvance() freezes the shared clock when this goes
+		// stale, and both sides dim the ally marker to yellow when it does.
+		lastPeerTimePacketMs = SDL_GetTicks();
 
 	}
 

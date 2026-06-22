@@ -198,6 +198,8 @@ public:
 	void updatePeerSpeedIndicators();
 	/// Tells the other player which geoscape sub-screen this player navigated to (0..5).
 	void sendCoopFocus(int screen);
+	/// Maps an event popup to the ally-marker toolbar button (0..5), or -1 to leave it yellow (busy).
+	int coopFocusForPopup(State *state);
 	/// Process a mission site
 	bool processMissionSite(MissionSite *site);
 	/// Handles base defense
