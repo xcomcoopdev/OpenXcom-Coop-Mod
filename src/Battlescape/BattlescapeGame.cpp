@@ -1899,6 +1899,15 @@ void BattlescapeGame::endBattleTurnCoop()
  */
 void BattlescapeGame::setupCursor()
 {
+	// coop: while it's not our turn, the active player's synced actions must not
+	// drive our cursor (e.g. a teammate firing would otherwise flip us to CT_AIM).
+	// Keep the standard box cursor for the off-turn player.
+	if (getCoopMod()->getCoopStatic() && isYourTurn != 2 && isYourTurn != 0)
+	{
+		getMap()->setCursorType(CT_NORMAL);
+		return;
+	}
+
 	if (_currentAction.targeting)
 	{
 		if (_currentAction.type == BA_THROW)

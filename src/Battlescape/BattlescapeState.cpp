@@ -2901,6 +2901,11 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		_game->getCoopMod()->setPlayerTurn(1);
 		_battleGame->isYourTurn = 1;
 
+		// coop end-turn hands off without running BattlescapeGame::endTurn (which
+		// normally clears targeting and resets the cursor), so an aiming cursor
+		// would otherwise persist into the off-turn view. Reset it here.
+		_battleGame->cancelCurrentActionCoop(true);
+
 		int actor_jd = -1;
 
 		if (_save->getSelectedUnit())
