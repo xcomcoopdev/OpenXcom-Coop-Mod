@@ -178,7 +178,7 @@ CoopState::CoopState(int state)
 
 		Json::Value obj;
 		obj["state"] = "sendProgressSaveRequest";
-		obj["saveID"] = connectionTCP::saveID;
+		obj["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
 		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 
 		_btnBack->setText(tr("STR_CANCEL_UC"));

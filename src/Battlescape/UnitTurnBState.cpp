@@ -18,13 +18,13 @@
  */
 
 #include "UnitTurnBState.h"
-#include "TileEngine.h"
-#include "Map.h"
+#include "../Engine/Options.h"
+#include "../Engine/Sound.h"
+#include "../Mod/Mod.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/SavedBattleGame.h"
-#include "../Mod/Mod.h"
-#include "../Engine/Sound.h"
-#include "../Engine/Options.h"
+#include "Map.h"
+#include "TileEngine.h"
 
 namespace OpenXcom
 {
@@ -34,9 +34,8 @@ namespace OpenXcom
  * @param parent Pointer to the Battlescape.
  * @param action Pointer to an action.
  */
-UnitTurnBState::UnitTurnBState(BattlescapeGame *parent, BattleAction action, bool chargeTUs) : BattleState(parent, action), _unit(0), _turret(false), _chargeTUs(chargeTUs)
+UnitTurnBState::UnitTurnBState(BattlescapeGame* parent, BattleAction action, bool chargeTUs) : BattleState(parent, action), _unit(0), _turret(false), _chargeTUs(chargeTUs)
 {
-
 }
 
 /**
@@ -44,7 +43,6 @@ UnitTurnBState::UnitTurnBState(BattlescapeGame *parent, BattleAction action, boo
  */
 UnitTurnBState::~UnitTurnBState()
 {
-
 }
 
 /**
@@ -114,7 +112,6 @@ void UnitTurnBState::deinit()
 		obj["unit_id"] = _unit->getId();
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
 	}
 
 	// coop
@@ -185,7 +182,7 @@ void UnitTurnBState::init()
  */
 void UnitTurnBState::think()
 {
-	const int tu = _chargeTUs ? (_turret ? 1 :_unit->getTurnCost()) : 0;
+	const int tu = _chargeTUs ? (_turret ? 1 : _unit->getTurnCost()) : 0;
 
 	if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && !_action.targeting && !_parent->checkReservedTU(_unit, tu, 0))
 	{
@@ -218,7 +215,7 @@ void UnitTurnBState::think()
 				{
 					_unit->kneel(!_unit->isKneeled());
 					// kneeling or standing up can reveal new terrain or units. I guess.
-					_parent->getTileEngine()->calculateFOV(_unit->getPosition(), 1, false); //Update unit FOV for everyone through this position, skip tiles.
+					_parent->getTileEngine()->calculateFOV(_unit->getPosition(), 1, false); // Update unit FOV for everyone through this position, skip tiles.
 					_parent->getTileEngine()->checkReactionFire(_unit, kneel);
 				}
 			}

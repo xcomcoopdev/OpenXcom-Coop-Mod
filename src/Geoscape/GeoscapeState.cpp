@@ -1401,41 +1401,6 @@ void GeoscapeState::think()
 				{
 
 					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
-
-					// facilities
-					int facilities_index = 0;
-					double tr_coop, radar_range_coop;
-					for (const auto* fac : *base->getFacilities())
-					{
-						if (fac->getBuildTime() != 0)
-						{
-							continue;
-						}
-
-						if (fac->getRules())
-						{
-							if (fac->getBuildTime() == 0)
-							{
-								tr_coop = fac->getRules()->getRadarRange();
-								if (tr_coop < 10000 && tr_coop > radar_range_coop)
-									radar_range_coop = tr_coop;
-							}
-							root["bases"][base_index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-							root["bases"][base_index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-							root["bases"][base_index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-						}
-						else
-						{
-							root["bases"][base_index]["facilities"][facilities_index]["radar_chance_coop"] = 0;
-							root["bases"][base_index]["facilities"][facilities_index]["hyperwave_coop"] = false;
-							root["bases"][base_index]["facilities"][facilities_index]["radar_range_coop"] = 0;
-						}
-
-						facilities_index++;
-					}
-
-					root["bases"][base_index]["radar_range_coop"] = radar_range_coop;
-
 					base_index++;
 
 					for (auto* craft : *base->getCrafts())
@@ -3117,6 +3082,23 @@ void GeoscapeState::time30Minutes()
 					interrupted = true;
 				}
 			}
+
+			// coop
+			// Interrupt Geoscape events if the player is an alien
+			if (_game->getCoopMod()->getCoopStatic() == true)
+			{
+
+				if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+				{
+					interrupted = true;
+				}
+				else if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+				{
+					interrupted = true;
+				}
+
+			}
+
 			if (!interrupted)
 			{
 				timerReset();

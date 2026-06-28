@@ -629,7 +629,7 @@ void NextTurnState::close()
 				{
 
 					Json::Value root;
-					root["state"] = "current_seed";
+					root["state"] = "next_turn";
 					int index = 0;
 
 					root["end"] = true;

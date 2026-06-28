@@ -1,5 +1,5 @@
 
-set(root_src
+set ( root_src
   lodepng.cpp
   main.cpp
   md5.cpp
@@ -134,14 +134,30 @@ set ( battlescape_src
   Battlescape/WarningMessage.cpp
 )
 
-set ( coopmod_src
+set(coopmod_src
+  CoopMod/AddServerMenu.cpp
   CoopMod/ChatMenu.cpp
   CoopMod/connectionTCP.cpp
   CoopMod/CoopMenu.cpp
   CoopMod/CoopState.cpp
   CoopMod/CrashHandler.cpp
+  CoopMod/DirectConnect.cpp
+  CoopMod/FilterMenu.cpp
+  CoopMod/HostMenu.cpp
+  CoopMod/LobbyMenu.cpp
+  CoopMod/ModCheckMenu.cpp
   CoopMod/OptionsMultiplayer.cpp
+  CoopMod/PasswordCheckMenu.cpp
   CoopMod/Profile.cpp
+  CoopMod/ServerList.cpp
+
+  CoopMod/connectionUDP/connection_lan_discovery.cpp
+  CoopMod/connectionUDP/connection_rendezvous_glue.cpp
+  CoopMod/connectionUDP/connection_udp_glue.cpp
+  CoopMod/connectionUDP/connectionUDP.cpp
+  CoopMod/connectionUDP/rendezvous_client.cpp
+  CoopMod/connectionUDP/rendezvous_config.cpp
+  CoopMod/connectionUDP/rendezvous_server.cpp
 )
 
 set ( engine_src
@@ -613,73 +629,28 @@ if ( EMBED_ASSETS )
 endif ()
 
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
-
-# --- Windows / MinGW / MXE link setup (safe for Linux/macOS) ------------------
-
-# jsoncpp: on MinGW/MXE force picking it from the toolchain prefix if available
-if ( MINGW )
-  find_library(JSONCPP_LIB jsoncpp PATHS "${CMAKE_PREFIX_PATH}/lib" NO_DEFAULT_PATH)
-endif ()
-
-if ( MINGW AND JSONCPP_LIB )
-  set ( JSONCPP_LINK ${JSONCPP_LIB} )
-else ()
-  set ( JSONCPP_LINK jsoncpp )
-endif ()
-
-# Win32 system libs + tools
-set(WIN32_SYSTEM_LIBS "")
-set(WIN32_TOOLS_LIBS "")
-
+# Extra link flags for Windows. They need to be set before the SDL/YAML link flags, otherwise you will get strange link errors ('Undefined reference to WinMain@16')
 if ( WIN32 )
-  set(WIN32_SYSTEM_LIBS advapi32 shell32 shlwapi wininet urlmon)
-  set(WIN32_TOOLS_LIBS imagehlp dbghelp)
-
-  # keep export-all-symbols behavior
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-all-symbols" )
-
+  set ( basic_windows_libs advapi32.lib shell32.lib shlwapi.lib wininet.lib urlmon.lib )
   if ( MINGW )
-    # subsystem/static flags as link options (not as "libraries")
-    target_link_options(openxcom PRIVATE -mwindows -static)
-
-    # SDL WinMain glue (WinXP/MinGW)
-    # (SDL itself comes from PKG_DEPS_LDFLAGS)
-    list(APPEND WIN32_SYSTEM_LIBS mingw32 SDLmain)
+    set ( basic_windows_libs ${basic_windows_libs} mingw32 -mwindows )
+    set ( static_flags  -static )
+    set ( SDLMIXER_LIBRARY "${SDLMIXER_LIBRARY} -lwinmm" )
   endif ()
+  set ( system_libs ${basic_windows_libs} SDLmain ${static_flags} )
 endif ()
 
-# IMPORTANT: order matters with static linking!
-# Put libraries that *depend on others* first, and their dependencies later.
-target_link_libraries(openxcom PRIVATE
-  ${PKG_DEPS_LDFLAGS}
-  ${JSONCPP_LINK}
+# backtrace(3) requires libexecinfo on some *BSD systems
+if (${CMAKE_SYSTEM_NAME} MATCHES FreeBSD OR ${CMAKE_SYSTEM_NAME} MATCHES NetBSD OR ${CMAKE_SYSTEM_NAME} MATCHES OpenBSD)
+  set ( system_libs -lexecinfo )
+endif ()
 
-  # These use vorbis/ogg → dependencies AFTER
-  vorbisfile
-  vorbis
-  ogg
+if (WIN32)
+  set(CMAKE_EXE_LINKER_FLAGS -Wl,--export-all-symbols)
+  set(WIN32_LIBS imagehlp dbghelp)
+endif(WIN32)
 
-  # SDL_net uses ws2_32/iphlpapi → dependencies AFTER SDL_net
-  SDL_net
-  ws2_32
-  iphlpapi
-
-  # Common Windows multimedia / GUID deps used by SDL_* stacks
-  winmm
-  dxguid
-
-  # SDL_image/SDL_mixer optional codec deps (only if your MXE build enables them)
-  jpeg
-  png
-  webp
-  smpeg
-  modplug
-
-  ${WIN32_SYSTEM_LIBS}
-  ${WIN32_TOOLS_LIBS}
-)
-
-# ---------------------------------------------------------------------------
+target_link_libraries ( openxcom ${system_libs} ${PKG_DEPS_LDFLAGS} jsoncpp vorbisfile SDL_net ${WIN32_LIBS} )
 
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )

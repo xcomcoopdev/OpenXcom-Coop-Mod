@@ -364,7 +364,7 @@ public:
 	void setGlobeTexture(const Texture* globeTexture) { _globeTexture = globeTexture; }
 	// coop
 	ItemContainer* getItemsCoop();
-	Json::Value _facilitiesRadarCoop = Json::nullValue;
+	Json::Value _facilitiesCoop = Json::nullValue;
 	double _radar_range_coop = 0;
 	std::vector<Soldier*> base_oldsoldiers;
 	std::vector<Soldier*> base_oldsoldiers2;

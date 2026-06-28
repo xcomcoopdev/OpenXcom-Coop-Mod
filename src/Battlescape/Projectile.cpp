@@ -721,13 +721,11 @@ bool Projectile::move()
  */
 Position Projectile::getPositionFromStart(const std::vector<Position>& trajectory, int pos)
 {
-
 	// coop fix
 	if (trajectory.empty())
 	{
 		return Position(0,0,0);
 	}
-
 	if (pos >= 0 && pos < (int)trajectory.size())
 		return trajectory.at(pos);
 	else if (pos < 0)
@@ -759,7 +757,6 @@ Position Projectile::getPosition(int offset) const
 	{
 		return _origin;
 	}
-
 	return getPositionFromStart(_trajectory, (int)_position + offset);
 }
 

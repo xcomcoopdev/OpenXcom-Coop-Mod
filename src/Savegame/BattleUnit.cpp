@@ -2957,6 +2957,17 @@ void BattleUnit::prepareNewTurn(bool fullProcess)
  */
 void BattleUnit::updateUnitStats(bool tuAndEnergy, bool rest)
 {
+
+	// In PvP mode, do not reset time units or energy if the player is an alien
+	if (connectionTCP::getCoopStatic() == true && _coop == 1 && connectionTCP::getCoopGamemode() == 2)
+	{
+		tuAndEnergy = false;
+	}
+	else if (connectionTCP::getCoopStatic() == true && _coop == 0 && connectionTCP::getCoopGamemode() == 3)
+	{
+		tuAndEnergy = false;
+	}
+
 	// snapshot of current stats
 	int TURecovery = 0;
 	int ENRecovery = 0;

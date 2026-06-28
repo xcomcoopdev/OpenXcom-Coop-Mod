@@ -54,6 +54,8 @@
 #include "ModCheckMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
+#include "../Savegame/BaseFacility.h"
+
 namespace OpenXcom
 {
 
@@ -142,8 +144,6 @@ bool connectionTCP::_enable_host_only_time_speed = false;
 
 bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
-bool connectionTCP::_reset_timeunits_onturnchange_pvp = true;
-
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
 bool connectionTCP::_host_save_progress = false;
@@ -194,6 +194,8 @@ bool connectionTCP::isLobbyMenuClosed = true;
 int connectionTCP::manuallyAddedServerRemoveID = -1;
 
 bool connectionTCP::canRemoveManuallyAddedServer = false;
+
+bool connectionTCP::isInfoboxClosed = true;
 
 // saveID is only used when the host saves each player's progress. This ensures that players load the correct save data.
 long long connectionTCP::saveID = 0;
@@ -647,8 +649,9 @@ void connectionTCP::updateCoopTask()
 
 	}
 
-	// battlescape
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame())
+	// This runs the Battlescape states even when the player is in the pause menu or elsewhere, so synchronization continues in the background.
+	// However, this is never executed while the infobox menu is open, to avoid breaking the panic and berserk states.
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame() && connectionTCP::isInfoboxClosed == true)
 	{
 
 		if (_game->getSavedGame()->getSavedBattle())
@@ -3643,8 +3646,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	// RANDOM SEED
-	if (stateString == "current_seed")
+	// NEXT TURN
+	if (stateString == "next_turn")
 	{
 
 		_hasHitUnit = -1;
@@ -3739,10 +3742,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setTurretToDirectionCoop(setTurretToDirection);
 
 							unit->setMotionPointsCoop(motionpoints);
+
+							unit->setCoopEnergy(energy);
 							unit->setTimeUnits(time);
+							
 							unit->setHealth(health);
 							unit->setCoopMorale(morale);
-							unit->setCoopEnergy(energy);
+				
 							unit->setCoopMana(mana);
 							unit->setStunlevelCoop(stunlevel);
 
@@ -4311,31 +4317,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// bases
 			int64_t base_count = obj["base_count"].asInt64();
 			playersBases = base_count;
-
-			// bases
-			for (int i = 0; i < obj["bases"].size(); i++)
-			{
-
-				int coopbase_id = obj["bases"][i]["coopbase_id"].asInt();
-
-				for (auto &temp_base : *_game->getSavedGame()->getBases())
-				{
-
-					if (temp_base->_coopIcon == true && temp_base->_coop_base_id == coopbase_id)
-					{
-
-						// facilities
-						temp_base->_facilitiesRadarCoop = obj["bases"][i]["facilities"];
-
-						double radar_range_coop = obj["bases"][i]["radar_range_coop"].asDouble();
-						temp_base->_radar_range_coop = radar_range_coop;
-			
-						break;
-					}
-
-				}
-
-			}
 
 			// crafts
 			for (int i = 0; i < obj["crafts"].size(); i++)
@@ -5375,22 +5356,29 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 
 				}
-				// PVP2
-				else if (getHost() == true && getCoopGamemode() == 3 && connectionTCP::_reset_timeunits_onturnchange_pvp == true)
+
+				// Reset time units and energy at the start of the alien player's turn
+				// PVP
+				if (getHost() == false && getCoopGamemode() == 2)
 				{
-
-					for (auto &unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 					{
-
+						if (unit->getCoop() == 1)
+						{
+							unit->resetTimeUnitsAndEnergy();
+						}
+					}
+				}
+				// PVP2
+				else if (getHost() == true && getCoopGamemode() == 3)
+				{
+					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
 						if (unit->getCoop() == 0)
 						{
-
 							unit->resetTimeUnitsAndEnergy();
-
 						}
-
 					}
-
 				}
 
 			}
@@ -5804,7 +5792,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 
 			// saveID
-			root["saveID"] = connectionTCP::saveID;
+			root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
 		}
 		else
 		{
@@ -5894,10 +5882,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// enable XcomEquipmentAliensPVP
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = Options::EnableXcomEquipmentAliensPVP;
 		root["enable_xcom_equipment_aliens_pvp"] = _enable_xcom_equipment_aliens_pvp;
-
-		// resetTimeUnitsOnTurnChangePVP
-		connectionTCP::_reset_timeunits_onturnchange_pvp = Options::resetTimeUnitsOnTurnChangePVP;
-		root["reset_timeunits_onturnchange_pvp"] = _reset_timeunits_onturnchange_pvp;
 
 		// UnbalancedCraftSoldiersLimit
 		connectionTCP::_unbalanced_craft_soldiers_limit = Options::UnbalancedCraftSoldiersLimit;
@@ -6056,48 +6040,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
 
-		// resetTimeUnitsOnTurnChangePVP
-		bool reset_timeunits_onturnchange_pvp = obj["reset_timeunits_onturnchange_pvp"].asBool();
-		connectionTCP::_reset_timeunits_onturnchange_pvp = reset_timeunits_onturnchange_pvp;
-
 		// UnbalancedCraftSoldiersLimit
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
-
-		/*
-		for (Json::Value host_mod : obj["mods"])
-		{
-
-			mod_found = false;
-
-			std::string host_mod_name = host_mod["name"].asString();
-
-			for (std::string client_mod_name : client_mod_names)
-			{
-
-				//  if mod  found
-				if (client_mod_name == host_mod_name)
-				{
-
-					mod_found = true;
-				}
-			}
-
-			if (mod_found == false)
-			{
-				break;
-			}
-		}
-
-		// If the mod is not found, handle the compatibility error.
-		if (mod_found == false || (host_mod_count != client_mod_count))
-		{
-
-			_game->pushState(new CoopState(1000));
-
-			return;
-		}
-		*/
 
 		// CHECK IF THE CLIENT IS IN BATTLE; IF SO, INCLUDE THE HOST, OTHERWISE DO NOTHING
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION
@@ -6183,8 +6128,51 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					markers["markers"][index]["lan"] = base->getLatitude();
 
 					// new!!!
-					markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
-					markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
+
+					// new!!!
+					// Facilities synchronization
+					// facilities
+					int facilities_index = 0;
+					double tr_coop = 0;
+					double radar_range_coop = 0;
+					int completedFacilities = 0;
+					int mindShields = 0;
+					for (const auto* fac : *base->getFacilities())
+					{
+						if (fac->getBuildTime() != 0)
+						{
+							continue;
+						}
+
+						if (fac->getRules())
+						{
+							if (fac->getBuildTime() == 0)
+							{
+								tr_coop = fac->getRules()->getRadarRange();
+								if (tr_coop < 10000 && tr_coop > radar_range_coop)
+									radar_range_coop = tr_coop;
+
+								if (_game->getCoopMod()->getServerOwner() == false)
+								{
+									completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+									if (fac->getRules()->isMindShield() && !fac->getDisabled())
+									{
+										mindShields = fac->getRules()->getMindShieldPower();
+									}
+
+									markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
+									markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
+									markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
+									markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
+									markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
+
+									facilities_index++;
+								}
+							}
+						}
+					}
+
+					markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
@@ -6286,7 +6274,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->_coop_base_id = coopbaseid;
 
 			// new!!!
-			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			CoopBase->_facilitiesCoop = marker["facilities"];
 			double radar_range_coop = marker["radar_range_coop"].asDouble();
 			CoopBase->_radar_range_coop = radar_range_coop;
 
@@ -6332,8 +6320,51 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
 
 				// new!!!
-				markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
-				markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
+
+				// new!!!
+				// Facilities synchronization
+				// facilities
+				int facilities_index = 0;
+				double tr_coop = 0;
+				double radar_range_coop = 0;
+				int completedFacilities = 0;
+				int mindShields = 0;
+				for (const auto* fac : *base->getFacilities())
+				{
+					if (fac->getBuildTime() != 0)
+					{
+						continue;
+					}
+
+					if (fac->getRules())
+					{
+						if (fac->getBuildTime() == 0)
+						{
+							tr_coop = fac->getRules()->getRadarRange();
+							if (tr_coop < 10000 && tr_coop > radar_range_coop)
+								radar_range_coop = tr_coop;
+
+							if (_game->getCoopMod()->getServerOwner() == false)
+							{
+								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+								if (fac->getRules()->isMindShield() && !fac->getDisabled())
+								{
+									mindShields = fac->getRules()->getMindShieldPower();
+								}
+
+								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
+								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
+								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
+								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
+								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
+
+								facilities_index++;
+							}
+						}
+					}
+				}
+
+				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 				index++;
 			}
@@ -6384,11 +6415,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		CoopBase->_coop_base_id = coopbaseid;
 
-		// new!!!
-		CoopBase->_facilitiesRadarCoop = obj["markers"]["facilitiesRadarCoop"];
-		double radar_range_coop = obj["markers"]["radar_range_coop"].asDouble();
-		CoopBase->_radar_range_coop = radar_range_coop;
-
 		CoopBase->setLongitude(lon);
 		CoopBase->setLatitude(lan);
 
@@ -6434,8 +6460,49 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
 
 				// new!!!
-				markers["markers"][index]["facilitiesRadarCoop"] = base->_facilitiesRadarCoop;
-				markers["markers"][index]["radar_range_coop"] = base->_radar_range_coop;
+				// Facilities synchronization
+				// facilities
+				int facilities_index = 0;
+				double tr_coop = 0;
+				double radar_range_coop = 0;
+				int completedFacilities = 0;
+				int mindShields = 0;
+				for (const auto* fac : *base->getFacilities())
+				{
+					if (fac->getBuildTime() != 0)
+					{
+						continue;
+					}
+
+					if (fac->getRules())
+					{
+						if (fac->getBuildTime() == 0)
+						{
+							tr_coop = fac->getRules()->getRadarRange();
+							if (tr_coop < 10000 && tr_coop > radar_range_coop)
+								radar_range_coop = tr_coop;
+
+							if (_game->getCoopMod()->getServerOwner() == false)
+							{
+								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+								if (fac->getRules()->isMindShield() && !fac->getDisabled())
+								{
+									mindShields = fac->getRules()->getMindShieldPower();
+								}
+
+								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
+								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
+								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
+								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
+								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
+
+								facilities_index++;
+							}
+						}
+					}
+				}
+
+				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 				index++;
 			}
@@ -6509,6 +6576,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (existingBase->_coop_base_id == coopbaseid &&
 					(existingBase->getLongitude() == lon && existingBase->getLatitude() == lan))
 				{
+
+					existingBase->setEngineers(getAvailableEngineers);
+					existingBase->coop_hangar = getAvailableHangars;
+					existingBase->coop_laboratory = getAvailableLaboratories;
+					existingBase->coop_quarters = getAvailableQuarters;
+					existingBase->coop_soldiers = getAvailableSoldiers;
+					existingBase->coop_stores = getAvailableStores;
+					existingBase->coop_training = getAvailableTraining;
+					existingBase->coop_workshop = getAvailableWorkshops;
+					existingBase->setScientists(getAvailableScientists);
+
+					// new !!!
+					existingBase->_facilitiesCoop = marker["facilities"];
+					double radar_range_coop = marker["radar_range_coop"].asDouble();
+					existingBase->_radar_range_coop = radar_range_coop;
+
 					alreadyExists = true;
 					break;
 				}
@@ -6532,7 +6615,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->_coop_base_id = coopbaseid;
 
 			// new !!!
-			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			CoopBase->_facilitiesCoop = marker["facilities"];
 			double radar_range_coop = marker["radar_range_coop"].asDouble();
 			CoopBase->_radar_range_coop = radar_range_coop;
 
@@ -6594,6 +6677,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (existingBase->_coop_base_id == coopbaseid &&
 					(existingBase->getLongitude() == lon && existingBase->getLatitude() == lan))
 				{
+
+					existingBase->setEngineers(getAvailableEngineers);
+					existingBase->coop_hangar = getAvailableHangars;
+					existingBase->coop_laboratory = getAvailableLaboratories;
+					existingBase->coop_quarters = getAvailableQuarters;
+					existingBase->coop_soldiers = getAvailableSoldiers;
+					existingBase->coop_stores = getAvailableStores;
+					existingBase->coop_training = getAvailableTraining;
+					existingBase->coop_workshop = getAvailableWorkshops;
+					existingBase->setScientists(getAvailableScientists);
+
+					// new !!!
+					existingBase->_facilitiesCoop = marker["facilities"];
+					double radar_range_coop = marker["radar_range_coop"].asDouble();
+					existingBase->_radar_range_coop = radar_range_coop;
+
 					alreadyExists = true;
 					break;
 				}
@@ -6617,7 +6716,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->_coop_base_id = coopbaseid;
 
 			// new !!!
-			CoopBase->_facilitiesRadarCoop = marker["facilitiesRadarCoop"];
+			CoopBase->_facilitiesCoop = marker["facilities"];
 			double radar_range_coop = marker["radar_range_coop"].asDouble();
 			CoopBase->_radar_range_coop = radar_range_coop;
 
@@ -6664,16 +6763,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				auto& missions = *_game->getSavedGame()->getMissionSites();
 
-				for (auto it = missions.begin(); it != missions.end();)
+				for (auto it = missions.begin(); it != missions.end(); ++it)
 				{
 					if (*it && (*it)->getLatitude() == lat && (*it)->getLongitude() == lon)
 					{
-						delete *it;
-						it = missions.erase(it);
-					}
-					else
-					{
-						++it;
+						(*it)->setSecondsRemaining(0);
 					}
 				}
 
@@ -6684,16 +6778,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				auto& ufos = *_game->getSavedGame()->getUfos();
 
-				for (auto it = ufos.begin(); it != ufos.end();)
+				for (auto it = ufos.begin(); it != ufos.end(); ++it)
 				{
 					if (*it && (*it)->getLatitude() == lat && (*it)->getLongitude() == lon)
 					{
-						delete *it;
-						it = ufos.erase(it);
-					}
-					else
-					{
-						++it;
+						(*it)->setStatusCoop(Ufo::DESTROYED);
 					}
 				}
 

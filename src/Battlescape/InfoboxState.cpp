@@ -36,7 +36,9 @@ namespace OpenXcom
 InfoboxState::InfoboxState(const std::string &msg)
 {
 
+	// coop
 	_game->getCoopMod()->_coop_task_completed = false;
+	connectionTCP::isInfoboxClosed = false;
 
 	_screen = false;
 
@@ -100,6 +102,7 @@ InfoboxState::~InfoboxState()
 
 	// coop
 	_game->getCoopMod()->_coop_task_completed = true;
+	connectionTCP::isInfoboxClosed = true;
 
 	delete _timer;
 }

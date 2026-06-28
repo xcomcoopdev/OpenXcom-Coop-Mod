@@ -53,6 +53,7 @@
 #include "../Mod/RuleRegion.h"
 
 #include <random>
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -667,15 +668,15 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	else
 	{
 
-		if (!_facilitiesRadarCoop.empty())
+		if (!_facilitiesCoop.empty())
 		{
 
-			for (int f = 0; f < _facilitiesRadarCoop.size(); f++)
+			for (int f = 0; f < _facilitiesCoop.size(); f++)
 			{
 
-				int radar_chance_coop = _facilitiesRadarCoop[f]["radar_chance_coop"].asInt();
-				int radar_range_coop = _facilitiesRadarCoop[f]["radar_range_coop"].asInt();
-				bool hyperwave_coop = _facilitiesRadarCoop[f]["hyperwave_coop"].asBool();
+				int radar_chance_coop = _facilitiesCoop[f]["radar_chance_coop"].asInt();
+				int radar_range_coop = _facilitiesCoop[f]["radar_range_coop"].asInt();
+				bool hyperwave_coop = _facilitiesCoop[f]["hyperwave_coop"].asBool();
 
 				if (radar_range_coop >= distance)
 				{
@@ -686,11 +687,11 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 						{
 							hyperwave = true;
 						}
-						hyperwave_chance += radarChance;
+						hyperwave_chance += radarChance + 1;
 					}
 					else
 					{
-						radar_chance += radarChance;
+						radar_chance += radarChance + 1;
 					}
 				}
 				if (hyperwave_coop)
@@ -1780,14 +1781,30 @@ size_t Base::getDetectionChance() const
 {
 	size_t mindShields = 0;
 	size_t completedFacilities = 0;
-	for (const auto* fac : _facilities)
+
+	// coop
+	if (_coopBase == false)
 	{
-		if (fac->getBuildTime() == 0)
+		for (const auto* fac : _facilities)
 		{
-			completedFacilities += fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-			if (fac->getRules()->isMindShield() && !fac->getDisabled())
+			if (fac->getBuildTime() == 0)
 			{
-				mindShields += fac->getRules()->getMindShieldPower();
+				completedFacilities += fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+				if (fac->getRules()->isMindShield() && !fac->getDisabled())
+				{
+					mindShields += fac->getRules()->getMindShieldPower();
+				}
+			}
+		}
+	}
+	else
+	{
+		if (!_facilitiesCoop.empty())
+		{
+			for (int f = 0; f < _facilitiesCoop.size(); f++)
+			{
+				mindShields += _facilitiesCoop[f]["mindShields"].asInt();
+				completedFacilities += _facilitiesCoop[f]["completedFacilities"].asInt();
 			}
 		}
 	}

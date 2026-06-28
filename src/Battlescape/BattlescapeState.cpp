@@ -1699,17 +1699,6 @@ void BattlescapeState::think()
 					}
 				}
 
-				// PVP
-				if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
-				{
-
-					for (auto& unit : *_save->getUnits())
-					{	
-						unit->resetTimeUnitsAndEnergy();
-					}
-
-				}
-
 				// Client's turn and host is waiting
 				if (_game->getCoopMod()->getHost() == false)
 				{
@@ -1780,6 +1769,18 @@ void BattlescapeState::think()
 					}
 
 				}
+		
+				// PVP
+				// This only runs in PvP mode. The XCOM player’s time units are reset here. The alien player’s time units are reset elsewhere, after the XCOM player’s turn has ended
+				/*
+				if ((_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->_isActivePlayerSync == true)
+				{
+					for (auto& unit : *_save->getUnits())
+					{
+						unit->resetTimeUnitsAndEnergy();
+					}
+				}
+				*/
 			
 			}
 
@@ -1989,6 +1990,15 @@ void BattlescapeState::mapClick(Action *action)
 		// coop
 		if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 		{
+			Position pos2;
+			_map->getSelectorPosition(&pos2);
+			BattleUnit* bu = _save->selectUnit(pos2);
+			if (bu && bu->getFaction() == FACTION_PLAYER && (bu->getVisible() || _save->getDebugMode()))
+			{
+				_game->pushState(new UnitInfoState(bu, this, false, false));
+			}
+
+
 			return;
 		}
 
@@ -2957,14 +2967,6 @@ void BattlescapeState::btnEndTurnClick(Action *)
 				root["units"][index]["pos_y"] = unit->getPosition().y;
 				root["units"][index]["pos_z"] = unit->getPosition().z;
 	
-				// resetTimeUnitsOnTurnChangePVP
-				if (_game->getCoopMod()->getCoopGamemode() == 2 && connectionTCP::_reset_timeunits_onturnchange_pvp == true && unit->getCoop() == 1)
-				{
-
-					unit->resetTimeUnitsAndEnergy();
-
-				}
-
 				root["units"][index]["time"] = unit->getTimeUnits();
 				root["units"][index]["health"] = unit->getHealth();
 				root["units"][index]["energy"] = unit->getEnergy();

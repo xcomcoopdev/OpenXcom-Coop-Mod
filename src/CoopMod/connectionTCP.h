@@ -322,8 +322,6 @@ class connectionTCP
 
 	static bool _enable_xcom_equipment_aliens_pvp;
 
-	static bool _reset_timeunits_onturnchange_pvp;
-
 	static bool _unbalanced_craft_soldiers_limit;
 
 	static bool _host_save_progress;
@@ -454,6 +452,7 @@ class connectionTCP
 	// other
 	static int manuallyAddedServerRemoveID;
 	static bool canRemoveManuallyAddedServer;
+	static bool isInfoboxClosed;
 };
 
 }

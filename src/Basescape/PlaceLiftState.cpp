@@ -188,9 +188,6 @@ void PlaceLiftState::viewClick(Action *)
 		markers["markers"]["getAvailableTraining"] = _base->getAvailableTraining();
 		markers["markers"]["getAvailableWorkshops"] = _base->getAvailableWorkshops();
 
-		// new!!!
-		markers["markers"]["radar_range_coop"] = _base->_radar_range_coop;
-
 		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
 
 	}

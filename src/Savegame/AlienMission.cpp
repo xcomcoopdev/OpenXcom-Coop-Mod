@@ -52,7 +52,7 @@ AlienMission::AlienMission(const RuleAlienMission &rule, bool coop) : _rule(rule
 	_interrupted(false), _multiUfoRetaliationInProgress(false), _uniqueID(0), _missionSiteZoneArea(-1), _base(0)
 {
 	// coop
-	if (coop == false && connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	if (coop == false && connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false)
 	{
 		_interrupted = true;
 	}

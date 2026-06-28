@@ -29,16 +29,17 @@ class BattleUnit;
  */
 class UnitTurnBState : public BattleState
 {
-private:
-	BattleUnit *_unit;
+  private:
+	BattleUnit* _unit;
 	bool _turret, _chargeTUs;
 	// coop: facing captured at init() so deinit() can tell whether the unit
 	// actually turned (and only then sync the turn). -1 = not captured.
 	int _coopStartDirection = -1;
 	int _coopStartTurret = -1;
-public:
+
+  public:
 	/// Creates a new UnitTurnBState class
-	UnitTurnBState(BattlescapeGame *parent, BattleAction action, bool chargeTUs = true);
+	UnitTurnBState(BattlescapeGame* parent, BattleAction action, bool chargeTUs = true);
 	/// Cleans up the UnitTurnBState.
 	~UnitTurnBState();
 	/// Initializes the state.
