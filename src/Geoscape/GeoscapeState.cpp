@@ -37,6 +37,7 @@
 #include "Globe.h"
 #include "../Interface/ComboBox.h"
 #include "../Interface/Text.h"
+#include "../Engine/Palette.h"
 #include "../Interface/TextButton.h"
 #include "../Engine/Timer.h"
 #include "../Savegame/GameTime.h"
@@ -363,6 +364,34 @@ GeoscapeState::GeoscapeState() : _pause(false), _zoomInEffectDone(false), _zoomO
 	_btn1Day->setGroup(&_timeSpeed);
 	_btn1Day->onKeyboardPress((ActionHandler)&GeoscapeState::btnTimerClick, Options::keyGeoSpeed6);
 	_btn1Day->setGeoscapeButton(true);
+
+	// coop: ally-location markers. A '+' is drawn, right-justified, in the top-right
+	// corner of a button for every OTHER player currently "there":
+	//  - their selected speed button while they are on the geoscape, or
+	//  - the toolbar button (Intercept/Bases/Graphs/Ufopaedia/Options/Funding)
+	//    they have navigated into. Two allies on the same button -> "++", etc.
+	// Colour/contrast are (re)applied every think() in updatePeerSpeedIndicators():
+	// "red" (blockOffset(15)+5, high contrast) for an active ally, yellow for a busy
+	// one. Added last so they draw on top of the buttons.
+	TextButton* speedButtons[6] = { _btn5Secs, _btn1Min, _btn5Mins, _btn30Mins, _btn1Hour, _btn1Day };
+	TextButton* screenButtons[6] = { _btnIntercept, _btnBases, _btnGraphs, _btnUfopaedia, _btnOptions, _btnFunding };
+	for (int i = 0; i < 6; ++i)
+	{
+		_peerSpeedMarker[i] = new Text(speedButtons[i]->getWidth() - 2, 9, speedButtons[i]->getX(), speedButtons[i]->getY());
+		_peerScreenMarker[i] = new Text(screenButtons[i]->getWidth() - 2, 9, screenButtons[i]->getX(), screenButtons[i]->getY());
+
+		Text* markers[2] = { _peerSpeedMarker[i], _peerScreenMarker[i] };
+		for (Text* m : markers)
+		{
+			add(m, "text", "geoscape");
+			m->setSmall();
+			m->setAlign(ALIGN_RIGHT);
+			// Initial look; updatePeerSpeedIndicators() overrides colour/contrast each think.
+			m->setColor(Palette::blockOffset(15) + 5);
+			m->setHighContrast(true);
+			m->setText("");
+		}
+	}
 
 	_sideBottom->setGeoscapeButton(true);
 	_sideTop->setGeoscapeButton(true);
@@ -944,7 +973,7 @@ void GeoscapeState::init()
 
 		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
 		{
-			// If the player’s save file isn’t found, try to find the basehost file in memory.
+			// If the playerï¿½s save file isnï¿½t found, try to find the basehost file in memory.
 			if (!_game->getCoopMod()->hasCoopFile(coopKey))
 			{
 				coopKey = "basehost";
@@ -1652,9 +1681,19 @@ void GeoscapeState::think()
 		{
 			root["time_speed"] = "_btn1Day";
 		}
-		
+
+		// coop: report on-geoscape focus for the ally marker. -1 = normal geoscape
+		// (marker on the speed button); 0 = an open dogfight window (marker -> Intercept).
+		// Dogfights deliberately keep time running, so we report focus here rather than
+		// freezing. Sub-screens stop these packets, so their dedicated geo_focus sticks.
+		bool inDogfight = _minimizedDogfights < _dogfights.size();
+		root["geo_focus"] = inDogfight ? 0 : -1;
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
+
+	// coop: refresh the ally time-speed markers on the speed buttons.
+	updatePeerSpeedIndicators();
 
 	if (_popups.empty() && _dogfights.empty() && (!_zoomInEffectTimer->isRunning() || _zoomInEffectDone) && (!_zoomOutEffectTimer->isRunning() || _zoomOutEffectDone))
 	{
@@ -1677,6 +1716,13 @@ void GeoscapeState::think()
 		{
 			// Handle popups
 			_globe->rotateStop();
+			// coop: move the ally marker to the toolbar button matching this popup
+			// (UFO/mission/alien base -> Intercept, base/research events -> Bases,
+			// monthly report -> Funding). Unmapped popups send nothing and let the
+			// marker stay yellow (busy).
+			int focus = coopFocusForPopup(_popups.front());
+			if (focus >= 0)
+				sendCoopFocus(focus);
 			_game->pushState(_popups.front());
 			_popups.erase(_popups.begin());
 		}
@@ -1725,6 +1771,125 @@ void GeoscapeState::timeDisplay()
 	std::ostringstream ss5;
 	ss5 << _game->getSavedGame()->getTime()->getYear();
 	_txtYear->setText(ss5.str());
+}
+
+/**
+ * Updates the co-op ally-location markers: a right-justified '+' for every other
+ * player, on their selected speed button while they are on the geoscape, or on
+ * the toolbar button (Intercept/Bases/Graphs/Ufopaedia/Options/Funding) they are
+ * looking at. Only shown during a co-op session with time sync active.
+ */
+void GeoscapeState::updatePeerSpeedIndicators()
+{
+	int speedCounts[6] = { 0, 0, 0, 0, 0, 0 };
+	int screenCounts[6] = { 0, 0, 0, 0, 0, 0 };
+	bool speedBusy[6] = { false, false, false, false, false, false };
+
+	if (_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync)
+	{
+		// peerFocusScreen: -1 = on the geoscape (use the selected speed), else the
+		// 0..5 toolbar-button index the peer has navigated into.
+		int screen = _game->getCoopMod()->peerFocusScreen.load();
+		if (screen >= 0 && screen < 6)
+		{
+			// One teammate for now; this naturally sums when more peers are added.
+			screenCounts[screen] += 1;
+		}
+		else
+		{
+			const std::string& id = _game->getCoopMod()->peerTimeSpeedId;
+			int idx = -1;
+			if (id == "_btn5Secs") idx = 0;
+			else if (id == "_btn1Min") idx = 1;
+			else if (id == "_btn5Mins") idx = 2;
+			else if (id == "_btn30Mins") idx = 3;
+			else if (id == "_btn1Hour") idx = 4;
+			else if (id == "_btn1Day") idx = 5;
+
+			if (idx >= 0)
+			{
+				speedCounts[idx] += 1;
+				// Mark the ally "busy" (yellow) when they are away from the geoscape (no
+				// recent heartbeat) with no known sub-screen: time is frozen and we don't
+				// know where they went. Same grace as the host's freeze gate, so the
+				// marker turns yellow exactly when time stops.
+				const Uint32 grace = 1000;
+				if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
+					speedBusy[idx] = true;
+			}
+		}
+	}
+
+	const Uint8 markerRed = Palette::blockOffset(15) + 5;     // active ally ("red"/pink)
+	const Uint8 markerYellow = Palette::blockOffset(15) + 10; // busy ally (renders yellow); tunable
+
+	for (int i = 0; i < 6; ++i)
+	{
+		_peerSpeedMarker[i]->setText(std::string(speedCounts[i], '+'));
+		_peerSpeedMarker[i]->setColor(speedBusy[i] ? markerYellow : markerRed);
+		// Busy (yellow) markers use low contrast so the anti-aliased edge pixels stay
+		// close to the base colour instead of jumping to the cyan palette entries that
+		// high contrast's wider shade spread lands on. Active "red" markers keep high contrast.
+		_peerSpeedMarker[i]->setHighContrast(!speedBusy[i]);
+
+		_peerScreenMarker[i]->setText(std::string(screenCounts[i], '+'));
+		_peerScreenMarker[i]->setColor(markerRed);
+		_peerScreenMarker[i]->setHighContrast(true);
+	}
+}
+
+/**
+ * Notifies the other player (in co-op) which geoscape sub-screen this player has
+ * navigated into, so their geoscape shows an ally marker on the matching toolbar
+ * button. screen is the 0..5 toolbar index (Intercept/Bases/Graphs/Ufopaedia/
+ * Options/Funding). Sent from the toolbar click handlers; if the click is
+ * actually rejected the player stays on the geoscape, so the next "time"
+ * heartbeat resets the peer's focus and a stray report self-corrects in a frame.
+ */
+void GeoscapeState::sendCoopFocus(int screen)
+{
+	if (!(_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync))
+		return;
+
+	Json::Value root;
+	root["state"] = "geo_focus";
+	root["screen"] = screen;
+	_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * Maps an event popup about to be shown to the co-op ally-marker toolbar button:
+ * 0 = Intercept (UFO / mission / alien base), 1 = Bases (base defense plus base
+ * and research/production events), 5 = Funding (monthly report). Returns -1 for
+ * popups with no meaningful mapping (errors, cutscenes, craft dialogs, random
+ * events), so the ally marker stays yellow (busy) instead.
+ */
+int GeoscapeState::coopFocusForPopup(State* state)
+{
+	if (dynamic_cast<UfoDetectedState*>(state)
+		|| dynamic_cast<MissionDetectedState*>(state)
+		|| dynamic_cast<AlienBaseState*>(state))
+		return 0; // INTERCEPT
+
+	if (dynamic_cast<BaseDefenseState*>(state)
+		|| dynamic_cast<ProductionCompleteState*>(state)
+		|| dynamic_cast<ResearchCompleteState*>(state)
+		|| dynamic_cast<ResearchRequiredState*>(state)
+		|| dynamic_cast<NewPossibleResearchState*>(state)
+		|| dynamic_cast<NewPossibleManufactureState*>(state)
+		|| dynamic_cast<NewPossiblePurchaseState*>(state)
+		|| dynamic_cast<NewPossibleCraftState*>(state)
+		|| dynamic_cast<NewPossibleFacilityState*>(state)
+		|| dynamic_cast<SellState*>(state)
+		|| dynamic_cast<ManageAlienContainmentState*>(state)
+		|| dynamic_cast<TrainingFinishedState*>(state)
+		|| dynamic_cast<ItemsArrivingState*>(state))
+		return 1; // BASES
+
+	if (dynamic_cast<MonthlyReportState*>(state))
+		return 5; // FUNDING
+
+	return -1; // no meaningful mapping -> leave the marker yellow (busy)
 }
 
 /**
@@ -1855,6 +2020,20 @@ void GeoscapeState::timeAdvance()
 		}
 
 		_game->getCoopMod()->other_time_speed_coop = "";
+
+		// coop: freeze the authoritative host clock while the client is away from the
+		// geoscape (base, options, ufopaedia, intercept, popups, etc.). The client
+		// emits a "time" heartbeat every think() it spends on the geoscape; if the
+		// host hasn't seen one within the grace window, treat the client as paused.
+		// Combined with the host's own implicit pause (its GeoscapeState stops
+		// thinking inside a sub-state), this double-gates time: it advances only when
+		// BOTH players are on the geoscape, and resumes only once both return.
+		if (_game->getCoopMod()->getServerOwner())
+		{
+			const Uint32 grace = 1000; // ms; comfortably above the client's per-frame heartbeat gap
+			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
+				timeSpan = 0;
+		}
 
 	}
 
@@ -4101,6 +4280,21 @@ void GeoscapeState::globeClick(Action *action)
 		std::vector<Target*> v = _globe->getTargets(mouseX, mouseY, false, 0);
 		if (!v.empty())
 		{
+			// coop: report what the ally clicked. Only the OTHER player's base
+			// (_coopBase) -> Bases; your own base opens the intercept window, so it
+			// (like UFOs / craft / mission sites) -> Intercept.
+			int focus = 0; // INTERCEPT
+			for (Target* t : v)
+			{
+				Base* b = dynamic_cast<Base*>(t);
+				if (b && b->_coopBase)
+				{
+					focus = 1; // BASES
+					break;
+				}
+			}
+			sendCoopFocus(focus);
+
 			// Pass empty vector
 			std::vector<Craft*> crafts;
 			_game->pushState(new MultipleTargetsState(v, crafts, this, true));
@@ -4129,6 +4323,7 @@ void GeoscapeState::globeClick(Action *action)
  */
 void GeoscapeState::btnInterceptClick(Action *)
 {
+	sendCoopFocus(0); // coop: tell the ally we're looking at Intercept
 
 	// coop
 	if (connectionTCP::no_bases == true)
@@ -4245,6 +4440,7 @@ void GeoscapeState::btnDebugClick(Action *)
  */
 void GeoscapeState::btnBasesClick(Action *)
 {
+	sendCoopFocus(1); // coop: tell the ally we're looking at Bases
 
 	// coop
 	if (connectionTCP::no_bases == true)
@@ -4303,6 +4499,7 @@ void GeoscapeState::btnBasesClick(Action *)
  */
 void GeoscapeState::btnGraphsClick(Action *)
 {
+	sendCoopFocus(2); // coop: tell the ally we're looking at Graphs
 	if (buttonsDisabled())
 	{
 		return;
@@ -4316,6 +4513,7 @@ void GeoscapeState::btnGraphsClick(Action *)
  */
 void GeoscapeState::btnUfopaediaClick(Action *)
 {
+	sendCoopFocus(3); // coop: tell the ally we're looking at Ufopaedia
 	if (buttonsDisabled())
 	{
 		return;
@@ -4329,6 +4527,7 @@ void GeoscapeState::btnUfopaediaClick(Action *)
  */
 void GeoscapeState::btnOptionsClick(Action *)
 {
+	sendCoopFocus(4); // coop: tell the ally we're looking at Options
 	if (buttonsDisabled())
 	{
 		return;
@@ -4342,6 +4541,7 @@ void GeoscapeState::btnOptionsClick(Action *)
  */
 void GeoscapeState::btnFundingClick(Action *)
 {
+	sendCoopFocus(5); // coop: tell the ally we're looking at Funding
 	if (buttonsDisabled())
 	{
 		return;
