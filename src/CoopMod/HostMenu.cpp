@@ -271,15 +271,15 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	}
 
-	// READ IP ADDRESS
+	// READ HOST ADDRESS
 
 	// Name of the JSON file
-	std::string filename = "ip_address.json";
+	std::string filename = "host_address.json";
 	std::string filepath = Options::getMasterUserFolder() + filename;
 
-	std::string ipAddress;
 	std::string port;
 	std::string serverName;
+	std::string password;
 
 	if (OpenXcom::CrossPlatform::fileExists(filepath))
 	{
@@ -295,17 +295,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 			if (parsingSuccessful)
 			{
-				ipAddress = root.get("ip", "").asString();
 				port = root.get("port", "").asString();
 				serverName = root.get("server", "").asString();
+				password = root.get("password", "").asString();
 
 				
-				if (ipAddress.empty())
-				{
-					// ip is empty
-					ipAddress = "IP-ADDRESS";
-				}
-
 				if (port == "")
 				{
 					// port is empty
@@ -320,7 +314,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 				}
 
 				_port->setText(port);
-				_serverName->setText(serverName); 
+				_serverName->setText(serverName);
+				if (password != "")
+				{
+					_password->setText(password);
+				}
 			}
 			else
 			{
@@ -656,6 +654,24 @@ void HostMenu::cbxRegionChange(Action*)
 
 void HostMenu::hostTCPGame(Action* action)
 {
+
+	// Save host settings to JSON
+	{
+		std::string filepath = Options::getMasterUserFolder() + "host_address.json";
+		Json::Value root;
+		root["server"] = _serverName->getText();
+		root["port"] = _port->getText();
+		root["password"] = _password->getText();
+
+		std::ofstream file(filepath);
+		if (file.is_open())
+		{
+			Json::StreamWriterBuilder writer;
+			writer["indentation"] = "\t";
+			file << Json::writeString(writer, root);
+			file.close();
+		}
+	}
 
 	connectionTCP::password = "";
 	connectionTCP::isPasswordRequired = false;
