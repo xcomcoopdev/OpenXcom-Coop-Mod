@@ -50,20 +50,24 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
-	_lstSaves = new TextList(180, 18, x + 18, 60);
+	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
+	_lstSaves = new TextList(224, 18, x + 18, 60);
 
-	_port = new TextEdit(this, 180, 18, x + 18, 92);
-	_serverName = new TextEdit(this, 180, 18, x + 18, 72);
-	_tcpButtonHost = new TextButton(90, 18, x + 18, 152);
-	_btnStartHotseat = new TextButton(180, 18, x + 18, 112);
-	_btnReactionFire = new TextButton(180, 18, x + 18, 132);
-	_cbxVisibility = new ComboBox(this, 180, 18, x + 18, 50);
-	_cbxRegions = new ComboBox(this, 90, 18, x + 18, 112); 
-	_cbxMaxPlayers = new ComboBox(this, 90, 18, x + 108, 112); 
-	_password = new TextEdit(this, 180, 18, x + 18, 132);
-	_btnCancel = new TextButton(90, 18, x + 108, 152);
-	_txtTitle = new Text(206, 17, x + 5, 32);
+	_lblServerName = new Text(108, 18, x + 18, 72);
+	_lblPort = new Text(108, 18, x + 18, 92);
+	_lblPassword = new Text(108, 18, x + 18, 132);
+
+	_port = new TextEdit(this, 116, 18, x + 126, 92);
+	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
+	_tcpButtonHost = new TextButton(112, 18, x + 18, 152);
+	_btnStartHotseat = new TextButton(224, 18, x + 18, 112);
+	_btnReactionFire = new TextButton(224, 18, x + 18, 132);
+	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
+	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
+	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
+	_password = new TextEdit(this, 116, 18, x + 126, 132);
+	_btnCancel = new TextButton(112, 18, x + 130, 152);
+	_txtTitle = new Text(250, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
 	int screenHeight = Options::baseYGeoscape;
@@ -74,9 +78,12 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 
 	add(_window, "window", "pauseMenu");
-	add(_port);
-	add(_serverName);
-	add(_password);
+	add(_lblServerName, "text", "pauseMenu");
+	add(_lblPort, "text", "pauseMenu");
+	add(_lblPassword, "text", "pauseMenu");
+	add(_port, "text", "pauseMenu");
+	add(_serverName, "text", "pauseMenu");
+	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
 	add(_btnStartHotseat, "button", "pauseMenu");
 	add(_btnReactionFire, "button", "pauseMenu");
@@ -108,17 +115,36 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_txtTitle->setBig();
 	_txtTitle->setText(tr("HOST"));
 
+	// labels
+	_lblServerName->setBig();
+	_lblServerName->setBorderColor(color);
+	_lblServerName->setText("GAME NAME>");
+	_lblServerName->setVisible(false);
+
+	_lblPort->setBig();
+	_lblPort->setBorderColor(color);
+	_lblPort->setText("PORT>");
+	_lblPort->setVisible(false);
+
+	_lblPassword->setBig();
+	_lblPassword->setBorderColor(color);
+	_lblPassword->setText("PASSWORD>");
+	_lblPassword->setVisible(false);
+
 	// port
 	_port->setColor(color);
 	_port->setBig();
 	_port->setBorderColor(color);
-	_port->setText("PORT");
+	_port->setConstraint(TEC_NUMERIC_POSITIVE);
+	_port->setAllowOverflow(true);
+	_port->setText("61008");
 	_port->setVisible(false);
 
 	_serverName->setColor(color);
 	_serverName->setBig();
 	_serverName->setBorderColor(color);
-	_serverName->setText("Server");
+	_serverName->setAllowOverflow(true);
+	_serverName->setText("Vigilo Confido");
 	_serverName->setVisible(false);
 	
 	_tcpButtonHost->setText("START HOST");
@@ -177,7 +203,9 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_password->setColor(color);
 	_password->setBig();
 	_password->setBorderColor(color);
-	_password->setText("Password");
+	_password->setAllowOverflow(true);
+	_password->setBorderColor(color);
+	_password->setText("");
 	_password->setVisible(false);
 
 	// check if campaign mission
@@ -198,9 +226,12 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
+		_lblPort->setVisible(false);
 		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 		_btnReactionFire->setVisible(false);
@@ -214,10 +245,13 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	{
 
 		_port->setVisible(false);
+		_lblPort->setVisible(false);
 		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 
@@ -225,24 +259,27 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
 		_port->setVisible(true);
+		_lblPort->setVisible(true);
 		_serverName->setVisible(true);
+		_lblServerName->setVisible(true);
 		_tcpButtonHost->setVisible(true);
 		_cbxVisibility->setVisible(true);
 		_password->setVisible(true);
+		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
 
 	}
 
-	// READ IP ADDRESS
+	// READ HOST ADDRESS
 
 	// Name of the JSON file
-	std::string filename = "ip_address.json";
+	std::string filename = "host_address.json";
 	std::string filepath = Options::getMasterUserFolder() + filename;
 
-	std::string ipAddress;
 	std::string port;
 	std::string serverName;
+	std::string password;
 
 	if (OpenXcom::CrossPlatform::fileExists(filepath))
 	{
@@ -258,17 +295,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 			if (parsingSuccessful)
 			{
-				ipAddress = root.get("ip", "").asString();
 				port = root.get("port", "").asString();
 				serverName = root.get("server", "").asString();
+				password = root.get("password", "").asString();
 
 				
-				if (ipAddress.empty())
-				{
-					// ip is empty
-					ipAddress = "IP-ADDRESS";
-				}
-
 				if (port == "")
 				{
 					// port is empty
@@ -279,11 +310,15 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 				if (serverName == "")
 				{
 					// name is empty
-					serverName = "Server";
+					serverName = "Vigilo Confido";
 				}
 
 				_port->setText(port);
-				_serverName->setText(serverName); 
+				_serverName->setText(serverName);
+				if (password != "")
+				{
+					_password->setText(password);
+				}
 			}
 			else
 			{
@@ -319,9 +354,12 @@ void HostMenu::init()
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
+		_lblPort->setVisible(false);
 		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 
@@ -344,10 +382,13 @@ void HostMenu::init()
 	{
 
 		_port->setVisible(false);
+		_lblPort->setVisible(false);
 		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
 		_tcpButtonHost->setVisible(false);
 		_cbxVisibility->setVisible(false);
 		_password->setVisible(false);
+		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 
@@ -355,10 +396,13 @@ void HostMenu::init()
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
 		_port->setVisible(true);
+		_lblPort->setVisible(true);
 		_serverName->setVisible(true);
+		_lblServerName->setVisible(true);
 		_tcpButtonHost->setVisible(true);
 		_cbxVisibility->setVisible(true);
 		_password->setVisible(true);
+		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
 
@@ -537,8 +581,11 @@ void HostMenu::cbxVisibilityChange(Action* action)
 	// show
 	_tcpButtonHost->setVisible(true);
 	_port->setVisible(true);
+	_lblPort->setVisible(true);
 	_serverName->setVisible(true);
+	_lblServerName->setVisible(true);
 	_password->setVisible(true);
+	_lblPassword->setVisible(true);
 	_cbxMaxPlayers->setVisible(true);
 	_cbxRegions->setVisible(true);
 
@@ -553,8 +600,11 @@ void HostMenu::cbxVisibilityChange(Action* action)
 		// hide
 		_tcpButtonHost->setVisible(false);
 		_port->setVisible(false);
+		_lblPort->setVisible(false);
 		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
 		_password->setVisible(false);
+		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 
@@ -605,11 +655,29 @@ void HostMenu::cbxRegionChange(Action*)
 void HostMenu::hostTCPGame(Action* action)
 {
 
+	// Save host settings to JSON
+	{
+		std::string filepath = Options::getMasterUserFolder() + "host_address.json";
+		Json::Value root;
+		root["server"] = _serverName->getText();
+		root["port"] = _port->getText();
+		root["password"] = _password->getText();
+
+		std::ofstream file(filepath);
+		if (file.is_open())
+		{
+			Json::StreamWriterBuilder writer;
+			writer["indentation"] = "\t";
+			file << Json::writeString(writer, root);
+			file.close();
+		}
+	}
+
 	connectionTCP::password = "";
 	connectionTCP::isPasswordRequired = false;
 
 	// password
-	if (_password->getText() != "" && _password->getText() != "Password")
+	if (_password->getText() != "")
 	{
 
 		connectionTCP::password = _password->getText();
@@ -622,10 +690,13 @@ void HostMenu::hostTCPGame(Action* action)
 	_game->getCoopMod()->setCoopSession(false);
 
 	_port->setVisible(false);
+	_lblPort->setVisible(false);
 	_serverName->setVisible(false);
+	_lblServerName->setVisible(false);
 	_tcpButtonHost->setVisible(false);
 	_cbxVisibility->setVisible(false);
 	_password->setVisible(false);
+	_lblPassword->setVisible(false);
 	_cbxMaxPlayers->setVisible(false);
 	_cbxRegions->setVisible(false);
 
@@ -679,7 +750,7 @@ void HostMenu::hostTCPGame(Action* action)
 		std::string udpPassword = "";
 
 		// password
-		if (_password->getText() != "" && _password->getText() != "Password")
+		if (_password->getText() != "")
 		{
 			udpPassword = _password->getText();
 		}
@@ -740,10 +811,13 @@ void HostMenu::startHotseat(Action* action)
 
 	// hide
 	_port->setVisible(false);
+	_lblPort->setVisible(false);
 	_tcpButtonHost->setVisible(false);
 	_serverName->setVisible(false);
+	_lblServerName->setVisible(false);
 	_cbxVisibility->setVisible(false);
 	_password->setVisible(false);
+	_lblPassword->setVisible(false);
 	_cbxMaxPlayers->setVisible(false);
 	_cbxRegions->setVisible(false);
 

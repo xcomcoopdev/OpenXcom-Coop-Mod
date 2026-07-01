@@ -45,7 +45,6 @@ protected:
 	Window *_window;
 	Text *_txtTitle, *_txtName, *_txtLatency, *_txtDetails, *_txtTeam, *_txtChangeTeam;
 	TextList *_lstPlayers;
-	TextEdit *_playername;
 	ArrowButton *_sortName, *_sortLatency, *_sortTeam;
 	OptionsOrigin _origin;
 	std::vector<playerInfo> _connectedPlayers;
@@ -54,7 +53,6 @@ protected:
 	bool _timerStarted = false;
 	int _countdown = 30; // seconds
 	void updateArrows();
-	void savePlayerNameToIpAddressFile(std::string playerName);
   public:
 	/// Creates the Game state.
 	LobbyMenu();
@@ -84,7 +82,6 @@ protected:
 	void sortNameClick(Action* action);
 	void sortLatencyClick(Action* action);
 	void sortTeamClick(Action* action);
-	void edtPlayerNameChange(Action* action);
 
 };
 

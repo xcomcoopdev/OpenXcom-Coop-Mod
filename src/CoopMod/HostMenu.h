@@ -86,7 +86,7 @@ class HostMenu : public State
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
 	Window *_window;
-	Text *_txtTitle;
+	Text *_txtTitle, *_lblServerName, *_lblPort, *_lblPassword;
 	std::map<Surface *, bool> _surfaceBackup;
 	std::vector<std::string> _visibilityTypes, _maxplayersTypes, _regionTypes;
 	Craft *_craft;

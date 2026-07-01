@@ -38,19 +38,22 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	int x = 20;
 	
 	// Create objects
-	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
+	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
 
-	_cbxNetworkProtocol = new ComboBox(this, 180, 18, x + 18, 50);
-	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
-	_port = new TextEdit(this, 180, 18, x + 18, 92);
-	_playerName = new TextEdit(this, 180, 18, x + 18, 112);
+	_cbxNetworkProtocol = new ComboBox(this, 224, 18, x + 18, 50);
 
-	_tcpButtonJoin = new TextButton(180, 18, x + 18, 132);
+	_lblHostIp = new Text(100, 18, x + 18, 72);
+	_lblPort = new Text(100, 18, x + 18, 92);
 
-	_txtInfo = new Text(180, 18, x + 18, 95);
-	_btnCancel = new TextButton(180, 18, x + 18, 152);
-	_txtData = new Text(206, 17, x + 5, 50);
-	_txtTitle = new Text(206, 17, x + 5, 32);
+	_ipAddress = new TextEdit(this, 124, 18, x + 118, 72);
+	_port = new TextEdit(this, 124, 18, x + 118, 92);
+
+	_tcpButtonJoin = new TextButton(224, 18, x + 18, 112);
+
+	_txtInfo = new Text(224, 18, x + 18, 95);
+	_btnCancel = new TextButton(224, 18, x + 18, 132);
+	_txtData = new Text(250, 17, x + 5, 50);
+	_txtTitle = new Text(250, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
 	int screenHeight = Options::baseYGeoscape;
@@ -59,9 +62,10 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "pauseMenu");
-	add(_ipAddress);
-	add(_port);
-	add(_playerName);
+	add(_lblHostIp, "text", "pauseMenu");
+	add(_lblPort, "text", "pauseMenu");
+	add(_ipAddress, "text", "pauseMenu");
+	add(_port, "text", "pauseMenu");
 	add(_tcpButtonJoin, "button", "pauseMenu");
 	add(_cbxNetworkProtocol, "button", "pauseMenu");
 	add(_txtInfo, "text", "pauseMenu");
@@ -106,26 +110,33 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_cbxNetworkProtocol->setOptions(_networkProtocolTypes, false);
 	_cbxNetworkProtocol->onChange((ActionHandler)&DirectConnect::cbxNetworkProtocolChange);
 
+	// labels
+	_lblHostIp->setBig();
+	_lblHostIp->setBorderColor(color);
+	_lblHostIp->setText("HOST IP>");
+	_lblHostIp->setVisible(false);
+
+	_lblPort->setBig();
+	_lblPort->setBorderColor(color);
+	_lblPort->setText("PORT>");
+	_lblPort->setVisible(false);
+
 	// ip address
 	_ipAddress->setColor(color);
 	_ipAddress->setBig();
 	_ipAddress->setBorderColor(color);
-	_ipAddress->setText("IP-ADDRESS");
+	_ipAddress->setAllowOverflow(true);
+	_ipAddress->setText("127.0.0.1");
 	_ipAddress->setVisible(false);
 
 	// port
 	_port->setColor(color);
 	_port->setBig();
 	_port->setBorderColor(color);
-	_port->setText("PORT");
+	_port->setConstraint(TEC_NUMERIC_POSITIVE);
+	_port->setAllowOverflow(true);
+	_port->setText("61008");
 	_port->setVisible(false);
-
-	_playerName->setColor(color);
-	_playerName->setBig();
-	_playerName->setBorderColor(color);
-	_playerName->setText(_game->getCoopMod()->getHostName());
-	_playerName->setVisible(false);
-	_playerName->onChange((ActionHandler)&DirectConnect::edtPlayerNameChange);
 	
 	_tcpButtonJoin->setText("JOIN");
 	_tcpButtonJoin->onMouseClick((ActionHandler)&DirectConnect::joinTCPGame);
@@ -149,85 +160,61 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 
 	if (_game->getCoopMod()->isConnected() == 1)
 	{
+		_lblHostIp->setVisible(false);
 		_ipAddress->setVisible(false);
+		_lblPort->setVisible(false);
 		_port->setVisible(false);
-		_playerName->setVisible(false);
 		_tcpButtonJoin->setVisible(false);
 		_txtInfo->setVisible(false);
 	
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
+		_lblHostIp->setVisible(true);
 		_ipAddress->setVisible(true);
+		_lblPort->setVisible(true);
 		_port->setVisible(true);
-		_playerName->setVisible(true);
 		_tcpButtonJoin->setVisible(true);
 		_txtInfo->setVisible(false);
 
 	}
 
-	// READ IP ADDRESS
-
-	// Name of the JSON file
-	std::string filename = "ip_address.json";
-	std::string filepath = Options::getMasterUserFolder() + filename;
+	// READ CLIENT ADDRESS
 
 	std::string ipAddress;
 	std::string port;
-	std::string playerName;
 
-	if (OpenXcom::CrossPlatform::fileExists(filepath))
 	{
-		std::ifstream file(filepath, std::ifstream::binary);
-		if (file.is_open())
+		std::string filepath = Options::getMasterUserFolder() + "client_address.json";
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
 		{
-			Json::Value root;
-			Json::CharReaderBuilder builder;
-			std::string errs;
-
-			bool parsingSuccessful = Json::parseFromStream(builder, file, &root, &errs);
-			file.close();
-
-			if (parsingSuccessful)
+			std::ifstream file(filepath, std::ifstream::binary);
+			if (file.is_open())
 			{
-				ipAddress = root.get("ip", "").asString();
-				port = root.get("port", "").asString();
-				playerName = root.get("name", "").asString();
+				Json::Value root;
+				Json::CharReaderBuilder builder;
+				std::string errs;
 
-				
-				if (ipAddress.empty())
+				bool parsingSuccessful = Json::parseFromStream(builder, file, &root, &errs);
+				file.close();
+
+				if (parsingSuccessful)
 				{
-					// ip is empty
-					ipAddress = "IP-ADDRESS";
+					ipAddress = root.get("ip", "").asString();
+					port = root.get("port", "").asString();
 				}
-
-				if (port == "")
-				{
-					// port is empty
-					port = "3000";
-				}
-
-
-				if (playerName == "")
-				{
-					// name is empty
-					playerName = "Player";
-				}
-
-				_ipAddress->setText(ipAddress);
-				_port->setText(port);
-				_playerName->setText(playerName); 
 			}
-			else
-			{
-				std::cerr << "Failed to parse JSON: " << errs << std::endl;
-			}
-		}
-		else
-		{
-			std::cerr << "Failed to open the file." << std::endl;
 		}
 	}
+
+	if (ipAddress.empty())
+		ipAddress = "127.0.0.1";
+	if (port.empty())
+		port = "61008";
+
+	_ipAddress->setText(ipAddress);
+	_port->setText(port);
 
 }
 
@@ -247,9 +234,10 @@ void DirectConnect::init()
 
 	if (_game->getCoopMod()->isConnected() == 1)
 	{
+		_lblHostIp->setVisible(false);
 		_ipAddress->setVisible(false);
+		_lblPort->setVisible(false);
 		_port->setVisible(false);
-		_playerName->setVisible(false);
 		_tcpButtonJoin->setVisible(false);
 		_txtInfo->setVisible(false);
 
@@ -258,9 +246,10 @@ void DirectConnect::init()
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
 	{
+		_lblHostIp->setVisible(true);
 		_ipAddress->setVisible(true);
+		_lblPort->setVisible(true);
 		_port->setVisible(true);
-		_playerName->setVisible(true);
 		_tcpButtonJoin->setVisible(true);
 		_txtInfo->setVisible(false);
 
@@ -438,11 +427,6 @@ bool DirectConnect::parseUdpPort(const std::string& text, uint16_t& outPort)
 	return true;
 }
 
-void DirectConnect::edtPlayerNameChange(Action* action)
-{
-	_game->getCoopMod()->setHostName(_playerName->getText());
-}
-
 void DirectConnect::cbxNetworkProtocolChange(Action* action)
 {
 
@@ -463,6 +447,23 @@ void DirectConnect::cbxNetworkProtocolChange(Action* action)
 
 void DirectConnect::joinTCPGame(Action* action)
 {
+
+	// Save client settings to JSON
+	{
+		std::string filepath = Options::getMasterUserFolder() + "client_address.json";
+		Json::Value root;
+		root["ip"] = _ipAddress->getText();
+		root["port"] = _port->getText();
+
+		std::ofstream file(filepath);
+		if (file.is_open())
+		{
+			Json::StreamWriterBuilder writer;
+			writer["indentation"] = "\t";
+			file << Json::writeString(writer, root);
+			file.close();
+		}
+	}
 
 	// JOIN GAME
 	_game->getCoopMod()->setCoopSession(false);

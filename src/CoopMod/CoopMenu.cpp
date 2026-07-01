@@ -172,7 +172,7 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_playerName->setColor(color);
 	_playerName->setBig();
 	_playerName->setBorderColor(color);
-	_playerName->setText("Player");
+	_playerName->setText(_game->getCoopMod()->getHostName());
 	_playerName->setVisible(false);
 
 	_btnMessage->setText("DISCONNECT");
@@ -291,68 +291,42 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	}
 
-	// READ IP ADDRESS
-
-	// Name of the JSON file
-	std::string filename = "ip_address.json";
-	std::string filepath = Options::getMasterUserFolder() + filename;
+	// READ CLIENT ADDRESS
 
 	std::string ipAddress;
 	std::string port;
-	std::string playerName;
 
-	if (OpenXcom::CrossPlatform::fileExists(filepath))
 	{
-		std::ifstream file(filepath, std::ifstream::binary);
-		if (file.is_open())
+		std::string filepath = Options::getMasterUserFolder() + "client_address.json";
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
 		{
-			Json::Value root;
-			Json::CharReaderBuilder builder;
-			std::string errs;
-
-			bool parsingSuccessful = Json::parseFromStream(builder, file, &root, &errs);
-			file.close();
-
-			if (parsingSuccessful)
+			std::ifstream file(filepath, std::ifstream::binary);
+			if (file.is_open())
 			{
-				ipAddress = root.get("ip", "").asString();
-				port = root.get("port", "").asString();
-				playerName = root.get("name", "").asString();
+				Json::Value root;
+				Json::CharReaderBuilder builder;
+				std::string errs;
 
-				
-				if (ipAddress.empty())
+				bool parsingSuccessful = Json::parseFromStream(builder, file, &root, &errs);
+				file.close();
+
+				if (parsingSuccessful)
 				{
-					// ip is empty
-					ipAddress = "IP-ADDRESS";
+					ipAddress = root.get("ip", "").asString();
+					port = root.get("port", "").asString();
 				}
-
-				if (port == "")
-				{
-					// port is empty
-					port = "3000";
-				}
-
-
-				if (playerName == "")
-				{
-					// name is empty
-					playerName = "Player";
-				}
-
-				_ipAddress->setText(ipAddress);
-				_port->setText(port);
-				_playerName->setText(playerName); 
 			}
-			else
-			{
-				std::cerr << "Failed to parse JSON: " << errs << std::endl;
-			}
-		}
-		else
-		{
-			std::cerr << "Failed to open the file." << std::endl;
 		}
 	}
+
+	if (ipAddress.empty())
+		ipAddress = "IP-ADDRESS";
+	if (port.empty())
+		port = "3000";
+
+	_ipAddress->setText(ipAddress);
+	_port->setText(port);
 
 }
 

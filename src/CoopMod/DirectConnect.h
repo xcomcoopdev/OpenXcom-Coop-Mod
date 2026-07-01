@@ -88,9 +88,9 @@ class DirectConnect : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonJoin;
-	TextEdit *_ipAddress, *_playerName, *_port;
+	TextEdit *_ipAddress, *_port;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo;
+	Text *_txtTitle, *_txtData, *_txtInfo, *_lblHostIp, *_lblPort;
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
@@ -111,8 +111,6 @@ class DirectConnect : public State
 	void init() override;
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
-	/// Handler for changing the text on the Name edit.
-	void edtPlayerNameChange(Action* action);
 	void cbxNetworkProtocolChange(Action* action);
 };
 
