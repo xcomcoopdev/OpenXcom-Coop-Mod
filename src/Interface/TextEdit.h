@@ -37,7 +37,7 @@ class TextEdit : public InteractiveSurface
 private:
 	Text *_text, *_caret;
 	UString _value;
-	bool _blink, _modal;
+	bool _blink, _modal, _allowOverflow;
 	bool _drawBackground;
 	Timer *_timer;
 	UCode _char;
@@ -107,6 +107,8 @@ public:
 	void onEnter(ActionHandler handler);
 	/// Sets the text edit's background drawing setting.
 	void setDrawBackground(bool drawBackground) { _drawBackground = drawBackground; }
+	/// Allow text to overflow the widget width instead of blocking input.
+	void setAllowOverflow(bool allow) { _allowOverflow = allow; }
 };
 
 }

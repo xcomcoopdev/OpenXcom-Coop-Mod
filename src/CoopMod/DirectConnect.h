@@ -90,7 +90,7 @@ class DirectConnect : public State
 	TextButton *_btnCancel, *_tcpButtonJoin;
 	TextEdit *_ipAddress, *_playerName, *_port;
 	Window *_window;
-	Text *_txtTitle, *_txtData, *_txtInfo;
+	Text *_txtTitle, *_txtData, *_txtInfo, *_lblHostIp, *_lblPort, *_lblPlayerName;
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
 	NewBattleSelectType _selectType;
