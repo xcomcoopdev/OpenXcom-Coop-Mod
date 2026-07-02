@@ -727,12 +727,9 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
 
-	// coop
-	if (_game->getCoopMod()->getCurrentTurn() == 1)
-	{
-		_isAltPressed = false;
-		_isCtrlPressed = false;
-	}
+	// coop: ALT facing-indicator and motion-scanner arrows are read-only observer
+	// visuals, so allow them during the off-turn player's view too (previously this
+	// forced _isAltPressed/_isCtrlPressed false when it wasn't our turn).
 
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
 }
