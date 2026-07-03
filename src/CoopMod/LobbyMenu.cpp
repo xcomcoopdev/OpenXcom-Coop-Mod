@@ -250,7 +250,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	}
 
 	_txtDetails->setWordWrap(true);
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
+	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
 
 	_sortName->setX(_sortName->getX() + _txtName->getTextWidth() + 5);
 	_sortName->onMouseClick((ActionHandler)&LobbyMenu::sortNameClick);
@@ -526,6 +526,8 @@ void LobbyMenu::lstSavesMouseOver(Action*)
 	{
 		wstr = _connectedPlayers[sel].details;
 	}
+	if (wstr.empty())
+		wstr = "Waiting for players on port " + std::to_string(tcp_port);
 	_txtDetails->setText(tr("STR_DETAILS").arg(wstr));
 }
 
@@ -535,7 +537,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
  */
 void LobbyMenu::lstSavesMouseOut(Action*)
 {
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
+	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
 }
 
 /**

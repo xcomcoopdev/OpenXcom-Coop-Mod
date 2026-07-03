@@ -135,6 +135,7 @@ namespace OpenXcom
 // Definitions must exist exactly once in a .cpp file, normally connectionTCP.cpp:
 extern SPSCQueue<1024> g_txQ;
 extern SPSCQueue<1024> g_rxQ;
+extern int tcp_port;
 
 // Existing name kept for compatibility: this only enqueues to g_txQ.
 // It does not have to mean that the active transport is TCP.
