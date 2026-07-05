@@ -54,6 +54,12 @@ private:
 	TextButton *_sideTop, *_sideBottom;
 	InteractiveSurface *_btnRotateLeft, *_btnRotateRight, *_btnRotateUp, *_btnRotateDown, *_btnZoomIn, *_btnZoomOut;
 	Text *_txtFunds, *_txtHour, *_txtHourSep, *_txtMin, *_txtMinSep, *_txtSec, *_txtWeekday, *_txtDay, *_txtMonth, *_txtYear;
+	// coop: ally-location markers ('+' per other player). _peerSpeedMarker is indexed
+	// 0..5 = 5 Secs / 1 Min / 5 Mins / 30 Mins / 1 Hour / 1 Day (shown while the peer is
+	// on the geoscape). _peerScreenMarker is indexed 0..5 = Intercept / Bases / Graphs /
+	// Ufopaedia / Options / Funding (shown while the peer is looking at that screen).
+	Text *_peerSpeedMarker[6];
+	Text *_peerScreenMarker[6];
 	Timer *_gameTimer, *_zoomInEffectTimer, *_zoomOutEffectTimer, *_dogfightStartTimer, *_dogfightTimer;
 	bool _pause, _zoomInEffectDone, _zoomOutEffectDone;
 	Text *_txtDebug;
@@ -188,6 +194,12 @@ public:
 	int getFirstFreeDogfightSlot();
 	/// Handler for clicking the timer button.
 	void btnTimerClick(Action *action);
+	/// Updates the co-op ally markers on the speed/toolbar buttons.
+	void updatePeerSpeedIndicators();
+	/// Tells the other player which geoscape sub-screen this player navigated to (0..5).
+	void sendCoopFocus(int screen);
+	/// Maps an event popup to the ally-marker toolbar button (0..5), or -1 to leave it yellow (busy).
+	int coopFocusForPopup(State *state);
 	/// Process a mission site
 	bool processMissionSite(MissionSite *site);
 	/// Handles base defense
