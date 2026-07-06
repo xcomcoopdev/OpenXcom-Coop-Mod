@@ -147,7 +147,6 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_txtTeam = new Text(110, 9, 204, isMobile ? 40 : 32);
 	_txtLatency = new Text(110, 9, 263, isMobile ? 40 : 32);
 	_lstPlayers = new TextList(288, isMobile ? 104 : 112, 8, isMobile ? 50 : 42);
-	_playername = new TextEdit(this, 100, 16, 16, 140);
 	_txtDetails = new Text(288, 16, 16, 156);
 	_sortName = new ArrowButton(ARROW_NONE, 11, 8, 16, isMobile ? 40 : 32);
 	_sortTeam = new ArrowButton(ARROW_NONE, 11, 8, 204, isMobile ? 40 : 32);
@@ -166,7 +165,6 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	add(_txtTeam, "text", "saveMenus");
 	add(_txtLatency, "text", "saveMenus");
 	add(_lstPlayers, "list", "saveMenus");
-	add(_playername);
 	add(_txtDetails, "text", "saveMenus");
 	add(_sortName, "text", "saveMenus");
 	add(_sortTeam, "text", "saveMenus");
@@ -251,22 +249,8 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		}
 	}
 
-	_playername->setColor(color);
-	_playername->setBorderColor(color);
-	_playername->setText(_game->getCoopMod()->getHostName());
-	_playername->onChange((ActionHandler)&LobbyMenu::edtPlayerNameChange);
-
-	if (connectionTCP::isCoopSessionLocked == true)
-	{
-		_playername->setVisible(false);
-	}
-	else
-	{
-		_playername->setVisible(true);
-	}
-
 	_txtDetails->setWordWrap(true);
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
+	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
 
 	_sortName->setX(_sortName->getX() + _txtName->getTextWidth() + 5);
 	_sortName->onMouseClick((ActionHandler)&LobbyMenu::sortNameClick);
@@ -542,6 +526,8 @@ void LobbyMenu::lstSavesMouseOver(Action*)
 	{
 		wstr = _connectedPlayers[sel].details;
 	}
+	if (wstr.empty())
+		wstr = "Waiting for players on port " + std::to_string(tcp_port);
 	_txtDetails->setText(tr("STR_DETAILS").arg(wstr));
 }
 
@@ -551,7 +537,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
  */
 void LobbyMenu::lstSavesMouseOut(Action*)
 {
-	_txtDetails->setText(tr("STR_DETAILS").arg(""));
+	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
 }
 
 /**
@@ -693,15 +679,6 @@ void LobbyMenu::think()
 	{
 
 		lastUpdate = now;
-
-		if (connectionTCP::isCoopSessionLocked == true)
-		{
-			_playername->setVisible(false);
-		}
-		else
-		{
-			_playername->setVisible(true);
-		}
 
 		// own player
 		std::string txtTeam = "XCOM";
@@ -956,71 +933,6 @@ void LobbyMenu::sortTeamClick(Action* action)
 		_lstPlayers->clearList();
 		sortList(Options::playerOrder);
 	}
-}
-
-void LobbyMenu::savePlayerNameToIpAddressFile(std::string playerName)
-{
-	std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
-
-	Json::Value root;
-
-	// Read existing file first so other fields are preserved
-	{
-		std::ifstream inputFile(filename);
-
-		if (!inputFile.is_open())
-		{
-			std::cerr << "Failed to open ip_address.json for reading." << std::endl;
-			return;
-		}
-
-		Json::CharReaderBuilder reader;
-		JSONCPP_STRING errors;
-
-		if (!Json::parseFromStream(reader, inputFile, &root, &errors))
-		{
-			std::cerr << "Failed to parse ip_address.json: " << errors << std::endl;
-			return;
-		}
-	}
-
-	// Only update the player name
-	root["name"] = playerName;
-
-	// Write the same JSON back to file
-	std::ofstream outputFile(filename, std::ios::out | std::ios::trunc);
-
-	if (!outputFile.is_open())
-	{
-		std::cerr << "Failed to open ip_address.json for writing." << std::endl;
-		return;
-	}
-
-	Json::StreamWriterBuilder writer;
-	writer["indentation"] = "\t";
-
-	outputFile << Json::writeString(writer, root);
-
-	std::cout << "Player name saved to ip_address.json." << std::endl;
-}
-
-void LobbyMenu::edtPlayerNameChange(Action* action)
-{
-	_game->getCoopMod()->setHostName(_playername->getText());
-
-	savePlayerNameToIpAddressFile(_game->getCoopMod()->getHostName());
-
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "change_player_name";
-		root["name"] = _game->getCoopMod()->getHostName();
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}
-
 }
 
 }

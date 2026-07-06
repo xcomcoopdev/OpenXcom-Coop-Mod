@@ -158,7 +158,8 @@ ServerList::ServerList() : _sortable(true)
 
 	int x = 8;
 
-	_playername = new TextEdit(this, 100, h, x, y - 34);
+	_playername = new TextEdit(this, 140, h, x + 65, y - 34);
+	_lblPlayerName = new Text(65, h, x, y - 34);
 	_search = new TextEdit(this, 100, h, x + 55, y - 18);
 	_btnFilter = new TextButton(wHost, h, x, y - 18);
 	_btnHost = new TextButton(wHost, h, x, y);
@@ -190,6 +191,7 @@ ServerList::ServerList() : _sortable(true)
 	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "saveMenus");
+	add(_lblPlayerName, "text", "saveMenus");
 	add(_playername);
 	add(_search);
 	add(_btnFilter, "button", "saveMenus");
@@ -230,9 +232,41 @@ ServerList::ServerList() : _sortable(true)
 	_search->onMouseClick((ActionHandler)&ServerList::btnSearchClick);
 	_search->onChange((ActionHandler)&ServerList::edtSearchChange);
 
-	_playername->setColor(color);
-	_playername->setBorderColor(color);
-	_playername->setText(_game->getCoopMod()->getHostName());
+	_lblPlayerName->setColor(color);
+	_lblPlayerName->setBorderColor(color);
+	_lblPlayerName->setText("PLAYER NAME>");
+	_lblPlayerName->setVisible(true);
+
+	_playername->setColor(500);
+	_playername->setBorderColor(500);
+
+	// Read saved player name
+	{
+		std::string filepath = Options::getMasterUserFolder() + "player_name.json";
+		std::string savedName;
+
+		if (OpenXcom::CrossPlatform::fileExists(filepath))
+		{
+			std::ifstream file(filepath, std::ifstream::binary);
+			if (file.is_open())
+			{
+				Json::Value root;
+				Json::CharReaderBuilder builder;
+				std::string errs;
+
+				if (Json::parseFromStream(builder, file, &root, &errs))
+				{
+					savedName = root.get("name", "").asString();
+				}
+			}
+		}
+
+		if (savedName.empty())
+			savedName = "Jane Kelly";
+
+		_game->getCoopMod()->setHostName(savedName);
+		_playername->setText(savedName);
+	}
 	_playername->setVisible(true);
 	_playername->onChange((ActionHandler)&ServerList::edtPlayerNameChange);
 
@@ -648,48 +682,19 @@ bool ServerList::removeManuallyAddedServerFromFile()
 
 void ServerList::savePlayerNameToIpAddressFile(std::string playerName)
 {
-	std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
+	std::string filepath = Options::getMasterUserFolder() + "player_name.json";
 
 	Json::Value root;
-
-	// Read existing file first so other fields are preserved
-	{
-		std::ifstream inputFile(filename);
-
-		if (!inputFile.is_open())
-		{
-			std::cerr << "Failed to open ip_address.json for reading." << std::endl;
-			return;
-		}
-
-		Json::CharReaderBuilder reader;
-		JSONCPP_STRING errors;
-
-		if (!Json::parseFromStream(reader, inputFile, &root, &errors))
-		{
-			std::cerr << "Failed to parse ip_address.json: " << errors << std::endl;
-			return;
-		}
-	}
-
-	// Only update the player name
 	root["name"] = playerName;
 
-	// Write the same JSON back to file
-	std::ofstream outputFile(filename, std::ios::out | std::ios::trunc);
-
-	if (!outputFile.is_open())
+	std::ofstream file(filepath);
+	if (file.is_open())
 	{
-		std::cerr << "Failed to open ip_address.json for writing." << std::endl;
-		return;
+		Json::StreamWriterBuilder writer;
+		writer["indentation"] = "\t";
+		file << Json::writeString(writer, root);
+		file.close();
 	}
-
-	Json::StreamWriterBuilder writer;
-	writer["indentation"] = "\t";
-
-	outputFile << Json::writeString(writer, root);
-
-	std::cout << "Player name saved to ip_address.json." << std::endl;
 }
 
 bool ServerList::isAllowedBySearch(std::string serverName)

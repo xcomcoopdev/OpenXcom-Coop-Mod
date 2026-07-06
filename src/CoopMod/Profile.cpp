@@ -60,7 +60,7 @@ Profile::Profile()
 	}
 	else
 	{
-		result = "You have joined the " + playerName + "'s game";
+		result = "You have joined " + playerName + "'s game";
 	}
 
 	_txtName->setText(result);

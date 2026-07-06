@@ -5670,6 +5670,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		long long saveID = obj["saveID"].asInt64();
 		connectionTCP::saveID = saveID;
 
+		tcpPlayerName = obj.get("playername", tcpPlayerName).asString();
+
 		_game->pushState(new Profile);
 
 	}
@@ -5709,6 +5711,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::forceCloseCoopStateMenu = true;
 		connectionTCP::forceClosePasswordCheckMenu = true;
 
+		tcpPlayerName = obj.get("playername", tcpPlayerName).asString();
+
 		_game->pushState(new Profile);
 
 		Json::Value root;
@@ -5729,31 +5733,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			j_markers = "";
 
 			_battleInit = false;
-
-			// Define the file path and values to write
-			std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
-
-			// Create JSON object
-			Json::Value root133;
-			root133["ip"] = ipAddress;
-			root133["port"] = tcp_port;
-			root133["name"] = sendTcpPlayer;
-			root133["server"] = sendTcpServerName;
-
-			// Write JSON to file
-			std::ofstream file(filename);
-			if (file.is_open())
-			{
-				Json::StreamWriterBuilder writer;
-				file << Json::writeString(writer, root133);
-				file.close();
-
-				std::cout << "IP address and player name written to " << filename << std::endl;
-			}
-			else
-			{
-				std::cerr << "Failed to open file for writing." << std::endl;
-			}
 
 			// RESET ALL SOLDIERS OUT OF THE BASES
 			for (auto* base : *_game->getSavedGame()->getBases())
@@ -5836,6 +5815,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			root["state"] = "COOP_READY_CLIENT_REQUEST_PROFILE";
 		}
+
+		root["playername"] = sendTcpPlayer;
+		root["servername"] = sendTcpServerName;
 
 		sendTCPPacketData(root.toStyledString());
 
@@ -5992,31 +5974,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// bases
 		int64_t base_count = obj["base_count"].asInt64();
 		playersBases = base_count;
-
-		// Define the file path and values to write
-		std::string filename = Options::getMasterUserFolder() + "/ip_address.json";
-
-		// Create JSON object
-		Json::Value root135;
-		root135["ip"] = ipAddress;
-		root135["port"] = tcp_port;
-		root135["name"] = sendTcpPlayer;
-		root135["server"] = sendTcpServerName;
-
-		// Write JSON to file
-		std::ofstream file(filename);
-		if (file.is_open())
-		{
-			Json::StreamWriterBuilder writer;
-			file << Json::writeString(writer, root135);
-			file.close();
-
-			std::cout << "IP address and player name written to " << filename << std::endl;
-		}
-		else
-		{
-			std::cerr << "Failed to open file for writing." << std::endl;
-		}
 
 		// campaign check
 		bool host_coop_campaign = obj["coop_campaign"].asBool();

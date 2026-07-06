@@ -43,6 +43,7 @@ class ServerList : public State
 protected:
 	TextButton *_btnHost, *_btnDirectConnect, *_btnAddServer, *_btnRefresh, *_btnCancel, *_btnFilter;
 	TextEdit *_search, *_playername;
+	Text *_lblPlayerName;
 	Window *_window;
 	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtRegion, *_txtJoin, *_txtPasswordRequired;
 	TextList *_lstServers;

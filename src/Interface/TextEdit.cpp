@@ -36,7 +36,7 @@ namespace OpenXcom
  * @param y Y position in pixels.
  */
 TextEdit::TextEdit(State *state, int width, int height, int x, int y) : InteractiveSurface(width, height, x, y),
-	_blink(true), _modal(true), _drawBackground(true),
+	_blink(true), _modal(true), _allowOverflow(false), _drawBackground(true),
 	_char('A'), _caretPos(0), _textEditConstraint(TEC_NONE),
 	_change(0), _enter(0), _state(state)
 {
@@ -497,7 +497,7 @@ void TextEdit::keyboardPress(Action *action, State *state)
 			}
 			break;
 		case SDLK_RIGHT:
-			if (!exceedsMaxWidth(_char))
+			if (_allowOverflow || !exceedsMaxWidth(_char))
 			{
 				_value += _char;
 			}
@@ -558,7 +558,7 @@ void TextEdit::keyboardPress(Action *action, State *state)
 			break;
 		default:
 			UCode c = action->getDetails()->key.keysym.unicode;
-			if (isValidChar(c) && !exceedsMaxWidth(c))
+			if (isValidChar(c) && (_allowOverflow || !exceedsMaxWidth(c)))
 			{
 				_value.insert(_caretPos, 1, c);
 				_caretPos++;
