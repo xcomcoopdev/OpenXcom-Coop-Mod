@@ -25,6 +25,7 @@
 #include "../Savegame/Tile.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -66,7 +67,20 @@ void ScannerView::draw()
 					int frame = (t->getUnit()->getMotionPoints() / 5);
 					if (frame >= 0)
 					{
-						t->getUnit()->setScannedTurn(_game->getSavedGame()->getSavedBattle()->getTurn());
+						BattleUnit *scannedUnit = t->getUnit();
+						int curTurn = _game->getSavedGame()->getSavedBattle()->getTurn();
+						// coop: tell the other player about a newly-scanned unit so its
+						// motion-scanner marker shows on their map too (sent once per unit
+						// per turn, when scannedTurn changes).
+						if (connectionTCP::getCoopStatic() && scannedUnit->getScannedTurn() != curTurn)
+						{
+							Json::Value root;
+							root["state"] = "motion_scan";
+							root["unit_id"] = scannedUnit->getId();
+							root["turn"] = curTurn;
+							_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+						}
+						scannedUnit->setScannedTurn(curTurn);
 						if (frame > 5) frame = 5;
 						surface = set->getFrame(frame + _frame);
 						surface->blitNShade(this, ((9+x)*8)-4, ((9+y)*8)-4, 0);

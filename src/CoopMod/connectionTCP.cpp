@@ -2144,9 +2144,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	if (stateString == "motion_scan")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			int unit_id = obj["unit_id"].asInt();
+			int turn = obj["turn"].asInt();
+
+			for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+				if (unit->getId() == unit_id)
+				{
+					unit->setScannedTurn(turn);
+					break;
+				}
+			}
+		}
+	}
+
 	if (stateString == "abortPath")
 	{
-	
+
 		int unit_id = obj["unit_id"].asInt();
 
 		int x = obj["x"].asInt();
@@ -3740,7 +3758,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int mana = obj["units"][i]["mana"].asInt();
 							int stunlevel = obj["units"][i]["stunlevel"].asInt();
 
-							int motionpoints = obj["motionpoints"].asInt();
+							int motionpoints = obj["units"][i]["motionpoints"].asInt();
 
 							int setDirection = obj["units"][i]["setDirection"].asInt();
 							int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
@@ -5322,7 +5340,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								int mana = obj["units"][i]["mana"].asInt();
 								int stunlevel = obj["units"][i]["stunlevel"].asInt();
 								bool is_out = obj["units"][i]["is_out"].asBool();
-								int motionpoints = obj["motionpoints"].asInt();
+								int motionpoints = obj["units"][i]["motionpoints"].asInt();
 
 								int setDirection = obj["units"][i]["setDirection"].asInt();
 								int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
