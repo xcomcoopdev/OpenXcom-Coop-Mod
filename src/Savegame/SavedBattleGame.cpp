@@ -2171,7 +2171,15 @@ BattleUnit *SavedBattleGame::createTempUnit(const Unit *rules, UnitFaction facti
  */
 BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 {
-	// only ever respawn once
+	// only ever respawn once. The guard normally lives at the callers, but in
+	// coop the convertUnit network packet handler and the local (coop_death)
+	// UnitDieBState both call this for the same zombie and can race, spawning
+	// two chrysalids on the observing player. Enforce it here too so the loser
+	// of that race is a no-op instead of an orphan unit that stands frozen.
+	if (unit->getAlreadyRespawned())
+	{
+		return nullptr;
+	}
 	unit->setAlreadyRespawned(true);
 
 	bool visible = unit->getVisible();
