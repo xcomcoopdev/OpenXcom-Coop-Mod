@@ -90,7 +90,7 @@ class AddServerMenu : public State
 	TextButton *_btnCancel, *_btnAdd;
 	TextEdit *_ipAddress, *_serverName, *_port;
 	Window *_window;
-	Text *_txtTitle, *_txtInfo;
+	Text *_txtTitle, *_txtInfo, *_lblServerName, *_lblHostIp, *_lblPort;
 	std::map<Surface *, bool> _surfaceBackup;
 	Craft *_craft;
 	std::vector<std::string> _campaignTypes, _regionTypes;

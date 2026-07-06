@@ -57,6 +57,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_lblPort = new Text(108, 18, x + 18, 92);
 	_lblPassword = new Text(108, 18, x + 18, 132);
 
+	_hotseatTooltip = new Text(200, 18, x + 18, 72);
+
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
 	_tcpButtonHost = new TextButton(112, 18, x + 18, 152);
@@ -78,6 +80,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 
 	add(_window, "window", "pauseMenu");
+	add(_hotseatTooltip, "text", "pauseMenu");
 	add(_lblServerName, "text", "pauseMenu");
 	add(_lblPort, "text", "pauseMenu");
 	add(_lblPassword, "text", "pauseMenu");
@@ -114,6 +117,10 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
 	_txtTitle->setText(tr("HOST"));
+
+	_hotseatTooltip->setBorderColor(color);
+	_hotseatTooltip->setText("Active: In this machine, players swap turns.\nAll locally (no internet).");
+	_hotseatTooltip->setVisible(false);
 
 	// labels
 	_lblServerName->setBig();
@@ -235,6 +242,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
 		_btnReactionFire->setVisible(false);
+		_hotseatTooltip->setVisible(true);
 
 		// show
 		_btnStartHotseat->setVisible(true);
@@ -254,6 +262,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
+		_hotseatTooltip->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -268,6 +277,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
+		_hotseatTooltip->setVisible(false);
 
 	}
 
@@ -362,6 +372,7 @@ void HostMenu::init()
 		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
+		_hotseatTooltip->setVisible(true);
 
 		if (connectionTCP::_isHotseatReactionFireEnabled == true)
 		{
@@ -391,6 +402,7 @@ void HostMenu::init()
 		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
+		_hotseatTooltip->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -405,6 +417,7 @@ void HostMenu::init()
 		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
+		_hotseatTooltip->setVisible(false);
 
 	}
 }
@@ -831,6 +844,7 @@ void HostMenu::startHotseat(Action* action)
 	{
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
 		_btnReactionFire->setVisible(false);
+		_hotseatTooltip->setVisible(true);
 	}
 	else
 	{
@@ -838,6 +852,7 @@ void HostMenu::startHotseat(Action* action)
 
 		_cbxVisibility->setVisible(true);
 		_btnReactionFire->setVisible(true);
+		_hotseatTooltip->setVisible(false);
 
 	}
 

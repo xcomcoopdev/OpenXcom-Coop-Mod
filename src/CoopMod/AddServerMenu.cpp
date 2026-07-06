@@ -36,19 +36,26 @@ AddServerMenu::AddServerMenu() : _craft(0), _selectType(NewBattleSelectType::MIS
 	int x = 20;
 	
 	// Create objects
-	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
+	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
 
-	_cbxNetworkProtocol = new ComboBox(this, 180, 18, x + 18, 50);
-	_ipAddress = new TextEdit(this, 180, 18, x + 18, 72);
-	_port = new TextEdit(this, 180, 18, x + 18, 92);
-	_cbxCampaign = new ComboBox(this, 90, 18, x + 108, 112);
-	_cbxRegions = new ComboBox(this, 90, 18, x + 18, 112);
-	_serverName = new TextEdit(this, 180, 18, x + 18, 132);
+	_cbxNetworkProtocol = new ComboBox(this, 224, 18, x + 18, 50);
+
+	_ipAddress = new TextEdit(this, 124, 18, x + 118, 72);
+	_port = new TextEdit(this, 124, 18, x + 118, 92);
+
+	_cbxCampaign = new ComboBox(this, 112, 18, x + 130, 112);
+	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112);
+	_serverName = new TextEdit(this, 116, 18, x + 126, 132);
 
 	_txtInfo = new Text(180, 18, x + 18, 95);
-	_btnCancel = new TextButton(90, 18, x + 108, 152);
-	_btnAdd = new TextButton(90, 18, x + 18, 152);
-	_txtTitle = new Text(206, 17, x + 5, 32);
+	_btnCancel = new TextButton(112, 18, x + 130, 152);
+	_btnAdd = new TextButton(112, 18, x + 18, 152);
+	_txtTitle = new Text(250, 17, x + 5, 32);
+
+	// labels
+	_lblServerName = new Text(108, 18, x + 18, 132);
+	_lblHostIp = new Text(100, 18, x + 18, 72);
+	_lblPort = new Text(100, 18, x + 18, 92);
 
 	int screenWidth = Options::baseXGeoscape;
 	int screenHeight = Options::baseYGeoscape;
@@ -57,6 +64,9 @@ AddServerMenu::AddServerMenu() : _craft(0), _selectType(NewBattleSelectType::MIS
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "pauseMenu");
+	add(_lblServerName, "text", "pauseMenu");
+	add(_lblHostIp, "text", "pauseMenu");
+	add(_lblPort, "text", "pauseMenu");
 	add(_ipAddress);
 	add(_port);
 	add(_serverName);
@@ -149,6 +159,22 @@ AddServerMenu::AddServerMenu() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_btnAdd->setText("ADD");
 	_btnAdd->onMouseClick((ActionHandler)&AddServerMenu::btnCAddServerClick);
 	_btnAdd->onKeyboardPress((ActionHandler)&AddServerMenu::btnCAddServerClick);
+
+	// labels
+	_lblServerName->setBig();
+	_lblServerName->setBorderColor(color);
+	_lblServerName->setText("GAME NAME>");
+	_lblServerName->setVisible(true);
+
+	_lblHostIp->setBig();
+	_lblHostIp->setBorderColor(color);
+	_lblHostIp->setText("HOST IP>");
+	_lblHostIp->setVisible(true);
+
+	_lblPort->setBig();
+	_lblPort->setBorderColor(color);
+	_lblPort->setText("PORT>");
+	_lblPort->setVisible(true);
 
 }
 
