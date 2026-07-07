@@ -521,6 +521,16 @@ class connectionTCP
 	// the host on reconnect. To keep the embedded blob fresh, the client
 	// silently pushes its progress to the host after every soldier transfer.
 	void pushProgressToHostSilently();
+	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
+	// host craft via the mirror-base UI, the assignment is written only into the
+	// "basehost" blob (the client's copy of the HOST world). The client's OWN
+	// world blob (client_<saveID>_<host>.data) - which GeoscapeState reloads at
+	// mission end - is never updated, so the guest's CoopCraft reverts to its
+	// stale value (unassigned) after a battle. This durably mirrors the
+	// per-guest CoopCraft/CoopCraftType into the own-world blob (and pushes it
+	// to the host) so the assignment survives the mission-end reload.
+	// assignments maps a guest's CoopName to {CoopCraft, CoopCraftType}.
+	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
 	// Clears session transfer state (pending queues, dedup ids, away-ids)
 	// after a save load - stale in-memory state must never outlive the save
 	// that is now the authority.

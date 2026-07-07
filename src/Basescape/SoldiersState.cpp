@@ -711,6 +711,23 @@ void SoldiersState::btnOkClick(Action *)
 
 			// save changes
 			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
+
+			// Fix B (Bug 1): the CoopCraft assignments above land ONLY in the
+			// "basehost" blob (the client's copy of the HOST world). The client's
+			// OWN-world blob (client_<saveID>_<host>.data) - which GeoscapeState
+			// reloads at mission end - is never touched here, so a guest's craft
+			// assignment reverts to its stale value and the soldier is unassigned
+			// from the skyranger after a battle. Mirror each guest's assignment
+			// into the own-world blob so it survives the reload.
+			std::map<std::string, std::pair<int, std::string>> guestCraftAssignments;
+			for (auto* soldier : *_base->getSoldiers())
+			{
+				Craft* assignedCraft = soldier->getCraft();
+				guestCraftAssignments[soldier->getName()] = std::make_pair(
+					assignedCraft ? assignedCraft->getId() : -1,
+					assignedCraft ? assignedCraft->getType() : std::string());
+			}
+			_game->getCoopMod()->syncOwnWorldGuestCraft(_base->_coop_base_id, guestCraftAssignments);
 		
 			// estetaan dublikaatio tallenuksen jalkeen...
 			auto& soldiers = *_base->getSoldiers();

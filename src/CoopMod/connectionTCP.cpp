@@ -47,6 +47,7 @@
 #include "../Savegame/CraftWeapon.h"
 
 #include "../Menu/NewGameState.h"
+#include "../Menu/LoadGameState.h"
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
 
@@ -717,12 +718,23 @@ void connectionTCP::processPendingSoldierTransfers()
 {
 
 	// Replay physical transfers that arrived while our world was swapped out
-	// for the peer's base view. The flag clears before LoadGameState has
-	// actually restored our save, so also require that an own (non-mirror)
-	// base is present - the swapped peer world has none.
+	// for the peer's base view OR for a coop battle. The flags clear before
+	// LoadGameState has actually restored our save, so also require that an
+	// own (non-mirror) base is present, that no own-world reload is still
+	// pending (LoadGameState on top of the stack), and that we are not mid
+	// mission-end - the swapped peer/battle world would otherwise re-swallow
+	// the soldier and mark its packet id as seen, losing it for good.
 	bool ownWorldReady = false;
 
-	if (!_pendingIncomingTransfers.empty() && _game->getCoopMod()->playerInsideCoopBase == false && _game->getSavedGame())
+	State* topState = _game->getStates().empty() ? nullptr : _game->getStates().back();
+	bool ownWorldLoadPending = (dynamic_cast<LoadGameState*>(topState) != nullptr);
+
+	if (!_pendingIncomingTransfers.empty()
+	    && _game->getCoopMod()->playerInsideCoopBase == false
+	    && _game->getCoopMod()->coopMissionEnd == false
+	    && !ownWorldLoadPending
+	    && _game->getSavedGame()
+	    && !_game->getSavedGame()->getSavedBattle())
 	{
 
 		for (auto& base : *_game->getSavedGame()->getBases())
@@ -808,10 +820,41 @@ void connectionTCP::processPendingSoldierTransfers()
 
 		Soldier* soldier = pending.first;
 
-		// Died during the mission: stays in the giver's memorial.
+		// Died during the mission: stays in the giver's memorial. The physical
+		// hand-off never happened, so undo the in-battle ownership flip that
+		// transferSoldierOwnership applied - otherwise the fallen soldier would
+		// sit in the giver's Hall of Honour still flagged as the peer's
+		// (coop/ownerPlayerId), and the receiver never gets a memorial entry
+		// (its transfer was skipped). Reset to a plain own-soldier so the
+		// giver's memorial records it correctly.
 		if (soldier->getDeath())
 		{
+			soldier->setCoop(0);
+			soldier->setOwnerPlayerId(999);
 			continue;
+		}
+
+		// Auto-keep an in-battle-transferred soldier on the craft it was
+		// deployed on, mirroring how a giver's own crew stays aboard their
+		// craft after a mission. The guest lives in the receiver's world, so
+		// the live Craft* pointer cannot survive the hand-off (it is detached
+		// in sendSoldierTransferPacket) - translate it into the guest CoopCraft
+		// mechanism, which the receiver's mission-end reload and battle merge
+		// honour (CoopCraft = the host craft id, CoopCraftType = its type).
+		// A wounded survivor is deliberately left unassigned so it is not flown
+		// straight back out while it should be recovering.
+		if (Craft* craft = soldier->getCraft())
+		{
+			if (!soldier->isWounded())
+			{
+				soldier->setCoopCraft(craft->getId());
+				soldier->setCoopCraftType(craft->getType());
+			}
+			else
+			{
+				soldier->setCoopCraft(-1);
+				soldier->setCoopCraftType("");
+			}
 		}
 
 		sendSoldierTransferPacket(soldier, pending.second);
@@ -833,12 +876,19 @@ void connectionTCP::pushProgressToHostSilently()
 
 	// Client only: serialize the current world and stream it to the host so
 	// the host's next save embeds an up-to-date client blob. Never while the
-	// world is swapped out for a base visit (we'd upload the peer's world).
+	// world is swapped out - a base visit, an active battle, or the mission-end
+	// window before the own-world reload (GeoscapeState::init) has run. In all
+	// of those the live save is the PEER's world; uploading it would overwrite
+	// our own-world blob with the host's world and destroy our roster.
 	if (getServerOwner() || !_host_save_progress || !getCoopStatic() || connectionTCP::saveID == 0)
 	{
 		return;
 	}
-	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle() || _game->getCoopMod()->playerInsideCoopBase)
+	State* topStatePush = _game->getStates().empty() ? nullptr : _game->getStates().back();
+	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle()
+	    || _game->getCoopMod()->playerInsideCoopBase
+	    || _game->getCoopMod()->coopMissionEnd
+	    || (dynamic_cast<LoadGameState*>(topStatePush) != nullptr))
 	{
 		return;
 	}
@@ -851,6 +901,78 @@ void connectionTCP::pushProgressToHostSilently()
 	sendTCPPacketData(obj.toStyledString());
 
 	Log(LOG_INFO) << "[coop-transfer] pushed client progress to host (" << filename << ")";
+
+}
+
+void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments)
+{
+
+	// Fix B (Bug 1). Client only. Durably mirror the client's guest->host-craft
+	// assignments into the client's OWN-world blob (client_<saveID>_<host>.data),
+	// which is exactly what GeoscapeState::init reloads at mission end. The real
+	// mirror-base UI (SoldiersState::btnOkClick) only writes CoopCraft into the
+	// "basehost" blob (the client's copy of the HOST world), so without this the
+	// guest's CoopCraft reverts to its stale value and the soldier is unassigned
+	// from the skyranger after every battle.
+	//
+	// Unlike pushProgressToHostSilently() this deliberately NEVER serializes or
+	// uploads the LIVE save and does NOT send SEND_FILE_HOST_TRUE_SAVE_PROGRESS:
+	// this runs while the client is inside the mirror base, where the live save
+	// is the swapped-in HOST world. That packet round-trips and drives the client
+	// to upload its live (host) world as the client blob - the exact corruption
+	// Fix A prevents. We only edit the in-memory own-world blob, which is all the
+	// mission-end reload needs.
+	if (getServerOwner() || !_host_save_progress || !getCoopStatic() || connectionTCP::saveID == 0)
+	{
+		return;
+	}
+	if (assignments.empty())
+	{
+		return;
+	}
+
+	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+	if (!hasCoopFile(filename))
+	{
+		return;
+	}
+
+	SavedGame* ownWorld = new SavedGame();
+	ownWorld->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+
+	bool changed = false;
+	for (auto* base : *ownWorld->getBases())
+	{
+		for (auto* s : *base->getSoldiers())
+		{
+			// Only the client's own guests live in this blob; matching by the
+			// peer base id + coop name skips any unrelated soldiers. Soldier ids
+			// differ across worlds, so coopName is the stable cross-world key.
+			if (s->getCoopBase() != coopBaseId)
+			{
+				continue;
+			}
+			auto it = assignments.find(s->getCoopName());
+			if (it == assignments.end())
+			{
+				continue;
+			}
+			if (s->getCoopCraft() != it->second.first || s->getCoopCraftType() != it->second.second)
+			{
+				s->setCoopCraft(it->second.first);
+				s->setCoopCraftType(it->second.second);
+				changed = true;
+			}
+		}
+	}
+
+	if (changed)
+	{
+		ownWorld->saveCoopToMemory(filename, _game->getMod(), filename);
+		Log(LOG_INFO) << "[coop-transfer] synced guest craft assignments into own-world blob (" << filename << ")";
+	}
+
+	delete ownWorld;
 
 }
 
@@ -2322,6 +2444,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					Log(LOG_INFO) << "[coop-transfer] RECV display-copy failed: " << e.what();
 				}
 
+				_pendingIncomingTransfers.push_back(obj);
+
+			}
+			else if (obj.isMember("soldier_yaml")
+			         && (_game->getCoopMod()->coopMissionEnd
+			             || _game->getSavedGame()->getSavedBattle()))
+			{
+
+				// Coop battle just ended (or is still tearing down): our live
+				// SavedGame is still the HOST's battle world - the own-world
+				// reload (GeoscapeState::init) has not run yet. Applying the
+				// physical transfer now would match the giver's real base in
+				// that throwaway world (coopBase cleared to -1, soldier deleted
+				// by the post-battle cleanup) and the follow-up client-progress
+				// push would upload the host world as our own-world blob. Defer
+				// and let processPendingSoldierTransfers() replay it once our
+				// own world is restored (host base is a mirror there, so the
+				// soldier correctly stays a guest at station_base_id).
+				Log(LOG_INFO) << "[coop-transfer] RECV deferred (mission-end swapped world)";
 				_pendingIncomingTransfers.push_back(obj);
 
 			}
