@@ -52,9 +52,15 @@
 
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
+#include "TransferNoticeState.h"
 #include "connectionUDP/connection_udp_glue.h"
 
 #include "../Savegame/BaseFacility.h"
+#include "../Engine/Logger.h"
+#include "../Engine/Yaml.h"
+#include "../Mod/Mod.h"
+#include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
 
 namespace OpenXcom
 {
@@ -623,6 +629,332 @@ void connectionTCP::loopData()
 	}
 }
 
+void connectionTCP::transferSoldierOwnership(Soldier* soldier, int newOwnerId, bool broadcast)
+{
+
+	if (!soldier || !_game->getSavedGame())
+	{
+		return;
+	}
+
+	soldier->setOwnerPlayerId(newOwnerId);
+	soldier->setCoop(newOwnerId);
+
+	int localPlayerId = getHost() ? 0 : 1;
+
+	Log(LOG_INFO) << "[coop-transfer] transferSoldierOwnership '" << soldier->getName() << "' id=" << soldier->getId()
+	              << " newOwner=" << newOwnerId << " localPlayer=" << localPlayerId
+	              << " broadcast=" << (broadcast ? 1 : 0)
+	              << " inBattle=" << (_game->getSavedGame()->getSavedBattle() ? 1 : 0);
+
+	if (_game->getSavedGame()->getSavedBattle())
+	{
+
+		// Battle running: flip live control now, do the physical move only
+		// after the mission ends (the BattleUnit and the debriefing still
+		// reference this Soldier).
+		auto* battle = _game->getSavedGame()->getSavedBattle();
+
+		for (auto& unit : *battle->getUnits())
+		{
+
+			if (unit->getGeoscapeSoldier() == soldier)
+			{
+
+				unit->setCoop(newOwnerId);
+
+				// The unit is no longer ours: move the selection along.
+				if (battle->getSelectedUnit() == unit && newOwnerId != localPlayerId)
+				{
+					battle->selectNextPlayerUnit();
+				}
+
+				if (broadcast)
+				{
+
+					// Immediate control flip on the peer's battle too.
+					Json::Value obj;
+					obj["state"] = "transferSoldier";
+					obj["soldier_id"] = soldier->getId();
+					obj["owner"] = newOwnerId;
+					obj["unit_id"] = unit->getId();
+
+					sendTCPPacketData(obj.toStyledString());
+
+				}
+
+				break;
+
+			}
+
+		}
+
+		if (broadcast && newOwnerId != localPlayerId)
+		{
+			_pendingSoldierTransfers.push_back(std::make_pair(soldier, newOwnerId));
+		}
+
+	}
+	else if (broadcast && newOwnerId != localPlayerId)
+	{
+
+		// The soldier's object lives in its owner's save (guest-soldier
+		// model): hand it to the peer and drop it from our world. It keeps
+		// its station base, so it stays "in" the base it is in right now.
+		sendSoldierTransferPacket(soldier, newOwnerId);
+		removeSoldierFromLocalBases(soldier);
+		_transferredSoldiers.push_back(soldier);
+		_transferredAwaySoldierIds.insert(soldier->getId());
+
+		// keep the host-side client blob fresh (no-op on the host itself)
+		pushProgressToHostSilently();
+
+	}
+
+}
+
+void connectionTCP::processPendingSoldierTransfers()
+{
+
+	// Replay physical transfers that arrived while our world was swapped out
+	// for the peer's base view. The flag clears before LoadGameState has
+	// actually restored our save, so also require that an own (non-mirror)
+	// base is present - the swapped peer world has none.
+	bool ownWorldReady = false;
+
+	if (!_pendingIncomingTransfers.empty() && _game->getCoopMod()->playerInsideCoopBase == false && _game->getSavedGame())
+	{
+
+		for (auto& base : *_game->getSavedGame()->getBases())
+		{
+			if (base->_coopBase == false && base->_coopIcon == false)
+			{
+				ownWorldReady = true;
+				break;
+			}
+		}
+
+	}
+
+	if (ownWorldReady)
+	{
+
+		std::vector<Json::Value> replay;
+		replay.swap(_pendingIncomingTransfers);
+
+		for (auto& obj : replay)
+		{
+			onTCPMessage("transferSoldier", obj);
+		}
+
+	}
+
+	if (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle() && getCoopStatic() && getCoopCampaign() && _pendingSoldierTransfers.empty())
+	{
+
+		// Targeted sweep: a stale copy of a soldier we transferred away this
+		// session can resurrect when the pre-visit "basehost" snapshot is
+		// restored after a transfer made while viewing the peer's base. Park
+		// exactly those (matched by id AND still peer-owned - a soldier
+		// traded back to us has our owner id and is left alone). Deliberately
+		// NOT a blanket owner check: legacy saves carry stale ownerPlayerId
+		// values on unrelated soldiers.
+		if (!_transferredAwaySoldierIds.empty())
+		{
+
+			int localPlayerId = getHost() ? 0 : 1;
+
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+
+				auto& soldiers = *base->getSoldiers();
+
+				for (auto it = soldiers.begin(); it != soldiers.end();)
+				{
+
+					Soldier* s = *it;
+
+					if (_transferredAwaySoldierIds.count(s->getId()) != 0 && s->getOwnerPlayerId() != 999 && s->getOwnerPlayerId() != localPlayerId)
+					{
+						_transferredSoldiers.push_back(s);
+						it = soldiers.erase(it);
+					}
+					else
+					{
+						++it;
+					}
+
+				}
+
+			}
+
+		}
+
+	}
+
+	if (_pendingSoldierTransfers.empty())
+	{
+		return;
+	}
+
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		// Still in battle; try again later.
+		return;
+	}
+
+	for (auto& pending : _pendingSoldierTransfers)
+	{
+
+		Soldier* soldier = pending.first;
+
+		// Died during the mission: stays in the giver's memorial.
+		if (soldier->getDeath())
+		{
+			continue;
+		}
+
+		sendSoldierTransferPacket(soldier, pending.second);
+		removeSoldierFromLocalBases(soldier);
+		_transferredSoldiers.push_back(soldier);
+		_transferredAwaySoldierIds.insert(soldier->getId());
+
+	}
+
+	_pendingSoldierTransfers.clear();
+
+	// transfers happened while our world was busy - sync the blob now
+	pushProgressToHostSilently();
+
+}
+
+void connectionTCP::pushProgressToHostSilently()
+{
+
+	// Client only: serialize the current world and stream it to the host so
+	// the host's next save embeds an up-to-date client blob. Never while the
+	// world is swapped out for a base visit (we'd upload the peer's world).
+	if (getServerOwner() || !_host_save_progress || !getCoopStatic() || connectionTCP::saveID == 0)
+	{
+		return;
+	}
+	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle() || _game->getCoopMod()->playerInsideCoopBase)
+	{
+		return;
+	}
+
+	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+	_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+
+	Json::Value obj;
+	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
+	sendTCPPacketData(obj.toStyledString());
+
+	Log(LOG_INFO) << "[coop-transfer] pushed client progress to host (" << filename << ")";
+
+}
+
+void connectionTCP::resetTransferSessionState()
+{
+
+	_pendingSoldierTransfers.clear();
+	_pendingIncomingTransfers.clear();
+	_seenTransferPacketIds.clear();
+	_transferredAwaySoldierIds.clear();
+
+}
+
+void connectionTCP::sendSoldierTransferPacket(Soldier* soldier, int newOwnerId)
+{
+
+	// Which base is the soldier stationed at? If it is already a guest at the
+	// peer's base, keep that station; otherwise it is in one of our own bases
+	// - find it and use that base's coop id.
+	int stationBaseId = soldier->getCoopBase();
+
+	if (stationBaseId == -1 && _game->getSavedGame())
+	{
+
+		for (auto& base : *_game->getSavedGame()->getBases())
+		{
+
+			auto containsSoldier = [soldier](const std::vector<Soldier*>& list)
+			{
+				return std::find(list.begin(), list.end(), soldier) != list.end();
+			};
+
+			// The live roster may be temporarily swapped out while a soldier
+			// list screen is open - check the snapshots too.
+			if (containsSoldier(*base->getSoldiers()) || containsSoldier(base->base_oldsoldiers) || containsSoldier(base->base_oldsoldiers2))
+			{
+				stationBaseId = base->_coop_base_id;
+				break;
+			}
+
+		}
+
+	}
+
+	// Detach from any craft so the serialized soldier does not carry a craft
+	// reference that would be resolved against the receiver's save.
+	soldier->setCraft(0);
+
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	soldier->save(writer["soldier"], _game->getMod()->getScriptGlobal());
+
+	// Durable unique id: player tag + wall-clock + counter. Receipts persist
+	// in saves across sessions, so a per-run counter alone would collide.
+	long long xferId = (getHost() ? 1000000000000000LL : 2000000000000000LL) + (long long)time(0) * 1000LL + (++_transferSendCounter % 1000);
+
+	std::string yaml = writer.emit().yaml;
+
+	Json::Value obj;
+	obj["state"] = "transferSoldier";
+	obj["soldier_id"] = soldier->getId();
+	obj["owner"] = newOwnerId;
+	obj["unit_id"] = -1;
+	obj["station_base_id"] = stationBaseId;
+	obj["xfer_id"] = Json::Value::Int64(xferId);
+	obj["soldier_yaml"] = yaml;
+
+	std::string packet = obj.toStyledString();
+
+	Log(LOG_INFO) << "[coop-transfer] SEND soldier '" << soldier->getName() << "' id=" << soldier->getId()
+	              << " newOwner=" << newOwnerId << " stationBaseId=" << stationBaseId
+	              << " packetBytes=" << packet.size();
+
+	sendTCPPacketData(packet);
+
+}
+
+void connectionTCP::removeSoldierFromLocalBases(Soldier* soldier)
+{
+
+	if (!_game->getSavedGame())
+	{
+		return;
+	}
+
+	for (auto& base : *_game->getSavedGame()->getBases())
+	{
+
+		auto eraseFrom = [soldier](std::vector<Soldier*>& list)
+		{
+			list.erase(std::remove(list.begin(), list.end(), soldier), list.end());
+		};
+
+		eraseFrom(*base->getSoldiers());
+		// SoldiersState/CraftSoldiersState swap the roster while open and
+		// restore it from these snapshots afterwards - purge them too so the
+		// soldier cannot resurrect on the giver's side.
+		eraseFrom(base->base_oldsoldiers);
+		eraseFrom(base->base_oldsoldiers2);
+
+	}
+
+}
+
 void connectionTCP::clearAllReceivedTCPPackets()
 {
 
@@ -640,6 +972,11 @@ void connectionTCP::createLoopdataThread()
 // an endless loop that processes the sync-packet data: battlescape, tasks, remove targets, research, trading, disconnect, errors.
 void connectionTCP::updateCoopTask()
 {
+
+	// coop: finish queued in-battle soldier transfers as soon as no battle is
+	// active (fallback for the client, which may not run the host's
+	// coopMissionEnd path in GeoscapeState).
+	processPendingSoldierTransfers();
 
 	if (connectionTCP::saveError == true)
 	{
@@ -1902,6 +2239,317 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						unit->setCoop(coop);
 
 						break;
+
+					}
+
+				}
+
+			}
+
+		}
+
+	}
+
+	if (stateString == "transferSoldier")
+	{
+
+		if (_game->getSavedGame())
+		{
+
+			int soldier_id = obj["soldier_id"].asInt();
+			int owner = obj["owner"].asInt();
+			int unit_id = obj["unit_id"].asInt();
+
+			Log(LOG_INFO) << "[coop-transfer] RECV transferSoldier id=" << soldier_id << " owner=" << owner
+			              << " hasYaml=" << (obj.isMember("soldier_yaml") ? 1 : 0)
+			              << " inBattle=" << (_game->getSavedGame()->getSavedBattle() ? 1 : 0);
+
+			if (obj.isMember("soldier_yaml") && _game->getCoopMod()->playerInsideCoopBase == true)
+			{
+
+				// Our SavedGame is currently swapped out for the peer's base
+				// view; applying the transfer now would land the soldier in
+				// the temporary world and lose it on exit. Queue the real
+				// apply for later, but ALSO drop a display copy into the
+				// visited base so the new owner sees the soldier right away,
+				// and show the notification now.
+				Log(LOG_INFO) << "[coop-transfer] RECV deferred (viewing peer base)";
+
+				try
+				{
+
+					int stationBaseId = obj["station_base_id"].asInt();
+
+					YAML::YamlRootNodeReader reader(YAML::YamlString{obj["soldier_yaml"].asString()}, "transferSoldier");
+					auto soldierReader = reader["soldier"];
+					std::string type = soldierReader["type"].readVal(_game->getMod()->getSoldiersList().front());
+					std::string soldierName = soldierReader["name"].readVal(std::string());
+
+					Base* visited = 0;
+
+					for (auto& base : *_game->getSavedGame()->getBases())
+					{
+						if (base->_coop_base_id == stationBaseId)
+						{
+							visited = base;
+							break;
+						}
+					}
+
+					if (visited && _game->getMod()->getSoldier(type))
+					{
+						// Display-only copy: this world is discarded on exit;
+						// the durable copy comes from the deferred replay.
+						Soldier* copy = new Soldier(_game->getMod()->getSoldier(type), 0, 0 /*nationality*/);
+						copy->load(soldierReader, _game->getMod(), _game->getSavedGame(), _game->getMod()->getScriptGlobal());
+						copy->setCraft(0);
+						copy->setCoopBase(stationBaseId);
+						copy->setOwnerPlayerId(owner);
+						copy->setCoop(owner);
+						visited->getSoldiers()->push_back(copy);
+					}
+
+					if (!obj.get("notified", false).asBool())
+					{
+						std::string baseName = visited ? visited->getName() : "their base";
+						_game->pushState(new TransferNoticeState(getCurrentClientName() + " transferred ownership of " + soldierName + " to you at base " + baseName));
+						obj["notified"] = true;
+					}
+
+				}
+				catch (const std::exception& e)
+				{
+					Log(LOG_INFO) << "[coop-transfer] RECV display-copy failed: " << e.what();
+				}
+
+				_pendingIncomingTransfers.push_back(obj);
+
+			}
+			else if (obj.isMember("soldier_yaml"))
+			{
+
+				// Physical transfer: the giver removed the soldier from their
+				// save; recreate it in ours, keeping its station base.
+				int stationBaseId = obj["station_base_id"].asInt();
+
+				try
+				{
+
+					YAML::YamlRootNodeReader reader(YAML::YamlString{obj["soldier_yaml"].asString()}, "transferSoldier");
+					auto soldierReader = reader["soldier"];
+
+					std::string type = soldierReader["type"].readVal(_game->getMod()->getSoldiersList().front());
+
+					if (_game->getMod()->getSoldier(type))
+					{
+
+						// If the station base is one of OUR real bases, the
+						// soldier is coming home: it lives there normally.
+						// Otherwise it stays a guest at the giver's base and
+						// merely lives in our save (guest-soldier model).
+						Base* homeBase = 0;
+						Base* firstOwnBase = 0;
+
+						for (auto& base : *_game->getSavedGame()->getBases())
+						{
+
+							if (base->_coopBase == false && base->_coopIcon == false)
+							{
+
+								if (!firstOwnBase)
+								{
+									firstOwnBase = base;
+								}
+
+								if (base->_coop_base_id == stationBaseId)
+								{
+									homeBase = base;
+									break;
+								}
+
+							}
+
+						}
+
+						Base* targetBase = homeBase ? homeBase : firstOwnBase;
+
+						// No own base in the current save = our world is not
+						// (yet) loaded, e.g. the transitional frames right
+						// after leaving the peer's base view. Never consume
+						// the packet in that window - defer and replay.
+						if (!targetBase)
+						{
+							Log(LOG_INFO) << "[coop-transfer] RECV deferred (no own base in current save)";
+							_pendingIncomingTransfers.push_back(obj);
+						}
+						else
+						{
+
+						// Ignore duplicate deliveries via the sender's unique
+						// packet id (in-memory: with the host save as the single
+						// authority, packets are never re-sent across sessions).
+						long long xferId = obj.get("xfer_id", 0).asInt64();
+						bool exists = (xferId != 0 && _seenTransferPacketIds.count(xferId) != 0);
+
+						if (xferId != 0)
+						{
+							_seenTransferPacketIds.insert(xferId);
+						}
+
+						Log(LOG_INFO) << "[coop-transfer] RECV type=" << type << " exists=" << (exists ? 1 : 0)
+						              << " homeBase=" << (homeBase ? homeBase->getName() : "none")
+						              << " targetBase=" << targetBase->getName()
+						              << " stationBaseId=" << stationBaseId;
+
+						if (!exists)
+						{
+
+							Soldier* soldier = new Soldier(_game->getMod()->getSoldier(type), 0, 0 /*nationality*/);
+							soldier->load(soldierReader, _game->getMod(), _game->getSavedGame(), _game->getMod()->getScriptGlobal());
+
+							// The peer's soldier ids and ours come from
+							// separate saves: on collision give the incoming
+							// soldier a fresh id so lookups stay unambiguous.
+							int maxId = soldier->getId();
+
+							bool collision = false;
+
+							for (auto& base : *_game->getSavedGame()->getBases())
+							{
+								for (auto& s : *base->getSoldiers())
+								{
+									if (s->getId() == soldier->getId())
+									{
+										collision = true;
+									}
+									maxId = std::max(maxId, s->getId());
+								}
+							}
+
+							for (auto& s : *_game->getSavedGame()->getDeadSoldiers())
+							{
+								if (s->getId() == soldier->getId())
+								{
+									collision = true;
+								}
+								maxId = std::max(maxId, s->getId());
+							}
+
+							if (collision)
+							{
+								soldier->setId(maxId + 1);
+							}
+
+							soldier->setCraft(0);
+							soldier->setCoopBase(homeBase ? -1 : stationBaseId);
+							soldier->setOwnerPlayerId(owner);
+							soldier->setCoop(owner);
+
+							targetBase->getSoldiers()->push_back(soldier);
+
+							// SoldiersState/CraftSoldiersState restore the
+							// roster from these snapshots when they close; if
+							// one is open right now (snapshot non-empty), add
+							// the soldier there too or the restore drops it.
+							if (!targetBase->base_oldsoldiers.empty())
+							{
+								targetBase->base_oldsoldiers.push_back(soldier);
+							}
+							if (!targetBase->base_oldsoldiers2.empty())
+							{
+								targetBase->base_oldsoldiers2.push_back(soldier);
+							}
+
+							Log(LOG_INFO) << "[coop-transfer] RECV added soldier '" << soldier->getName()
+							              << "' id=" << soldier->getId() << " to base '" << targetBase->getName()
+							              << "' coopBase=" << soldier->getCoopBase();
+
+							// keep the host-side client blob fresh (no-op on
+							// the host itself)
+							pushProgressToHostSilently();
+
+							// Tell the new owner (skip if the deferred path
+							// already notified during a base visit). The
+							// station base's name is the one the player
+							// recognizes - for a guest that's the giver's
+							// (mirror) base, not the own base holding it.
+							if (!obj.get("notified", false).asBool())
+							{
+
+								std::string baseName = targetBase->getName();
+
+								for (auto& base : *_game->getSavedGame()->getBases())
+								{
+									if (base->_coop_base_id == stationBaseId)
+									{
+										baseName = base->getName();
+										break;
+									}
+								}
+
+								_game->pushState(new TransferNoticeState(getCurrentClientName() + " transferred ownership of " + soldier->getName() + " to you at base " + baseName));
+
+							}
+
+						}
+
+						}
+
+					}
+					else
+					{
+						Log(LOG_INFO) << "[coop-transfer] RECV unknown soldier type " << type;
+					}
+
+				}
+				catch (const std::exception& e)
+				{
+					Log(LOG_INFO) << "[coop-transfer] RECV failed to load soldier yaml: " << e.what();
+				}
+
+			}
+			else
+			{
+
+				// Control flip for a soldier deployed in the current battle.
+				// The physical move arrives in a later packet once the
+				// giver's mission has ended.
+				if (_game->getSavedGame()->getSavedBattle())
+				{
+
+					auto* battle = _game->getSavedGame()->getSavedBattle();
+
+					for (auto& unit : *battle->getUnits())
+					{
+
+						bool match = (unit_id != -1 && unit->getId() == unit_id);
+
+						if (!match && unit->getGeoscapeSoldier() && unit->getGeoscapeSoldier()->getId() == soldier_id)
+						{
+							match = true;
+						}
+
+						if (match)
+						{
+
+							unit->setCoop(owner);
+
+							if (unit->getGeoscapeSoldier())
+							{
+								unit->getGeoscapeSoldier()->setOwnerPlayerId(owner);
+								unit->getGeoscapeSoldier()->setCoop(owner);
+							}
+
+							int localPlayerId = getHost() ? 0 : 1;
+
+							if (battle->getSelectedUnit() == unit && owner != localPlayerId)
+							{
+								battle->selectNextPlayerUnit();
+							}
+
+							break;
+
+						}
 
 					}
 
@@ -5506,8 +6154,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "close_save_progress")
 	{
 
-		// Closing save progress popup
-		_game->popState();
+		// Closing save progress popup - only if one is actually open (silent
+		// background pushes don't show the dialog; popping the screen under
+		// it would tear down the geoscape).
+		if (!_game->getStates().empty() && dynamic_cast<CoopState*>(_game->getStates().back()))
+		{
+			_game->popState();
+		}
 
 	}
 
@@ -5539,8 +6192,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string jsonData333 = "{\"state\" : \"close_save_progress\"}";
 		sendTCPPacketData(jsonData333);
 
-		// Closing save progress popup
-		_game->popState();
+		// Closing save progress popup - only if one is actually open (silent
+		// background pushes don't show the dialog).
+		if (!_game->getStates().empty() && dynamic_cast<CoopState*>(_game->getStates().back()))
+		{
+			_game->popState();
+		}
 
 		// WRITE THE FILE RECEIVED FROM THE CLIENT TO THE HOST
 		if (_game->getSavedGame())

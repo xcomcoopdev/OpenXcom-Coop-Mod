@@ -75,6 +75,8 @@ public:
 	void edtSoldierChange(Action *action);
 	/// Handler for clicking the OK button.
 	void btnOkClick(Action *action);
+	/// Coop: handler for the give-unit key on this soldier.
+	void btnGiveUnitPress(Action *action);
 	/// Handler for clicking the Previous button.
 	void btnPrevClick(Action *action);
 	/// Handler for clicking the Next button.

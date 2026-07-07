@@ -48,6 +48,8 @@
 #include "CraftInfoState.h"
 
 #include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/connectionTCP.h" // coop
+#include "../CoopMod/TransferSoldierMenu.h" // coop
 #include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
@@ -201,6 +203,8 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	_lstSoldiers->onRightArrowClick((ActionHandler)&CraftSoldiersState::lstItemsRightArrowClick);
 	_lstSoldiers->onMouseClick((ActionHandler)&CraftSoldiersState::lstSoldiersClick, 0);
 	_lstSoldiers->onMousePress((ActionHandler)&CraftSoldiersState::lstSoldiersMousePress);
+	// coop: transfer the hovered soldier to another player
+	_lstSoldiers->onKeyboardPress((ActionHandler)&CraftSoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
 	// Coop mode: if the game is in coop and this base is not a coop base
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
@@ -664,6 +668,25 @@ void CraftSoldiersState::lstSoldiersMousePress(Action *action)
 			moveSoldierDown(action, row);
 		}
 	}
+}
+
+/**
+ * Coop: opens the transfer-ownership dialog for the hovered soldier.
+ * @param action Pointer to an action.
+ */
+void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
+{
+	if (_game->getCoopMod()->getCoopStatic() != true || _game->getCoopMod()->getCoopCampaign() != true)
+	{
+		return;
+	}
+	unsigned int row = _lstSoldiers->getSelectedRow();
+	if (row >= _base->getSoldiers()->size())
+	{
+		return;
+	}
+	Soldier *soldier = _base->getSoldiers()->at(row);
+	_game->pushState(new TransferSoldierMenu(soldier, TransferSoldierMenu::resolveOwnerId(soldier)));
 }
 
 /**
