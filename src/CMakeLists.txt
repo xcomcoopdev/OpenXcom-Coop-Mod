@@ -261,6 +261,7 @@ set ( interface_src
   Interface/Bar.cpp
   Interface/BattlescapeButton.cpp
   Interface/ComboBox.cpp
+  Interface/DisableableComboBox.cpp
   Interface/Cursor.cpp
   Interface/FpsCounter.cpp
   Interface/Frame.cpp

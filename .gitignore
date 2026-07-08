@@ -82,3 +82,7 @@ bin/user
 /.kdev4/
 /*.kdev4
 test.pub
+# Real rendezvous config (public keys, but per-deployment; keep out of source control)
+rendezvous.json
+# Per-user last-selected rendezvous server
+rendezvous_selection.json

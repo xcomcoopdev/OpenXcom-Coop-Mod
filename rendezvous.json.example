@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy to rendezvous.json and fill in real values. Search order: 1) env OXC_RENDEZVOUS_CONFIG, 2) <exe folder>/rendezvous.json, 3) <config folder>/rendezvous.json. rendezvous.json is git-ignored. SECURITY: only PUBLIC keys go here, never the server secret keys.",
+  "servers": [
+    {
+      "name": "Official",
+      "host": "0.0.0.0",
+      "tcpPort": 39000,
+      "udpPort": 39001,
+      "gameVersion": "1.8.4 [v2026-06-28]",
+      "serverBoxPublicKey": "PASTE_SERVER_BOX_PUBLIC_KEY_BASE64_HERE",
+      "serverSignPublicKey": "PASTE_SERVER_SIGN_PUBLIC_KEY_BASE64_HERE"
+    },
+    {
+      "name": "Local Test",
+      "host": "127.0.0.1",
+      "tcpPort": 39000,
+      "udpPort": 39001,
+      "gameVersion": "1.8.4 [v2026-06-28]",
+      "serverBoxPublicKey": "PASTE_SERVER_BOX_PUBLIC_KEY_BASE64_HERE",
+      "serverSignPublicKey": "PASTE_SERVER_SIGN_PUBLIC_KEY_BASE64_HERE"
+    }
+  ]
+}

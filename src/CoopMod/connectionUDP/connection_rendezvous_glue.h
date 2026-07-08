@@ -13,6 +13,29 @@ namespace OpenXcom
 using RendezvousBoolCallback = std::function<void(bool ok)>;
 using RendezvousListCallback = std::function<void(bool ok, std::vector<RendezvousClient::RoomInfo> rooms)>;
 
+// Result of a single server health probe (see probeRendezvousServer).
+struct RendezvousProbeResult
+{
+    size_t index = 0;                             // configured-server index
+    bool online = false;                          // answered a signed ROOM_LIST
+    std::vector<RendezvousClient::RoomInfo> rooms; // populated when online
+};
+using RendezvousProbeCallback = std::function<void(RendezvousProbeResult)>;
+
+// Punch-free health check of one configured server (by index). Blocking.
+// Sends LIST_ROOMS over TCP with a short timeout; success proves the rendezvous
+// service is up and its sign key validates. Does not touch the active server or
+// the live coop flow. When outRooms is non-null it receives the room list.
+bool probeRendezvousServer(size_t serverIndex,
+                           uint32_t timeoutMs,
+                           std::vector<RendezvousClient::RoomInfo>* outRooms,
+                           std::string* error = nullptr);
+
+// Probes every configured server in parallel (one detached thread each). The
+// callback fires once per server as its probe completes, on a worker thread —
+// do not modify UI directly from it.
+void probeAllRendezvousServersAsync(uint32_t timeoutMs, RendezvousProbeCallback callback);
+
 // True when the current multiplayer flow uses rendezvous/server-list/UDP.
 // TCP-only disconnects use this to avoid closing stale rendezvous state.
 bool isRendezvousConnectionActive();

@@ -678,6 +678,9 @@
     <ClCompile Include="Interface\ComboBox.cpp">
       <Filter>Interface</Filter>
     </ClCompile>
+    <ClCompile Include="Interface\DisableableComboBox.cpp">
+      <Filter>Interface</Filter>
+    </ClCompile>
     <ClCompile Include="Menu\OptionsDefaultsState.cpp">
       <Filter>Menu</Filter>
     </ClCompile>
@@ -1935,6 +1938,9 @@
       <Filter>Engine</Filter>
     </ClInclude>
     <ClInclude Include="Interface\ComboBox.h">
+      <Filter>Interface</Filter>
+    </ClInclude>
+    <ClInclude Include="Interface\DisableableComboBox.h">
       <Filter>Interface</Filter>
     </ClInclude>
     <ClInclude Include="Menu\OptionsDefaultsState.h">
