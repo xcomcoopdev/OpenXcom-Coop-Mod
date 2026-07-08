@@ -28,6 +28,8 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
+#include "../Savegame/SavedGame.h"
+#include "../Savegame/SavedBattleGame.h"
 
 namespace OpenXcom
 {
@@ -48,22 +50,36 @@ TransferNoticeState::TransferNoticeState(const std::string &message)
 	// the "top state" is the first notice, not the screen underneath.
 	std::string category = "sackSoldier";
 	std::string textElement = "text";
-	State* context = nullptr;
-	for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
-		if (dynamic_cast<TransferNoticeState*>(*it) == nullptr)
-		{
-			context = *it;
-			break;
-		}
+		// In the battlescape, match the coop lobby window exactly (geoscape
+		// interface with alterPal, saveMenus colors, under the battle palette).
+		setInterface("geoscape", true, _game->getSavedGame()->getSavedBattle());
+		category = "saveMenus";
 	}
-	if (context)
+	else
 	{
-		setStatePalette(context->getPalette());
-		if (dynamic_cast<GeoscapeState*>(context))
+		// Adopt the palette of whatever screen we're over - no palette swap, no
+		// flicker, works on geoscape, basescape and the peer-base view alike.
+		// Skip other notices when deciding the context: with two notices stacked,
+		// the "top state" is the first notice, not the screen underneath.
+		State* context = nullptr;
+		for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 		{
-			category = "geoManufactureComplete"; // standard geoscape popup colors
-			textElement = "text1";
+			if (dynamic_cast<TransferNoticeState*>(*it) == nullptr)
+			{
+				context = *it;
+				break;
+			}
+		}
+		if (context)
+		{
+			setStatePalette(context->getPalette());
+			if (dynamic_cast<GeoscapeState*>(context))
+			{
+				category = "geoManufactureComplete"; // standard geoscape popup colors
+				textElement = "text1";
+			}
 		}
 	}
 	_category = category;
@@ -74,6 +90,11 @@ TransferNoticeState::TransferNoticeState(const std::string &message)
 
 	centerAllSurfaces();
 	setWindowBackground(_window, category);
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		// Same as the coop lobby in battle: uniform battlescape theme.
+		applyBattlescapeTheme(category);
+	}
 
 	_txtMessage->setAlign(ALIGN_CENTER);
 	_txtMessage->setWordWrap(true);

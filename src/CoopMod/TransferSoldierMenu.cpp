@@ -26,6 +26,7 @@
 #include "../Interface/TextButton.h"
 #include "../Interface/Window.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/Soldier.h"
 #include "connectionTCP.h"
 
@@ -93,18 +94,42 @@ TransferSoldierMenu::TransferSoldierMenu(Soldier *soldier, int currentOwnerId) :
 	// (geoscape palette) forced a hardware palette swap when opened over the
 	// basescape soldier screens, flashing the whole screen on open and close.
 	// The battle-game param switches to the battlescape palette in battle.
-	setInterface("sackSoldier", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	// Out of battle, sackSoldier's base palette avoids a hardware palette flash
+	// over the basescape soldier screens. In the battlescape those colors are
+	// illegible, so match the coop lobby window exactly (geoscape interface with
+	// alterPal, saveMenus element colors, under the battle palette).
+	SavedBattleGame *battle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0;
+	std::string cat = "sackSoldier";
+	if (battle)
+	{
+		setInterface("geoscape", true, battle);
+		cat = "saveMenus";
+	}
+	else
+	{
+		setInterface("sackSoldier", false, 0);
+	}
 
-	add(_window, "window", "sackSoldier");
-	add(_txtTitle, "text", "sackSoldier");
+	add(_window, "window", cat);
+	add(_txtTitle, "text", cat);
 	for (auto *btn : _btnTargets)
 	{
-		add(btn, "button", "sackSoldier");
+		add(btn, "button", cat);
 	}
-	add(_btnCancel, "button", "sackSoldier");
+	add(_btnCancel, "button", cat);
 
 	centerAllSurfaces();
-	setWindowBackground(_window, "sackSoldier");
+	if (battle)
+	{
+		// Same as the coop lobby in battle: uniform battlescape theme color +
+		// high contrast + TAC00 background.
+		setWindowBackground(_window, cat);
+		applyBattlescapeTheme(cat);
+	}
+	else
+	{
+		setWindowBackground(_window, cat);
+	}
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setWordWrap(true);
