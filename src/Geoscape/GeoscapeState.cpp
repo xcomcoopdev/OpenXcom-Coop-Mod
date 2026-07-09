@@ -1637,6 +1637,18 @@ void GeoscapeState::think()
 			// (last-write-wins; never FIFO-queued, so it can't overflow g_txQ).
 			_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
 
+			// Positions are conflatable, but UFO/mission spawns and despawns are
+			// not: the conflation slot elides intermediate snapshots, so a UFO
+			// that appears and vanishes between two delivered snapshots would
+			// never reach the client. Whenever the membership set changes, also
+			// send this snapshot on the reliable FIFO lane so no spawn/despawn is
+			// dropped. Membership changes rarely, so this can't reintroduce the
+			// flood the conflation slot was added to prevent.
+			if (_game->getCoopMod()->geoMembershipChanged(root))
+			{
+				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			}
+
 		}
 
 
