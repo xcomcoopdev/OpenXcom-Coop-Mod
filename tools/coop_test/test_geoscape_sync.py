@@ -120,12 +120,13 @@ def geo_snapshot(gc):
         "day": r["time"]["day"], "month": r["time"]["month"], "year": r["time"]["year"],
         "funds": r["funds"],
         "ufos": {u["id"]: bool(u["detected"]) for u in r.get("ufos", [])},
-        # Event keys accumulated across the run to compare host vs client. Keyed
-        # by the coop cross-instance id (_coop_ufo_id / _coop_mission_id, shared
-        # between host and client), NOT the local getId() which differs per
-        # instance for the same synced entity.
-        "ufo_ev": {(u.get("coopId", u["id"]), u["type"]) for u in r.get("ufos", [])},
-        "site_ev": {(s.get("coopId", s["id"]), s["type"], s.get("race", "")) for s in r.get("missionSites", [])},
+        # Current membership keyed by the coop cross-instance id (_coop_ufo_id /
+        # _coop_mission_id, shared host<->client), NOT the local getId() which
+        # differs per instance. These are ALL savegame entities (detected or
+        # not), so they measure existence sync rather than per-player radar
+        # detection.
+        "ufo_ids": {u.get("coopId", u["id"]) for u in r.get("ufos", [])},
+        "site_ids": {s.get("coopId", s["id"]) for s in r.get("missionSites", [])},
     }
 
 
@@ -173,16 +174,10 @@ class Metrics:
         # and does not count as a desync.
         gap = abs(hs["funds"] - cs["funds"])
         self.max_funds_gap = max(self.max_funds_gap, gap)
-        # ufo detection: once host reports a ufo detected, client should agree
-        # within the sync window. Record a lag > 1.5s as a desync event.
-        for uid, det in hs["ufos"].items():
-            if det and uid not in self._t_ufo_seen:
-                self._t_ufo_seen[uid] = t
-            if det and uid in self._t_ufo_seen:
-                if not cs["ufos"].get(uid, False) and (t - self._t_ufo_seen[uid]) > 1.5:
-                    self.desync_events.append((round(t, 1), "ufo_detect_lag",
-                                               f"ufo {uid} detected on host, not client after "
-                                               f"{round(t - self._t_ufo_seen[uid], 1)}s"))
+        # NB: UFO existence sync is checked in run_month by comparing coop-id
+        # sets (shared state). We do NOT compare UFO *detection* here: detection
+        # depends on each player's radar/base coverage, so host and client
+        # legitimately detect different UFOs even when the UFOs are in sync.
 
     def summary(self):
         def stats(v):
@@ -238,15 +233,25 @@ def soak(host, client, metrics, seconds, label, start, advancing=False, speed_id
         time.sleep(0.02)
 
 
+EXIST_LAG_TOL = 4.0  # seconds a UFO/site may legitimately lag between host<->client
+
+
 def run_month(host, client, metrics, days, speed, real_timeout, start):
     """Advance `days` in-game days at time speed `speed` (5 = 1 day = fastest),
-    auto-closing every dialog. Accumulates the set of events (UFOs + mission
-    sites, by id) each side sees, and captures the end-of-month report (score +
-    per-country funding) the first time a MonthlyReportState shows on each side.
-    Returns (events:{name:set}, reports:{name:dict|None})."""
+    auto-closing every dialog. Two cross-checks:
+    - EXISTENCE sync: each poll compare the coop-id sets of all savegame UFOs /
+      mission sites on both instances. An entity present on only one side for
+      longer than EXIST_LAG_TOL seconds is a real desync (brief lag = normal
+      sync latency). This measures shared geoscape state, NOT per-player radar
+      detection (which legitimately differs by base coverage).
+    - the end-of-month report (score + per-country funding), captured via the
+      monthsPassed transition.
+    Existence desyncs are appended to metrics.desync_events. Returns
+    reports:{name:dict|None}."""
     clients = {"host": host, "client": client}
-    events = {"host": set(), "client": set()}
     reports = {"host": None, "client": None}
+    diverged = {}   # (kind, coopId) -> real-time first seen on one side only
+    flagged = set()
     print(f"  [month] advancing {days} in-game days at speed {speed} "
           f"(cap {real_timeout}s) ...")
     d0 = abs_days(host)
@@ -262,13 +267,6 @@ def run_month(host, client, metrics, days, speed, real_timeout, start):
             if gc.proc.poll() is not None:
                 metrics.crashes.append((round(now, 1), name, f"exited rc={gc.proc.returncode}"))
                 raise RuntimeError(f"{name} died during month advance (rc={gc.proc.returncode})")
-            # A detection popup pauses the clock, so while one is up geo_state is
-            # frozen and the just-detected UFO/site is present -> capture events
-            # here (deterministic) rather than by polling the fast-moving globe.
-            if not on_geoscape(gc):
-                hs = geo_snapshot(gc)
-                if hs:
-                    events[name] |= hs["ufo_ev"] | hs["site_ev"]
             # Capture the end-of-month report by the monthsPassed transition
             # (robust: a UFO dialog can stack on top of MonthlyReportState, so
             # keying on "MonthlyReportState is top" misses it). month_report reads
@@ -280,29 +278,40 @@ def run_month(host, client, metrics, days, speed, real_timeout, start):
                     print(f"    [{name}] month-end report: monthsPassed={r['monthsPassed']} "
                           f"score={r['score']} funds={r['funds']}")
             drain_popups(gc)
-            hs = geo_snapshot(gc)
-            if hs:
-                events[name] |= hs["ufo_ev"] | hs["site_ev"]
             if on_geoscape(gc):
                 gc.cmd({"cmd": "geo_set_speed", "idx": speed})
-        # RTT + UFO-detection-lag sampling (host vs client)
+        # existence-sync check: compare current coop-id sets (all savegame UFOs
+        # and mission sites), tolerating brief lag.
+        hs, cs = geo_snapshot(host), geo_snapshot(client)
+        if hs and cs:
+            current = {}
+            for kind, key in (("ufo", "ufo_ids"), ("site", "site_ids")):
+                for cid in hs[key] - cs[key]:
+                    current[(kind, cid)] = "host"
+                for cid in cs[key] - hs[key]:
+                    current[(kind, cid)] = "client"
+            tnow = time.time()
+            for k, side in current.items():
+                diverged.setdefault(k, tnow)
+                if tnow - diverged[k] > EXIST_LAG_TOL and k not in flagged:
+                    flagged.add(k)
+                    metrics.desync_events.append(
+                        (round(now, 1), "entity_only_one_side",
+                         f"{k[0]} coopId={k[1]} on {side} only for >{EXIST_LAG_TOL}s"))
+            for k in [k for k in diverged if k not in current]:
+                del diverged[k]   # converged (or gone from both)
         if now >= next_ping:
             metrics.sample_ping(now, host, client)
-            try:
-                metrics.sample_desync(now, geo_snapshot(host), geo_snapshot(client), start)
-            except Exception as e:
-                metrics.crashes.append((round(now, 1), "geo", f"{e!r}"))
-                raise
             next_ping = now + 0.25
         wd.tick(game_minutes(host))    # watchdog: stalls -> kill + StuckDialogError
         d = abs_days(host)
         if d is not None and d0 is not None and (d - d0) >= days:
             print(f"  [month] reached +{d - d0} in-game days in {round(now, 1)}s")
-            return events, reports
+            return reports
         time.sleep(0.3)
     print(f"  [month] real-time cap hit after {round(time.time() - t0, 1)}s "
           f"(+{(abs_days(host) or d0) - d0} days)")
-    return events, reports
+    return reports
 
 
 def scan_logs(user_dirs, tag):
@@ -341,10 +350,7 @@ def main():
     user_dirs = {"host": host.user_dir, "client": client.user_dir}
     metrics = Metrics()
     hard_fail = None
-    events = {"host": set(), "client": set()}
     reports = {"host": None, "client": None}
-    only_host = only_client = []
-    event_mismatch = False
     score_mismatch = None
     funding_mismatch = []
     got_reports = False
@@ -367,20 +373,14 @@ def main():
 
         # Phase B: advance a full month-plus (default 40 in-game days) at the
         # fastest speed, closing every dialog. Cross-validate the shared outcome:
-        # both sides see the same events, and agree on the end-of-month report
-        # (score + per-country funding changes) even though each player's
-        # absolute funds are independent.
-        events, reports = run_month(host, client, metrics, args.days, args.speed,
-                                    args.realcap, start)
-
-        # event agreement: the union each side saw should match.
-        only_host = sorted(map(list, events["host"] - events["client"]))
-        only_client = sorted(map(list, events["client"] - events["host"]))
-        event_mismatch = only_host or only_client
+        # UFO/mission existence stays in sync (checked in run_month via coop-id
+        # sets -> metrics.desync_events), and host+client agree on the end-of-
+        # month report (score + per-country funding changes) even though each
+        # player's absolute funds are independent.
+        reports = run_month(host, client, metrics, args.days, args.speed,
+                            args.realcap, start)
 
         # end-of-month report agreement (only if both captured one).
-        score_mismatch = None
-        funding_mismatch = []
         got_reports = reports["host"] is not None and reports["client"] is not None
         if got_reports:
             hr, cr = reports["host"], reports["client"]
@@ -404,9 +404,6 @@ def main():
     summ["tag"] = args.tag
     summ["hard_fail"] = hard_fail
     summ["logs"] = logs
-    summ["events_seen"] = {"host": len(events["host"]), "client": len(events["client"])}
-    summ["events_only_host"] = only_host
-    summ["events_only_client"] = only_client
     summ["month_report_captured"] = got_reports
     summ["score"] = {"host": reports["host"]["score"] if reports["host"] else None,
                      "client": reports["client"]["score"] if reports["client"] else None}
@@ -426,12 +423,12 @@ def main():
     # the lobby; setFunds is never driven from a peer value). So a funds gap is
     # expected, not a desync. max_funds_gap stays in the summary as info only.
     crashed = bool(summ["crashes"]) or hard_fail is not None
-    # desync = UFO-detection lag, OR host/client disagree on the events seen or
-    # the end-of-month report (score / per-country funding change). Missing a
-    # month report at all (never reached the boundary) is also a failure.
-    desynced = (bool(summ["desync_events"]) or bool(event_mismatch)
-                or score_mismatch is not None or bool(funding_mismatch)
-                or not got_reports)
+    # desync = a UFO/mission that stayed present on only one side past the lag
+    # tolerance (metrics.desync_events, set in run_month), OR host/client
+    # disagree on the end-of-month report (score / per-country funding change),
+    # OR no month report was captured (never reached the boundary).
+    desynced = (bool(summ["desync_events"]) or score_mismatch is not None
+                or bool(funding_mismatch) or not got_reports)
     tx_full = bool(logs["tx_queue_full"])
     print("\nverdict:",
           "CRASH " if crashed else "",
@@ -440,8 +437,7 @@ def main():
           "(clean)" if not (crashed or desynced) else "")
     if desynced:
         print("  desync detail:",
-              f"events_only_host={only_host}" if only_host else "",
-              f"events_only_client={only_client}" if only_client else "",
+              f"desync_events={summ['desync_events'][:5]}" if summ["desync_events"] else "",
               f"score_mismatch={score_mismatch}" if score_mismatch else "",
               f"funding_mismatch={funding_mismatch}" if funding_mismatch else "",
               "no_month_report" if not got_reports else "")
