@@ -254,6 +254,77 @@ SPSCQueue<1024> g_rxQ{};
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
 
+// ===== Geoscape sync conflation slot =====
+// One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
+// (GeoscapeState::think) overwrites; the send drain reads the freshest value and
+// clears the dirty flag. Written/read under g_snapMx so a mid-read frame can't be
+// torn by a concurrent overwrite.
+static std::mutex g_snapMx;
+static std::array<std::string, SNAP_COUNT> g_snap;
+static std::array<bool, SNAP_COUNT> g_snapDirty{}; // value-init -> all false
+
+void enqueueSnapshot(CoopSnapSlot slot, std::string&& s)
+{
+	if (slot < 0 || slot >= SNAP_COUNT)
+		return;
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	g_snap[slot] = std::move(s); // discards only the stale prior snapshot (LWW-safe)
+	g_snapDirty[slot] = true;
+}
+
+bool anySnapshotDirty()
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	for (int i = 0; i < SNAP_COUNT; ++i)
+		if (g_snapDirty[i])
+			return true;
+	return false;
+}
+
+bool popSnapshot(std::string& out)
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	for (int i = 0; i < SNAP_COUNT; ++i)
+	{
+		if (g_snapDirty[i])
+		{
+			out = g_snap[i]; // raw payload; UDP sends whole messages (no framing)
+			g_snapDirty[i] = false;
+			return true;
+		}
+	}
+	return false;
+}
+
+static inline void appendFramed(std::string& out, const std::string& payload); // defined below
+
+// Append every dirty snapshot into `out` (framed) and clear its flag. Called by
+// the send drains right after the g_txQ batch, so snapshots ride the same
+// sendAll as the reliable batch (freshest value only, at link rate).
+static void drainSnapshotsInto(std::string& out)
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	for (int i = 0; i < SNAP_COUNT; ++i)
+	{
+		if (g_snapDirty[i])
+		{
+			appendFramed(out, g_snap[i]);
+			g_snapDirty[i] = false;
+		}
+	}
+}
+
+// Reset conflation slots on session teardown (mirrors the g_rxHold clear).
+static void clearSnapshotSlots()
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	for (int i = 0; i < SNAP_COUNT; ++i)
+	{
+		g_snap[i].clear();
+		g_snapDirty[i] = false;
+	}
+}
+
 // ===== Time helper =====
 static inline uint64_t now_ms()
 {
@@ -306,6 +377,8 @@ void clearNetworkSessionQueues()
 		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 		g_rxHold.clear();
 	}
+
+	clearSnapshotSlots();
 }
 
 // HOST: emit PING once per second (independent from client)
@@ -1852,6 +1925,9 @@ void connectionTCP::startTCPClient()
 				appendFramed(out, msg);
 				++batched;
 			}
+			// Conflated geoscape snapshots ride the same framed write as the
+			// reliable batch (freshest value only, at link rate -> no backlog).
+			drainSnapshotsInto(out);
 			if (!out.empty())
 			{
 				if (!sendAll(sock, out.data(), (int)out.size()))
@@ -1966,7 +2042,7 @@ void connectionTCP::startTCPClient()
 		clientMaybeSendPing();
 
 		// ---- Gentle yield only if nothing happened ----
-		if (ready == 0 && g_txQ.empty())
+		if (ready == 0 && g_txQ.empty() && !anySnapshotDirty())
 		{
 #ifdef _WIN32
 			SDL_Delay(0);
@@ -2076,6 +2152,9 @@ void connectionTCP::startTCPHost()
 				appendFramed(out, msg);
 				++batched;
 			}
+			// Conflated geoscape snapshots ride the same framed write as the
+			// reliable batch (freshest value only, at link rate -> no backlog).
+			drainSnapshotsInto(out);
 			if (!out.empty())
 			{
 				if (!sendAll(clientSock, out.data(), (int)out.size()))
@@ -2176,7 +2255,7 @@ void connectionTCP::startTCPHost()
 			hostMaybeSendPing();
 
 		// ---- Gentle yield if nothing to do ----
-		if (ready == 0 && OpenXcom::g_txQ.empty())
+		if (ready == 0 && OpenXcom::g_txQ.empty() && !OpenXcom::anySnapshotDirty())
 		{
 #ifdef _WIN32
 			SDL_Delay(0);
@@ -8703,6 +8782,16 @@ void connectionTCP::sendTCPPacketData(std::string data)
 	{
 		DebugLog("TX queue full, dropping packet\n");
 	}
+}
+
+void connectionTCP::sendCoopSnapshot(int slot, std::string data)
+{
+	if (data.empty())
+		return;
+	// Full-state last-write-wins snapshot -> conflation slot, not the FIFO. The
+	// send drain emits the freshest value at link rate; stale copies are elided,
+	// so the geoscape flood can never overflow g_txQ.
+	enqueueSnapshot(static_cast<CoopSnapSlot>(slot), std::move(data));
 }
 
 void connectionTCP::setPlayerTurn(int turn)

@@ -87,45 +87,52 @@ inline void DebugLog(const char* msg)
 	DebugLog(std::string(msg));
 }
 
+// Bounded ring buffer of std::string slots. NOTE: despite the name, this is NOT
+// single-producer/single-consumer in this codebase. g_txQ/g_rxQ each have 3+
+// producers and 2+ consumers (main thread, network thread, loopData thread, UDP
+// thread, plus clearNetworkSessionQueues). Concurrent buf[] std::string moves on
+// the same slot double-free the heap (the crash mis-symbolized as SDL_FreeRW). So
+// every operation is serialized by an internal mutex that covers the buf[] move,
+// not just the cursor. The name is kept to avoid churn at ~40 call sites.
 template <size_t N>
 struct SPSCQueue
 {
 	std::array<std::string, N> buf{};
-	std::atomic<size_t> head{0}; // producer writes
-	std::atomic<size_t> tail{0}; // consumer reads
+	size_t head{0}; // producer writes (guarded by m)
+	size_t tail{0}; // consumer reads  (guarded by m)
+	mutable std::mutex m;
 
 	bool push(std::string&& s)
 	{
-		size_t h = head.load(std::memory_order_relaxed);
-		size_t n = (h + 1) % N;
-		if (n == tail.load(std::memory_order_acquire))
+		std::lock_guard<std::mutex> lk(m);
+		size_t n = (head + 1) % N;
+		if (n == tail)
 			return false; // full
-		buf[h] = std::move(s);
-		head.store(n, std::memory_order_release);
+		buf[head] = std::move(s);
+		head = n;
 		return true;
 	}
 
 	bool pop(std::string& out)
 	{
-		size_t t = tail.load(std::memory_order_relaxed);
-		if (t == head.load(std::memory_order_acquire))
+		std::lock_guard<std::mutex> lk(m);
+		if (tail == head)
 			return false; // empty
-		out = std::move(buf[t]);
-		tail.store((t + 1) % N, std::memory_order_release);
+		out = std::move(buf[tail]);
+		tail = (tail + 1) % N;
 		return true;
 	}
 
 	bool empty() const
 	{
-		return tail.load(std::memory_order_acquire) ==
-			   head.load(std::memory_order_acquire);
+		std::lock_guard<std::mutex> lk(m);
+		return tail == head;
 	}
 
 	bool full() const
 	{
-		size_t h = head.load(std::memory_order_relaxed);
-		size_t n = (h + 1) % N;
-		return n == tail.load(std::memory_order_acquire);
+		std::lock_guard<std::mutex> lk(m);
+		return ((head + 1) % N) == tail;
 	}
 };
 
@@ -137,6 +144,25 @@ namespace OpenXcom
 extern SPSCQueue<1024> g_txQ;
 extern SPSCQueue<1024> g_rxQ;
 extern int tcp_port;
+
+// ===== Geoscape sync conflation slot =====
+// The two GeoscapeState::think() heartbeats are full-state, last-write-wins
+// snapshots. Instead of FIFO-queuing every per-frame copy onto g_txQ (which
+// overflows on a slow link), each channel keeps a single overwrite slot; the
+// send thread emits the freshest one at whatever rate the link drains. Preserves
+// update rate (no throttle) while eliminating the backlog.
+enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_COUNT };
+
+// Overwrite the conflation slot with the newest snapshot (thread-safe).
+void enqueueSnapshot(CoopSnapSlot slot, std::string&& s);
+
+// True if any conflation slot has an unsent snapshot (send thread wake check).
+bool anySnapshotDirty();
+
+// Pop one dirty conflation slot as a raw (unframed) payload, clearing its dirty
+// flag; returns false if none pending. Used by the UDP transport, whose datagram
+// path sends whole messages (the TCP path uses drainSnapshotsInto, which frames).
+bool popSnapshot(std::string& out);
 
 // Existing name kept for compatibility: this only enqueues to g_txQ.
 // It does not have to mean that the active transport is TCP.
@@ -220,6 +246,9 @@ class connectionTCP
 	void loadHostMap();
 	static bool getCoopStatic(); // is the player actually connected?
 	void sendTCPPacketData(std::string data); // Send TCP packet data
+	// Send a full-state geoscape snapshot via the conflation slot (last-write-wins,
+	// never queued FIFO). slot is a CoopSnapSlot. Used by GeoscapeState::think().
+	void sendCoopSnapshot(int slot, std::string data);
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);
