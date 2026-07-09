@@ -121,6 +121,8 @@ private:
 	bool containsNotesState() const;
 	/// Returns the GeoscapeState from the background (if available).
 	GeoscapeState* getGeoscapeState() const;
+	/// Read-only access to the state stack (introspection).
+	const std::list<State*>& getStates() const { return _states; }
 	/// Returns whether the game is shutting down.
 	bool isQuitting() const;
 	/// Loads the default and current language.

@@ -46,7 +46,8 @@
 #include <algorithm>
 #include "../fallthrough.h"
 
-#include "../CoopMod/CrashHandler.h" // coop 
+#include "../CoopMod/CrashHandler.h" // coop
+#include "../CoopMod/TransferSoldierMenu.h" // coop
 
 namespace OpenXcom
 {
@@ -352,44 +353,42 @@ void Game::run()
 										if (_save->getSavedBattle()->getSelectedUnit()->getFaction() == FACTION_PLAYER && !_save->getSavedBattle()->getSelectedUnit()->isOut())
 										{
 
-											// save
-											if (_tcpConnection->getHost() == true && _tcpConnection->getCoopCampaign() == true)
+											BattleUnit* selectedUnit = _save->getSavedBattle()->getSelectedUnit();
+
+											if (_tcpConnection->getCoopCampaign() == true && selectedUnit->getGeoscapeSoldier())
 											{
 
-												if (_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier())
-												{
+												// Campaign soldier: open the permanent-transfer dialog.
+												pushState(new TransferSoldierMenu(selectedUnit->getGeoscapeSoldier(), selectedUnit->getCoop()));
 
-													if (_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier()->getOwnerPlayerId() == 999)
-													{
-
-														_save->getSavedBattle()->getSelectedUnit()->getGeoscapeSoldier()->setOwnerPlayerId(_save->getSavedBattle()->getSelectedUnit()->getCoop());
-
-													}
-
-												}
-
-											}
-
-											if (_tcpConnection->getHost() == true)
-											{
-												_save->getSavedBattle()->getSelectedUnit()->setCoop(1);
 											}
 											else
 											{
-												_save->getSavedBattle()->getSelectedUnit()->setCoop(0);
+
+												// Legacy battle-only loan (skirmish games and units
+												// without a geoscape soldier).
+												if (_tcpConnection->getHost() == true)
+												{
+													selectedUnit->setCoop(1);
+												}
+												else
+												{
+													selectedUnit->setCoop(0);
+												}
+
+												// send
+												Json::Value obj;
+												obj["state"] = "giveUnit";
+
+												obj["unit_id"] = selectedUnit->getId();
+												obj["coop"] = selectedUnit->getCoop();
+
+												_tcpConnection->sendTCPPacketData(obj.toStyledString());
+
+												// reset
+												_save->getSavedBattle()->selectNextPlayerUnit();
+
 											}
-
-											// send
-											Json::Value obj;
-											obj["state"] = "giveUnit";
-
-											obj["unit_id"] = _save->getSavedBattle()->getSelectedUnit()->getId();
-											obj["coop"] = _save->getSavedBattle()->getSelectedUnit()->getCoop();
-
-											_tcpConnection->sendTCPPacketData(obj.toStyledString());
-
-											// reset
-											_save->getSavedBattle()->selectNextPlayerUnit();
 
 										}
 

@@ -767,6 +767,21 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// Single-authority: a host save embeds the client-world blob captured at
+	// save time. Restore it as the served copy (RAM + the sidecar file the
+	// reconnect flow streams), so a rolled-back save rolls the client back too.
+	{
+		std::string coopClientKey;
+		reader.tryRead("coopClientSaveKey", coopClientKey);
+		if (!coopClientKey.empty() && reader["coopClientSaveBlob"])
+		{
+			std::vector<char> blob = reader["coopClientSaveBlob"].readValBase64();
+			std::string blobStr(blob.begin(), blob.end());
+			connectionTCP::coopFilesHost[coopClientKey] = blobStr;
+			CrossPlatform::writeFile(Options::getMasterUserFolder() + coopClientKey, blobStr);
+			Log(LOG_INFO) << "[coop-transfer] restored embedded client blob '" << coopClientKey << "' (" << blobStr.size() << " bytes)";
+		}
+	}
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
@@ -1416,6 +1431,22 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
+	// Single-authority: embed the freshest client-world blob so this save
+	// captures BOTH players' rosters atomically. Skip when this call is itself
+	// writing a client sidecar (.data) to avoid recursive embedding.
+	if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".data")
+	{
+		const std::string prefix = "host_" + std::to_string(connectionTCP::saveID) + "_";
+		for (const auto& kv : connectionTCP::coopFilesHost)
+		{
+			if (kv.first.compare(0, prefix.size(), prefix) == 0 && !kv.second.empty())
+			{
+				writer.write("coopClientSaveKey", kv.first);
+				writer.writeBase64("coopClientSaveBlob", const_cast<char*>(kv.second.data()), kv.second.size());
+				break;
+			}
+		}
+	}
 
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);

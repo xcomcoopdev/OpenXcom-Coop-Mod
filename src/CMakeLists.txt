@@ -158,6 +158,8 @@ set(coopmod_src
   CoopMod/connectionUDP/rendezvous_client.cpp
   CoopMod/connectionUDP/rendezvous_config.cpp
   CoopMod/connectionUDP/rendezvous_server.cpp
+  CoopMod/TransferNoticeState.cpp
+  CoopMod/TransferSoldierMenu.cpp
 )
 
 set ( engine_src
