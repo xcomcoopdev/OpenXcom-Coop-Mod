@@ -48,6 +48,8 @@ public:
 	MissionSite(const RuleAlienMission *rules, const AlienDeployment *deployment, const AlienDeployment *alienWeaponDeploy);
 	/// Cleans up the mission site.
 	~MissionSite();
+	/// Coop cross-instance mission id (shared between host and client; test harness).
+	int getCoopMissionId() const { return _coop_mission_id; }
 	/// Loads the mission site from YAML.
 	void load(const YAML::YamlNodeReader& reader) override;
 	/// Saves the mission site to YAML.

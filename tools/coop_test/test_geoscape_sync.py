@@ -120,9 +120,12 @@ def geo_snapshot(gc):
         "day": r["time"]["day"], "month": r["time"]["month"], "year": r["time"]["year"],
         "funds": r["funds"],
         "ufos": {u["id"]: bool(u["detected"]) for u in r.get("ufos", [])},
-        # event keys accumulated across the run to compare host vs client
-        "ufo_ev": {(u["id"], u["type"]) for u in r.get("ufos", [])},
-        "site_ev": {(s["id"], s["type"], s.get("race", "")) for s in r.get("missionSites", [])},
+        # Event keys accumulated across the run to compare host vs client. Keyed
+        # by the coop cross-instance id (_coop_ufo_id / _coop_mission_id, shared
+        # between host and client), NOT the local getId() which differs per
+        # instance for the same synced entity.
+        "ufo_ev": {(u.get("coopId", u["id"]), u["type"]) for u in r.get("ufos", [])},
+        "site_ev": {(s.get("coopId", s["id"]), s["type"], s.get("race", "")) for s in r.get("missionSites", [])},
     }
 
 

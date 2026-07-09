@@ -91,6 +91,8 @@ public:
 	Ufo(const RuleUfo *rules, int uniqueId, int hunterKillerPercentage = 0, int huntMode = 0, int huntBehavior = 0);
 	/// Cleans up the UFO.
 	~Ufo();
+	/// Coop cross-instance UFO id (shared between host and client; test harness).
+	int getCoopUfoId() const { return _coop_ufo_id; }
 	/// Loads the UFO from YAML.
 	void load(const YAML::YamlNodeReader& reader, const ScriptGlobal *shared, const Mod &ruleset, SavedGame &game);
 	/// Finishes loading the UFO from YAML (called after XCOM craft are loaded).
@@ -259,7 +261,7 @@ public:
 	// coop
 	bool _coop = false;
 	// coop
-	// Is the UFO the other player’s?
+	// Is the UFO the other playerï¿½s?
 	bool getCoop();
 	void setCoop(bool state);
 	int _coop_ufo_id = 0;

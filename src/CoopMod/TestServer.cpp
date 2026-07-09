@@ -488,6 +488,7 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value ju;
 					ju["id"] = u->getId();
+					ju["coopId"] = u->getCoopUfoId();
 					ju["type"] = u->getRules()->getType();
 					ju["detected"] = u->getDetected();
 					ju["status"] = (int)u->getStatus();
@@ -500,6 +501,7 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value jm;
 					jm["id"] = ms->getId();
+					jm["coopId"] = ms->getCoopMissionId();
 					jm["type"] = ms->getType();
 					jm["race"] = ms->getAlienRace();
 					jm["city"] = ms->getCity();
