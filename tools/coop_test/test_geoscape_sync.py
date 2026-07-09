@@ -35,6 +35,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, TEST_ROOT, LAND_LON, LAND_LAT
+from geo import wait_both_ready, drain_popups, on_geoscape
 
 HOST_LON, HOST_LAT = 0.35, 0.85
 GEO = "GeoscapeState"
@@ -151,8 +152,9 @@ class Metrics:
             self.time_advanced["host"] = True
         if cs["sec"] != start["c"]["sec"] or cs["day"] != start["c"]["day"]:
             self.time_advanced["client"] = True
-        # funds gap (snapshots are last-write-wins; a transient gap is fine,
-        # a large persistent one is desync)
+        # funds gap: informational only. Coop players have independent
+        # economies (funds are never synced peer-to-peer), so a gap is expected
+        # and does not count as a desync.
         gap = abs(hs["funds"] - cs["funds"])
         self.max_funds_gap = max(self.max_funds_gap, gap)
         # ufo detection: once host reports a ufo detected, client should agree
@@ -183,12 +185,13 @@ class Metrics:
         }
 
 
-def soak(host, client, metrics, seconds, label, start, advancing=False):
+def soak(host, client, metrics, seconds, label, start, advancing=False, speed_idx=None):
     print(f"  [{label}] soak {seconds}s ...")
     t_end = time.time() + seconds
     t0 = time.time()
     next_ping = 0.0
     next_geo = 0.0
+    next_drive = 0.0
     while time.time() < t_end:
         now = time.time() - t0
         # liveness: a dead process = crash
@@ -196,6 +199,15 @@ def soak(host, client, metrics, seconds, label, start, advancing=False):
             if gc.proc.poll() is not None:
                 metrics.crashes.append((round(now, 1), gc.name, f"process exited rc={gc.proc.returncode}"))
                 raise RuntimeError(f"{gc.name} died during {label} (rc={gc.proc.returncode})")
+        # keep time flowing while advancing: close any popup (UFO/event/monthly
+        # report) that would otherwise pause the clock, and re-assert the speed
+        # (a dismissed dialog can reset the coop speed selection).
+        if advancing and now >= next_drive:
+            for gc in (host, client):
+                drain_popups(gc)
+                if speed_idx is not None and on_geoscape(gc):
+                    gc.cmd({"cmd": "geo_set_speed", "idx": speed_idx})
+            next_drive = now + 1.0
         if now >= next_ping:
             metrics.sample_ping(now, host, client)
             next_ping = now + 0.25
@@ -248,8 +260,11 @@ def main():
     try:
         print(f"[{args.tag}] bringing up fresh coop session ...")
         bringup(host, client)
-        assert on_geo(host) and on_geo(client), "both must be on geoscape"
-        print(f"[{args.tag}] session live on geoscape")
+        # Gate on both players being settled on the geoscape (session live, no
+        # CoopState WAIT / map-download dialog on top) before driving, so we
+        # don't burn the soak sitting idle right after load.
+        settle = wait_both_ready(host, client, timeout=60)
+        print(f"[{args.tag}] both ready on geoscape after {settle}s")
 
         start = {"h": geo_snapshot(host), "c": geo_snapshot(client)}
 
@@ -257,11 +272,11 @@ def main():
         soak(host, client, metrics, args.idle, "idle", start)
 
         # Phase B: advance time in lockstep (state actually changes each tick ->
-        # target_positions differs every send -> hardest flood + real sync work)
-        for gc in (host, client):
-            if on_geo(gc):
-                gc.cmd({"cmd": "geo_set_speed", "idx": args.speed})
-        soak(host, client, metrics, args.advance, "advance", start, advancing=True)
+        # target_positions differs every send -> hardest flood + real sync work).
+        # soak() drains popups + re-asserts speed so a UFO/event dialog can't
+        # pause the clock and stall the run.
+        soak(host, client, metrics, args.advance, "advance", start,
+             advancing=True, speed_idx=args.speed)
 
     except Exception as e:
         hard_fail = repr(e)
@@ -283,8 +298,12 @@ def main():
     print("written:", out)
 
     # verdict
+    # NB: funds are NOT synced in coop - each player runs an independent economy
+    # (connectionTCP coopFunds = own funds, playersFunds = peer's, shown only in
+    # the lobby; setFunds is never driven from a peer value). So a funds gap is
+    # expected, not a desync. max_funds_gap stays in the summary as info only.
     crashed = bool(summ["crashes"]) or hard_fail is not None
-    desynced = bool(summ["desync_events"]) or summ["max_funds_gap"] > 100000
+    desynced = bool(summ["desync_events"])
     tx_full = bool(logs["tx_queue_full"])
     print("\nverdict:",
           "CRASH " if crashed else "",

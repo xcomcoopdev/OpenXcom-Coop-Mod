@@ -62,8 +62,7 @@ campaign each run.
 - `test_bug_fixes.py` - owner resolution, notice display, dialog flicker, etc.
   Exposes `bootstrap_fresh_session()` and `own_base()` reused by other tests.
 - `test_transfer_rollback.py` - host-save-is-authority rollback, both directions.
-- `test_server_browser.py` - rendezvous-server combobox state.
-- `test_txq_flood.py` - deterministic TX-queue-drop repro.
+- `test_server_browser.py` - rendezvous-server combobox state (offline path).
 
 `harness.py` is the shared library (not a test).
 
