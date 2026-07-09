@@ -67,20 +67,6 @@ campaign each run.
 
 `harness.py` is the shared library (not a test).
 
-## Feature-gated tests
-
-Some drivers exercise coop features that live on other branches. `TestServer.cpp`
-detects each feature at compile time with `__has_include` (see the detection
-block at the top of the file). When a feature is absent, its handlers compile out
-and answer `"<feature> not built"`, so those tests only pass once their feature
-is present in the build:
-
-- `test_transfer_fresh` / `test_bug_fixes` / `test_transfer_rollback` - soldier
-  ownership transfer.
-- `test_server_browser` - multi-rendezvous server browser.
-- `test_txq_flood` - TX-queue drop counter (gated by the
-  `OXC_HARNESS_HAS_TX_DROP_COUNTER` macro).
-
 ## Command catalog (TestServer::execute)
 
 - Introspection: `ping`, `get_state`, `get_coop`, `get_soldiers`,

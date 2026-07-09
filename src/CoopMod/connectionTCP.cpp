@@ -254,6 +254,9 @@ SPSCQueue<1024> g_rxQ{};
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
 
+// TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
+std::atomic<uint64_t> g_txDropCount{0};
+
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
 // (GeoscapeState::think) overwrites; the send drain reads the freshest value and
@@ -351,6 +354,7 @@ bool enqueueTx(std::string&& s)
 	if (!g_txQ.push(std::move(s)))
 	{
 		DebugLog("TX queue full, dropping packet\n");
+		++g_txDropCount;
 		return false;
 	}
 
@@ -8781,6 +8785,7 @@ void connectionTCP::sendTCPPacketData(std::string data)
 	if (!g_txQ.push(std::move(data)))
 	{
 		DebugLog("TX queue full, dropping packet\n");
+		++g_txDropCount;
 	}
 }
 

@@ -145,6 +145,10 @@ extern SPSCQueue<1024> g_txQ;
 extern SPSCQueue<1024> g_rxQ;
 extern int tcp_port;
 
+// Count of packets dropped because the TX queue was full (test harness reads
+// this via the coop_stats command to detect the "TX queue full" backlog bug).
+extern std::atomic<uint64_t> g_txDropCount;
+
 // ===== Geoscape sync conflation slot =====
 // The two GeoscapeState::think() heartbeats are full-state, last-write-wins
 // snapshots. Instead of FIFO-queuing every per-frame copy onto g_txQ (which

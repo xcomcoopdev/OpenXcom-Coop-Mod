@@ -77,40 +77,9 @@
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
 #include "CoopState.h"
-
-// ---------------------------------------------------------------------------
-// Test-harness feature detection (compile-time, zero-touch on feature code).
-//
-// The harness drives several optional coop features that each live on their
-// own branch. We detect a feature by the presence of its header via the C++17
-// __has_include operator -- no feature-side flags, all logic stays here in the
-// harness. Command handlers that need a missing feature are compiled out and
-// answer with a clear "<feature> not built" error instead of failing to link.
-// ---------------------------------------------------------------------------
-#if __has_include("TransferSoldierMenu.h") && __has_include("TransferNoticeState.h")
-	#define OXC_HARNESS_HAS_SOLDIER_TRANSFER 1
-	#include "TransferNoticeState.h"
-	#include "TransferSoldierMenu.h"
-#else
-	#define OXC_HARNESS_HAS_SOLDIER_TRANSFER 0
-#endif
-
-#if __has_include("../Interface/DisableableComboBox.h")
-	#define OXC_HARNESS_HAS_SERVER_BROWSER 1
-	#include "../Interface/DisableableComboBox.h"
-#else
-	#define OXC_HARNESS_HAS_SERVER_BROWSER 0
-#endif
-
-// The TX-drop counter (g_txDropCount) is a namespace-scope global added to
-// connectionTCP.h by the txq-conflation branch. A bare global cannot be probed
-// with __has_include (no dedicated header) nor with SFINAE (referencing an
-// undeclared name is a hard error, not a substitution failure), so it is gated
-// by this harness-owned macro. It stays 0 here; the txq combo build defines
-// OXC_HARNESS_HAS_TX_DROP_COUNTER=1. This macro never appears in feature code.
-#ifndef OXC_HARNESS_HAS_TX_DROP_COUNTER
-	#define OXC_HARNESS_HAS_TX_DROP_COUNTER 0
-#endif
+#include "TransferNoticeState.h"
+#include "TransferSoldierMenu.h"
+#include "../Interface/DisableableComboBox.h"
 
 namespace OpenXcom
 {
@@ -354,11 +323,7 @@ std::string TestServer::execute(const std::string& line)
 			// the last measured coop ping. txDropCount > 0 means the geoscape
 			// heartbeat flood overran the send thread on this instance.
 			resp["ok"] = true;
-#if OXC_HARNESS_HAS_TX_DROP_COUNTER
 			resp["txDropCount"] = Json::UInt64(g_txDropCount.load());
-#else
-			resp["txDropCount"] = 0; // txq-conflation feature not built
-#endif
 			std::string p = coop ? coop->getPing() : std::string();
 			resp["ping"] = p.empty() ? std::string("0") : p;
 			resp["coopStatic"] = connectionTCP::getCoopStatic();
@@ -394,7 +359,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
-#if OXC_HARNESS_HAS_SERVER_BROWSER
 		else if (cmd == "server_combo")
 		{
 			// Dump the rendezvous-server combobox state for assertions.
@@ -449,13 +413,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
-#else
-		else if (cmd == "server_combo" || cmd == "combo_open")
-		{
-			resp["ok"] = false;
-			resp["error"] = "multi-rendezvous server-browser feature not built";
-		}
-#endif
 		else if (cmd == "screenshot")
 		{
 			// Save the current frame to a PNG for visual inspection.
@@ -915,9 +872,7 @@ std::string TestServer::execute(const std::string& line)
 			std::string file = req.get("file", "").asString();
 			SavedGame* s = new SavedGame();
 			s->load(file, _game->getMod(), _game->getLanguage());
-#if OXC_HARNESS_HAS_SOLDIER_TRANSFER
 			coop->resetTransferSessionState();
-#endif
 			_game->setSavedGame(s);
 			_game->setState(new GeoscapeState);
 			resp["ok"] = true;
@@ -1253,11 +1208,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-#if OXC_HARNESS_HAS_SOLDIER_TRANSFER
 				int currentOwner = TransferSoldierMenu::resolveOwnerId(found);
-#else
-				int currentOwner = -1; // soldier-transfer feature not built
-#endif
 				int localPlayerId = connectionTCP::getHost() ? 0 : 1;
 				Json::Value targets(Json::arrayValue);
 				for (int playerId = 0; playerId <= 1; ++playerId)
@@ -1297,12 +1248,8 @@ std::string TestServer::execute(const std::string& line)
 			}
 			if (found)
 			{
-#if OXC_HARNESS_HAS_SOLDIER_TRANSFER
 				_game->pushState(new TransferSoldierMenu(found, TransferSoldierMenu::resolveOwnerId(found)));
 				resp["ok"] = true;
-#else
-				resp["error"] = "soldier-transfer feature not built";
-#endif
 			}
 			else
 			{
@@ -1339,7 +1286,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "soldier not found: " + name;
 			}
 		}
-#if OXC_HARNESS_HAS_SOLDIER_TRANSFER
 		else if (cmd == "show_notice")
 		{
 			_game->pushState(new TransferNoticeState(req.get("message", "test notice").asString()));
@@ -1398,13 +1344,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "no TransferSoldierMenu in state stack";
 			}
 		}
-#else
-		else if (cmd == "show_notice" || cmd == "get_notices" ||
-		         cmd == "dismiss_notice" || cmd == "cancel_dialog")
-		{
-			resp["error"] = "soldier-transfer feature not built";
-		}
-#endif
 		else if (cmd == "get_palettes")
 		{
 			// First N palette entries of the top two states, for asserting
@@ -1460,13 +1399,9 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else
 				{
-#if OXC_HARNESS_HAS_SOLDIER_TRANSFER
 					coop->transferSoldierOwnership(found, owner, true);
 					resp["soldier"] = soldierToJson(found);
 					resp["ok"] = true;
-#else
-					resp["error"] = "soldier-transfer feature not built";
-#endif
 				}
 			}
 		}
