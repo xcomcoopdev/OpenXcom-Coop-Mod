@@ -46,6 +46,8 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
+#include "../CoopMod/connectionTCP.h" // coop
+#include "../CoopMod/TransferSoldierMenu.h" // coop
 
 namespace OpenXcom
 {
@@ -251,6 +253,8 @@ SoldierInfoState::SoldierInfoState(Base *base, size_t soldierId, bool forceLimit
 	_btnOk->setText(tr("STR_OK"));
 	_btnOk->onMouseClick((ActionHandler)&SoldierInfoState::btnOkClick);
 	_btnOk->onKeyboardPress((ActionHandler)&SoldierInfoState::btnOkClick, Options::keyCancel);
+	// coop: transfer this soldier to another player
+	_btnOk->onKeyboardPress((ActionHandler)&SoldierInfoState::btnGiveUnitPress, Options::giveUnit);
 
 	_btnPrev->setText("<<");
 	if (_base == 0)
@@ -686,6 +690,24 @@ void SoldierInfoState::btnOkClick(Action *)
 		}
 		_game->pushState(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(_base->getName()), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
 	}
+}
+
+/**
+ * Coop: opens the transfer-ownership dialog for this soldier.
+ * @param action Pointer to an action.
+ */
+void SoldierInfoState::btnGiveUnitPress(Action *)
+{
+	if (_game->getCoopMod()->getCoopStatic() != true || _game->getCoopMod()->getCoopCampaign() != true)
+	{
+		return;
+	}
+	// Only living soldiers in a base can be transferred (not the memorial view).
+	if (!_soldier || _base == 0 || _soldier->getDeath())
+	{
+		return;
+	}
+	_game->pushState(new TransferSoldierMenu(_soldier, TransferSoldierMenu::resolveOwnerId(_soldier)));
 }
 
 /**

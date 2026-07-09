@@ -272,10 +272,15 @@ bool startUdpPeer(const std::string& remoteHost,
 	cfg.enablePortGuessing = true;
 	cfg.portGuessRadius = 32;
 
-	// TX: read exactly the same queue that TCP used.
+	// TX: read exactly the same queue that TCP used, then the geoscape conflation
+	// slots (the two full-state think() heartbeats bypass g_txQ; without this the
+	// "time"/"target_positions" snapshots never go out over UDP, freezing the
+	// host clock — see connectionTCP drainSnapshotsInto for the TCP counterpart).
 	cfg.popTx = [](std::string& out) -> bool
 	{
-		return g_txQ.pop(out);
+		if (g_txQ.pop(out))
+			return true;
+		return popSnapshot(out);
 	};
 
 	// RX: write exactly the same queue that connectionTCP::updateCoopTask()

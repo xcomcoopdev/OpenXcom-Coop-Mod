@@ -85,6 +85,8 @@ public:
 	void lstSoldiersClick(Action *action);
 	/// Handler for pressing-down a mouse-button in the list.
 	void lstSoldiersMousePress(Action *action);
+	/// Coop: handler for the give-unit key on the hovered soldier.
+	void lstSoldiersGiveUnitPress(Action *action);
 };
 
 }

@@ -85,6 +85,59 @@ bool isRendezvousConnectionActive()
     return g_rendezvousFlowActive.load();
 }
 
+bool probeRendezvousServer(size_t serverIndex,
+                           uint32_t timeoutMs,
+                           std::vector<RendezvousClient::RoomInfo>* outRooms,
+                           std::string* error)
+{
+    BuiltInRendezvousConfig cfg;
+    RendezvousClient::ServerKeys keys;
+    if (!getRendezvousServerConfig(serverIndex, cfg, keys, error))
+        return false;
+
+    RendezvousClient::ListConfig lc;
+    lc.serverHost = cfg.host;
+    lc.serverTcpPort = cfg.tcpPort;
+    lc.serverUdpPort = cfg.udpPort;
+    lc.keys = keys;
+    lc.timeoutMs = timeoutMs;
+    lc.gameVersion = cfg.gameVersion;
+    lc.modHash = std::string();
+    lc.compatibleOnly = false;
+    lc.log = [](const std::string& s) {
+        DebugLog(("Rendezvous probe: " + s + "\n").c_str());
+    };
+    // Deliberately no cancelRequested: a health probe is independent of the
+    // main coop flow's cancel state.
+
+    std::vector<RendezvousClient::RoomInfo> rooms;
+    if (!RendezvousClient::listRooms(lc, rooms, error))
+        return false;
+
+    if (outRooms)
+        *outRooms = std::move(rooms);
+    return true;
+}
+
+void probeAllRendezvousServersAsync(uint32_t timeoutMs, RendezvousProbeCallback callback)
+{
+    const size_t count = getRendezvousServerCount();
+    for (size_t i = 0; i < count; ++i)
+    {
+        std::thread([i, timeoutMs, callback]() {
+            RendezvousProbeResult res;
+            res.index = i;
+            std::string err;
+            std::vector<RendezvousClient::RoomInfo> rooms;
+            res.online = probeRendezvousServer(i, timeoutMs, &rooms, &err);
+            if (res.online)
+                res.rooms = std::move(rooms);
+            if (callback)
+                callback(res);
+        }).detach();
+    }
+}
+
 static bool readKeyFile(const std::string& path, unsigned char* out, size_t n)
 {
     std::ifstream f(path.c_str(), std::ios::binary);

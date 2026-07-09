@@ -246,7 +246,7 @@ MainMenuState::MainMenuState(bool updateCheck)
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
 
-	std::string coopVersion = std::string("Coop Mod ") + OpenXcom::kRendezvousGameVersion;
+	std::string coopVersion = std::string("Coop Mod ") + OpenXcom::getBuiltInRendezvousConfig().gameVersion;
 	_textCoopVersion->setText(coopVersion);
 
 }

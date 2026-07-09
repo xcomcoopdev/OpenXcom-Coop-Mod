@@ -18,6 +18,7 @@
  */
 #include <algorithm>
 #include <functional>
+#include <fstream>
 #include "ServerList.h"
 #include "../Engine/Logger.h"
 #include "../Savegame/SavedGame.h"
@@ -27,6 +28,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/Unicode.h"
 #include "../Mod/Mod.h"
+#include "../Mod/RuleInterface.h"
 #include "../Engine/LocalizedText.h"
 #include "../Interface/TextButton.h"
 #include "../Interface/Window.h"
@@ -34,10 +36,14 @@
 #include "../Interface/TextList.h"
 #include "../Interface/ToggleTextButton.h"
 #include "../Interface/ArrowButton.h"
+#include "../Interface/DisableableComboBox.h"
+#include "../Engine/CrossPlatform.h"
+#include <json/json.h>
 
 #include  "HostMenu.h"
 #include "DirectConnect.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "connectionUDP/rendezvous_config.h"
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
 #include "AddServerMenu.h"
@@ -51,6 +57,11 @@ std::vector<OpenXcom::RendezvousClient::RoomInfo> _pendingRooms;
 bool _pendingRoomsOk = false;
 bool _hasPendingRooms = false;
 bool _isRefreshingServers = false;
+
+// Health-probe results, filled by worker threads and drained on the UI thread.
+std::mutex _probeMutex;
+std::vector<OpenXcom::RendezvousProbeResult> _pendingProbes;
+bool _hasPendingProbes = false;
 
 struct compareServerName
 {
@@ -174,7 +185,7 @@ ServerList::ServerList() : _sortable(true)
 
 	//_btnCancel = new TextButton(80, 16, 120, 172);
 
-	_txtTitle = new Text(310, 17, 5, 7);
+	_txtTitle = new Text(310, 17, 8, 7);
 	_txtJoin = new Text(310, 9, 5, 23);
 	_txtName = new Text(115, 9, 16, isMobile ? 40 : 32);
 	_txtPlayers = new Text(50, 9, 126, isMobile ? 40 : 32); 
@@ -290,7 +301,9 @@ ServerList::ServerList() : _sortable(true)
 	_btnCancel->onKeyboardPress((ActionHandler)&ServerList::btnCancelClick, Options::keyCancel);
 
 	_txtTitle->setBig();
-	_txtTitle->setAlign(ALIGN_CENTER);
+	// Left-aligned so the header clears the rendezvous-server combobox that
+	// sits in the top-right corner.
+	_txtTitle->setAlign(ALIGN_LEFT);
 	_txtTitle->setText("SERVER BROWSER");
 
 	if (isMobile)
@@ -340,7 +353,50 @@ ServerList::ServerList() : _sortable(true)
 		_game->getCoopMod()->setCoopCampaign(false);
 	}
 
+	// --- Rendezvous-server selector -------------------------------------------
+	{
+		std::vector<std::string> names = getRendezvousServerNames();
+
+		// Restore last-selected server (falls back to the first configured one).
+		setActiveRendezvousServerByName(loadSavedServerName());
+
+		_serverStatus.assign(names.size(), 0); // 0 = waiting for probe
+		_probesStarted = false;
+
+		// Offline warning, hidden until the active server is known unreachable.
+		_txtOfflineWarning = new Text(298, 25, 8, 60);
+		add(_txtOfflineWarning, "text", "saveMenus");
+		_txtOfflineWarning->setColor(color);
+		_txtOfflineWarning->setAlign(ALIGN_CENTER);
+		_txtOfflineWarning->setWordWrap(true);
+		_txtOfflineWarning->setVisible(false);
+
+		// Palette-correct greyed color for disabled (offline) rows, matching the
+		// coop mod's OptionsMultiplayer "disabledUserOption" convention.
+		bool inBattle = _game->getSavedGame() && _game->getSavedGame()->getSavedBattle();
+		Uint8 disabledColor = color;
+		if (RuleInterface* rule = _game->getMod()->getInterface(inBattle ? "battlescape" : "advancedMenu"))
+		{
+			if (const Element* el = rule->getElement("disabledUserOption"))
+				disabledColor = el->color;
+		}
+		_serverComboColor = color;
+		_serverComboDisabledColor = disabledColor;
+
+		// Added LAST so its dropdown draws above every other widget.
+		_cbxServer = new DisableableComboBox(this, 104, 16, 210, 6);
+		add(_cbxServer, "button", "saveMenus");
+		_cbxServer->setColor(color);
+		_cbxServer->setDisabledColor(disabledColor);
+		rebuildServerCombo();
+		_cbxServer->onChange((ActionHandler)&ServerList::cbxServerChange);
+		_cbxServer->setVisible(names.size() > 1);
+	}
+
 	updateServerList();
+
+	// Probe all configured servers so offline ones can be flagged in the combo.
+	startServerProbes();
 
 }
 
@@ -1170,6 +1226,34 @@ void ServerList::think()
 {
 	State::think();
 
+	// Apply completed health probes on the main thread.
+	{
+		std::vector<OpenXcom::RendezvousProbeResult> probes;
+		{
+			std::lock_guard<std::mutex> lock(_probeMutex);
+			if (_hasPendingProbes)
+			{
+				probes = std::move(_pendingProbes);
+				_pendingProbes.clear();
+				_hasPendingProbes = false;
+			}
+		}
+
+		if (!probes.empty())
+		{
+			for (const auto& p : probes)
+			{
+				if (p.index < _serverStatus.size())
+					_serverStatus[p.index] = p.online ? 1 : 2;
+			}
+			rebuildServerCombo();
+			updateOfflineWarning();
+		}
+	}
+
+	// Animate "Fetching server list . . ." while the selected server is probing.
+	updateFetchingAnimation();
+
 	// Handle completed async server-list refresh on the main thread.
 	bool hasPending = false;
 	bool ok = false;
@@ -1250,6 +1334,178 @@ void ServerList::think()
 		lastUpdate = now;
 		updateServerList();
 	}
+}
+
+/**
+ * Kicks off parallel health probes for every configured rendezvous server.
+ * Results are collected on worker threads and applied in think().
+ */
+void ServerList::startServerProbes()
+{
+	if (_probesStarted)
+		return;
+	_probesStarted = true;
+
+	OpenXcom::probeAllRendezvousServersAsync(2500,
+		[](OpenXcom::RendezvousProbeResult result)
+		{
+			std::lock_guard<std::mutex> lock(_probeMutex);
+			_pendingProbes.push_back(std::move(result));
+			_hasPendingProbes = true;
+		});
+}
+
+/**
+ * Rebuilds the rendezvous-server combobox labels/enabled state from the current
+ * probe status. Waiting servers show " (Wait...)", offline ones " (offline)".
+ */
+void ServerList::rebuildServerCombo()
+{
+	if (!_cbxServer)
+		return;
+
+	std::vector<std::string> names = getRendezvousServerNames();
+	std::vector<std::string> labels;
+	std::vector<bool> enabled;
+	labels.reserve(names.size());
+	enabled.reserve(names.size());
+
+	for (size_t i = 0; i < names.size(); ++i)
+	{
+		int st = (i < _serverStatus.size()) ? _serverStatus[i] : 0;
+		std::string suffix = (st == 0) ? " (Wait...)" : (st == 2) ? " (offline)" : "";
+		labels.push_back(names[i] + suffix);
+		enabled.push_back(st == 1);
+	}
+
+	_cbxServer->setOptions(labels, enabled, false);
+	// Keep the current selection shown even if it is disabled (offline/waiting).
+	_cbxServer->forceSelect(getActiveRendezvousServer());
+}
+
+/**
+ * Shows a warning and clears the list when the active server is offline;
+ * hides the warning otherwise.
+ */
+void ServerList::updateOfflineWarning()
+{
+	if (!_txtOfflineWarning)
+		return;
+
+	size_t active = getActiveRendezvousServer();
+	int status = (active < _serverStatus.size()) ? _serverStatus[active] : 1;
+	bool offline = (status == 2);
+
+	// Dim the closed combobox label text (only) when the current selection is
+	// offline; the button face keeps its default color.
+	if (_cbxServer)
+		_cbxServer->setButtonTextColor(offline ? _serverComboDisabledColor : _serverComboColor);
+
+	if (offline)
+	{
+		_txtOfflineWarning->setText("Selected rendezvous server is offline. Pick another from the list or direct connect with TCP.");
+		_txtOfflineWarning->setVisible(true);
+		_servers.erase(
+			std::remove_if(_servers.begin(), _servers.end(),
+						   [](const ServerInfo& server) { return !server.added; }),
+			_servers.end());
+		_lstServers->clearList();
+		sortList(Options::serverOrder);
+	}
+	else if (status == 1)
+	{
+		// Online: nothing to warn about.
+		_txtOfflineWarning->setVisible(false);
+	}
+	// status == 0 (still probing): leave the textbox to updateFetchingAnimation().
+}
+
+/**
+ * While the selected server's probe is still pending, animate a
+ * "Fetching server list . . ." message in the same textbox as the offline
+ * warning, cycling one dot every 0.5s.
+ */
+void ServerList::updateFetchingAnimation()
+{
+	if (!_txtOfflineWarning)
+		return;
+
+	size_t active = getActiveRendezvousServer();
+	int status = (active < _serverStatus.size()) ? _serverStatus[active] : 1;
+	if (status != 0)
+		return; // only while the active server is still being probed
+
+	static const char* const kDots[4] = { "", " .", " . .", " . . ." };
+	int frame = (SDL_GetTicks() / 500) % 4;
+
+	_txtOfflineWarning->setText(std::string("Fetching server list") + kDots[frame]);
+	_txtOfflineWarning->setVisible(true);
+}
+
+/**
+ * @return Path of the per-user last-selected rendezvous server file.
+ */
+std::string ServerList::selectionFilePath()
+{
+	return Options::getMasterUserFolder() + "rendezvous_selection.json";
+}
+
+/**
+ * @return The saved server name, or "" if none/unreadable (caller falls back to
+ * the first configured server).
+ */
+std::string ServerList::loadSavedServerName()
+{
+	std::string path = selectionFilePath();
+	if (!OpenXcom::CrossPlatform::fileExists(path))
+		return std::string();
+
+	std::ifstream file(path, std::ifstream::binary);
+	if (!file.is_open())
+		return std::string();
+
+	Json::Value root;
+	Json::CharReaderBuilder builder;
+	std::string errs;
+	if (!Json::parseFromStream(builder, file, &root, &errs))
+		return std::string();
+
+	return root.get("name", "").asString();
+}
+
+/**
+ * Persists the last-selected rendezvous server name.
+ */
+void ServerList::saveSelectedServerName(const std::string& name)
+{
+	Json::Value root;
+	root["name"] = name;
+
+	Json::StreamWriterBuilder builder;
+	std::ofstream file(selectionFilePath(), std::ofstream::binary);
+	if (file.is_open())
+		file << Json::writeString(builder, root);
+}
+
+/**
+ * Handler for picking a different rendezvous server from the combobox.
+ */
+void ServerList::cbxServerChange(Action*)
+{
+	size_t sel = _cbxServer->getSelected();
+	if (!_cbxServer->isEnabled(sel))
+		return; // disabled row (offline/waiting) - ignore
+
+	setActiveRendezvousServer(sel);
+
+	std::vector<std::string> names = getRendezvousServerNames();
+	if (sel < names.size())
+		saveSelectedServerName(names[sel]);
+
+	_txtOfflineWarning->setVisible(false);
+	_lstServers->clearList();
+	updateServerList();
+	updateOfflineWarning();
 }
 
 }

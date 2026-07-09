@@ -33,6 +33,7 @@ class TextList;
 class TextEdit;
 class ArrowButton;
 class ToggleTextButton;
+class DisableableComboBox;
 
 /**
  * Base class for saved game screens which
@@ -48,6 +49,12 @@ protected:
 	Text *_txtTitle, *_txtName, *_txtPlayers, *_txtRegion, *_txtJoin, *_txtPasswordRequired;
 	TextList *_lstServers;
 	ArrowButton *_sortName, *_sortPlayers, *_sortRegion, *_sortPassword;
+	DisableableComboBox *_cbxServer;
+	Text *_txtOfflineWarning;
+	// Per-configured-server probe status: 0 = waiting, 1 = online, 2 = offline.
+	std::vector<int> _serverStatus;
+	bool _probesStarted;
+	Uint8 _serverComboColor, _serverComboDisabledColor;
 	OptionsOrigin _origin;
 	std::vector<ServerInfo> _servers;
 	// selected
@@ -68,6 +75,14 @@ protected:
 	bool isAllowedBySearch(std::string serverName);
 	bool isAllowedByFilters(std::string region, bool passwordRequired, bool isUDP, std::string modHash, bool added, bool isCampaign);
 	bool parseUdpPort(const std::string& text, uint16_t& outPort);
+	// Rendezvous-server selector helpers.
+	void startServerProbes();
+	void rebuildServerCombo();
+	void updateOfflineWarning();
+	void updateFetchingAnimation();
+	std::string selectionFilePath();
+	std::string loadSavedServerName();
+	void saveSelectedServerName(const std::string& name);
   public:
 	/// Creates the Saved Game state.
 	ServerList();
@@ -87,6 +102,8 @@ protected:
 	void btnHostClick(Action* action);
 	void btnDirectConnectClick(Action* action);
 	void btnAddServerClick(Action* action);
+	/// Handler for changing the rendezvous-server combobox.
+	void cbxServerChange(Action* action);
 	/// Handler for moving the mouse over a list item.
 	void lstServerMouseOver(Action *action);
 	/// Handler for moving the mouse outside the list borders.
@@ -105,6 +122,8 @@ protected:
 	void disableSort();
 	/// Runs the timers and handles popups.
 	void think() override;
+	/// Read-only access to the rendezvous-server combobox (test harness).
+	DisableableComboBox* getServerCombo() const { return _cbxServer; }
 };
 
 }
