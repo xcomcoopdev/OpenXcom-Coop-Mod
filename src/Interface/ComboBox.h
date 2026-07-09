@@ -35,7 +35,7 @@ class Language;
  */
 class ComboBox : public InteractiveSurface
 {
-private:
+protected:
 	static const int HORIZONTAL_MARGIN;
 	static const int VERTICAL_MARGIN;
 	static const int MAX_ITEMS;
@@ -88,7 +88,7 @@ public:
 	/// Sets the button text without changing the selected option
 	void setText(const std::string &text);
 	/// Sets the selected option in the list.
-	void setSelected(size_t sel);
+	virtual void setSelected(size_t sel);
 	/// Sets the list of options.
 	void setOptions(const std::vector<std::string> &options, bool translate = false);
 	/// Blits the combo box onto another surface.
