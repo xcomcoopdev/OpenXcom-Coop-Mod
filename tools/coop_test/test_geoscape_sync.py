@@ -35,7 +35,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, TEST_ROOT, LAND_LON, LAND_LAT
-from geo import wait_both_ready, drain_popups, on_geoscape
+from geo import (wait_both_ready, drain_popups, on_geoscape, top_state,
+                 TimeWatchdog, game_minutes, StuckDialogError)
 
 HOST_LON, HOST_LAT = 0.35, 0.85
 GEO = "GeoscapeState"
@@ -119,7 +120,19 @@ def geo_snapshot(gc):
         "day": r["time"]["day"], "month": r["time"]["month"], "year": r["time"]["year"],
         "funds": r["funds"],
         "ufos": {u["id"]: bool(u["detected"]) for u in r.get("ufos", [])},
+        # event keys accumulated across the run to compare host vs client
+        "ufo_ev": {(u["id"], u["type"]) for u in r.get("ufos", [])},
+        "site_ev": {(s["id"], s["type"], s.get("race", "")) for s in r.get("missionSites", [])},
     }
+
+
+def abs_days(gc):
+    """Absolute in-game day count (31-day months; monotonic enough for deltas)."""
+    r = gc.cmd({"cmd": "geo_state"})
+    if not r.get("ok") or "time" not in r:
+        return None
+    t = r["time"]
+    return (t["year"] * 12 + t["month"]) * 31 + t["day"]
 
 
 class Metrics:
@@ -222,6 +235,73 @@ def soak(host, client, metrics, seconds, label, start, advancing=False, speed_id
         time.sleep(0.02)
 
 
+def run_month(host, client, metrics, days, speed, real_timeout, start):
+    """Advance `days` in-game days at time speed `speed` (5 = 1 day = fastest),
+    auto-closing every dialog. Accumulates the set of events (UFOs + mission
+    sites, by id) each side sees, and captures the end-of-month report (score +
+    per-country funding) the first time a MonthlyReportState shows on each side.
+    Returns (events:{name:set}, reports:{name:dict|None})."""
+    clients = {"host": host, "client": client}
+    events = {"host": set(), "client": set()}
+    reports = {"host": None, "client": None}
+    print(f"  [month] advancing {days} in-game days at speed {speed} "
+          f"(cap {real_timeout}s) ...")
+    d0 = abs_days(host)
+    t0 = time.time()
+    real_end = t0 + real_timeout
+    next_ping = 0.0
+    # Kill + fail fast if the clock stalls on a dialog we can't clear, instead
+    # of spinning until the real-time cap.
+    wd = TimeWatchdog([host, client], timeout=25.0)
+    while time.time() < real_end:
+        now = time.time() - t0
+        for name, gc in clients.items():
+            if gc.proc.poll() is not None:
+                metrics.crashes.append((round(now, 1), name, f"exited rc={gc.proc.returncode}"))
+                raise RuntimeError(f"{name} died during month advance (rc={gc.proc.returncode})")
+            # A detection popup pauses the clock, so while one is up geo_state is
+            # frozen and the just-detected UFO/site is present -> capture events
+            # here (deterministic) rather than by polling the fast-moving globe.
+            if not on_geoscape(gc):
+                hs = geo_snapshot(gc)
+                if hs:
+                    events[name] |= hs["ufo_ev"] | hs["site_ev"]
+            # Capture the end-of-month report by the monthsPassed transition
+            # (robust: a UFO dialog can stack on top of MonthlyReportState, so
+            # keying on "MonthlyReportState is top" misses it). month_report reads
+            # the SavedGame, valid whether or not the popup is showing.
+            if reports[name] is None:
+                r = gc.cmd({"cmd": "month_report"})
+                if r.get("ok") and r["monthsPassed"] >= 1:
+                    reports[name] = r
+                    print(f"    [{name}] month-end report: monthsPassed={r['monthsPassed']} "
+                          f"score={r['score']} funds={r['funds']}")
+            drain_popups(gc)
+            hs = geo_snapshot(gc)
+            if hs:
+                events[name] |= hs["ufo_ev"] | hs["site_ev"]
+            if on_geoscape(gc):
+                gc.cmd({"cmd": "geo_set_speed", "idx": speed})
+        # RTT + UFO-detection-lag sampling (host vs client)
+        if now >= next_ping:
+            metrics.sample_ping(now, host, client)
+            try:
+                metrics.sample_desync(now, geo_snapshot(host), geo_snapshot(client), start)
+            except Exception as e:
+                metrics.crashes.append((round(now, 1), "geo", f"{e!r}"))
+                raise
+            next_ping = now + 0.25
+        wd.tick(game_minutes(host))    # watchdog: stalls -> kill + StuckDialogError
+        d = abs_days(host)
+        if d is not None and d0 is not None and (d - d0) >= days:
+            print(f"  [month] reached +{d - d0} in-game days in {round(now, 1)}s")
+            return events, reports
+        time.sleep(0.3)
+    print(f"  [month] real-time cap hit after {round(time.time() - t0, 1)}s "
+          f"(+{(abs_days(host) or d0) - d0} days)")
+    return events, reports
+
+
 def scan_logs(user_dirs, tag):
     hits = {"tx_queue_full": [], "crash_files": []}
     for name, d in user_dirs.items():
@@ -246,9 +326,10 @@ def scan_logs(user_dirs, tag):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="run")
-    ap.add_argument("--idle", type=int, default=45, help="idle-geoscape soak seconds")
-    ap.add_argument("--advance", type=int, default=120, help="time-advancing soak seconds")
-    ap.add_argument("--speed", type=int, default=2, help="geo_set_speed idx (2=5min)")
+    ap.add_argument("--idle", type=int, default=5, help="idle-geoscape soak seconds")
+    ap.add_argument("--days", type=int, default=40, help="in-game days to advance in phase B")
+    ap.add_argument("--speed", type=int, default=5, help="geo_set_speed idx (5=1day=fastest)")
+    ap.add_argument("--realcap", type=int, default=300, help="wall-clock cap for the day advance")
     args = ap.parse_args()
     keep_awake()
 
@@ -257,6 +338,13 @@ def main():
     user_dirs = {"host": host.user_dir, "client": client.user_dir}
     metrics = Metrics()
     hard_fail = None
+    events = {"host": set(), "client": set()}
+    reports = {"host": None, "client": None}
+    only_host = only_client = []
+    event_mismatch = False
+    score_mismatch = None
+    funding_mismatch = []
+    got_reports = False
     try:
         print(f"[{args.tag}] bringing up fresh coop session ...")
         bringup(host, client)
@@ -268,15 +356,39 @@ def main():
 
         start = {"h": geo_snapshot(host), "c": geo_snapshot(client)}
 
-        # Phase A: idle geoscape (flood from per-frame think() with static state)
+        # Phase A: brief idle-geoscape baseline. The per-frame think() heartbeat
+        # is FPS-bound (not game-speed bound) and the send thread outruns it on
+        # loopback, so a few seconds is enough to sample RTT and confirm no
+        # backlog forms; a longer idle only adds RTT samples.
         soak(host, client, metrics, args.idle, "idle", start)
 
-        # Phase B: advance time in lockstep (state actually changes each tick ->
-        # target_positions differs every send -> hardest flood + real sync work).
-        # soak() drains popups + re-asserts speed so a UFO/event dialog can't
-        # pause the clock and stall the run.
-        soak(host, client, metrics, args.advance, "advance", start,
-             advancing=True, speed_idx=args.speed)
+        # Phase B: advance a full month-plus (default 40 in-game days) at the
+        # fastest speed, closing every dialog. Cross-validate the shared outcome:
+        # both sides see the same events, and agree on the end-of-month report
+        # (score + per-country funding changes) even though each player's
+        # absolute funds are independent.
+        events, reports = run_month(host, client, metrics, args.days, args.speed,
+                                    args.realcap, start)
+
+        # event agreement: the union each side saw should match.
+        only_host = sorted(map(list, events["host"] - events["client"]))
+        only_client = sorted(map(list, events["client"] - events["host"]))
+        event_mismatch = only_host or only_client
+
+        # end-of-month report agreement (only if both captured one).
+        score_mismatch = None
+        funding_mismatch = []
+        got_reports = reports["host"] is not None and reports["client"] is not None
+        if got_reports:
+            hr, cr = reports["host"], reports["client"]
+            if hr["score"] != cr["score"]:
+                score_mismatch = {"host": hr["score"], "client": cr["score"]}
+            hc = {c["name"]: c["fundingChange"] for c in hr["countries"]}
+            cc = {c["name"]: c["fundingChange"] for c in cr["countries"]}
+            for name in sorted(set(hc) | set(cc)):
+                if hc.get(name) != cc.get(name):
+                    funding_mismatch.append({"country": name,
+                                             "host": hc.get(name), "client": cc.get(name)})
 
     except Exception as e:
         hard_fail = repr(e)
@@ -289,6 +401,14 @@ def main():
     summ["tag"] = args.tag
     summ["hard_fail"] = hard_fail
     summ["logs"] = logs
+    summ["events_seen"] = {"host": len(events["host"]), "client": len(events["client"])}
+    summ["events_only_host"] = only_host
+    summ["events_only_client"] = only_client
+    summ["month_report_captured"] = got_reports
+    summ["score"] = {"host": reports["host"]["score"] if reports["host"] else None,
+                     "client": reports["client"]["score"] if reports["client"] else None}
+    summ["score_mismatch"] = score_mismatch
+    summ["funding_mismatch"] = funding_mismatch
     out = os.path.join(TEST_ROOT, f"geosync-{args.tag}.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(summ, f, indent=2)
@@ -303,13 +423,25 @@ def main():
     # the lobby; setFunds is never driven from a peer value). So a funds gap is
     # expected, not a desync. max_funds_gap stays in the summary as info only.
     crashed = bool(summ["crashes"]) or hard_fail is not None
-    desynced = bool(summ["desync_events"])
+    # desync = UFO-detection lag, OR host/client disagree on the events seen or
+    # the end-of-month report (score / per-country funding change). Missing a
+    # month report at all (never reached the boundary) is also a failure.
+    desynced = (bool(summ["desync_events"]) or bool(event_mismatch)
+                or score_mismatch is not None or bool(funding_mismatch)
+                or not got_reports)
     tx_full = bool(logs["tx_queue_full"])
     print("\nverdict:",
           "CRASH " if crashed else "",
           "DESYNC " if desynced else "",
           "TXFULL " if tx_full else "",
           "(clean)" if not (crashed or desynced) else "")
+    if desynced:
+        print("  desync detail:",
+              f"events_only_host={only_host}" if only_host else "",
+              f"events_only_client={only_client}" if only_client else "",
+              f"score_mismatch={score_mismatch}" if score_mismatch else "",
+              f"funding_mismatch={funding_mismatch}" if funding_mismatch else "",
+              "no_month_report" if not got_reports else "")
     sys.exit(2 if (crashed or desynced) else 0)
 
 

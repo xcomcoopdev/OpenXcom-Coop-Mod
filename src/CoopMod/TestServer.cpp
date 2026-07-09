@@ -54,6 +54,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/Country.h"
+#include "../Mod/RuleCountry.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/GameTime.h"
 #include "../Savegame/MissionSite.h"
@@ -69,6 +70,7 @@
 #include "../Menu/StartState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Geoscape/BaseNameState.h"
+#include "../Geoscape/UfoDetectedState.h"
 #include "LobbyMenu.h"
 #include "Profile.h"
 #include "connectionTCP.h"
@@ -507,6 +509,42 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "month_report")
+		{
+			// End-of-month score + per-country funding/activity, read from the
+			// SavedGame (valid whether or not MonthlyReportState is on screen).
+			// Used to cross-validate that host and client agree on the shared
+			// monthly outcome (score, funding changes) even though each player's
+			// absolute funds are independent.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg)
+			{
+				resp["error"] = "no saved game";
+			}
+			else
+			{
+				int mp = sg->getMonthsPassed();
+				resp["monthsPassed"] = mp;
+				resp["score"] = sg->getCurrentScore(mp);
+				resp["funds"] = Json::Value::Int64(sg->getFunds());
+				Json::Value countries(Json::arrayValue);
+				for (auto* c : *sg->getCountries())
+				{
+					Json::Value jc;
+					jc["name"] = c->getRules()->getType();
+					std::vector<int>& fund = c->getFunding();
+					jc["funding"] = fund.empty() ? 0 : fund.back();
+					jc["fundingChange"] = fund.size() >= 2 ? (fund.back() - fund[fund.size() - 2]) : 0;
+					std::vector<int>& ax = c->getActivityXcom();
+					std::vector<int>& aa = c->getActivityAlien();
+					jc["activityXcom"] = ax.empty() ? 0 : ax.back();
+					jc["activityAlien"] = aa.empty() ? 0 : aa.back();
+					countries.append(jc);
+				}
+				resp["countries"] = countries;
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "geo_set_speed")
 		{
 			// Select a geoscape time-speed (0=5s..5=1day). In coop, time only
@@ -821,6 +859,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "MissionDetectedState";
 				resp["ok"] = true;
 			}
+			else if (auto* ud = dynamic_cast<UfoDetectedState*>(top))
+			{
+				// New UFO alert. Cancel (not Intercept) = acknowledge and close;
+				// the UFO stays on the globe. btnCancelClick sets the acknowledged
+				// flag so it does not immediately re-alert.
+				ud->btnCancelClick(nullptr);
+				resp["handled"] = "UfoDetectedState";
+				resp["ok"] = true;
+			}
 			else if (dynamic_cast<NextTurnState*>(top))
 			{
 				// Transient "Turn N" screen — the turn already advanced when it
@@ -841,9 +888,28 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "DebriefingState";
 				resp["ok"] = true;
 			}
+			else if (!top || dynamic_cast<GeoscapeState*>(top))
+			{
+				// Geoscape itself on top: nothing to dismiss.
+				resp["handled"] = "none";
+				resp["ok"] = true;
+			}
+			else if (dynamic_cast<CoopState*>(top))
+			{
+				// Coop WAIT dialog (map download / month save-progress sync). It
+				// auto-closes; never pop it. Caller should wait.
+				resp["wait"] = true;
+				resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
+			}
 			else
 			{
-				resp["error"] = "unhandled popup type";
+				// Unknown geoscape popup: generically close it so "skip all
+				// dialogs" stays robust as new popups appear. Reported as
+				// "generic" + the typeid so new dialog types can be reviewed and
+				// given explicit handling if the raw pop is ever wrong.
+				_game->popState();
+				resp["handled"] = "generic";
+				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "get_coop")
