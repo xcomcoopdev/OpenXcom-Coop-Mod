@@ -88,3 +88,8 @@ __pycache__/
 rendezvous.json
 # Per-user last-selected rendezvous server
 rendezvous_selection.json
+
+# scratch PR description (not part of the repo)
+PR_DESCRIPTION.md
+# test_server_browser screenshots (generated at runtime)
+tools/coop_test/*.png
