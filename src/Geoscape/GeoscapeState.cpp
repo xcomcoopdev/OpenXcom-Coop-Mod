@@ -1620,8 +1620,9 @@ void GeoscapeState::think()
 
 			}
 
-			// send
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			// send — full-state positional snapshot via the conflation slot
+			// (last-write-wins; never FIFO-queued, so it can't overflow g_txQ).
+			_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
 
 		}
 
@@ -1689,7 +1690,8 @@ void GeoscapeState::think()
 		bool inDogfight = _minimizedDogfights < _dogfights.size();
 		root["geo_focus"] = inDogfight ? 0 : -1;
 
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		// time/focus heartbeat via the conflation slot (last-write-wins).
+		_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_TIME, root.toStyledString());
 	}
 
 	// coop: refresh the ally time-speed markers on the speed buttons.
