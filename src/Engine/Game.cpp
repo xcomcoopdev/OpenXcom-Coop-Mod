@@ -46,7 +46,8 @@
 #include <algorithm>
 #include "../fallthrough.h"
 
-#include "../CoopMod/CrashHandler.h" // coop 
+#include "../CoopMod/CrashHandler.h" // coop
+#include "../CoopMod/TestServer.h" // coop test automation
 
 namespace OpenXcom
 {
@@ -158,8 +159,14 @@ void Game::run()
 	Sint16 xrel = 0;
 	Sint16 yrel = 0;
 
+	// coop test automation (active only with OXC_TEST_PORT set)
+	TestServer::instance().startFromEnvironment(this);
+
 	while (!_quit)
 	{
+
+		// coop test automation command pump
+		TestServer::instance().pump();
 
 		// coop tasks
 		try

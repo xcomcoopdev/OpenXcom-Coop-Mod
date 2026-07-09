@@ -48,7 +48,7 @@ class Profile : public State
 	Profile();
 	/// Cleans up the Profile state.
 	~Profile();
-  private:
+	/// Handler for the OK button (public so test automation can invoke it).
 	void buttonOK(Action *);
 
 };

@@ -82,3 +82,5 @@ bin/user
 /.kdev4/
 /*.kdev4
 test.pub
+
+__pycache__/

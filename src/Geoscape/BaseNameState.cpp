@@ -131,6 +131,15 @@ void BaseNameState::edtNameChange(Action *action)
 }
 
 /**
+ * Sets the base name and confirms (test automation).
+ */
+void BaseNameState::setNameAndConfirm(const std::string &name)
+{
+	_edtName->setText(name);
+	btnOkClick(nullptr);
+}
+
+/**
  * Returns to the previous screen
  * @param action Pointer to an action.
  */

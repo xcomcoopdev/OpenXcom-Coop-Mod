@@ -55,6 +55,8 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for changing text on the Name edit.
 	void edtNameChange(Action *action);
+	/// Sets the name and confirms (test automation).
+	void setNameAndConfirm(const std::string &name);
 };
 
 }

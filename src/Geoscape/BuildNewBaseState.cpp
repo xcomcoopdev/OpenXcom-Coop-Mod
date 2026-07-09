@@ -274,6 +274,36 @@ void BuildNewBaseState::globeClick(Action *action)
 }
 
 /**
+ * Places the base at explicit coordinates, same as a left globe click on
+ * land (test automation). Returns false if the spot is not on land.
+ */
+bool BuildNewBaseState::placeAt(double lon, double lat)
+{
+	if (!_globe->insideLand(lon, lat))
+	{
+		return false;
+	}
+	_base->setFakeUnderwater(false);
+	_base->setLongitude(lon);
+	_base->setLatitude(lat);
+	_base->calculateServices(_game->getSavedGame());
+	for (auto* craft : *_base->getCrafts())
+	{
+		craft->setLongitude(lon);
+		craft->setLatitude(lat);
+	}
+	if (_first)
+	{
+		_game->pushState(new BaseNameState(_base, _globe, _first, false));
+	}
+	else
+	{
+		_game->pushState(new ConfirmNewBaseState(_base, _globe));
+	}
+	return true;
+}
+
+/**
  * Starts rotating the globe to the left.
  * @param action Pointer to an action.
  */

@@ -6148,6 +6148,23 @@ void GeoscapeState::btnTimerClick(Action *action)
 }
 
 /**
+ * Selects a time-speed button programmatically (test harness). Mirrors a real
+ * click on the button so the radio group + redraw + coop speed broadcast (via
+ * think()) all behave exactly as a user click would.
+ */
+void GeoscapeState::setTimeSpeedIndex(int idx)
+{
+	TextButton* btns[6] = {_btn5Secs, _btn1Min, _btn5Mins, _btn30Mins, _btn1Hour, _btn1Day};
+	if (idx < 0 || idx > 5)
+		return;
+	SDL_Event ev;
+	ev.type = SDL_MOUSEBUTTONDOWN;
+	ev.button.button = SDL_BUTTON_LEFT;
+	Action a = Action(&ev, 0.0, 0.0, 0, 0);
+	btns[idx]->mousePress(&a, this);
+}
+
+/**
  * Updates the scale.
  * @param dX delta of X;
  * @param dY delta of Y;

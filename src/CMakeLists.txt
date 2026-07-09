@@ -158,6 +158,7 @@ set(coopmod_src
   CoopMod/connectionUDP/rendezvous_client.cpp
   CoopMod/connectionUDP/rendezvous_config.cpp
   CoopMod/connectionUDP/rendezvous_server.cpp
+  CoopMod/TestServer.cpp
 )
 
 set ( engine_src

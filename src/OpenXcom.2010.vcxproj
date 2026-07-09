@@ -346,6 +346,7 @@
     <ClCompile Include="CoopMod\CrashHandler.cpp" />
     <ClCompile Include="CoopMod\OptionsMultiplayer.cpp" />
     <ClCompile Include="CoopMod\Profile.cpp" />
+    <ClCompile Include="CoopMod\TestServer.cpp" />
     <ClCompile Include="..\libs\miniz\miniz.c" />
     <ClCompile Include="..\libs\rapidyaml\c4\base64.cpp" />
     <ClCompile Include="..\libs\rapidyaml\c4\char_traits.cpp" />
@@ -765,6 +766,7 @@
     <ClInclude Include="CoopMod\CrashHandler.h" />
     <ClInclude Include="CoopMod\OptionsMultiplayer.h" />
     <ClInclude Include="CoopMod\Profile.h" />
+    <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="..\libs\miniz\miniz.h" />
     <ClInclude Include="..\libs\rapidyaml\c4\allocator.hpp" />
     <ClInclude Include="..\libs\rapidyaml\c4\base64.hpp" />
