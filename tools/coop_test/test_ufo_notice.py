@@ -18,7 +18,7 @@ Two things are validated:
    stuck (no dialog AND clock frozen) while the first holds its dialog, that is
    the serial-freeze bug.
 
-Run: python tools/coop_test/test_ufo_notice.py [observe_seconds]
+Run: python tools/coop_test/test_ufo_notice.py [in_game_days]
 """
 
 import os
@@ -31,8 +31,14 @@ from test_geoscape_sync import bringup
 from geo import (wait_both_ready, drain_popups, on_geoscape, top_state,
                  TimeWatchdog, game_minutes)
 
-SPEED = 3           # 30min/tick: UFOs persist and detections are observable
-OBSERVE_S = int(sys.argv[1]) if len(sys.argv) > 1 else 150
+SPEED = 5           # 1 day/tick (fastest): a detection dialog pauses time on
+                    # that side regardless of speed, so notices are still
+                    # observable, and the fastest speed surfaces more UFOs sooner
+DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 40   # bound by IN-GAME days,
+                    # not real seconds: at fastest speed a real-time window blows
+                    # through several months, and skipping every mission tanks the
+                    # monthly score -> consecutive negative months -> game over.
+REALCAP = 300       # wall-clock safety cap
 HOLD_WINDOW = 6.0   # sec to hold one dialog while checking the peer isn't frozen
 
 UFO_POPUP = "UfoDetectedState"
@@ -104,13 +110,19 @@ def main():
         wait_both_ready(host, client, 60)
         for gc in (host, client):
             gc.cmd({"cmd": "geo_set_speed", "idx": SPEED})
-        print(f"observing {OBSERVE_S}s at speed {SPEED} "
-              f"(hold window {HOLD_WINDOW}s) ...")
+        print(f"advancing {DAYS} in-game days at speed {SPEED} "
+              f"(hold window {HOLD_WINDOW}s, cap {REALCAP}s) ...")
 
         wd = TimeWatchdog([host, client], timeout=40.0)
+        d0 = game_minutes(host)
         t0 = time.time()
-        while time.time() - t0 < OBSERVE_S:
+        while (time.time() - t0 < REALCAP
+               and ((game_minutes(host) or d0) - d0) < DAYS * 24 * 60):
             now = time.time() - t0
+            for gc in (host, client):
+                if gc.proc.poll() is not None:
+                    raise RuntimeError(f"instance exited early rc={gc.proc.returncode} "
+                                       f"(possible crash / game-over)")
             h_pop, c_pop = is_ufo_popup(host), is_ufo_popup(client)
             for name, p in (("host", h_pop), ("client", c_pop)):
                 if p and not prev_pop[name]:
@@ -165,7 +177,7 @@ def main():
         saw_notices = len(allids) > 0 or popups["host"] or popups["client"]
         if not saw_notices:
             print("\nverdict: INCONCLUSIVE - no UFO notices in the window "
-                  "(raise observe_seconds)")
+                  "(raise the in-game-days arg)")
             sys.exit(0)
         ok = (not serial) and (not propagation_gap)
         print("\nverdict:",
