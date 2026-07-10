@@ -1239,6 +1239,9 @@
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\CrashHandler.cpp" />
+    <ClCompile Include="CoopMod\TestServer.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2734,6 +2737,9 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\CrashHandler.h" />
+    <ClInclude Include="CoopMod\TestServer.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Geoscape">

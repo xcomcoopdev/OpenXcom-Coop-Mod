@@ -254,6 +254,9 @@ SPSCQueue<1024> g_rxQ{};
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
 
+// TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
+std::atomic<uint64_t> g_txDropCount{0};
+
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
 // (GeoscapeState::think) overwrites; the send drain reads the freshest value and
@@ -351,6 +354,7 @@ bool enqueueTx(std::string&& s)
 	if (!g_txQ.push(std::move(s)))
 	{
 		DebugLog("TX queue full, dropping packet\n");
+		++g_txDropCount;
 		return false;
 	}
 
@@ -8781,6 +8785,7 @@ void connectionTCP::sendTCPPacketData(std::string data)
 	if (!g_txQ.push(std::move(data)))
 	{
 		DebugLog("TX queue full, dropping packet\n");
+		++g_txDropCount;
 	}
 }
 
@@ -8792,6 +8797,28 @@ void connectionTCP::sendCoopSnapshot(int slot, std::string data)
 	// send drain emits the freshest value at link rate; stale copies are elided,
 	// so the geoscape flood can never overflow g_txQ.
 	enqueueSnapshot(static_cast<CoopSnapSlot>(slot), std::move(data));
+}
+
+bool connectionTCP::geoMembershipChanged(const Json::Value& root)
+{
+	// Compare the set of UFO/mission coop ids in this snapshot to the last one.
+	// A change means something spawned or despawned -> the caller must deliver
+	// this snapshot reliably (the conflation slot may drop it otherwise).
+	std::set<int> ufoIds, missionIds;
+	if (root.isMember("ufos"))
+	{
+		for (const auto& u : root["ufos"])
+			ufoIds.insert(u["ufo_id"].asInt());
+	}
+	if (root.isMember("missions"))
+	{
+		for (const auto& m : root["missions"])
+			missionIds.insert(m["mission_id"].asInt());
+	}
+	bool changed = (ufoIds != _lastGeoUfoIds) || (missionIds != _lastGeoMissionIds);
+	_lastGeoUfoIds.swap(ufoIds);
+	_lastGeoMissionIds.swap(missionIds);
+	return changed;
 }
 
 void connectionTCP::setPlayerTurn(int turn)

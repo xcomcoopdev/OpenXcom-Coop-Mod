@@ -77,6 +77,7 @@ void DisableableComboBox::setOptions(const std::vector<std::string> &options, co
 	_enabled.assign(options.size(), true);
 	for (size_t i = 0; i < options.size() && i < enabled.size(); ++i)
 		_enabled[i] = enabled[i];
+	_labels = options;
 
 	ComboBox::setOptions(options, translate);
 

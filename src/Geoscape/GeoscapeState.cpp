@@ -1637,6 +1637,18 @@ void GeoscapeState::think()
 			// (last-write-wins; never FIFO-queued, so it can't overflow g_txQ).
 			_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
 
+			// Positions are conflatable, but UFO/mission spawns and despawns are
+			// not: the conflation slot elides intermediate snapshots, so a UFO
+			// that appears and vanishes between two delivered snapshots would
+			// never reach the client. Whenever the membership set changes, also
+			// send this snapshot on the reliable FIFO lane so no spawn/despawn is
+			// dropped. Membership changes rarely, so this can't reintroduce the
+			// flood the conflation slot was added to prevent.
+			if (_game->getCoopMod()->geoMembershipChanged(root))
+			{
+				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			}
+
 		}
 
 
@@ -6160,6 +6172,23 @@ void GeoscapeState::btnTimerClick(Action *action)
 	ev.button.button = SDL_BUTTON_LEFT;
 	Action a = Action(&ev, 0.0, 0.0, 0, 0);
 	action->getSender()->mousePress(&a, this);
+}
+
+/**
+ * Selects a time-speed button programmatically (test harness). Mirrors a real
+ * click on the button so the radio group + redraw + coop speed broadcast (via
+ * think()) all behave exactly as a user click would.
+ */
+void GeoscapeState::setTimeSpeedIndex(int idx)
+{
+	TextButton* btns[6] = {_btn5Secs, _btn1Min, _btn5Mins, _btn30Mins, _btn1Hour, _btn1Day};
+	if (idx < 0 || idx > 5)
+		return;
+	SDL_Event ev;
+	ev.type = SDL_MOUSEBUTTONDOWN;
+	ev.button.button = SDL_BUTTON_LEFT;
+	Action a = Action(&ev, 0.0, 0.0, 0, 0);
+	btns[idx]->mousePress(&a, this);
 }
 
 /**

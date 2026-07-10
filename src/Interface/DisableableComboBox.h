@@ -32,6 +32,7 @@ class DisableableComboBox : public ComboBox
 {
 private:
 	std::vector<bool> _enabled;
+	std::vector<std::string> _labels;
 	Uint8 _disabledColor;
 public:
 	/// Creates a disableable combo box with the specified size and position.
@@ -48,6 +49,10 @@ public:
 	void setOptions(const std::vector<std::string> &options, const std::vector<bool> &enabled, bool translate = false);
 	/// Returns whether the option at the given index is enabled (selectable).
 	bool isEnabled(size_t idx) const;
+	/// Number of options currently set (test harness introspection).
+	size_t getOptionCount() const { return _labels.size(); }
+	/// Label of the option at idx (test harness introspection).
+	const std::string& getOptionLabel(size_t idx) const { return _labels[idx]; }
 	/// Selects an option regardless of its enabled state (bypasses the guard).
 	void forceSelect(size_t idx);
 	/// Sets the selected option, ignoring the request if that option is disabled.

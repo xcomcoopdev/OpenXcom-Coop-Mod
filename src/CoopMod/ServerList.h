@@ -122,6 +122,8 @@ protected:
 	void disableSort();
 	/// Runs the timers and handles popups.
 	void think() override;
+	/// Read-only access to the rendezvous-server combobox (test harness).
+	DisableableComboBox* getServerCombo() const { return _cbxServer; }
 };
 
 }

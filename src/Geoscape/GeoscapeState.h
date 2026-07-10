@@ -194,6 +194,8 @@ public:
 	int getFirstFreeDogfightSlot();
 	/// Handler for clicking the timer button.
 	void btnTimerClick(Action *action);
+	/// Selects a time-speed button by index (0=5s,1=1min,2=5min,3=30min,4=1hr,5=1day). For the test harness.
+	void setTimeSpeedIndex(int idx);
 	/// Updates the co-op ally markers on the speed/toolbar buttons.
 	void updatePeerSpeedIndicators();
 	/// Tells the other player which geoscape sub-screen this player navigated to (0..5).

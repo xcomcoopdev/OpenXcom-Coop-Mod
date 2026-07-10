@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -145,6 +146,10 @@ extern SPSCQueue<1024> g_txQ;
 extern SPSCQueue<1024> g_rxQ;
 extern int tcp_port;
 
+// Count of packets dropped because the TX queue was full (test harness reads
+// this via the coop_stats command to detect the "TX queue full" backlog bug).
+extern std::atomic<uint64_t> g_txDropCount;
+
 // ===== Geoscape sync conflation slot =====
 // The two GeoscapeState::think() heartbeats are full-state, last-write-wins
 // snapshots. Instead of FIFO-queuing every per-frame copy onto g_txQ (which
@@ -249,6 +254,14 @@ class connectionTCP
 	// Send a full-state geoscape snapshot via the conflation slot (last-write-wins,
 	// never queued FIFO). slot is a CoopSnapSlot. Used by GeoscapeState::think().
 	void sendCoopSnapshot(int slot, std::string data);
+	// Reliable geoscape lifecycle: returns true (and updates the tracked set) when
+	// the UFO/mission membership in the snapshot changed since the last call. The
+	// conflation slot silently drops transient spawns/despawns, so the caller also
+	// sends the snapshot on the reliable FIFO lane whenever this returns true. The
+	// set rarely changes, so the extra reliable sends do not reintroduce the flood.
+	bool geoMembershipChanged(const Json::Value& root);
+	std::set<int> _lastGeoUfoIds;
+	std::set<int> _lastGeoMissionIds;
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);

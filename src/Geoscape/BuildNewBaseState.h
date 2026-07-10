@@ -61,6 +61,8 @@ public:
 	void handle(Action *action) override;
 	/// Handler for clicking the globe.
 	void globeClick(Action *action);
+	/// Places the base at explicit coordinates (test automation).
+	bool placeAt(double lon, double lat);
 	/// Handler for mouse hovering the globe.
 	void globeHover(Action *action);
 	/// Handler for redrawing hover (delayed)

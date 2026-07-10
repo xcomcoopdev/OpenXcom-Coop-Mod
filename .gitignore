@@ -82,7 +82,12 @@ bin/user
 /.kdev4/
 /*.kdev4
 test.pub
+
+__pycache__/
 # Real rendezvous config (public keys, but per-deployment; keep out of source control)
 rendezvous.json
 # Per-user last-selected rendezvous server
 rendezvous_selection.json
+
+# test_server_browser screenshots (generated at runtime)
+tools/coop_test/*.png
