@@ -395,6 +395,20 @@ public:
 	bool coop = false;
 	int coop_total_vehicles = -1;
 	int coop_total_soldiers = -1;
+	/// coop: synced pre-localized geoscape status string for a peer's craft.
+	std::string _coopGeoStatus;
+
+	/// Computes the airborne geoscape status string ("Intercepting UFO-1",
+	/// "Returning to base", etc.) from this craft's own destination/flags.
+	std::string getGeoscapeStatusString(Language* lang) const;
+	/// Gets the status string to display: the synced value for a peer's craft,
+	/// otherwise the locally-computed one. Shared by the UI and the test server
+	/// so host and client always render identical text.
+	std::string getDisplayStatus(Language* lang) const;
+	/// coop: sets the synced geoscape status string (peer craft only).
+	void setCoopGeoStatus(const std::string& status) { _coopGeoStatus = status; }
+	/// coop: gets the synced geoscape status string (peer craft only).
+	const std::string& getCoopGeoStatus() const { return _coopGeoStatus; }
 
 };
 

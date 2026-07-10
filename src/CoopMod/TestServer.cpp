@@ -31,6 +31,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/State.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
@@ -63,6 +64,16 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Ufo.h"
+#include "../Savegame/CraftWeapon.h"
+#include "../Savegame/Target.h"
+#include "../Savegame/Waypoint.h"
+#include "../Savegame/AlienMission.h"
+#include "../Mod/UfoTrajectory.h"
+#include "../Mod/RuleAlienMission.h"
+#include "../Mod/AlienDeployment.h"
+#include "../Mod/Mod.h"
+#include "../Engine/RNG.h"
+#include "../Mod/RuleCraftWeapon.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleResearch.h"
 #include "../Mod/RuleUfo.h"
@@ -463,8 +474,33 @@ std::string TestServer::execute(const std::string& line)
 					for (auto* c : *b->getCrafts())
 					{
 						Json::Value jc;
+						jc["id"] = c->getId();
+						jc["coopBaseId"] = b->_coop_base_id;
+						jc["coop"] = c->coop;
 						jc["type"] = c->getRules()->getType();
 						jc["status"] = c->getStatus();
+						jc["lon"] = c->getLongitude();
+						jc["lat"] = c->getLatitude();
+						jc["weapons"] = (int)c->getWeapons()->size();
+						jc["lowFuel"] = c->getLowFuel();
+						jc["mission"] = c->getMissionComplete();
+						jc["inDogfight"] = c->isInDogfight();
+						// destination classification (owner side only; a peer's
+						// craft has no replicated destination)
+						std::string destKind = "none";
+						int destId = -1;
+						if (Target* d = c->getDestination())
+						{
+							if (d == (Target*)c->getBase()) { destKind = "base"; }
+							else if (auto* u = dynamic_cast<Ufo*>(d)) { destKind = "ufo"; destId = u->getId(); }
+							else if (auto* ms = dynamic_cast<MissionSite*>(d)) { destKind = "site"; destId = ms->getId(); }
+							else { destKind = "other"; }
+						}
+						jc["destKind"] = destKind;
+						jc["destId"] = destId;
+						// the exact string the geoscape UI would show (shared code
+						// path -> host and client must match)
+						jc["displayStatus"] = c->getDisplayStatus(_game->getLanguage());
 						crafts.append(jc);
 					}
 					jb["crafts"] = crafts;
@@ -1523,6 +1559,277 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["error"] = "unknown option: " + name;
+			}
+		}
+		else if (cmd == "set_seed")
+		{
+			// Pin the RNG so a scenario's real-sim outcome is reproducible.
+			RNG::setSeed((uint64_t)req.get("seed", 1).asInt64());
+			resp["seed"] = Json::Value::Int64((int64_t)RNG::getSeed());
+			resp["ok"] = true;
+		}
+		else if (cmd == "craft_force")
+		{
+			// Owner-side deterministic state setter for craft-status tests. With
+			// craft_id omitted, targets the first own (non-coop) craft. Only sets
+			// the fields present in the request; optional checkup() re-derives the
+			// base-side _status (READY/REFUELLING/REARMING/REPAIRS) from real logic.
+			int craftId = req.get("craft_id", -1).asInt();
+			SavedGame* sg = _game->getSavedGame();
+			Craft* craft = nullptr; Base* cbase = nullptr;
+			if (sg)
+			{
+				for (auto* b : *sg->getBases())
+				{
+					for (auto* c : *b->getCrafts())
+					{
+						if (craftId == -1 ? !c->coop : c->getId() == craftId)
+						{
+							craft = c; cbase = b; break;
+						}
+					}
+					if (craft) break;
+				}
+			}
+			if (!craft)
+			{
+				resp["error"] = "no matching craft";
+			}
+			else
+			{
+				if (req.isMember("lowFuel")) craft->setLowFuel(req["lowFuel"].asBool());
+				if (req.isMember("mission")) craft->setMissionComplete(req["mission"].asBool());
+				if (req.isMember("fuel")) craft->setFuel(req["fuel"].asInt());
+				if (req.isMember("damage")) craft->setDamage(req["damage"].asInt());
+				if (req.isMember("dogfight")) craft->setInDogfight(req["dogfight"].asBool());
+				if (req.isMember("ammo"))
+				{
+					int ammo = req["ammo"].asInt();
+					for (auto* cw : *craft->getWeapons())
+						if (cw) { cw->setAmmo(ammo); cw->setRearming(ammo < cw->getRules()->getAmmoMax()); }
+				}
+				if (req.isMember("dest"))
+				{
+					std::string dest = req["dest"].asString();
+					if (dest == "base") craft->setDestination(cbase);
+					else if (dest == "patrol") craft->setDestination(nullptr);
+					else if (dest.rfind("site:", 0) == 0)
+					{
+						int id = std::atoi(dest.c_str() + 5);
+						for (auto* ms : *sg->getMissionSites())
+							if (ms->getId() == id) { craft->setDestination(ms); break; }
+					}
+					else if (dest.rfind("ufo:", 0) == 0)
+					{
+						int id = std::atoi(dest.c_str() + 4);
+						for (auto* u : *sg->getUfos())
+							if (u->getId() == id) { craft->setDestination(u); break; }
+					}
+				}
+				if (req.get("checkup", false).asBool()) craft->checkup();
+				resp["craft_id"] = craft->getId();
+				resp["status"] = craft->getStatus();
+				resp["displayStatus"] = craft->getDisplayStatus(_game->getLanguage());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "spawn_mission_site")
+		{
+			// Deterministically place a mission site (no alien-mission RNG), so a
+			// craft can be dispatched to it -> "heading to <site>" status. Params:
+			// mission (RuleAlienMission id), deployment (AlienDeployment id),
+			// lon/lat (radians), race (optional).
+			SavedGame* sg = _game->getSavedGame();
+			Mod* mod = _game->getMod();
+			const RuleAlienMission* mission = mod->getAlienMission(req.get("mission", "").asString(), false);
+			const AlienDeployment* deployment = mod->getDeployment(req.get("deployment", "").asString(), false);
+			if (!sg) resp["error"] = "no saved game";
+			else if (!mission) resp["error"] = "unknown mission rule";
+			else if (!deployment) resp["error"] = "unknown deployment rule";
+			else
+			{
+				MissionSite* site = new MissionSite(mission, deployment, nullptr);
+				site->setLongitude(req.get("lon", 0.0).asDouble());
+				site->setLatitude(req.get("lat", 0.0).asDouble());
+				site->setId(sg->getId(deployment->getMarkerName()));
+				site->setSecondsRemaining((size_t)req.get("hours", 48).asInt() * 3600);
+				site->setAlienRace(req.get("race", "STR_SECTOID").asString());
+				site->setDetected(true);
+				sg->getMissionSites()->push_back(site);
+				resp["site_id"] = site->getId();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "spawn_ufo")
+		{
+			// Deterministically place a UFO so a craft can be dispatched to it
+			// (B7 intercepting / B8 destination-crashed / B6 tailing). Attaches a
+			// registered throwaway AlienMission so the UFO's lifecycle (race bonus,
+			// ~Ufo decreaseLiveUfos) is well-formed and doesn't crash on cleanup.
+			// Params: type (RuleUfo), mission (RuleAlienMission), region, race,
+			// trajectory (UfoTrajectory id), state (flying|crashed|landed), lon/lat.
+			SavedGame* sg = _game->getSavedGame();
+			Mod* mod = _game->getMod();
+			const RuleUfo* ufoRule = mod->getUfo(req.get("type", "").asString(), false);
+			const RuleAlienMission* missionRule = mod->getAlienMission(req.get("mission", "").asString(), false);
+			const UfoTrajectory* traj = mod->getUfoTrajectory(req.get("trajectory", "").asString(), false);
+			if (!sg) resp["error"] = "no saved game";
+			else if (!ufoRule) resp["error"] = "unknown ufo type";
+			else if (!missionRule) resp["error"] = "unknown mission rule";
+			else if (!traj) resp["error"] = "unknown trajectory";
+			else
+			{
+				AlienMission* m = new AlienMission(*missionRule);
+				m->setRace(req.get("race", "STR_SECTOID").asString());
+				m->setRegion(req.get("region", "STR_NORTH_AMERICA").asString(), *mod);
+				m->setId(sg->getId("STR_ALIEN_MISSIONS"));
+				sg->getAlienMissions().push_back(m);
+
+				Ufo* u = new Ufo(ufoRule, sg->getId("STR_UFO_UNIQUE"));
+				u->setMissionInfo(m, traj);
+				// _uniqueId (ctor) is internal; the display id / craft targeting
+				// use Target::getId(), which real UFOs get on detection. Assign it
+				// so geo_state reports distinct ids and craft_force can target this
+				// exact UFO instead of colliding on id 0.
+				u->setId(sg->getId("STR_UFO"));
+				u->setLongitude(req.get("lon", 0.0).asDouble());
+				u->setLatitude(req.get("lat", 0.0).asDouble());
+				u->setAltitude("STR_HIGH_UC");
+				u->setDetected(true);
+				std::string state = req.get("state", "flying").asString();
+				if (state == "crashed")
+				{
+					u->setStatus(Ufo::CRASHED);
+					u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
+					u->setSpeed(0);
+				}
+				else if (state == "landed")
+				{
+					u->setStatus(Ufo::LANDED);
+					u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
+					u->setSpeed(0);
+				}
+				else
+				{
+					// Flying: give it a destination waypoint so think()->move() is
+					// well-formed (a null destination would misbehave).
+					u->setStatus(Ufo::FLYING);
+					Waypoint* wp = new Waypoint();
+					wp->setLongitude(req.get("lon", 0.0).asDouble() + 0.2);
+					wp->setLatitude(req.get("lat", 0.0).asDouble());
+					u->setDestination(wp);
+					u->setSpeed(req.get("speed", 1).asInt());
+				}
+				sg->getUfos()->push_back(u);
+				resp["ufo_id"] = u->getId();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "spawn_craft")
+		{
+			// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.
+			// The coop start base only has an unarmed transport, so REARMING and
+			// UFO-interception status tests need a combat craft. Params: type
+			// (RuleCraft), weapon (RuleCraftWeapon to mount on every hardpoint).
+			SavedGame* sg = _game->getSavedGame();
+			Mod* mod = _game->getMod();
+			const RuleCraft* rule = mod->getCraft(req.get("type", "").asString(), false);
+			Base* base = nullptr;
+			if (sg)
+				for (auto* b : *sg->getBases())
+					if (!b->_coopBase) { base = b; break; }
+			if (!sg) resp["error"] = "no saved game";
+			else if (!rule) resp["error"] = "unknown craft type";
+			else if (!base) resp["error"] = "no own base";
+			else
+			{
+				Craft* craft = new Craft(rule, base, sg->getId(rule->getType()));
+				craft->setFuel(craft->getFuelMax());
+				RuleCraftWeapon* cwRule = const_cast<RuleCraftWeapon*>(
+					mod->getCraftWeapon(req.get("weapon", "STR_STINGRAY").asString(), false));
+				if (cwRule)
+					for (int i = 0; i < rule->getWeapons(); ++i)
+						craft->getWeapons()->push_back(new CraftWeapon(cwRule, cwRule->getAmmoMax()));
+				craft->checkup(); // -> STR_READY
+				base->getCrafts()->push_back(craft);
+				resp["craft_id"] = craft->getId();
+				resp["weapons"] = (int)craft->getWeapons()->size();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "geo_run")
+		{
+			// Advance geoscape time while auto-draining event popups, until a stop
+			// condition or a game-time budget. Requires GeoscapeState on top after
+			// draining. Params: speed (0..5 idx), until (one of: minutes:<n>,
+			// craft_status:<STR_key>, craft_dest:<kind>, at_base), max_minutes.
+			// NOTE: real advancing happens across pump() frames; this handler sets
+			// up the run and reports readiness. The driver polls geo_state between
+			// geo_run calls. Here we just (a) enable host-only time so the client
+			// mirrors, (b) select the requested speed, (c) drain any popup now.
+			GeoscapeState* gs = nullptr;
+			for (auto* s : _game->getStates())
+				if (auto* g = dynamic_cast<GeoscapeState*>(s)) gs = g;
+			// Drain a single blocking popup if present (driver calls repeatedly).
+			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			bool drained = false;
+			if (top && !dynamic_cast<GeoscapeState*>(top)
+			    && !dynamic_cast<BattlescapeState*>(top))
+			{
+				if (auto* ev = dynamic_cast<GeoscapeEventState*>(top)) { ev->btnOkClick(nullptr); drained = true; }
+				else if (dynamic_cast<ArticleState*>(top)) { _game->popState(); drained = true; }
+				else if (auto* mr = dynamic_cast<MonthlyReportState*>(top)) { mr->btnOkClick(nullptr); drained = true; }
+				else if (auto* md = dynamic_cast<MissionDetectedState*>(top)) { md->btnCancelClick(nullptr); drained = true; }
+				// A craft reaching a site pops ConfirmLanding; decline it so the
+				// craft stays airborne (status tests never enter the battle).
+				else if (auto* cl = dynamic_cast<ConfirmLandingState*>(top)) { cl->btnNoClick(nullptr); drained = true; }
+				else { _game->popState(); drained = true; }
+			}
+			resp["drained"] = drained;
+			resp["topType"] = top ? typeid(*top).name() : "none";
+			if (gs)
+			{
+				// Coop time only advances when BOTH players hold the same speed;
+				// the driver calls geo_run on host AND client each tick, so just
+				// select the requested speed here (no host-only override, which
+				// stalls the peer's clock).
+				gs->setTimeSpeedIndex(req.get("speed", 1).asInt());
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "no GeoscapeState (in popup/battle?)";
+			}
+		}
+		else if (cmd == "geo_craft_buttons")
+		{
+			// Control-guard check: build the geoscape craft dialog for a craft and
+			// report whether the command buttons (Return to base / Select target /
+			// Patrol) are shown. A peer's coop craft must NOT show them, so a
+			// non-owning player cannot redirect another player's ship. Params:
+			// craft_id, coop (which copy to match - own=false, peer mirror=true).
+			int craftId = req.get("craft_id", -1).asInt();
+			bool wantCoop = req.get("coop", false).asBool();
+			SavedGame* sg = _game->getSavedGame();
+			Craft* craft = nullptr;
+			if (sg)
+				for (auto* b : *sg->getBases())
+					for (auto* c : *b->getCrafts())
+						if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
+			GeoscapeState* geo = nullptr;
+			for (auto* s : _game->getStates())
+				if (auto* g = dynamic_cast<GeoscapeState*>(s)) geo = g;
+			if (!craft) resp["error"] = "no matching craft";
+			else if (!geo) resp["error"] = "no geoscape";
+			else
+			{
+				// Built but not pushed: the ctor configures button visibility (the
+				// guard), which is all we read; then discard it.
+				GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
+				resp["coop"] = craft->coop;
+				resp["buttons_visible"] = gcs->testControlButtonsVisible();
+				delete gcs;
+				resp["ok"] = true;
 			}
 		}
 		else

@@ -1487,6 +1487,14 @@ void GeoscapeState::think()
 						root["crafts"][craft_index]["shield"] = craft->getShield();
 						root["crafts"][craft_index]["interceptionOrder"] = craft->getInterceptionOrder();
 						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage());
+						// returning-state flags, so the peer shows the correct craft
+						// status ("LOW FUEL" vs "MISSION COMPLETE" vs "RETURNING")
+						root["crafts"][craft_index]["lowFuel"] = craft->getLowFuel();
+						root["crafts"][craft_index]["mission"] = craft->getMissionComplete();
+						// full pre-localized airborne status string (destination /
+						// dogfight state is not replicated, so the peer can't derive
+						// it locally). Renders identically to the owner's own UI.
+						root["crafts"][craft_index]["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
 						// vehciles
 						root["crafts"][craft_index]["num_total_vehicles"] = craft->getNumTotalVehicles();
 						// soldiers

@@ -147,46 +147,14 @@ GeoscapeCraftState::GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *way
 	std::string status;
 	if (_waypoint != 0)
 	{
+		// UI-local redirect flow (owner only); not a synced craft state.
 		status = tr("STR_INTERCEPTING_UFO").arg(_waypoint->getId());
-	}
-	else if (_craft->getLowFuel())
-	{
-		status = tr("STR_LOW_FUEL_RETURNING_TO_BASE");
-	}
-	else if (_craft->getMissionComplete())
-	{
-		status = tr("STR_MISSION_COMPLETE_RETURNING_TO_BASE");
-	}
-	else if (_craft->getDestination() == 0)
-	{
-		status = tr("STR_PATROLLING");
-	}
-	else if (_craft->getDestination() == (Target*)_craft->getBase())
-	{
-		status = tr("STR_RETURNING_TO_BASE");
 	}
 	else
 	{
-		Ufo *u = dynamic_cast<Ufo*>(_craft->getDestination());
-		if (u != 0)
-		{
-			if (_craft->isInDogfight())
-			{
-				status = tr("STR_TAILING_UFO");
-			}
-			else if (u->getStatus() == Ufo::FLYING)
-			{
-				status = tr("STR_INTERCEPTING_UFO").arg(u->getId());
-			}
-			else
-			{
-				status = tr("STR_DESTINATION_UC_").arg(u->getName(_game->getLanguage()));
-			}
-		}
-		else
-		{
-			status = tr("STR_DESTINATION_UC_").arg(_craft->getDestination()->getName(_game->getLanguage()));
-		}
+		// Shared derivation: for a peer's craft this returns the value synced
+		// from its owner, so the status text matches on host and client.
+		status = _craft->getDisplayStatus(_game->getLanguage());
 	}
 	_txtStatus->setText(tr("STR_STATUS_").arg(status));
 
@@ -295,7 +263,10 @@ GeoscapeCraftState::GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *way
 		_btnCancel->setText(tr("STR_GO_TO_LAST_KNOWN_UFO_POSITION"));
 	}
 
-	if (_craft->getLowFuel() || _craft->getMissionComplete())
+	// coop: a peer's craft belongs to another player - never let this client
+	// redirect it. (This guard used to be provided implicitly by getLowFuel()
+	// hard-returning true for coop crafts.)
+	if (_craft->coop || _craft->getLowFuel() || _craft->getMissionComplete())
 	{
 		_btnBase->setVisible(false);
 		_btnTarget->setVisible(false);
@@ -322,6 +293,12 @@ GeoscapeCraftState::~GeoscapeCraftState()
  */
 void GeoscapeCraftState::btnBaseClick(Action *)
 {
+	// coop: cannot command a peer's craft
+	if (_craft->coop)
+	{
+		_game->popState();
+		return;
+	}
 	_game->popState();
 	_craft->returnToBase();
 	delete _waypoint;
@@ -338,6 +315,12 @@ void GeoscapeCraftState::btnBaseClick(Action *)
  */
 void GeoscapeCraftState::btnTargetClick(Action *)
 {
+	// coop: cannot command a peer's craft
+	if (_craft->coop)
+	{
+		_game->popState();
+		return;
+	}
 	_game->popState();
 	_game->pushState(new SelectDestinationState(std::vector{ _craft }, _globe));
 	delete _waypoint;
@@ -349,6 +332,12 @@ void GeoscapeCraftState::btnTargetClick(Action *)
  */
 void GeoscapeCraftState::btnPatrolClick(Action *)
 {
+	// coop: cannot command a peer's craft
+	if (_craft->coop)
+	{
+		_game->popState();
+		return;
+	}
 	_game->popState();
 	_craft->setDestination(0);
 	delete _waypoint;
@@ -365,6 +354,16 @@ void GeoscapeCraftState::btnPatrolClick(Action *)
  * Closes the window.
  * @param action Pointer to an action.
  */
+/**
+ * Test hook: whether the craft-command buttons are visible (all three are
+ * shown/hidden as a group by the coop / low-fuel / mission-complete guard).
+ * @return True only if Base, Target and Patrol are all visible.
+ */
+bool GeoscapeCraftState::testControlButtonsVisible() const
+{
+	return _btnBase->getVisible() && _btnTarget->getVisible() && _btnPatrol->getVisible();
+}
+
 void GeoscapeCraftState::btnCancelClick(Action *)
 {
 	// Go to the last known UFO position

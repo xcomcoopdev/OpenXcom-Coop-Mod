@@ -5345,6 +5345,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						craft->coop_total_soldiers = num_total_soldiers;
 						craft->coop_total_vehicles = num_total_vehicles;
 
+						// returning-state flags (default false so older/partial
+						// packets don't throw); drives the correct status display
+						craft->setLowFuel(obj["crafts"][i].get("lowFuel", false).asBool());
+						craft->setMissionComplete(obj["crafts"][i].get("mission", false).asBool());
+						// pre-localized airborne status string from the owner
+						craft->setCoopGeoStatus(obj["crafts"][i].get("geoStatus", "").asString());
+
 						// weapons
 						auto& weapons = *craft->getWeapons();
 						const Json::Value& wj = obj["crafts"][i]["weapons"];

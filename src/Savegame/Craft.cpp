@@ -969,7 +969,10 @@ int Craft::getShieldPercentage() const
  */
 bool Craft::isIgnoredByHK() const
 {
-	return getMissionComplete() || getLowFuel();
+	// coop: a peer's craft is simulated on its owner's client, so never let
+	// local hunter-killers target it (this used to be provided implicitly by
+	// getLowFuel() hard-returning true for coop crafts).
+	return coop || getMissionComplete() || getLowFuel();
 }
 
 /**
@@ -979,13 +982,9 @@ bool Craft::isIgnoredByHK() const
  */
 bool Craft::getLowFuel() const
 {
-
-	// coop
-	if (coop == true)
-	{
-		return true;
-	}
-
+	// coop: report the real synced flag. Coop crafts are kept out of local
+	// hunter-killer logic via isIgnoredByHK() instead, so the status display
+	// no longer wrongly shows "LOW FUEL" for every peer craft.
 	return _lowFuel;
 }
 
@@ -1017,6 +1016,73 @@ bool Craft::getMissionComplete() const
 void Craft::setMissionComplete(bool mission)
 {
 	_mission = mission;
+}
+
+/**
+ * Computes the airborne geoscape status string from this craft's own
+ * destination and flags. Mirrors the precedence in GeoscapeCraftState (minus
+ * the UI-local waypoint-redirect case), so the same code produces the status
+ * text on the owner and, via getDisplayStatus(), on a peer.
+ * @param lang Language for localization.
+ * @return The inner status string (without the "Status>" wrapper).
+ */
+std::string Craft::getGeoscapeStatusString(Language* lang) const
+{
+	if (getLowFuel())
+	{
+		return lang->getString("STR_LOW_FUEL_RETURNING_TO_BASE");
+	}
+	else if (getMissionComplete())
+	{
+		return lang->getString("STR_MISSION_COMPLETE_RETURNING_TO_BASE");
+	}
+	else if (getDestination() == 0)
+	{
+		return lang->getString("STR_PATROLLING");
+	}
+	else if (getDestination() == (Target*)getBase())
+	{
+		return lang->getString("STR_RETURNING_TO_BASE");
+	}
+	else
+	{
+		const Ufo* u = dynamic_cast<const Ufo*>(getDestination());
+		if (u != 0)
+		{
+			if (isInDogfight())
+			{
+				return lang->getString("STR_TAILING_UFO");
+			}
+			else if (u->getStatus() == Ufo::FLYING)
+			{
+				return lang->getString("STR_INTERCEPTING_UFO").arg(u->getId());
+			}
+			else
+			{
+				return lang->getString("STR_DESTINATION_UC_").arg(u->getName(lang));
+			}
+		}
+		else
+		{
+			return lang->getString("STR_DESTINATION_UC_").arg(getDestination()->getName(lang));
+		}
+	}
+}
+
+/**
+ * Gets the status string to display for this craft: for a peer's craft the
+ * value synced from its owner (its own destination is not replicated), else
+ * the locally-computed one.
+ * @param lang Language for localization.
+ * @return The status string to show.
+ */
+std::string Craft::getDisplayStatus(Language* lang) const
+{
+	if (coop)
+	{
+		return _coopGeoStatus;
+	}
+	return getGeoscapeStatusString(lang);
 }
 
 /**
