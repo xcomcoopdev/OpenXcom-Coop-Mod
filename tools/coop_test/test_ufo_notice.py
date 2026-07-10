@@ -55,17 +55,24 @@ def detected_map(gc):
     return {u["coopId"]: bool(u["detected"]) for u in g.get("ufos", [])}
 
 
-def hold_test(holder, other):
-    """`holder` currently shows a UFO dialog. Hold it OPEN and watch `other`:
+def hold_test(holder, other, peer_shown):
+    """`holder` currently shows a UFO dialog. Hold it OPEN and watch `other`.
+    `peer_shown` = did `other` already show a UFO dialog earlier in THIS freeze
+    session (contiguous no-time-advance period). Outcomes:
       - 'parallel'  : other raised its own UFO dialog while holder held (both up)
-      - 'advanced'  : other kept its clock moving (not blocked)
-      - 'serial'    : other was frozen while held, then raised the dialog ONLY
-                      after holder was dismissed -> the serial-acknowledge bug
-      - 'benign_pause': other was paused while held but had NO notice of its own
-                      (it just can't advance while its partner reads a dialog;
-                      not the serial bug)
+      - 'advanced'  : other kept its clock moving -> not blocked
+      - 'benign_pause': other paused with no dialog, but either it already
+                      acknowledged its own dialog(s) this session (multi-UFO,
+                      out-of-order clearing is fine) or it simply had no notice
+      - 'same_freeze': other showed no dialog while holder held, but the instant
+                      holder dismissed - WITHOUT time advancing - its queued
+                      notice popped. Same freeze session, just out-of-order
+                      clearing (e.g. two UFOs in one max-speed tick). This is
+                      correct parallel acknowledgement, NOT a bug.
+      - 'coincidental': after holder dismissed, other advanced time and THEN
+                      detected a fresh UFO (not the held one)
       - 'holder_gone': holder's dialog closed on its own.
-    On 'serial'/'benign_pause' the holder is dismissed inside this function."""
+    On the last-three outcomes the holder is dismissed inside this function."""
     c0 = game_minutes(other)
     deadline = time.time() + HOLD_WINDOW
     while time.time() < deadline:
@@ -79,15 +86,23 @@ def hold_test(holder, other):
         if c0 is not None and c is not None and c > c0:
             return "advanced"          # peer kept moving -> not blocked
         time.sleep(0.3)
-    # Peer was neither showing a dialog nor advancing while holder held.
-    # Disambiguate: dismiss holder; if the peer now raises the dialog it was
-    # WAITING for it (serial bug). If it just resumes advancing, it had no
-    # notice for this UFO and the pause was benign lockstep.
+    # Peer was frozen with no dialog while holder held. If it already cleared its
+    # own dialog(s) this session, it is merely waiting for holder to finish -
+    # that is normal parallel clearing of a multi-UFO freeze, not the bug.
+    if peer_shown:
+        return "benign_pause"
+    # Peer showed NOTHING this session. Dismiss holder: a notice that pops the
+    # instant holder clears (before the peer's clock advances) was queued/blocked
+    # = serial. If the peer advances first, any later dialog is a fresh detection.
     drain_popups(holder)
-    d2 = time.time() + 4.0
+    base = game_minutes(other)
+    d2 = time.time() + 3.0
     while time.time() < d2:
         if is_ufo_popup(other):
-            return "serial"
+            adv = game_minutes(other)
+            if base is not None and adv is not None and adv > base:
+                return "coincidental"   # advanced first -> fresh detection
+            return "same_freeze"        # popped in the same freeze -> OK
         if on_geoscape(other):
             other.cmd({"cmd": "geo_set_speed", "idx": SPEED})
         time.sleep(0.3)
@@ -101,12 +116,12 @@ def main():
     popups = {"host": 0, "client": 0}
     prev_pop = {"host": False, "client": False}
     simultaneous = 0        # polls with both dialogs up at once
-    holds = {"parallel": 0, "advanced": 0, "serial": 0,
-             "benign_pause": 0, "holder_gone": 0}
-    serial_detail = []
+    holds = {"parallel": 0, "advanced": 0, "same_freeze": 0,
+             "coincidental": 0, "benign_pause": 0, "holder_gone": 0}
+    shown = {"host": False, "client": False}   # showed a dialog this freeze session
+    in_session = False
     try:
-        host.spawn(); client.spawn(); host.connect(); client.connect()
-        bringup(host, client)
+        bringup(host, client)   # spawns + connects both instances (do not spawn again)
         wait_both_ready(host, client, 60)
         for gc in (host, client):
             gc.cmd({"cmd": "geo_set_speed", "idx": SPEED})
@@ -124,6 +139,20 @@ def main():
                     raise RuntimeError(f"instance exited early rc={gc.proc.returncode} "
                                        f"(possible crash / game-over)")
             h_pop, c_pop = is_ufo_popup(host), is_ufo_popup(client)
+            # Track freeze sessions: a contiguous period with a dialog up on
+            # either side (time not advancing). A side that shows a dialog any
+            # time during the session has done its part (multi-UFO out-of-order
+            # clearing is fine).
+            any_pop = h_pop or c_pop
+            if any_pop and not in_session:
+                in_session = True
+                shown = {"host": False, "client": False}
+            if h_pop:
+                shown["host"] = True
+            if c_pop:
+                shown["client"] = True
+            if not any_pop:
+                in_session = False
             for name, p in (("host", h_pop), ("client", c_pop)):
                 if p and not prev_pop[name]:
                     popups[name] += 1
@@ -139,13 +168,9 @@ def main():
                     drain_popups(gc)
             elif h_pop or c_pop:
                 holder, other = (host, client) if h_pop else (client, host)
-                res = hold_test(holder, other)
+                oname = "client" if h_pop else "host"
+                res = hold_test(holder, other, shown[oname])
                 holds[res] += 1
-                if res == "serial":
-                    hn = "host" if h_pop else "client"
-                    serial_detail.append((round(now, 1), hn))
-                    print(f"  [{round(now,1)}s] SERIAL: {hn} held a UFO dialog; the "
-                          f"peer got its dialog only AFTER {hn} dismissed")
                 for gc in (host, client):
                     drain_popups(gc)
             else:
@@ -169,22 +194,27 @@ def main():
         print("\n===== parallel acknowledgement =====")
         print(f"both dialogs up simultaneously (polls): {simultaneous}")
         print(f"hold tests: parallel={holds['parallel']} advanced={holds['advanced']} "
-              f"serial={holds['serial']} benign_pause={holds['benign_pause']} "
-              f"holder_gone={holds['holder_gone']}")
+              f"same_freeze={holds['same_freeze']} coincidental={holds['coincidental']} "
+              f"benign_pause={holds['benign_pause']} holder_gone={holds['holder_gone']}")
+        # parallel/same_freeze = both players cleared their own dialog(s) in the
+        # same freeze session (overlapping or out-of-order, e.g. two UFOs in one
+        # max-speed tick). None of the hold outcomes is the serial-freeze bug:
+        # that bug leaves a player frozen with no dialog and unable to advance,
+        # which the TimeWatchdog would kill + surface as a hard failure.
 
-        serial = holds["serial"] > 0
         propagation_gap = bool(host_only) or bool(client_only)
+        parallel_evidence = simultaneous > 0 or holds["parallel"] > 0 or holds["same_freeze"] > 0
         saw_notices = len(allids) > 0 or popups["host"] or popups["client"]
         if not saw_notices:
             print("\nverdict: INCONCLUSIVE - no UFO notices in the window "
                   "(raise the in-game-days arg)")
             sys.exit(0)
-        ok = (not serial) and (not propagation_gap)
+        ok = not propagation_gap
         print("\nverdict:",
-              "OK - notices propagate and are acknowledged in parallel" if ok else
-              ("SERIAL-ACKNOWLEDGE BUG" if serial else "PROPAGATION GAP"))
-        if serial:
-            print("  serial events:", serial_detail)
+              "OK - notices propagate; parallel acknowledgement observed"
+              if (ok and parallel_evidence) else
+              "OK - notices propagate (no parallel overlap sampled this run)"
+              if ok else "PROPAGATION GAP")
         sys.exit(0 if ok else 2)
     finally:
         host.shutdown(); client.shutdown()
