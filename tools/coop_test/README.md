@@ -63,6 +63,8 @@ campaign each run.
   Exposes `bootstrap_fresh_session()` and `own_base()` reused by other tests.
 - `test_transfer_rollback.py` - host-save-is-authority rollback, both directions.
 - `test_server_browser.py` - rendezvous-server combobox state (offline path).
+- `test_ufo_notice.py` - when one player detects a UFO, the peer gets the notice
+  too (both `UfoDetectedState` popups); checks both directions.
 
 `harness.py` is the shared library (not a test).
 
