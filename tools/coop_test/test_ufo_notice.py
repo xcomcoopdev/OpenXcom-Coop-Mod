@@ -1,18 +1,22 @@
-"""Coop UFO-notice propagation test.
+"""Coop UFO-notice propagation + PARALLEL-acknowledgement test.
 
-Question: when one player detects a UFO, does the peer get the notice too?
+Two things are validated:
 
-Mechanism under test (src/Geoscape/UfoDetectedState.cpp:238): the detecting
-OWNER of a UFO (coop==false) sends a reliable "ufo_popup" packet; the peer
-(connectionTCP "ufo_popup" handler -> GeoscapeState show_coop_ufo_popup) pops a
-UfoDetectedState for the matching coop UFO. So host-owned detections should
-reach the client. The client-first direction is unverified (the client's own
-UfoDetectedState is coop==true, which does NOT send back).
+1. Propagation: when one player detects a UFO, the peer gets the notice too
+   (both show UfoDetectedState). Mechanism: the detecting owner sends a reliable
+   "ufo_popup" packet (src/Geoscape/UfoDetectedState.cpp:238); the peer pops a
+   UfoDetectedState for the matching coop UFO (connectionTCP "ufo_popup" ->
+   GeoscapeState show_coop_ufo_popup).
 
-This drives a fresh 2-player session at a moderate speed and, per UFO (by the
-shared coop id), records when `detected` first turns true on each side, and
-counts the UfoDetectedState popups each side actually shows. Reports both
-directions + latency.
+2. Parallel acknowledgement (the important one): both players must be able to
+   see and dismiss the dialog INDEPENDENTLY. The historical bug was: a UFO
+   dialog on player A froze A's time, which blocked the notice from reaching
+   B, so B sat frozen (no dialog, clock stopped) until A dismissed - forcing
+   SERIAL acknowledgement. This test holds one side's UFO dialog OPEN and checks
+   the peer is NOT left frozen-without-a-dialog: the peer must either raise its
+   own UFO dialog (both up at once = parallel) or keep advancing. If the peer is
+   stuck (no dialog AND clock frozen) while the first holds its dialog, that is
+   the serial-freeze bug.
 
 Run: python tools/coop_test/test_ufo_notice.py [observe_seconds]
 """
@@ -24,10 +28,18 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 from test_geoscape_sync import bringup
-from geo import wait_both_ready, drain_popups, on_geoscape, top_state, TimeWatchdog, game_minutes
+from geo import (wait_both_ready, drain_popups, on_geoscape, top_state,
+                 TimeWatchdog, game_minutes)
 
-SPEED = 3  # 30min/tick: UFOs persist and detections are observable
+SPEED = 3           # 30min/tick: UFOs persist and detections are observable
 OBSERVE_S = int(sys.argv[1]) if len(sys.argv) > 1 else 150
+HOLD_WINDOW = 6.0   # sec to hold one dialog while checking the peer isn't frozen
+
+UFO_POPUP = "UfoDetectedState"
+
+
+def is_ufo_popup(gc):
+    return top_state(gc).endswith(UFO_POPUP)
 
 
 def detected_map(gc):
@@ -37,76 +49,130 @@ def detected_map(gc):
     return {u["coopId"]: bool(u["detected"]) for u in g.get("ufos", [])}
 
 
+def hold_test(holder, other):
+    """`holder` currently shows a UFO dialog. Hold it OPEN and watch `other`:
+      - 'parallel'  : other raised its own UFO dialog while holder held (both up)
+      - 'advanced'  : other kept its clock moving (not blocked)
+      - 'serial'    : other was frozen while held, then raised the dialog ONLY
+                      after holder was dismissed -> the serial-acknowledge bug
+      - 'benign_pause': other was paused while held but had NO notice of its own
+                      (it just can't advance while its partner reads a dialog;
+                      not the serial bug)
+      - 'holder_gone': holder's dialog closed on its own.
+    On 'serial'/'benign_pause' the holder is dismissed inside this function."""
+    c0 = game_minutes(other)
+    deadline = time.time() + HOLD_WINDOW
+    while time.time() < deadline:
+        if not is_ufo_popup(holder):
+            return "holder_gone"
+        if is_ufo_popup(other):
+            return "parallel"          # both dialogs up at the same time
+        if on_geoscape(other):
+            other.cmd({"cmd": "geo_set_speed", "idx": SPEED})
+        c = game_minutes(other)
+        if c0 is not None and c is not None and c > c0:
+            return "advanced"          # peer kept moving -> not blocked
+        time.sleep(0.3)
+    # Peer was neither showing a dialog nor advancing while holder held.
+    # Disambiguate: dismiss holder; if the peer now raises the dialog it was
+    # WAITING for it (serial bug). If it just resumes advancing, it had no
+    # notice for this UFO and the pause was benign lockstep.
+    drain_popups(holder)
+    d2 = time.time() + 4.0
+    while time.time() < d2:
+        if is_ufo_popup(other):
+            return "serial"
+        if on_geoscape(other):
+            other.cmd({"cmd": "geo_set_speed", "idx": SPEED})
+        time.sleep(0.3)
+    return "benign_pause"
+
+
 def main():
     host = GameClient("host", 47801, make_user_dir("host-user"))
     client = GameClient("client", 47802, make_user_dir("client-user"))
-    first_det = {"host": {}, "client": {}}   # coopId -> t (first detected==true)
+    first_det = {"host": {}, "client": {}}
     popups = {"host": 0, "client": 0}
-    prev_ufopopup = {"host": False, "client": False}
+    prev_pop = {"host": False, "client": False}
+    simultaneous = 0        # polls with both dialogs up at once
+    holds = {"parallel": 0, "advanced": 0, "serial": 0,
+             "benign_pause": 0, "holder_gone": 0}
+    serial_detail = []
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
         bringup(host, client)
         wait_both_ready(host, client, 60)
         for gc in (host, client):
             gc.cmd({"cmd": "geo_set_speed", "idx": SPEED})
-        print(f"observing UFO detection/notice for {OBSERVE_S}s at speed {SPEED} ...")
+        print(f"observing {OBSERVE_S}s at speed {SPEED} "
+              f"(hold window {HOLD_WINDOW}s) ...")
 
-        wd = TimeWatchdog([host, client], timeout=30.0)
+        wd = TimeWatchdog([host, client], timeout=40.0)
         t0 = time.time()
         while time.time() - t0 < OBSERVE_S:
             now = time.time() - t0
+            h_pop, c_pop = is_ufo_popup(host), is_ufo_popup(client)
+            for name, p in (("host", h_pop), ("client", c_pop)):
+                if p and not prev_pop[name]:
+                    popups[name] += 1
+                prev_pop[name] = p
             for name, gc in (("host", host), ("client", client)):
-                top = top_state(gc)
-                is_pop = top.endswith("UfoDetectedState")
-                if is_pop and not prev_ufopopup[name]:
-                    popups[name] += 1     # rising edge = one new notice shown
-                prev_ufopopup[name] = is_pop
                 for cid, det in detected_map(gc).items():
                     if det and cid not in first_det[name]:
                         first_det[name][cid] = now
-                drain_popups(gc)          # close the notice so time keeps moving
-                if on_geoscape(gc):
-                    gc.cmd({"cmd": "geo_set_speed", "idx": SPEED})
+
+            if h_pop and c_pop:
+                simultaneous += 1
+                for gc in (host, client):   # both up = parallel; clear both
+                    drain_popups(gc)
+            elif h_pop or c_pop:
+                holder, other = (host, client) if h_pop else (client, host)
+                res = hold_test(holder, other)
+                holds[res] += 1
+                if res == "serial":
+                    hn = "host" if h_pop else "client"
+                    serial_detail.append((round(now, 1), hn))
+                    print(f"  [{round(now,1)}s] SERIAL: {hn} held a UFO dialog; the "
+                          f"peer got its dialog only AFTER {hn} dismissed")
+                for gc in (host, client):
+                    drain_popups(gc)
+            else:
+                for gc in (host, client):
+                    drain_popups(gc)
+                    if on_geoscape(gc):
+                        gc.cmd({"cmd": "geo_set_speed", "idx": SPEED})
             wd.tick(game_minutes(host))
-            time.sleep(0.4)
+            time.sleep(0.3)
 
         allids = set(first_det["host"]) | set(first_det["client"])
-        both = 0
-        host_only, client_only = [], []
-        lat_h2c, lat_c2h = [], []
-        for cid in allids:
-            th = first_det["host"].get(cid)
-            tc = first_det["client"].get(cid)
-            if th is not None and tc is not None:
-                both += 1
-                (lat_h2c if th <= tc else lat_c2h).append(abs(tc - th))
-            elif th is not None:
-                host_only.append(cid)
-            else:
-                client_only.append(cid)
-
-        def stat(l):
-            return f"n={len(l)} avg={sum(l) / len(l):.1f}s max={max(l):.1f}s" if l else "n=0"
+        both = len(set(first_det["host"]) & set(first_det["client"]))
+        host_only = sorted(set(first_det["host"]) - set(first_det["client"]))
+        client_only = sorted(set(first_det["client"]) - set(first_det["host"]))
 
         print("\n===== UFO detection propagation =====")
-        print(f"UFOs detected on at least one side: {len(allids)}")
-        print(f"  detected on BOTH:                 {both}")
-        print(f"  host-only (client never got it):  {len(host_only)} {host_only}")
-        print(f"  client-only (host never got it):  {len(client_only)} {client_only}")
-        print(f"  host->client latency: {stat(lat_h2c)}")
-        print(f"  client->host latency: {stat(lat_c2h)}")
+        print(f"UFOs detected on at least one side: {len(allids)}  both: {both}")
+        print(f"  host-only:   {len(host_only)} {host_only}")
+        print(f"  client-only: {len(client_only)} {client_only}")
         print(f"UfoDetectedState popups shown: host={popups['host']} client={popups['client']}")
+        print("\n===== parallel acknowledgement =====")
+        print(f"both dialogs up simultaneously (polls): {simultaneous}")
+        print(f"hold tests: parallel={holds['parallel']} advanced={holds['advanced']} "
+              f"serial={holds['serial']} benign_pause={holds['benign_pause']} "
+              f"holder_gone={holds['holder_gone']}")
 
-        # Verdict. A UFO detected on one side must reach the other. (Radar
-        # coverage can overlap, so some pairs may be independent detections
-        # rather than the ufo_popup notify - but either way both must see it.)
-        if not allids:
-            print("\nverdict: INCONCLUSIVE - no UFOs detected in the window "
+        serial = holds["serial"] > 0
+        propagation_gap = bool(host_only) or bool(client_only)
+        saw_notices = len(allids) > 0 or popups["host"] or popups["client"]
+        if not saw_notices:
+            print("\nverdict: INCONCLUSIVE - no UFO notices in the window "
                   "(raise observe_seconds)")
             sys.exit(0)
-        ok = (not host_only and not client_only)
-        print("\nverdict:", "OK - notices propagate both ways" if ok else
-              "GAP - some detections did not reach the peer")
+        ok = (not serial) and (not propagation_gap)
+        print("\nverdict:",
+              "OK - notices propagate and are acknowledged in parallel" if ok else
+              ("SERIAL-ACKNOWLEDGE BUG" if serial else "PROPAGATION GAP"))
+        if serial:
+            print("  serial events:", serial_detail)
         sys.exit(0 if ok else 2)
     finally:
         host.shutdown(); client.shutdown()
