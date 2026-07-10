@@ -63,6 +63,10 @@ public:
 	void btnPatrolClick(Action *action);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
+	/// Test hook: true only if all three craft-command buttons (Return to base,
+	/// Select target, Patrol) are shown. They are hidden for a peer's coop craft
+	/// so a non-owning player cannot redirect another player's ship.
+	bool testControlButtonsVisible() const;
 };
 
 }
