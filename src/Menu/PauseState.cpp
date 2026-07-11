@@ -144,9 +144,10 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_btnAbandon->setText(tr("STR_SAVE_AND_ABANDON_GAME"));
 	}
 
-	// coop
-   // geoscape
-	if (_game->getCoopMod()->getCoopStatic() == true || _game->getCoopMod()->getServerOwner() == true)
+	// coop: PRD-08 - hide Load whenever local loads are forbidden right now (any
+	// live coop session, host included). Outside a live session the button follows
+	// the normal/ironman rules above.
+	if (!_game->getCoopMod()->localLoadsAllowed())
 	{
 		_btnLoad->setVisible(false);
 	}
@@ -156,15 +157,6 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 
 		_btnLoad->setVisible(false);
 		_btnSave->setVisible(false);
-
-	}
-
-	// Client-side error
-	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
-	{
-
-		// Show the save button only for bugs that have occurred!
-		_btnSave->setVisible(true);
 
 	}
 
@@ -186,8 +178,13 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		}
 	}
 
-	// coop
-	if (_game->getCoopMod()->isCoopSession() == false && _game->getCoopMod()->getServerOwner() == false)
+	// coop: re-show Load/Save only when this machine is truly solo. The old
+	// condition (!isCoopSession && !host) also fired for a coop-static client
+	// during the brief window where isCoopSession reads false, re-exposing local
+	// load/save to a client. Gating on localSavesAllowed() (which is false for a
+	// client) plus !host keeps the host's Load hidden (its policy is PRD-08) and
+	// preserves solo behavior exactly.
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_btnLoad->setVisible(true);
 		_btnSave->setVisible(true);
@@ -231,8 +228,9 @@ void PauseState::btnLoadClick(Action *)
 void PauseState::btnSaveClick(Action *)
 {
 
-	// Client-side error
-	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
+	// A machine that may not touch local saves (coop client) gets an error
+	// popup instead of the save list. Same authority as every other gate.
+	if (!_game->getCoopMod()->localSavesAllowed())
 	{
 		_game->pushState(new CoopState(123));
 	}
@@ -268,9 +266,9 @@ void PauseState::btnCoopClick(Action *)
 void PauseState::init()
 {
 
-	// coop
-	// geoscape
-	if (_game->getCoopMod()->getCoopStatic() == true || _game->getCoopMod()->getServerOwner() == true)
+	// coop: PRD-08 - hide Load whenever local loads are forbidden right now (any
+	// live coop session, host included).
+	if (!_game->getCoopMod()->localLoadsAllowed())
 	{
 		_btnLoad->setVisible(false);
 	}
@@ -281,15 +279,9 @@ void PauseState::init()
 		_btnSave->setVisible(false);
 	}
 
-	// Client-side error
-	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
-	{
-		// Show the save button only for bugs that have occurred!
-		_btnSave->setVisible(true);
-	}
-
-	// coop
-	if (_game->getCoopMod()->isCoopSession() == false && _game->getCoopMod()->getServerOwner() == false)
+	// coop: re-show Load/Save only when truly solo (see init() note above);
+	// never re-expose a coop client to local load/save.
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_btnLoad->setVisible(true);
 		_btnSave->setVisible(true);

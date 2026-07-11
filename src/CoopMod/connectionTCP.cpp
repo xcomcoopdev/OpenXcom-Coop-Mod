@@ -48,6 +48,11 @@
 
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/Globe.h"
+#include "../Geoscape/BaseNameState.h"
+#include "../Geoscape/BuildNewBaseState.h"
+#include "../Basescape/PlaceLiftState.h"
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
 
@@ -78,6 +83,10 @@ bool sendFileHost = false;
 // allow sending a file to the host
 bool sendProgressSaveFileToHost = false;
 std::string sendProgressLoadFileToClient = "";
+// Snapshot of the resume blob, copied on the main thread when a
+// request_load_progress arrives so the streamer thread never touches the
+// shared blob maps for it.
+std::string sendProgressLoadBlob = "";
 // is the file to be sent a saved file?
 bool sendFileSave = false;
 // map data
@@ -101,7 +110,6 @@ int tcp_port = 3000;
 bool onTcpHost = false;
 
 // is the server owner the one who creates the server?
-bool server_owner = false;
 
 // the local server name
 std::string sendTcpServerName = "Server";
@@ -177,10 +185,159 @@ bool connectionTCP::pauseSound = false;
 
 bool connectionTCP::saveError = false;
 
+CoopSession connectionTCP::session;
+
+std::string connectionTCP::joinRefusalReason = "";
+
+// --- CoopSession transitions: every lifecycle change is logged. The mirrored
+// --- booleans ARE the encoding (PRD-12 S4 deleted the write-only phase enum);
+// --- every multi-field / cross-file write funnels through a named method here.
+
+void CoopSession::beginHosting()
+{
+	role = CoopRole::Host;
+	Log(LOG_INFO) << "[coop-session] beginHosting (role=Host)";
+}
+
+void CoopSession::beginJoining()
+{
+	role = CoopRole::Client;
+	Log(LOG_INFO) << "[coop-session] beginJoining (role=Client)";
+}
+
+void CoopSession::clientAttached()
+{
+	clientInLobby = true;
+	Log(LOG_INFO) << "[coop-session] clientAttached (clientInLobby=1)";
+}
+
+void CoopSession::campaignStarted()
+{
+	sessionLocked = true;
+	Log(LOG_INFO) << "[coop-session] campaignStarted (sessionLocked=1)";
+}
+
+void CoopSession::sessionLive()
+{
+	// waiting dialogs released; play begins/resumes. No boolean of its own -
+	// the surrounding flow already set lobbyClosed/campaignBegun; this is the
+	// lifecycle marker in the log.
+	Log(LOG_INFO) << "[coop-session] sessionLive";
+}
+
+void CoopSession::freeze()
+{
+	// a registered player dropped mid-session (D5). The freeze dialog + the
+	// preserved lobby/campaign booleans carry the state; this marks it in the log.
+	Log(LOG_INFO) << "[coop-session] freeze (lobbyMode=" << lobbyMode
+		<< " locked=" << sessionLocked << ")";
+}
+
+void CoopSession::setRole(CoopRole r)
+{
+	role = r;
+	Log(LOG_INFO) << "[coop-session] setRole -> "
+		<< (r == CoopRole::Host ? "Host" : r == CoopRole::Client ? "Client" : "None");
+}
+
+void CoopSession::adoptResumeSave()
+{
+	lobbyMode = 2;
+	sessionLocked = false;
+	resumeAck = false;
+	Log(LOG_INFO) << "[coop-session] adoptResumeSave (lobbyMode=2, unlocked, ack cleared)";
+}
+
+void CoopSession::armResumeHandshake(bool hasBattle)
+{
+	resumeAck = false;
+	resumeBattlePending = hasBattle;
+	Log(LOG_INFO) << "[coop-session] armResumeHandshake (battlePending=" << hasBattle << ")";
+}
+
+void CoopSession::markLobbyOpen()
+{
+	lobbyClosed = false;
+	Log(LOG_INFO) << "[coop-session] markLobbyOpen (lobbyClosed=0)";
+}
+
+void CoopSession::markLobbyClosed()
+{
+	lobbyClosed = true;
+	Log(LOG_INFO) << "[coop-session] markLobbyClosed (lobbyClosed=1)";
+}
+
+void CoopSession::armDeferredSave(const std::string& name)
+{
+	pendingHostSaveName = name;
+	Log(LOG_INFO) << "[coop-session] armDeferredSave ('" << name << "')";
+}
+
+void CoopSession::clearDeferredSave()
+{
+	pendingHostSaveName.clear();
+	Log(LOG_INFO) << "[coop-session] clearDeferredSave";
+}
+
+void CoopSession::signalCampaignBegun()
+{
+	campaignBegun = true;
+	Log(LOG_INFO) << "[coop-session] signalCampaignBegun (campaignBegun=1)";
+}
+
+void CoopSession::consumeCampaignBegun()
+{
+	campaignBegun = false;
+	Log(LOG_INFO) << "[coop-session] consumeCampaignBegun (campaignBegun=0)";
+}
+
+void CoopSession::resetSession()
+{
+	Log(LOG_INFO) << "[coop-session] resetSession";
+	role = CoopRole::None;
+	lobbyMode = 0;
+	clientInLobby = false;
+	sessionLocked = false;
+	lobbyClosed = true;
+	resumeAck = false;
+	resumeBattlePending = false;
+	resumeBattleEligible.clear();
+	campaignBegun = false;
+	pendingHostSaveName.clear();
+
+	// Full teardown returns the process to a pristine coop identity so a later
+	// solo save (or a second campaign) does not inherit this session's saveID or
+	// its stale world blobs (fixes C1/C2). This is the ONLY teardown path;
+	// onClientDrop deliberately keeps both so the host can serve a rejoin (D5).
+	connectionTCP::saveID = 0;
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		connectionTCP::coopFilesHost.clear();
+		connectionTCP::coopFilesClient.clear();
+	}
+}
+
+void CoopSession::onClientDrop()
+{
+	Log(LOG_INFO) << "[coop-session] onClientDrop";
+	clientInLobby = false;
+	resumeAck = false;
+	resumeBattlePending = false;
+	resumeBattleEligible.clear();
+	campaignBegun = false;
+	pendingHostSaveName.clear();
+	// role/lobbyMode/sessionLocked/lobbyClosed survive: the campaign context
+	// outlives a peer drop (D5) - the freeze dialog or waiting lobby takes
+	// over. The legacy new-battle lobby (mode 0) instead restarts its ready
+	// dance, so its lock is released here.
+	if (lobbyMode == 0)
+	{
+		sessionLocked = false;
+	}
+}
+
 bool connectionTCP::isPasswordRequired = false;
 std::string connectionTCP::password = "";
-
-bool connectionTCP::isCoopSessionLocked = false;
 
 bool connectionTCP::isPlayerReady = false;
 
@@ -190,11 +347,11 @@ int connectionTCP::LobbyFileStatus = -1;
 
 int connectionTCP::lobby_timer = -1;
 
+bool connectionTCP::loadProgressBusy = false;
+
 bool connectionTCP::forceCloseCoopStateMenu = false;
 
 bool connectionTCP::forceClosePasswordCheckMenu = false;
-
-bool connectionTCP::isLobbyMenuClosed = true;
 
 int connectionTCP::manuallyAddedServerRemoveID = -1;
 
@@ -218,6 +375,7 @@ int connectionTCP::daysPassed = 0;
 
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesHost{};
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesClient{};
+std::mutex OpenXcom::connectionTCP::coopFilesMutex;
 
 std::string current_ping = "";
 
@@ -444,6 +602,8 @@ void logError(const std::string& msg)
 
 bool connectionTCP::hasCoopFile(const std::string& key)
 {
+	std::lock_guard<std::mutex> lock(coopFilesMutex);
+
 	const auto& coopFiles = getServerOwner()
 								? coopFilesHost
 								: coopFilesClient;
@@ -451,9 +611,155 @@ bool connectionTCP::hasCoopFile(const std::string& key)
 	return coopFiles.find(key) != coopFiles.end();
 }
 
+std::string connectionTCP::hostBlobKey(const std::string& clientName)
+{
+	return "host_" + std::to_string(connectionTCP::saveID) + "_" + clientName + ".data";
+}
+
+// Single authority for "may this machine touch local saves". coopSession is the
+// file-scope global behind isCoopSession(); getCoopStatic()/getServerOwner() are
+// static. Solo (no session, not connected) or the host may use local .sav files;
+// a coop client may not (its world lives only in the host's save).
+bool connectionTCP::localSavesAllowed()
+{
+	return (!coopSession && !getCoopStatic()) || getServerOwner();
+}
+
+bool connectionTCP::localLoadsAllowed()
+{
+	// Same liveness terms the save gate uses, WITHOUT the host escape: a live
+	// session forbids local loads for everyone (C7). Solo / post-session: allowed.
+	return !coopSession && !getCoopStatic();
+}
+
+
+std::string connectionTCP::clientBlobKey(const std::string& hostName)
+{
+	return "client_" + std::to_string(connectionTCP::saveID) + "_" + hostName + ".data";
+}
+
+const std::string* connectionTCP::findHostClientBlob(const std::string& clientName)
+{
+	// Keys look like host_<saveID>_<clientName>.data. Match the EXACT name field
+	// (so "Bob" never matches "Super_Bob") and, among matches, keep the newest
+	// saveID (datetime ids are equal-width, so lexicographic compare orders
+	// them). Parsing lives here, not in SavedGame::save.
+	static const std::string prefix = "host_";
+	static const std::string ext = ".data";
+	const std::string* best = nullptr;
+	std::string bestId;
+	for (const auto& kv : coopFilesHost)
+	{
+		const std::string& k = kv.first;
+		if (kv.second.empty()
+			|| k.size() < prefix.size() + ext.size()
+			|| k.compare(0, prefix.size(), prefix) != 0
+			|| k.compare(k.size() - ext.size(), ext.size(), ext) != 0)
+			continue;
+		size_t idEnd = k.find('_', prefix.size());
+		if (idEnd == std::string::npos || k.size() < idEnd + 1 + ext.size())
+			continue;
+		std::string name = k.substr(idEnd + 1, k.size() - (idEnd + 1) - ext.size());
+		if (name != clientName)
+			continue;
+		std::string id = k.substr(prefix.size(), idEnd - prefix.size());
+		if (!best || id > bestId)
+		{
+			best = &kv.second;
+			bestId = id;
+		}
+	}
+	return best;
+}
+
+// One authority for the campaign_start packet (see header). Reads the player
+// roster from the save (host lobby start sets it just before calling this, so
+// save->getCoopPlayers() equals the freshly-built list).
+Json::Value connectionTCP::buildCampaignStartPacket(const SavedGame* save)
+{
+	Json::Value root;
+	root["state"] = "campaign_start";
+	root["difficulty"] = (int)save->getDifficulty();
+	root["gamemode"] = connectionTCP::_coopGamemode;
+	root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
+	int idx = 0;
+	for (const auto& p : save->getCoopPlayers())
+	{
+		root["players"][idx++] = p;
+	}
+	return root;
+}
+
+bool connectionTCP::inCoopCampaignContext() const
+{
+	return _game->getSavedGame()
+		&& !_game->getSavedGame()->getCountries()->empty()
+		&& _game->getSavedGame()->isCoopSave();
+}
+
+// Drop world-blob captures that key the same player under an older saveID, so
+// the maps hold one entry per player instead of growing with every saveID
+// regeneration. Matches the EXACT player-name field of the key
+// (<prefix><saveID>_<playerName>.data), never a suffix: the old "ends with
+// _<name>.data" test also matched a DIFFERENT player whose name ended in the
+// stored name (storing "Bob" erased "Super_Bob"'s world - CONFIRMED S8 data
+// loss). Names are compared field-for-field so no such collision is possible.
+static void eraseStaleBlobEntries(std::unordered_map<std::string, std::string>& files,
+								  const std::string& prefix,
+								  const std::string& playerName,
+								  const std::string& keepKey)
+{
+	for (auto it = files.begin(); it != files.end();)
+	{
+		const std::string& k = it->first;
+		bool stale = false;
+		if (k != keepKey
+			&& k.size() >= 5
+			&& k.compare(0, prefix.size(), prefix) == 0
+			&& k.compare(k.size() - 5, 5, ".data") == 0)
+		{
+			// player-name field: everything between the saveID's trailing
+			// underscore and the ".data" extension.
+			size_t idEnd = k.find('_', prefix.size());
+			if (idEnd != std::string::npos && k.size() >= idEnd + 1 + 5)
+			{
+				std::string name = k.substr(idEnd + 1, k.size() - (idEnd + 1) - 5);
+				stale = (name == playerName);
+			}
+		}
+		if (stale)
+			it = files.erase(it);
+		else
+			++it;
+	}
+}
+
+namespace {
+// PRD-11 C13: thrown by the streamer's ack-wait loops when the connection is
+// torn down mid-transfer, so the streamer abandons the stream instead of
+// parking forever on isWaitMap while still holding sendFileClient.
+struct StreamAbort {};
+}
+
 // in the loop, load the map file data between host and client
 void connectionTCP::loopData()
 {
+	// Wait for the client's map-chunk ack (isWaitMap), but bail out if the
+	// connection is being torn down so a mid-transfer drop cannot park this
+	// thread. The teardown signal is disconnectTCP forcing BOTH send flags false
+	// (a live transfer always holds exactly one of them true); the destructor
+	// sets _stop. coopSession is NOT a reliable "streaming" signal here - the
+	// redesigned resume/rejoin flows stream a world without the old ready
+	// handshake that sets it, so keying on it aborts legitimate streams.
+	auto waitForMapAck = [&]() {
+		while (!isWaitMap)
+		{
+			if (_stop || (!sendFileClient && !sendFileHost))
+				throw StreamAbort{};
+			SDL_Delay(20);
+		}
+	};
+
 	while (!_stop)
 	{
 		try
@@ -464,7 +770,11 @@ void connectionTCP::loopData()
 
 				std::string filepath = "";
 
-				if (sendFileBase)
+				if (sendProgressLoadFileToClient != "")
+				{
+					filepath = sendProgressLoadFileToClient;
+				}
+				else if (sendFileBase)
 				{
 					filepath = "basehost";
 				}
@@ -473,14 +783,15 @@ void connectionTCP::loopData()
 					filepath = "battlehost";
 				}
 	
-				std::ifstream fileStream;
 				std::istringstream memoryStream;
 				std::istream* myfile = nullptr;
 
 				if (sendProgressLoadFileToClient == "")
 				{
 					// Read from memory
-					const auto& coopFiles = server_owner
+					std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+
+					const auto& coopFiles = getServerOwner()
 												? connectionTCP::coopFilesHost
 												: connectionTCP::coopFilesClient;
 
@@ -495,20 +806,18 @@ void connectionTCP::loopData()
 				}
 				else
 				{
-
-					// Read directly from the provided string content
-					memoryStream.str(sendProgressLoadFileToClient);
+					// Resume blob, snapshotted on the main thread when the
+					// request_load_progress arrived (nothing streams from disk)
+					memoryStream.str(sendProgressLoadBlob);
 					myfile = &memoryStream;
-
 				}
-	
+
 				std::string line;
 				std::string result;
 
 				while (std::getline(*myfile, line))
 				{
-					while (!isWaitMap)
-						SDL_Delay(20);
+					waitForMapAck();
 
 					std::cout << line << std::endl;
 					if (fileindex != 0)
@@ -529,8 +838,7 @@ void connectionTCP::loopData()
 						isWaitMap = true;
 						for (unsigned i = 0; i < result.length(); i += 3000)
 						{
-							while (!isWaitMap)
-								SDL_Delay(20);
+							waitForMapAck();
 
 							isWaitMap = false;
 
@@ -551,8 +859,7 @@ void connectionTCP::loopData()
 				obj["data"] = result;
 				sendTCPPacketStaticData(obj.toStyledString());
 
-				while (!isWaitMap)
-					SDL_Delay(20);
+				waitForMapAck();
 
 				std::string jsonData = sendFileBase
 										   ? "{\"state\" : \"MAP_RESULT_CLIENT_BASE\"}"
@@ -568,6 +875,7 @@ void connectionTCP::loopData()
 				sendFileClient = false;
 				sendFileSave = false;
 				sendProgressLoadFileToClient = "";
+				sendProgressLoadBlob = "";
 			}
 			else if (sendFileHost)
 			{
@@ -577,7 +885,7 @@ void connectionTCP::loopData()
 
 				if (sendProgressSaveFileToHost)
 				{
-					filepath = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+					filepath = clientBlobKey(_game->getCoopMod()->getHostName());
 				}
 				else if (sendFileSave)
 				{
@@ -596,27 +904,33 @@ void connectionTCP::loopData()
 					filepath = "battlehost";
 				}
 
-				const auto& coopFiles = server_owner
-							? connectionTCP::coopFilesHost
-							: connectionTCP::coopFilesClient;
+				std::string coopKey = filepath; // tai filename, jos mapin avain on filename
 
-				std::string coopKey = filepath; // or filename, if filename is used as the map key
-
-				auto it = coopFiles.find(coopKey);
-				if (it == coopFiles.end())
+				std::string blobCopy;
 				{
-					throw std::runtime_error("Failed to read from hash map with key: " + coopKey);
+					std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+
+					const auto& coopFiles = getServerOwner()
+												? connectionTCP::coopFilesHost
+												: connectionTCP::coopFilesClient;
+
+					auto it = coopFiles.find(coopKey);
+					if (it == coopFiles.end())
+					{
+						throw std::runtime_error("Failed to read from hash map with key: " + coopKey);
+					}
+
+					blobCopy = it->second;
 				}
 
-				std::istringstream myfile(it->second);
+				std::istringstream myfile(blobCopy);
 
 				std::string line;
 				std::string result;
 
 				while (getline(myfile, line))
 				{
-					while (!isWaitMap)
-						SDL_Delay(20);
+					waitForMapAck();
 
 					std::cout << line << std::endl;
 					if (fileindex != 0)
@@ -637,8 +951,7 @@ void connectionTCP::loopData()
 						isWaitMap = true;
 						for (unsigned i = 0; i < result.length(); i += 3000)
 						{
-							while (!isWaitMap)
-								SDL_Delay(20);
+							waitForMapAck();
 
 							isWaitMap = false;
 
@@ -659,8 +972,7 @@ void connectionTCP::loopData()
 				obj["data"] = result;
 				sendTCPPacketStaticData(obj.toStyledString());
 
-				while (!isWaitMap)
-					SDL_Delay(20);
+				waitForMapAck();
 
 				std::string jsonData = sendFileBase
 										   ? "{\"state\" : \"MAP_RESULT_HOST_BASE\"}"
@@ -677,6 +989,20 @@ void connectionTCP::loopData()
 				sendFileSave = false;
 				sendProgressSaveFileToHost = false;
 			}
+		}
+		catch (const StreamAbort&)
+		{
+			// PRD-11 C13: connection torn down mid-transfer. Abandon the stream
+			// and release every send flag so the streamer returns to idle instead
+			// of parking with sendFileClient still set.
+			Log(LOG_INFO) << "[coop] streamer: connection torn down mid-transfer, abandoning stream";
+			sendFileBase = false;
+			sendFileClient = false;
+			sendFileHost = false;
+			sendFileSave = false;
+			sendProgressLoadFileToClient = "";
+			sendProgressLoadBlob = "";
+			sendProgressSaveFileToHost = false;
 		}
 		catch (const std::exception& e)
 		{
@@ -961,8 +1287,12 @@ void connectionTCP::pushProgressToHostSilently()
 		return;
 	}
 
-	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
 	_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		eraseStaleBlobEntries(coopFilesClient, "client_", _game->getCoopMod()->getHostName(), filename);
+	}
 
 	Json::Value obj;
 	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
@@ -999,7 +1329,7 @@ void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::s
 		return;
 	}
 
-	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
 	if (!hasCoopFile(filename))
 	{
 		return;
@@ -1051,6 +1381,47 @@ void connectionTCP::resetTransferSessionState()
 	_pendingIncomingTransfers.clear();
 	_seenTransferPacketIds.clear();
 	_transferredAwaySoldierIds.clear();
+
+	// PRD-06 C5: a different world is being loaded - abort any armed deferred
+	// host save so a late client blob cannot rewrite the (now stale) named save.
+	if (!session.pendingHostSaveName.empty())
+	{
+		Log(LOG_INFO) << "[coop] world switch aborts armed deferred host save (" << session.pendingHostSaveName << ")";
+		session.pendingHostSaveName.clear();
+	}
+
+}
+
+void connectionTCP::writePendingHostSave()
+{
+
+	if (session.pendingHostSaveName.empty())
+	{
+		return;
+	}
+
+	// A battle started (or the save vanished) since the request: the live world
+	// is no longer the one the save captured - disarm without writing.
+	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle())
+	{
+		session.pendingHostSaveName.clear();
+		return;
+	}
+
+	try
+	{
+		// same atomic dance as SaveGameState: backup, then rename
+		std::string backup = session.pendingHostSaveName + ".bak";
+		_game->getSavedGame()->save(backup, _game->getMod());
+		CrossPlatform::moveFile(Options::getMasterUserFolder() + backup,
+								Options::getMasterUserFolder() + session.pendingHostSaveName);
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[coop] deferred host save write failed: " << e.what();
+	}
+
+	session.clearDeferredSave();
 
 }
 
@@ -1289,11 +1660,23 @@ void connectionTCP::updateCoopTask()
 		if (allow_cutscene == true)
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
-			if (server_owner == true)
+			if (getServerOwner() == true)
 			{
-				_game->pushState(new CoopState(20));
+				// campaign flow: no "... has left the server" popup - the
+				// waiting lobby / freeze dialog handles real drops and a
+				// refused joiner warrants no notification at all (D5). The
+				// disconnect still has to run (CoopState(20)'s constructor
+				// used to do it); its cleanup pushes the freeze dialog.
+				if (connectionTCP::session.lobbyMode == 0)
+				{
+					_game->pushState(new CoopState(20));
+				}
+				else
+				{
+					_game->getCoopMod()->disconnectTCP();
+				}
 			}
-			else if (server_owner == false)
+			else if (getServerOwner() == false)
 			{
 				_game->pushState(new CoopState(21));
 			}
@@ -1716,11 +2099,11 @@ void resetCoopState(bool isHost)
 	mapData.clear();
 
 	onTcpHost = isHost;
-	server_owner = isHost;
+	connectionTCP::session.role = isHost ? CoopRole::Host : CoopRole::Client;
 	onConnect = -1;
 	connectionTCP::no_bases = false;
 	connectionTCP::isCoopBaseLoading = false;
-	connectionTCP::isCoopSessionLocked = false;
+	connectionTCP::session.sessionLocked = false;
 	connectionTCP::isPlayerReady = false;
 	connectionTCP::isPlayersReady = false;
 	connectionTCP::LobbyFileStatus = -1;
@@ -2094,7 +2477,9 @@ void connectionTCP::startTCPHost()
 	recvBuffer.reserve(4096);
 
 	onConnect = 1;
-	server_owner = true;
+	// thread-side role mirror (pre-struct behavior kept; the main-thread
+	// hosting path also sets this via setServerOwner)
+	session.role = CoopRole::Host;
 
 	for (;;)
 	{
@@ -2269,14 +2654,17 @@ void connectionTCP::startTCPHost()
 	SDLNet_FreeSocketSet(socketSet);
 	SDLNet_Quit();
 
-	server_owner = false;
+	// thread-side role clear on host-thread exit (pre-struct behavior kept)
+	session.role = CoopRole::None;
 	onConnect = -1;
 	return;
 }
 
 void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
 {
-	if (_game->getCoopMod()->getServerOwner() == false)
+	// campaign flow: sessions are lobby-gated up front - no post-join lobby
+	// re-entry (F2/F3). Only the legacy new-battle path reopens it here.
+	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::session.lobbyMode == 0)
 	{
 		_game->pushState(new LobbyMenu);
 	}
@@ -2335,6 +2723,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	// refused by the campaign roster gate (flow-redesign F3)
+	if (stateString == "lobby_join_refused")
+	{
+
+		connectionTCP::joinRefusalReason = obj.get("reason", "").asString();
+
+		disconnectTCP();
+
+		// drop the "Connecting..." dialog left from the join attempt so
+		// dismissing the refusal leaves no stray dialog behind
+		if (!_game->getStates().empty())
+		{
+			CoopState* topDialog = dynamic_cast<CoopState*>(_game->getStates().back());
+			if (topDialog && topDialog->getStateCode() == 15)
+			{
+				_game->popState();
+			}
+		}
+		connectionTCP::forceCloseCoopStateMenu = true;
+
+		_game->pushState(new CoopState(63));
+
+	}
+
 	if (stateString == "tcp_password")
 	{
 
@@ -2350,7 +2762,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "lobby_ready")
 	{
 
-		connectionTCP::isCoopSessionLocked = true;
+		connectionTCP::session.campaignStarted();
 
 	}
 
@@ -2375,7 +2787,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
 		{
-			connectionTCP::isCoopSessionLocked = true;
+			connectionTCP::session.campaignStarted();
 		}
 
 	}
@@ -2391,8 +2803,121 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "change_team")
 	{
 
-		int gamemode = obj["gamemode"].asInt();
-		connectionTCP::_coopGamemode = gamemode;
+		// teams are locked once the campaign starts (flow-redesign D3)
+		if (connectionTCP::session.sessionLocked == false)
+		{
+			int gamemode = obj["gamemode"].asInt();
+			connectionTCP::_coopGamemode = gamemode;
+		}
+
+	}
+
+	// --- campaign flow redesign ------------------------------------------
+	// Host clicked START CAMPAIGN: build this player's own world with the
+	// host's difficulty (D2; ironman stays host-only) and begin base
+	// placement. The lobby is wiped by setState.
+	if (stateString == "campaign_start" && getServerOwner() == false)
+	{
+
+		int difficulty = obj["difficulty"].asInt();
+		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
+		connectionTCP::saveID = obj["saveID"].asInt64();
+		connectionTCP::session.campaignStarted();
+		connectionTCP::session.lobbyMode = 1;
+
+		std::vector<std::string> players;
+		for (const auto& p : obj["players"])
+		{
+			players.push_back(p.asString());
+		}
+
+		SavedGame* save = _game->getMod()->newSave((GameDifficulty)difficulty);
+		save->setDifficulty((GameDifficulty)difficulty);
+		save->setCoopSave(true);
+		save->setCoopPlayers(players);
+		_game->setSavedGame(save);
+
+		connectionTCP::session.markLobbyClosed();
+
+		GeoscapeState* gs = new GeoscapeState;
+		_game->setState(gs);
+		gs->init();
+
+		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+
+	}
+
+	// Host clicked RESUME CAMPAIGN and we have a stored world: fetch it
+	// (same wire flow as the classic Profile resume) (F3)
+	if (stateString == "campaign_resume" && getServerOwner() == false)
+	{
+
+		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
+
+		Json::Value root;
+		root["state"] = "request_load_progress";
+		sendTCPPacketData(root.toStyledString());
+
+	}
+
+	// PRD-11 C13: the host is busy streaming another transfer. Signal the
+	// load-wait dialog to retry (it schedules a ~2s-spaced retry, bounded).
+	if (stateString == "load_progress_busy" && getServerOwner() == false)
+	{
+		connectionTCP::loadProgressBusy = true;
+	}
+
+	// The host began/resumed the campaign: drop the waiting dialog (D5)
+	if (stateString == "campaign_begun" && getServerOwner() == false)
+	{
+
+		connectionTCP::session.signalCampaignBegun();
+		connectionTCP::session.sessionLive();
+
+	}
+
+	// A resuming player finished loading its world (F3). For a battle save
+	// the geoscape ack triggers phase two: the battle stream.
+	if (stateString == "resume_ack")
+	{
+
+		// PRD-11 C8: only stream the battle to a client that was actually served
+		// a resume world blob. A registered-but-no-blob client is routed through
+		// fresh base building and acks too (BaseNameState); streaming the old
+		// battle into its freshly built world would corrupt it. Such an acker is
+		// absent from resumeBattleEligible, so it falls through to the plain
+		// campaign-resume ack.
+		std::string acker = _game->getCoopMod()->getCurrentClientName();
+		bool battleEligible = connectionTCP::session.resumeBattleEligible.count(acker) > 0;
+
+		if (connectionTCP::session.resumeBattlePending && battleEligible)
+		{
+			connectionTCP::session.resumeBattlePending = false;
+			connectionTCP::session.resumeBattleEligible.clear();
+
+			Json::Value root;
+			root["state"] = "campaign_resume_battle";
+			sendTCPPacketData(root.toStyledString());
+		}
+		else
+		{
+			connectionTCP::session.resumeAck = true;
+		}
+
+	}
+
+	// Phase two of a battle-save resume: fetch the battle from the host
+	// (same wire flow the legacy lobby used for a battle-hosting session)
+	if (stateString == "campaign_resume_battle" && getServerOwner() == false)
+	{
+
+		_game->getCoopMod()->inventory_battle_window = false;
+
+		_game->pushState(new CoopState(1));
+
+		Json::Value root;
+		root["state"] = "SEND_FILE_CLIENT_SAVE";
+		sendTCPPacketData(root.toStyledString());
 
 	}
 
@@ -2881,8 +3406,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "server_full")
 	{
 
-		onConnect = -1;
-		_game->pushState(new CoopState(444));
+		// PRD-11: server_full is a host->client refusal. onConnect = -1 is the
+		// host listen thread's exit condition, so a client that spoofs this
+		// message could stop the host's thread. Only act on it as a client.
+		if (connectionTCP::session.role == CoopRole::Client)
+		{
+			onConnect = -1;
+			_game->pushState(new CoopState(444));
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop] ignoring server_full: not a client (role="
+				<< (connectionTCP::session.role == CoopRole::Host ? "Host" : "None") << ")";
+		}
 	}
 
 	if (stateString == "chat_message")
@@ -2908,57 +3444,79 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "request_load_progress")
 	{
 
-		if (_game->getSavedGame())
+		if (_game->getSavedGame() && !sendFileClient)
 		{
 
-			bool found = false;
-			bool disk = false;
+			// battle live: after the geoscape world ack, stream the battle
+			// (F3 battle-save resume + F4 mid-battle rejoin share this)
+			connectionTCP::session.resumeBattlePending = (_game->getSavedGame()->getSavedBattle() != nullptr);
 
-			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
-			std::string filepath = Options::getMasterUserFolder() + filename;
-
-			if (!_game->getSavedGame()->getCoopClientSaveBlob().empty())
+			// PRD-09 C12: F3 battle-save resume in a fresh process. Unlike the
+			// live mission-start path (SEND_FILE_CLIENT_TRUE stashes
+			// coop_geoscape_return before dispatching the mission), nothing
+			// regenerates that snapshot on resume - so the server owner's
+			// mission-end restore would keep the peer-derived battle world as its
+			// campaign. Stash the loaded world's geoscape now, while
+			// getServerOwner() is true (so it lands in coopFilesHost where the
+			// restore reads it). Detach the battle first: coop_geoscape_return
+			// must be a PURE geoscape - the restore reloads it as the continuation
+			// world and re-entering it must not resurrect the just-finished battle.
+			if (connectionTCP::session.resumeBattlePending && getServerOwner() == true && _game->getCoopMod()->getCoopCampaign() == true)
 			{
-				found = true;
+				SavedBattleGame* keepBattle = _game->getSavedGame()->detachBattleGame();
+				_game->getSavedGame()->saveCoopToMemory("coop_geoscape_return", _game->getMod(), "coop_geoscape_return");
+				_game->getSavedGame()->reattachBattleGame(keepBattle);
+				Log(LOG_INFO) << "[coop] F3 battle resume: stashed geoscape-only coop_geoscape_return for mission-end restore";
 			}
-			// Client ".data" files are no longer written to the host disk, which causes saves from v1.8.4 to break. To fix this problem, if the client world blob in the host save is empty, this function checks whether the correct client .data file exists on the host disk. If it does, the file contents are stored in the host save as a blob.
-			else if (OpenXcom::CrossPlatform::fileExists(filepath))
+
+			std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+
+			bool blobFound = false;
 			{
-				found = true;
-				disk = true;
+				std::lock_guard<std::mutex> lock(coopFilesMutex);
+				auto it = coopFilesHost.find(filename);
+				if (it != coopFilesHost.end() && !it->second.empty())
+				{
+					// found! snapshot the blob for the streamer thread
+					sendProgressLoadBlob = it->second;
+					blobFound = true;
+				}
 			}
 
-			if (found == false)
+			if (!blobFound)
 			{
 
-				// not found, create new save game
-				Json::Value root;
-				root["state"] = "new_game";
+				// registered player without a stored world: fresh world with
+				// the campaign's difficulty + base building (D2/D6)
+				Json::Value root = buildCampaignStartPacket(_game->getSavedGame());
 
 				sendTCPPacketData(root.toStyledString());
 
 			}
 			else
 			{
-				// found!
-				if (disk == false)
-				{
-					sendProgressLoadFileToClient = _game->getSavedGame()->getCoopClientSaveBlob();
-				}
-				else
-				{
 
-					// read file
-					auto file = OpenXcom::CrossPlatform::readFile(filepath);
-
-					sendProgressLoadFileToClient.assign(
-						std::istreambuf_iterator<char>(*file),
-						std::istreambuf_iterator<char>());
-
-				}
+				// PRD-11 C8: this client is being served a real resume world;
+				// mark it eligible for the follow-up battle stream. The no-blob
+				// campaign_start branch above deliberately does NOT.
+				connectionTCP::session.resumeBattleEligible.insert(
+					_game->getCoopMod()->getCurrentClientName());
 
 				sendFileClient = true;
+				sendProgressLoadFileToClient = filename;
+
 			}
+
+		}
+		else if (_game->getSavedGame() && sendFileClient)
+		{
+
+			// PRD-11 C13: the streamer is busy with another transfer. Never drop
+			// the request silently (the client's load-wait dialog has no timeout);
+			// tell it to retry.
+			Json::Value busy;
+			busy["state"] = "load_progress_busy";
+			sendTCPPacketData(busy.toStyledString());
 
 		}
 
@@ -6352,13 +6910,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					_isActivePlayerSync = true;
 
-					// Auto save before (only HOST)
-					SavedGame* newsave = new SavedGame(*_game->getSavedGame());
-
-					newsave->setName("coop_mission_2");
-
-					newsave->save("coop_mission_2.sav", _game->getMod());
-
 					_battleInit = false;
 					_isActiveAISync = true;
 
@@ -6398,10 +6949,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// Closing save progress popup - only if one is actually open (silent
 		// background pushes don't show the dialog; popping the screen under
-		// it would tear down the geoscape).
-		if (!_game->getStates().empty() && dynamic_cast<CoopState*>(_game->getStates().back()))
+		// it would tear down the geoscape). The campaign wait dialogs
+		// (60/62/64/65) manage their own lifetime - never pop those.
+		if (!_game->getStates().empty())
 		{
-			_game->popState();
+			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
+			if (top && !top->isCampaignWaitDialog())
+			{
+				_game->popState();
+			}
 		}
 
 	}
@@ -6418,7 +6974,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "close_load_progress" && server_owner == true)
+	if (stateString == "close_load_progress" && getServerOwner() == true)
 	{
 
 		Json::Value root;
@@ -6435,16 +6991,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendTCPPacketData(jsonData333);
 
 		// Closing save progress popup - only if one is actually open (silent
-		// background pushes don't show the dialog).
-		if (!_game->getStates().empty() && dynamic_cast<CoopState*>(_game->getStates().back()))
+		// background pushes don't show the dialog). The campaign wait dialogs
+		// (60/62/64/65) manage their own lifetime - never pop those.
+		if (!_game->getStates().empty())
 		{
-			_game->popState();
+			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
+			if (top && !top->isCampaignWaitDialog())
+			{
+				_game->popState();
+			}
 		}
 
 		// WRITE THE FILE RECEIVED FROM THE CLIENT TO THE HOST
 		if (_game->getSavedGame())
 		{
+			// Install the freshest client blob. On validation failure (PRD-07)
+			// the store keeps the last-good blob, so the write below stays safe.
 			writeHostMapSaveProgressFile();
+
+			// PRD-06/E1: the SaveGameState funnel deferred its write to here, so
+			// this is the single emit of the host .sav for this save cycle - and
+			// it embeds the client world that just arrived. (No longer gated on
+			// the blob being fresh: even a rejected blob leaves a valid last-good
+			// one to embed, and the user asked for a save.)
+			writePendingHostSave();
 		}
 
 	}
@@ -6567,7 +7137,50 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		tcpPlayerName = obj.get("playername", tcpPlayerName).asString();
 
-		_game->pushState(new Profile);
+		// campaign lobby (new or resume): sit in the lobby until the host
+		// clicks START/RESUME CAMPAIGN (flow-redesign F2/F3). A mid-session
+		// rejoin (F4) fetches its world straight away; otherwise the classic
+		// path (Profile -> request_load_progress).
+		bool campaignStarted = obj.get("campaign_started", true).asBool();
+		bool rejoin = obj.get("rejoin", false).asBool();
+
+		// Pop the "Connecting..." wait dialog (CoopState 15) NOW, before pushing
+		// the lobby/load dialog over it. forceCloseCoopStateMenu can't reach it
+		// once buried (a non-top state gets no think() tick, and LobbyMenu's ctor
+		// clears the flag anyway), so it would linger and resurface as a stale
+		// "Connecting..." window when the client later leaves the lobby.
+		while (!_game->getStates().empty())
+		{
+			CoopState* connecting = dynamic_cast<CoopState*>(_game->getStates().back());
+			if (connecting && connecting->getStateCode() == 15)
+				_game->popState();
+			else
+				break;
+		}
+
+		if (!campaignStarted)
+		{
+			connectionTCP::session.lobbyMode = obj.get("lobby_mode", 1).asInt();
+			connectionTCP::forceCloseCoopStateMenu = true;
+			connectionTCP::forceClosePasswordCheckMenu = true;
+			_game->pushState(new LobbyMenu());
+		}
+		else if (rejoin)
+		{
+			connectionTCP::session.lobbyMode = obj.get("lobby_mode", 0).asInt();
+			connectionTCP::forceCloseCoopStateMenu = true;
+			connectionTCP::forceClosePasswordCheckMenu = true;
+
+			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
+
+			Json::Value req;
+			req["state"] = "request_load_progress";
+			sendTCPPacketData(req.toStyledString());
+		}
+		else
+		{
+			_game->pushState(new Profile);
+		}
 
 	}
 
@@ -6652,6 +7265,59 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		std::string playername = obj.get("playername", "defaultState").asString();
 		std::string servername = obj.get("servername", "defaultState").asString();
+
+		// A joiner may never take a name already in use in this session -
+		// the host's own name, or any currently attached client's. (The
+		// host's name passes the roster check below and would collapse both
+		// players into one identity; a DROPPED client's name stays available
+		// on purpose - that is how a rejoin identifies itself. With today's
+		// single-client transport the attached-client case is preempted by
+		// the server-full close, but the check is written for N clients.)
+		bool nameInUse = (playername == _game->getCoopMod()->getHostName());
+		if (connectionTCP::session.clientInLobby
+			&& playername == _game->getCoopMod()->getCurrentClientName())
+		{
+			nameInUse = true;
+		}
+		if (nameInUse)
+		{
+			Json::Value refuse;
+			refuse["state"] = "lobby_join_refused";
+			refuse["reason"] = "That player name is already in use.";
+			sendTCPPacketData(refuse.toStyledString());
+			return;
+		}
+
+		// Campaign roster gate (flow-redesign D4/D6): once the player list is
+		// locked (non-empty), only registered names may connect - covers the
+		// resume lobby, mid-session rejoin, and strangers joining a running
+		// campaign. An empty list = pre-START lobby, anyone may join.
+		if (_game->getCoopMod()->getCoopCampaign() == true
+			&& _game->getSavedGame()
+			&& _game->getSavedGame()->isCoopSave())
+		{
+			const auto& registered = _game->getSavedGame()->getCoopPlayers();
+			if (!registered.empty())
+			{
+				bool known = false;
+				for (const auto& p : registered)
+				{
+					if (p == playername)
+					{
+						known = true;
+					}
+				}
+				if (!known)
+				{
+					Json::Value refuse;
+					refuse["state"] = "lobby_join_refused";
+					refuse["reason"] = "You are not a player in this campaign.";
+					sendTCPPacketData(refuse.toStyledString());
+					return;
+				}
+			}
+		}
+
 		tcpPlayerName = playername;
 		tcpServerName = servername;
 
@@ -6690,10 +7356,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		}
 
+		// past every gate: a real client is now attached to the session
+		connectionTCP::session.clientAttached();
+
 		if (_game->getCoopMod()->getCoopCampaign() == true)
 		{
 			root["state"] = "COOP_READY_SAVE_PROGRESS";
+			// Kept on the wire for older clients; host-save authority is the only mode.
+			root["host_save_progress"] = true;
+			// campaign lobbies (new or resume): the client joins the lobby
+			// instead of requesting a world (flow-redesign F2/F3). A live
+			// session (lobby closed) = mid-session rejoin: fetch directly.
+			root["campaign_started"] = (connectionTCP::session.lobbyMode == 0 || connectionTCP::session.lobbyClosed == true);
+			root["rejoin"] = (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true);
+			root["lobby_mode"] = connectionTCP::session.lobbyMode;
 
+			// Handshake fallback only: a resume carries the loaded saveID (nonzero,
+			// so skipped here) and a new campaign re-mints in startCampaign and
+			// re-broadcasts via campaign_start (which the client adopts). This
+			// mint just guarantees the join reply never sends 0 when a client
+			// connects before START CAMPAIGN is clicked.
 			if (connectionTCP::saveID == 0)
 			{
 				connectionTCP::saveID = getDateTimeCoop();
@@ -6712,7 +7394,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendTCPPacketData(root.toStyledString());
 
-		_game->pushState(new Profile);
+		// campaign lobbies are host-driven: no Profile screen (F2/F3)
+		if (connectionTCP::session.lobbyMode == 0)
+		{
+			_game->pushState(new Profile);
+		}
 
 	}
 
@@ -6758,11 +7444,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		root["craft_count"] = craft_count;
 
 		// is session locked?
-		root["isCoopSessionLocked"] = connectionTCP::isCoopSessionLocked;
+		root["isCoopSessionLocked"] = connectionTCP::session.sessionLocked;
 		root["isPlayerReady"] = connectionTCP::isPlayerReady;
-		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::isCoopSessionLocked == false)
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::session.sessionLocked == false)
 		{
-			connectionTCP::isCoopSessionLocked = true;
+			connectionTCP::session.campaignStarted();
 		}
 
 		// research option
@@ -6843,12 +7529,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		onceTime = true;
 
-		// is session locked?
-		connectionTCP::isCoopSessionLocked = obj["isCoopSessionLocked"].asBool();
+		// is session locked? (value-carrying: mirror the host's flag from the
+		// wire, then lock if both are ready) - the raw mirror stays; the derived
+		// lock funnels through the transition.
+		connectionTCP::session.sessionLocked = obj["isCoopSessionLocked"].asBool();
 		connectionTCP::isPlayersReady = obj["isPlayerReady"].asBool();
-		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::isCoopSessionLocked == false)
+		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true && connectionTCP::session.sessionLocked == false)
 		{
-			connectionTCP::isCoopSessionLocked = true;
+			connectionTCP::session.campaignStarted();
 		}
 
 		// set current gamemode
@@ -6873,26 +7561,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (host_coop_campaign != client_coop_campaign)
 		{
 
-			// if campaign
-			if (host_coop_campaign == true)
-			{
-
-				/*
-				Author xcomcoopdev: The _host_save_progress option no longer exists, which causes problems here. There should probably be an option in the host menu to choose whether players have separate bases or shared bases. In a PvP campaign, alien players should not have bases.
-				I’ll leave this as it is for now and come back to it later. :/
-				*/
-
-				/*
-				if (connectionTCP::_host_save_progress == false)
-				{
-					connectionTCP::no_bases = true;
-					_game->pushState(new GeoscapeState());
-				}
-				*/
-				
-			}
+			// if campaign: nothing to do - the client's world comes from the
+			// host (new_game or streamed progress)
 			// if new battle
-			else
+			if (host_coop_campaign == false)
 			{
 				_game->pushState(new CoopState(3000));
 
@@ -7683,13 +8355,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			sendBaseFile();
 
-			// Save the geospace file so the player can return to it later
-			if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
-			{
-				_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
-				_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
-			}
+		}
 
+		// Stash the geoscape world in memory so the player can return to it
+		// after the mission (never written to disk). Outside the target check
+		// so the mission-end reload always has a snapshot.
+		if (_game->getSavedGame() && _game->getCoopMod()->getCoopCampaign() == true)
+		{
+			_game->getSavedGame()->saveCoopToMemory("coop_geoscape_return", _game->getMod(), "coop_geoscape_return");
 		}
 
 		CoopState* coopWindow = new CoopState(1);
@@ -7867,7 +8540,7 @@ void connectionTCP::setCoopSession(bool session)
 
 void connectionTCP::setServerOwner(bool owner)
 {
-	server_owner = owner;
+	session.setRole(owner ? CoopRole::Host : CoopRole::None);
 }
 
 void connectionTCP::setCoopCampaign(bool coop)
@@ -7916,13 +8589,16 @@ void connectionTCP::writeHostMapFile2()
 	if (mapData.empty())
 		return;
 
-	if (connectionTCP::getServerOwner() == true)
 	{
-		connectionTCP::coopFilesHost["baseclient"] = std::move(mapData);
-	}
-	else
-	{
-		connectionTCP::coopFilesClient["baseclient"] = std::move(mapData);
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		if (connectionTCP::getServerOwner() == true)
+		{
+			connectionTCP::coopFilesHost["baseclient"] = std::move(mapData);
+		}
+		else
+		{
+			connectionTCP::coopFilesClient["baseclient"] = std::move(mapData);
+		}
 	}
 
 	// the map data must be reset for the next use (fix)
@@ -8092,9 +8768,13 @@ void connectionTCP::sendSaveProgressFile()
 		_game->pushState(coopWindow);
 
 		// saving files
-		std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+		std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
 
 		_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+		{
+			std::lock_guard<std::mutex> lock(coopFilesMutex);
+			eraseStaleBlobEntries(coopFilesClient, "client_", _game->getCoopMod()->getHostName(), filename);
+		}
 
 		_game->getCoopMod()->load_state = "Saving";
 
@@ -8456,7 +9136,7 @@ void connectionTCP::generateCraftSoldiers()
 
 bool connectionTCP::getServerOwner()
 {
-	return server_owner;
+	return session.role == CoopRole::Host;
 }
 
 void connectionTCP::setPathLock(int lock)
@@ -8707,6 +9387,8 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 		_hostThread.join();
 	}
 
+	session.beginHosting();
+
 	_hostStop = false;
 	 _hostThread = std::thread(&connectionTCP::startTCPHost, this);
 
@@ -8745,6 +9427,8 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 		_clientStop = true;
 		_clientThread.join();
 	}
+
+	session.beginJoining();
 
 	_clientStop = false;
 
@@ -8870,7 +9554,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		peerTimeSpeedId = "";
 		peerFocusScreen = -1;
 		connectionTCP::lobby_timer = -1;
-		connectionTCP::isCoopSessionLocked = false;
 		connectionTCP::isPlayerReady = false;
 		connectionTCP::isPlayersReady = false;
 
@@ -8887,19 +9570,56 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 		deleteAllCoopBases();
 
+		// Capture the machine role ONCE for this teardown - handlers used to
+		// mutate server_owner mid-flight and make the cleanup misclassify the
+		// machine (the disconnect->cancel bug family).
+		const bool teardownAsHost = (session.role == CoopRole::Host);
+
 		// both
-		if ((connectionTCP::no_bases == true || server_owner == false) && !isMain && connectionTCP::_coopCampaign == true)
+		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain && connectionTCP::_coopCampaign == true)
 		{
 			_game->setState(new MainMenuState);
 		}
 
 		// host
-		if (server_owner == true && onConnect == -2)
+		if (teardownAsHost && onConnect == -2)
 		{
 
 			onConnect = 1;
 
-			if (connectionTCP::isLobbyMenuClosed == true)
+			if (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true)
+			{
+				// mid-session client drop: freeze until they reconnect (D5).
+				// The dialog sits over the geoscape/battlescape, pausing it.
+				// Don't stack a second dialog when a campaign wait dialog that
+				// already covers "wait for the player to come back" is present
+				// ANYWHERE in the stack, not just on top. A resume-ack wait (62)
+				// already shows RESUME once resumeAck arrives, so it covers the
+				// freeze dialog's job - stacking a 64 over a buried 62 produces
+				// two RESUME dialogs and a double campaign_begun broadcast (C9).
+				bool waitDialogPresent = false;
+				for (State* st : _game->getStates())
+				{
+					CoopState* cs = dynamic_cast<CoopState*>(st);
+					if (cs && (cs->getStateCode() == COOP_DLG_FREEZE
+							|| cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT))
+					{
+						waitDialogPresent = true;
+						break;
+					}
+				}
+				if (!waitDialogPresent)
+				{
+					connectionTCP::session.freeze();
+					_game->pushState(new CoopState(COOP_DLG_FREEZE));
+				}
+				else
+				{
+					Log(LOG_INFO) << "[coop] freeze dialog suppressed: a campaign "
+						"wait dialog (freeze/resume-ack) is already on the stack";
+				}
+			}
+			else if (connectionTCP::session.lobbyClosed == true)
 			{
 				_game->pushState(new LobbyMenu);
 			}
@@ -8911,6 +9631,13 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 			onConnect = -1;
 
+			// The client's world came from the host and is re-streamed on the
+			// next join; drop the session's blobs.
+			{
+				std::lock_guard<std::mutex> lock(coopFilesMutex);
+				connectionTCP::coopFilesClient.clear();
+			}
+
 			if (_chatMenu)
 			{
 
@@ -8921,6 +9648,18 @@ void connectionTCP::disconnectTCP(bool isMain)
 				setChatMenu(nullptr);
 			}
 
+		}
+
+		// Session-state resets: exactly two paths (see CoopSession). The host
+		// keeps its campaign/lobby context across a peer drop (D5); a client's
+		// session is over. Never clear individual fields here.
+		if (teardownAsHost)
+		{
+			connectionTCP::session.onClientDrop();
+		}
+		else
+		{
+			connectionTCP::session.resetSession();
 		}
 
 		connectionTCP::no_bases = false;
@@ -9014,7 +9753,10 @@ void connectionTCP::writeHostMapFile()
 
 		std::string filename = "battleclient";
 
-		connectionTCP::coopFilesHost[filename] = std::move(mapData);
+		{
+			std::lock_guard<std::mutex> lock(coopFilesMutex);
+			connectionTCP::coopFilesHost[filename] = std::move(mapData);
+		}
 
 		// RECEIVE CLIENT DATA
 		SavedGame* client_save = new SavedGame();
@@ -9024,51 +9766,51 @@ void connectionTCP::writeHostMapFile()
 		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
+			std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 
-			client_save->save(filename, _game->getMod());
+			// served copy lives in memory only; the host .sav embed persists it
+			client_save->saveCoopToMemory(filename, _game->getMod(), filename);
+			{
+				std::lock_guard<std::mutex> lock(coopFilesMutex);
+				eraseStaleBlobEntries(coopFilesHost, "host_", _game->getCoopMod()->getCurrentClientName(), filename);
+			}
 
 		}
+
+		delete client_save;
 
 	}
 	else
 	{
-		connectionTCP::coopFilesHost["battleclient"] = std::move(mapData);
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		connectionTCP::coopFilesClient["battleclient"] = std::move(mapData);
 	}
 
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 }
-/*
-This function is called when all players are paused and have already received the "Saving..." popup. In this function, the downloaded map data is stored in "coopFilesHost".
-The client world blob is embedded into the current host save.
-*/
-void connectionTCP::writeHostMapSaveProgressFile()
+
+bool connectionTCP::writeHostMapSaveProgressFile()
 {
 
-	std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
+	std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 
 	if (mapData.empty())
-		return;
+		return false;
 
-	connectionTCP::coopFilesHost[filename] = std::move(mapData);
-
-	if (_game->getSavedGame())
+	// PRD-07 C10: validate the incoming blob BEFORE it touches the store. The
+	// previous order installed (and pruned siblings) first, so a blob that
+	// failed validation had already displaced the last-good one. Here we parse
+	// a throwaway COPY under a scratch key, leaving mapData and the real entry
+	// untouched; only a blob that passes every check is installed.
+	static const std::string scratchKey = "__validate_save_progress__";
 	{
-		// Temporarily embed the client's latest save blob into the host save.
-		_game->getSavedGame()->setCoopClientSaveBlob(
-			connectionTCP::coopFilesHost[filename]);
-
-		// Write the host save with the client blob included.
-		_game->getSavedGame()->save(temp_filename, _game->getMod());
-
-		temp_filename = "";
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		connectionTCP::coopFilesHost[scratchKey] = mapData; // copy, not move
 	}
 
-	// old spaghetti code...
-	/*
 	SavedGame* coopFile = new SavedGame();
-	coopFile->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
+	coopFile->loadCoopSaveFromMemory(scratchKey, _game->getMod(), _game->getLanguage(), scratchKey);
 
 	bool error = false;
 	bool found = false;
@@ -9098,32 +9840,65 @@ void connectionTCP::writeHostMapSaveProgressFile()
 		error = true;
 	}
 
-	if (error == false && coopFile && found == true)
+	bool stored = (error == false && coopFile && found == true);
+
+	std::string failReason;
+	if (!stored)
 	{
-
-		coopFile->save(filename, _game->getMod());
-
+		failReason = (coopFile == nullptr) ? "parse failed"
+			: error ? "base with empty name or null coords"
+			: "no non-coop (own) base present";
 	}
-	else
+
+	delete coopFile;
+
+	// drop the scratch entry either way - it never becomes the served blob.
 	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		connectionTCP::coopFilesHost.erase(scratchKey);
+	}
+
+	if (!stored)
+	{
+		// Failure path: leave the store EXACTLY as it was (the last-good blob
+		// stays served + embeddable) and surface the error popup.
+		Log(LOG_WARNING) << "[coop] rejected client progress blob from '"
+						  << _game->getCoopMod()->getCurrentClientName() << "': " << failReason
+						  << "; keeping last-good blob";
 		_game->pushState(new CoopState(994));
+
+		// the map data must be reset for the next use (fix)
+		mapData = "";
+		return false;
 	}
-	*/
-	
+
+	// Success: install the validated blob + prune stale siblings. The served
+	// copy lives in memory only; persistence is the blob embedded in the host .sav.
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		connectionTCP::coopFilesHost[filename] = std::move(mapData);
+		eraseStaleBlobEntries(coopFilesHost, "host_", _game->getCoopMod()->getCurrentClientName(), filename);
+	}
+
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 
+	return true;
 }
 
 void connectionTCP::writeHostMapLoadProgressFile()
 {
 
-	std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
 
 	if (mapData.empty())
 		return;
 
-	connectionTCP::coopFilesClient[filename] = std::move(mapData);
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		connectionTCP::coopFilesClient[filename] = std::move(mapData);
+		eraseStaleBlobEntries(coopFilesClient, "client_", _game->getCoopMod()->getHostName(), filename);
+	}
 
 	// the map data must be reset for the next use (fix)
 	mapData = "";

@@ -186,12 +186,31 @@ void SaveGameState::think()
 			break;
 		}
 
+		// Host-save authority: a coop client never writes save data to disk -
+		// the host save (with the embedded client world) is the single
+		// authority. Swallow the save silently; UI states were popped above.
+		if (!_game->getCoopMod()->localSavesAllowed())
+		{
+			if (_type == SAVE_IRONMAN_END)
+			{
+				Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
+				_game->getScreen()->resetDisplay(false);
+
+				_game->setState(new MainMenuState);
+				_game->setSavedGame(0);
+			}
+			return;
+		}
+
 		// Save the game
 		try
 		{
-		
-			// HostSaveProgress
-			if ((_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
+
+			// host-save authority: a host geoscape save pulls fresh client progress
+			// before writing, so the embedded client world is current. Ironman-end
+			// is excluded (it needs the immediate write + MainMenu transition below).
+			bool deferHostSave = false;
+			if ((_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END)
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
@@ -199,27 +218,40 @@ void SaveGameState::think()
 					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
 				}
 
-				_game->getCoopMod()->temp_filename = _filename;
+				// PRD-06/E1: arm the deferral and SKIP the immediate write. The
+				// single write happens once the client's fresh world blob arrives
+				// (MAP_RESULT_SAVE_PROGRESS handler -> writePendingHostSave), so
+				// the .sav is serialized+written once, not twice, and always
+				// embeds the freshest client world instead of a round-trip-stale one.
+				connectionTCP::session.armDeferredSave(_filename);
 
-				// Notify client about saving and show a popup.
-				CoopState* coopWindow = new CoopState(54);
+				CoopState* coopWindow = new CoopState(COOP_DLG_HOST_SAVE_WAIT);
 				_game->pushState(coopWindow);
 
+				deferHostSave = true;
 			}
 
-			// Host save should not be saved here. It should be saved only after client's save is received.
-			if (_game->getCoopMod()->getCoopStatic() == false)
+			if (deferHostSave)
 			{
-				std::string backup = _filename + ".bak";
-				_game->getSavedGame()->save(backup, _game->getMod());
-				std::string fullPath = Options::getMasterUserFolder() + _filename;
-				std::string bakPath = Options::getMasterUserFolder() + backup;
-
-				if (!CrossPlatform::moveFile(bakPath, fullPath))
+				// deferred: the handler writes it. Clear the impatient-user input
+				// queue and return without an immediate emit.
+				SDL_Event e;
+				while (SDL_PollEvent(&e))
 				{
-					throw Exception("Save backed up in " + backup);
+					// do nothing
 				}
+				return;
+			}
 
+			std::string backup = _filename + ".bak";
+			_game->getSavedGame()->save(backup, _game->getMod());
+			std::string fullPath = Options::getMasterUserFolder() + _filename;
+			std::string bakPath = Options::getMasterUserFolder() + backup;
+
+			// coop
+			if (!CrossPlatform::moveFile(bakPath, fullPath) && _game->getCoopMod()->getCoopStatic() == false)
+			{
+				throw Exception("Save backed up in " + backup);
 			}
 
 			if (_type == SAVE_IRONMAN_END)

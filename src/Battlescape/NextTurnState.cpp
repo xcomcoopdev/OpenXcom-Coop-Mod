@@ -615,15 +615,8 @@ void NextTurnState::close()
 
 			}
 
-			// Auto save after (only HOST)
 			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
 			{
-
-				SavedGame* newsave = new SavedGame(*_game->getSavedGame());
-
-				newsave->setName("coop_mission");
-
-				newsave->save("coop_mission.sav", _game->getMod());
 
 				if (_battleGame->getTurn() >= 1)
 				{

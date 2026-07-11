@@ -111,7 +111,7 @@ void Profile::buttonOK(Action *)
 	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::saveID != 0)
 	{
 
-		_game->pushState(new CoopState(52));
+		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
 
 		Json::Value root;
 

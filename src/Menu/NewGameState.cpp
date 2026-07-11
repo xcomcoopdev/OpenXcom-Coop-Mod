@@ -30,6 +30,7 @@
 #include "../Engine/Options.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
+#include "../CoopMod/HostMenu.h"
 
 namespace OpenXcom
 {
@@ -38,7 +39,7 @@ namespace OpenXcom
  * Initializes all the elements in the Difficulty window.
  * @param game Pointer to the core game.
  */
-NewGameState::NewGameState()
+NewGameState::NewGameState(bool coopCampaign) : _coopCampaign(coopCampaign)
 {
 	// Create objects
 	_window = new Window(this, 192, 180, 64, 10, POPUP_VERTICAL);
@@ -177,38 +178,70 @@ void NewGameState::btnOkClick(Action *)
 	SavedGame *save = _game->getMod()->newSave(diff);
 	save->setDifficulty(diff);
 	save->setIronman(_btnIronman->getPressed());
+	if (_coopCampaign)
+	{
+		// permanent solo/co-op distinction (D1)
+		save->setCoopSave(true);
+	}
 	_game->setSavedGame(save);
 
 	GeoscapeState *gs = new GeoscapeState;
 	_game->setState(gs);
 	gs->init();
 
-	auto* base = _game->getSavedGame()->getBases()->back();
+	if (_coopCampaign)
+	{
+		// Co-op: base placement happens after START CAMPAIGN. The geoscape
+		// sits paused underneath the host window and lobby.
+		connectionTCP::session.lobbyMode = 1;
+		_game->pushState(new HostMenu());
+		return;
+	}
+
+	beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+
+}
+
+// Shared kickoff for solo new game, host lobby start, and client
+// campaign_start. Kept beside the vanilla original so the next OXCE rebase
+// surfaces conflicts in one file.
+void beginInitialBasePlacement(Game* game, GeoscapeState* gs, Base* base)
+{
+	// latitude nudge so the base marker sits above the name-entry window;
+	// matches the vanilla value (~35 degrees down).
+	const double kInitialBaseLatOffset = 0.61;
+
+	// Null-tolerant on gs: the lobby-start caller scans the state stack for the
+	// geoscape and may not find one; do nothing rather than crash.
+	if (!gs)
+	{
+		return;
+	}
+
 	if (base->getMarker() != -1)
 	{
-		// location known already
-		base->calculateServices(save);
+		// location known already (custom initial base mods)
+		base->calculateServices(game->getSavedGame());
 
-		// center and rotate 35 degrees down (to see the base location while typoing its name)
-		gs->getGlobe()->center(base->getLongitude(), base->getLatitude() + 0.61);
+		// center and rotate down so the base location is visible while naming
+		gs->getGlobe()->center(base->getLongitude(), base->getLatitude() + kInitialBaseLatOffset);
 
 		if (base->getName().empty())
 		{
 			// fixed location, custom name
-			_game->pushState(new BaseNameState(base, gs->getGlobe(), true, true));
+			game->pushState(new BaseNameState(base, gs->getGlobe(), true, true));
 		}
 		else if (Options::customInitialBase)
 		{
 			// fixed location, fixed name
-			_game->pushState(new PlaceLiftState(base, gs->getGlobe(), true));
+			game->pushState(new PlaceLiftState(base, gs->getGlobe(), true));
 		}
 	}
 	else
 	{
 		// custom location, custom name
-		_game->pushState(new BuildNewBaseState(base, gs->getGlobe(), true));
+		game->pushState(new BuildNewBaseState(base, gs->getGlobe(), true));
 	}
-
 }
 
 /**

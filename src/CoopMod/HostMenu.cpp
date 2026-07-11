@@ -21,6 +21,7 @@
 #include "HostMenu.h"
 #include "../Menu/SaveGameState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Menu/MainMenuState.h"
 #include "CoopState.h"
 #include "../Mod/ExtraSprites.h"
 #include "../Engine/Surface.h"
@@ -249,7 +250,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
 
 	}
-	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
+	// Hide the hosting controls only while a session is genuinely live (a
+	// peer is attached). Keying on isConnected()/getServerOwner() left stale
+	// transport state (esp. after UDP host/disconnect cycles) blanking the
+	// whole window down to the CANCEL button.
+	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
 
 		_port->setVisible(false);
@@ -389,7 +394,11 @@ void HostMenu::init()
 		_btnStartHotseat->setText("DISABLE HOTSEAT");
 
 	}
-	else if ((_game->getCoopMod()->isConnected() == 1) || _game->getCoopMod()->getServerOwner() == true)
+	// Hide the hosting controls only while a session is genuinely live (a
+	// peer is attached). Keying on isConnected()/getServerOwner() left stale
+	// transport state (esp. after UDP host/disconnect cycles) blanking the
+	// whole window down to the CANCEL button.
+	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
 
 		_port->setVisible(false);
@@ -668,6 +677,35 @@ void HostMenu::cbxRegionChange(Action*)
 void HostMenu::hostTCPGame(Action* action)
 {
 
+	// Solo campaigns can never be hosted as co-op (flow-redesign D1):
+	// co-op campaigns are created from the New Game menu or resumed from a
+	// co-op save. One-off battles (no countries) are unaffected.
+	if (_game->getSavedGame()
+		&& !_game->getSavedGame()->getCountries()->empty()
+		&& !_game->getSavedGame()->isCoopSave())
+	{
+		_game->pushState(new CoopState(61));
+		return;
+	}
+
+	// the host identity is locked to the save (D4): a different local player
+	// name may never host this campaign
+	if (_game->getCoopMod()->inCoopCampaignContext()
+		&& !_game->getSavedGame()->getCoopPlayers().empty()
+		&& _game->getSavedGame()->getCoopPlayers()[0] != _game->getCoopMod()->getHostName())
+	{
+		_game->pushState(new CoopState(66));
+		return;
+	}
+
+	// campaign co-op save: (re)derive the lobby mode from the save so a
+	// disconnect + re-host cannot fall back to the legacy READY lobby - a
+	// fresh world (no locked players) starts, an established one resumes
+	if (_game->getCoopMod()->inCoopCampaignContext())
+	{
+		connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
+	}
+
 	// Save host settings to JSON
 	{
 		std::string filepath = Options::getMasterUserFolder() + "host_address.json";
@@ -702,16 +740,9 @@ void HostMenu::hostTCPGame(Action* action)
 
 	_game->getCoopMod()->setCoopSession(false);
 
-	_port->setVisible(false);
-	_lblPort->setVisible(false);
-	_serverName->setVisible(false);
-	_lblServerName->setVisible(false);
-	_tcpButtonHost->setVisible(false);
-	_cbxVisibility->setVisible(false);
-	_password->setVisible(false);
-	_lblPassword->setVisible(false);
-	_cbxMaxPlayers->setVisible(false);
-	_cbxRegions->setVisible(false);
+	// (no field-hiding here: this menu is popped right below, and hiding the
+	// controls first could strand a blank window with just CANCEL whenever a
+	// path re-surfaced the instance - the UDP host/disconnect-cycle bug)
 
 	_game->getCoopMod()->setPlayerTurn(3);
 
@@ -817,6 +848,22 @@ void HostMenu::hostTCPGame(Action* action)
 
 }
 
+void HostMenu::testHostWithVisibility(int comboIndex)
+{
+	_cbxVisibility->setSelected(comboIndex);
+	cbxVisibilityChange(nullptr);
+	hostTCPGame(nullptr);
+}
+
+bool HostMenu::hostControlsVisible() const
+{
+	// the window counts as usable if the primary action (START HOST or the
+	// hotseat toggle) or the connection-type combo can be interacted with
+	return _tcpButtonHost->getVisible()
+		|| _btnStartHotseat->getVisible()
+		|| _cbxVisibility->getVisible();
+}
+
 void HostMenu::startHotseat(Action* action)
 {
 
@@ -880,6 +927,16 @@ void HostMenu::btnReactionFireClick(Action* action)
  */
 void HostMenu::btnCancelClick(Action*)
 {
+	// campaign flow: leaving the host window abandons the (paused, not yet
+	// running) co-op session - back to the main menu, never into the world
+	// without the other players (D5). Derived from the SAVE, not lobbyMode:
+	// the disconnect cleanup can reset lobbyMode (disconnect -> cancel path).
+	if (_game->getCoopMod()->inCoopCampaignContext())
+	{
+		_game->setState(new GoToMainMenuState(false));
+		return;
+	}
+
 	_game->popState();
 }
 

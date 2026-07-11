@@ -65,6 +65,21 @@ campaign each run.
 - `test_server_browser.py` - rendezvous-server combobox state (offline path).
 - `test_ufo_notice.py` - when one player detects a UFO, the peer gets the notice
   too (both `UfoDetectedState` popups); checks both directions.
+- `test_client_zero_disk.py` - host-save authority: after a full session with
+  aggressive autosaves and host/client saves through the real save funnel, the
+  client's user dir contains zero `.sav`/`.asav`/`.data` files (and the host
+  dir no `.data` sidecars - world blobs live in memory + the host .sav embed).
+- `test_new_campaign_flow.py` - redesigned campaign flow e2e: Solo/Co-op New
+  Game split (D1 solo-hosting refusal), host-driven lobby + START CAMPAIGN,
+  parallel base building, coop markers + locked player list.
+- `test_resume_flow.py` - resume e2e: menu load -> host window -> resume
+  lobby, wrong-name refusal, registered client with an empty user dir gets its
+  world back (roster + markers intact).
+- `test_rejoin_flow.py` - mid-session hard-kill -> host freeze dialog ->
+  direct rejoin (no lobby) -> RESUME; roster intact, zero-disk.
+
+`session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
+/ `assert_client_zero_disk`) used by every test.
 
 `harness.py` is the shared library (not a test).
 
@@ -72,8 +87,12 @@ campaign each run.
 
 - Introspection: `ping`, `get_state`, `get_coop`, `get_soldiers`,
   `get_mirror_soldiers`, `has_coop_file`, `coop_stats`, `set_option`.
-- Session flow: `load_save`, `save_game`, `open_new_game`, `newgame_ok`,
-  `place_first_base`, `profile_ok`, `host_tcp`, `join_tcp`, `lobby_ready`,
+- Session flow: `load_save`, `load_save_menu` (real LoadGameState routing),
+  `save_game`, `save_game_ui` (through the real SaveGameState funnel: `type` =
+  `quick` | `auto_geoscape`), `open_new_game` (`mode`: `solo` | `coop`),
+  `newgame_ok`, `place_first_base`, `profile_ok`, `host_tcp`, `join_tcp`,
+  `lobby_state`, `lobby_start_campaign`, `lobby_resume_campaign`,
+  `coop_dialog_back`, `save_markers`, `lobby_ready` (legacy),
   `client_reload_progress`, `quit`.
 - Transfer / UI: `transfer`, `transfer_targets`, `rename_soldier`,
   `open_soldiers`, `visit_coop_base`, `open_transfer_dialog`, `cancel_dialog`,

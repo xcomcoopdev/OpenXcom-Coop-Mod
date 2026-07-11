@@ -1771,7 +1771,7 @@ void BattlescapeState::think()
 				}
 		
 				// PVP
-				// This only runs in PvP mode. The XCOM player’s time units are reset here. The alien player’s time units are reset elsewhere, after the XCOM player’s turn has ended
+				// This only runs in PvP mode. The XCOM playerï¿½s time units are reset here. The alien playerï¿½s time units are reset elsewhere, after the XCOM playerï¿½s turn has ended
 				/*
 				if ((_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->_isActivePlayerSync == true)
 				{
@@ -5302,7 +5302,12 @@ inline void BattlescapeState::handle(Action *action)
 					}
 					else if (key == Options::keyQuickLoad)
 					{
-						_game->pushState(new LoadGameState(OPT_BATTLESCAPE, SAVE_QUICK, _palette));
+						// coop: no local load during a live session (host mid-battle
+						// load would fork the served world - C7/PRD-08).
+						if (_game->getCoopMod()->localLoadsAllowed())
+						{
+							_game->pushState(new LoadGameState(OPT_BATTLESCAPE, SAVE_QUICK, _palette));
+						}
 					}
 				}
 

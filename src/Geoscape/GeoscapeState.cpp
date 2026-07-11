@@ -767,7 +767,12 @@ void GeoscapeState::handle(Action *action)
 			}
 			else if (action->getDetails()->key.keysym.sym == Options::keyQuickLoad)
 			{
-				popup(new LoadGameState(OPT_GEOSCAPE, SAVE_QUICK, _palette));
+				// coop: no local load during a live session (client has no local
+				// saves; host mid-session load would fork the world - C7/PRD-08).
+				if (_game->getCoopMod()->localLoadsAllowed())
+				{
+					popup(new LoadGameState(OPT_GEOSCAPE, SAVE_QUICK, _palette));
+				}
 			}
 		}
 	}
@@ -976,50 +981,45 @@ void GeoscapeState::init()
 			return;
 		}
 
-		SavedGame *newsave = new SavedGame();
-
-		
-		std::string filename = "coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav";
-		std::string filepath = Options::getMasterUserFolder() + filename;
-
-		std::string coopKey = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
-
+		std::string coopKey;
 		if (connectionTCP::getServerOwner() == false)
 		{
-			// If the player�s save file isn�t found, try to find the basehost file in memory.
+			coopKey = connectionTCP::clientBlobKey(_game->getCoopMod()->getHostName());
+
+			// If the player's own-world blob isn't found, try the basehost blob.
 			if (!_game->getCoopMod()->hasCoopFile(coopKey))
 			{
 				coopKey = "basehost";
 			}
-
-			newsave->loadCoopSaveFromMemory(coopKey, _game->getMod(), _game->getLanguage(), coopKey);
 		}
 		else
 		{
-
-			filename = "coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav";
-			filepath = Options::getMasterUserFolder() + filename;
-
-			bool found = false;
-
-			// Check if the coop_geoscape.sav save exists!
-			if (OpenXcom::CrossPlatform::fileExists(filepath))
+			// Server owner returning from a mission it didn't battle-host:
+			// reload the geoscape snapshot stashed at mission sync, falling
+			// back to the last basehost snapshot.
+			coopKey = "coop_geoscape_return";
+			if (!_game->getCoopMod()->hasCoopFile(coopKey))
 			{
-				found = true;
+				// PRD-09: this snapshot should exist for every mission the server
+				// owner enters (mission start stashes it; F3 resume re-stashes it).
+				// Falling back to 'basehost' rolls the campaign back to session
+				// start - log it so any future gap is visible in harness logs.
+				Log(LOG_WARNING) << "[coop] mission-end restore: no 'coop_geoscape_return' snapshot - falling back to 'basehost' (rolls the campaign back to session start)";
+				coopKey = "basehost";
 			}
-
-			// Check if the _autogeo_.asav save exists!
-			if (found == false)
-			{
-
-				filename = "_autogeo_.asav";
-				filepath = Options::getMasterUserFolder() + filename;
-			}
-
-			newsave->load(filename, _game->getMod(), _game->getLanguage());
-
 		}
-		
+
+		if (!_game->getCoopMod()->hasCoopFile(coopKey))
+		{
+			// No world snapshot to merge into - keep the live (post-battle)
+			// world rather than loading an empty one and wiping the campaign.
+			Log(LOG_ERROR) << "[coop] mission-end reload: no world blob ('" << coopKey << "') - keeping live world";
+			return;
+		}
+
+		SavedGame *newsave = new SavedGame();
+		newsave->loadCoopSaveFromMemory(coopKey, _game->getMod(), _game->getLanguage(), coopKey);
+
 
 		// OLD SAVE SOLDIERS FROM BATTLE (CLIENT)
 		Base *base_selected = new Base(*_game->getSavedGame()->getSelectedBase());
@@ -1129,28 +1129,19 @@ void GeoscapeState::init()
 
 		}
 	
-		// save
-		if (connectionTCP::getServerOwner() == false)
-		{
-			newsave->saveCoopToMemory(coopKey, _game->getMod(), coopKey);
-		}
-		else
-		{
-			newsave->save(filename, _game->getMod());
-		}
+		// save back to memory and reload the merged world from it
+		newsave->saveCoopToMemory(coopKey, _game->getMod(), coopKey);
+
+		// newsave owns everything it loaded from the blob; base_selected is a
+		// SHALLOW copy of the live base (Base has no copy ctor and ~Base
+		// deletes members), so deleting it would free the live world.
+		delete newsave;
 
 		_game->getCoopMod()->inventory_battle_window = true;
 
 		_game->popState();
 
-		if (connectionTCP::getServerOwner() == false)
-		{
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, coopKey, _palette, coopKey));
-		}
-		else
-		{
-			_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette));
-		}
+		_game->pushState(new LoadGameState(OPT_GEOSCAPE, coopKey, _palette, coopKey));
 
 		// COOP FIX
 		if (_game->getCoopMod()->getServerOwner() == true)
