@@ -19,6 +19,7 @@
 #include "SavedGame.h"
 #include <sstream>
 #include <set>
+#include <map>
 #include <iomanip>
 #include <algorithm>
 #include <functional>
@@ -111,7 +112,7 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
  * Initializes a brand new saved game according to the specified difficulty.
  */
 SavedGame::SavedGame() :
-	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
+	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
 	_battleGame(0), _previewBase(nullptr), _debug(false), _warned(false),
 	_togglePersonalLight(true), _toggleNightVision(false), _toggleBrightness(0),
 	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
@@ -297,19 +298,25 @@ std::vector<SaveInfo> SavedGame::getList(Language *lang, bool autoquick)
 void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, Language* lang, const std::string& key)
 {
 
-	const auto& coopFiles = connectionTCP::getServerOwner()
-								? connectionTCP::coopFilesHost
-								: connectionTCP::coopFilesClient;
-
-	auto it = coopFiles.find(key);
-	if (it == coopFiles.end())
+	std::string blobCopy;
 	{
-		DebugLog("Error reading from hash map with key: " + key);
-		return;
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+
+		const auto& coopFiles = connectionTCP::getServerOwner()
+									? connectionTCP::coopFilesHost
+									: connectionTCP::coopFilesClient;
+
+		auto it = coopFiles.find(key);
+		if (it == coopFiles.end())
+		{
+			DebugLog("Error reading from hash map with key: " + key);
+			return;
+		}
+		blobCopy = it->second;
 	}
 
 	YAML::YamlRootNodeReader documents(
-		YAML::YamlString{it->second},
+		YAML::YamlString{blobCopy},
 		"<memory>",
 		false);
 
@@ -318,6 +325,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	_time->load(header["time"]);
 	header.readNode("name", _name, filename);
 	header.tryRead("ironman", _ironman);
+	header.tryRead("coop", _coop);
+	header.tryRead("coopPlayers", _coopPlayers);
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
@@ -712,6 +721,14 @@ SaveInfo SavedGame::getSaveInfo(const std::string &file, Language *lang)
 	}
 	save.details = details.str();
 
+	// co-op campaigns are marked in the list so players know the save
+	// demands a session
+	save.coop = reader["coop"].readVal(false);
+	if (save.coop)
+	{
+		save.details = "Co-op - " + save.details;
+	}
+
 	return save;
 }
 
@@ -754,9 +771,24 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	_time->load(header["time"]);
 	header.readNode("name", _name, filename);
 	header.tryRead("ironman", _ironman);
+	header.tryRead("coop", _coop);
+	header.tryRead("coopPlayers", _coopPlayers);
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
+
+	// Old-format co-op saves (made before the campaign flow redesign) carry
+	// coop traces without the coop marker and are unsupported.
+	if (!_coop)
+	{
+		long long oldSaveID = 0;
+		reader.tryRead("saveID", oldSaveID);
+		if (oldSaveID != 0 || reader["coopClientSaves"] || reader["coopClientSaveKey"])
+		{
+			throw Exception("This save was made on an earlier version of the X-COM Co-op Mod that is no longer supported. Please downgrade to an older version or use the save editor to upgrade your save.");
+		}
+	}
+
 	reader.tryRead("difficulty", _difficulty);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
@@ -764,22 +796,40 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("monthsPassed", _monthsPassed);
 
 	// coop
+	// Default to 0 first: a solo/legacy save has no saveID key, and tryRead
+	// leaves the global untouched on a miss - which would let a prior coop
+	// session's saveID leak into this loaded game (fixes C1 on the load side).
+	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
-	// Single-authority: a host save embeds the client-world blob captured at
-	// save time. Restore it as the served copy (RAM + the sidecar file the
-	// reconnect flow streams), so a rolled-back save rolls the client back too.
+	// Single-authority: a host save embeds every client-world blob captured
+	// at save time. Restore them as the served copies (memory only - the
+	// reconnect flow streams from these), so a rolled-back save rolls every
+	// client back too. The load defines the full served set: stale host blobs
+	// from another campaign/session are dropped first, so a solo or different
+	// save never serves (or re-embeds) a foreign client world.
 	{
-		std::string coopClientKey;
-		reader.tryRead("coopClientSaveKey", coopClientKey);
-		if (!coopClientKey.empty() && reader["coopClientSaveBlob"])
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		for (auto it = connectionTCP::coopFilesHost.begin(); it != connectionTCP::coopFilesHost.end();)
 		{
-			std::vector<char> blob = reader["coopClientSaveBlob"].readValBase64();
-			std::string blobStr(blob.begin(), blob.end());
-			connectionTCP::coopFilesHost[coopClientKey] = blobStr;
-			CrossPlatform::writeFile(Options::getMasterUserFolder() + coopClientKey, blobStr);
-			Log(LOG_INFO) << "[coop-transfer] restored embedded client blob '" << coopClientKey << "' (" << blobStr.size() << " bytes)";
+			if (it->first.compare(0, 5, "host_") == 0)
+				it = connectionTCP::coopFilesHost.erase(it);
+			else
+				++it;
+		}
+		if (reader["coopClientSaves"])
+		{
+			for (const auto& entry : reader["coopClientSaves"].children())
+			{
+				std::string key;
+				entry.tryRead("key", key);
+				if (key.empty() || !entry["blob"])
+					continue;
+				std::vector<char> blob = entry["blob"].readValBase64();
+				connectionTCP::coopFilesHost[key] = std::string(blob.begin(), blob.end());
+				Log(LOG_INFO) << "[coop-transfer] restored embedded client blob '" << key << "' (" << blob.size() << " bytes)";
+			}
 		}
 	}
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
@@ -1186,6 +1236,14 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	if (_ironman)
 		headerWriter.write("ironman", _ironman);
 
+	// coop campaign markers (kept in blob headers too, so client worlds
+	// loaded from memory carry the same campaign identity)
+	if (_coop)
+	{
+		headerWriter.write("coop", _coop);
+		headerWriter.write("coopPlayers", _coopPlayers);
+	}
+
 	// Saves the full game data to the save
 	YAML::YamlRootNodeWriter writer(1000000); // 1MB starting buffer
 	writer.setAsMap();
@@ -1193,7 +1251,11 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	writer.write("end", _end);
 
 	// coop
-	writer.write("saveID", connectionTCP::saveID);
+	// Only a coop save carries a saveID; a solo save must not (the load gate
+	// throws on !_coop && saveID != 0). Same condition as the "coop" header
+	// marker above, so the two can never disagree (fixes C1).
+	if (_coop)
+		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
@@ -1373,13 +1435,16 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	finalString += bodyString.yaml;
 
 	// Save to memory
-	if (connectionTCP::getServerOwner() == true)
 	{
-		connectionTCP::coopFilesHost[key] = std::move(finalString);
-	}
-	else
-	{
-		connectionTCP::coopFilesClient[key] = std::move(finalString);
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		if (connectionTCP::getServerOwner() == true)
+		{
+			connectionTCP::coopFilesHost[key] = std::move(finalString);
+		}
+		else
+		{
+			connectionTCP::coopFilesClient[key] = std::move(finalString);
+		}
 	}
 
 }
@@ -1420,6 +1485,14 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	if (_ironman)
 		headerWriter.write("ironman", _ironman);
 
+	// coop campaign markers live in the header so the save list and load
+	// routing can read them without parsing the body
+	if (_coop)
+	{
+		headerWriter.write("coop", _coop);
+		headerWriter.write("coopPlayers", _coopPlayers);
+	}
+
 	// Saves the full game data to the save
 	YAML::YamlRootNodeWriter writer(1000000); //1MB starting buffer
 	writer.setAsMap();
@@ -1427,23 +1500,50 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.write("end", _end);
 
 	// coop
-	writer.write("saveID", connectionTCP::saveID);
+	// Only a coop save carries a saveID; a solo save must not (the load gate
+	// throws on !_coop && saveID != 0). Same condition as the "coop" header
+	// marker above, so the two can never disagree (fixes C1).
+	if (_coop)
+		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
-	// Single-authority: embed the freshest client-world blob so this save
-	// captures BOTH players' rosters atomically. Skip when this call is itself
-	// writing a client sidecar (.data) to avoid recursive embedding.
-	if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".data")
+	// Single-authority: embed the freshest client-world blob of EVERY client
+	// so this save captures all players' rosters atomically. Skip when this
+	// call is itself writing a client sidecar (.data) to avoid recursion, and
+	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
+	// campaign's save with another campaign's blobs).
+	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite)
 	{
-		const std::string prefix = "host_" + std::to_string(connectionTCP::saveID) + "_";
-		for (const auto& kv : connectionTCP::coopFilesHost)
+		// Blob identity comes from the locked roster (host at [0], clients after),
+		// NOT from reverse-parsing map keys: each client's world lives under
+		// hostBlobKey(name) at the current saveID (the store keeps one entry per
+		// client and the saveID is stable within a session - see PRD-04). This
+		// removes the fragile filename find/substr + lexicographic-id selection
+		// that could pick the wrong blob (S8). Keyed by exact name, so player
+		// "Bob" can never collide with "Super_Bob".
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		std::vector<std::pair<std::string, const std::string*>> toEmbed; // (key, blob)
+		for (size_t i = 1; i < _coopPlayers.size(); ++i)
 		{
-			if (kv.first.compare(0, prefix.size(), prefix) == 0 && !kv.second.empty())
+			// blob matched by exact roster name (any saveID); the embedded key is
+			// normalized to the CURRENT saveID so the reconnect flow finds it
+			// after this save is loaded.
+			const std::string* blob = connectionTCP::findHostClientBlob(_coopPlayers[i]);
+			if (blob && !blob->empty())
+				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), blob);
+		}
+		if (!toEmbed.empty())
+		{
+			auto seq = writer["coopClientSaves"];
+			seq.setAsSeq();
+			for (const auto& kb : toEmbed)
 			{
-				writer.write("coopClientSaveKey", kv.first);
-				writer.writeBase64("coopClientSaveBlob", const_cast<char*>(kv.second.data()), kv.second.size());
-				break;
+				auto e = seq.write();
+				e.setAsMap();
+				e.write("key", kb.first);
+				e.writeBase64("blob", const_cast<char*>(kb.second->data()), kb.second->size());
 			}
 		}
 	}

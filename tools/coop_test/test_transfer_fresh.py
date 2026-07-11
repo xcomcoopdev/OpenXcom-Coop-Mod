@@ -10,8 +10,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
-
-HOST_LON, HOST_LAT = 0.35, 0.85  # different land spot for the host base
+import session
 
 
 def main():
@@ -21,48 +20,7 @@ def main():
         host.spawn(); client.spawn()
         host.connect(); client.connect()
 
-        for gc in (host, client):
-            gc.ok({"cmd": "set_option", "name": "HostSaveProgress", "value": True})
-
-        # --- host: brand-new campaign ---
-        host.ok({"cmd": "open_new_game"})
-        host.wait_for("difficulty", lambda: any("NewGameState" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-        host.ok({"cmd": "newgame_ok"})
-        host.wait_for("base placement", lambda: any("BuildNewBaseState" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-        r = host.cmd({"cmd": "place_first_base", "lon": HOST_LON, "lat": HOST_LAT, "name": "HostBase"})
-        if not r.get("ok"):
-            # fall back to the known-good land spot
-            host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "HostBase"})
-        host.wait_for("host on geoscape", lambda: (lambda st: "GeoscapeState" in st[0] and len(st) == 1 or None)([s for s in host.cmd({"cmd": "get_state"})["states"]]))
-
-        # --- host up, client join, same lobby dance as legacy test ---
-        r = host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47900", "player": "HostPlayer"})
-        assert r["campaign"], "fresh campaign should count as campaign"
-
-        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47900", "player": "ClientPlayer"})
-        host.wait_for("client joined", lambda: host.cmd({"cmd": "get_coop"}).get("coopStatic") or None)
-
-        host.wait_for("host profile", lambda: any("Profile" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-        host.ok({"cmd": "profile_ok"})
-        client.wait_for("client profile", lambda: any("Profile" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-        client.ok({"cmd": "profile_ok"})
-
-        client.wait_for("difficulty", lambda: any("NewGameState" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-        client.ok({"cmd": "newgame_ok"})
-        client.wait_for("base placement", lambda: any("BuildNewBaseState" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-        client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "ClientBase"})
-
-        client.wait_for("client lobby", lambda: any("LobbyMenu" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-        client.ok({"cmd": "lobby_ready"})
-        host.ok({"cmd": "lobby_ready"})
-        client.wait_for("locked", lambda: client.cmd({"cmd": "get_coop"}).get("sessionLocked") or None, timeout=60)
-        host.ok({"cmd": "lobby_ready"})
-        client.ok({"cmd": "lobby_ready"})
-        client.wait_for(
-            "lobby closed + save synced",
-            lambda: (lambda c: (c.get("lobbyClosed") and c.get("hasSave")) or None)(client.cmd({"cmd": "get_coop"})),
-            timeout=120,
-        )
+        session.new_campaign(host, client)
         print("fresh coop session established")
 
         # --- pick host's first soldier, transfer, verify ---

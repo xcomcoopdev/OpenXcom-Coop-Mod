@@ -15,47 +15,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+import session
 
 HOST_LON, HOST_LAT = 0.35, 0.85
 
 
 def bootstrap_fresh_session(host, client):
-    for gc in (host, client):
-        gc.ok({"cmd": "set_option", "name": "HostSaveProgress", "value": True})
-
-    host.ok({"cmd": "open_new_game"})
-    host.wait_for("difficulty", lambda: any("NewGameState" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-    host.ok({"cmd": "newgame_ok"})
-    host.wait_for("base placement", lambda: any("BuildNewBaseState" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-    r = host.cmd({"cmd": "place_first_base", "lon": HOST_LON, "lat": HOST_LAT, "name": "HostBase"})
-    if not r.get("ok"):
-        host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "HostBase"})
-
-    host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47900", "player": "HostPlayer"})
-    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47900", "player": "ClientPlayer"})
-    host.wait_for("client joined", lambda: host.cmd({"cmd": "get_coop"}).get("coopStatic") or None)
-
-    host.wait_for("host profile", lambda: any("Profile" in s for s in host.cmd({"cmd": "get_state"})["states"]) or None)
-    host.ok({"cmd": "profile_ok"})
-    client.wait_for("client profile", lambda: any("Profile" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-    client.ok({"cmd": "profile_ok"})
-    client.wait_for("difficulty", lambda: any("NewGameState" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-    client.ok({"cmd": "newgame_ok"})
-    client.wait_for("base placement", lambda: any("BuildNewBaseState" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-    client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "ClientBase"})
-
-    client.wait_for("client lobby", lambda: any("LobbyMenu" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None)
-    client.ok({"cmd": "lobby_ready"})
-    host.ok({"cmd": "lobby_ready"})
-    client.wait_for("locked", lambda: client.cmd({"cmd": "get_coop"}).get("sessionLocked") or None, timeout=60)
-    host.ok({"cmd": "lobby_ready"})
-    client.ok({"cmd": "lobby_ready"})
-    client.wait_for(
-        "lobby closed + save synced",
-        lambda: (lambda c: (c.get("lobbyClosed") and c.get("hasSave")) or None)(client.cmd({"cmd": "get_coop"})),
-        timeout=120,
-    )
-    print("session up")
+    """Fresh co-op campaign via the redesigned flow (shared session dance)."""
+    session.new_campaign(host, client)
 
 
 def own_base(gc):

@@ -51,6 +51,7 @@ protected:
 	unsigned int _firstValidRow = 0;
 	bool _sortable;
 	bool _timerStarted = false;
+	bool _redirected = false; // think() left the lobby after a lost connection
 	int _countdown = 30; // seconds
 	void updateArrows();
   public:
@@ -67,6 +68,11 @@ protected:
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	void btnDisconnectClick(Action* action);
+	/// Returns to the server browser, reusing one already in the stack.
+	void pushServerListUnlessPresent();
+	// Pop everything stacked above the LobbyMenu (inclusive) and mark the
+	// session's lobby closed. Shared by startCampaign() and resumeCampaign().
+	void closeLobby();
 	void btnChatClick(Action* action);
 	/// Handler for moving the mouse over a list item.
 	void lstSavesMouseOver(Action *action);
@@ -78,6 +84,27 @@ protected:
 	void disableSort();
 	/// Runs the timers and handles popups.
 	void think() override;
+	/// Can the host start the new campaign (>= 1 client connected)?
+	bool startEligible() const;
+	/// Locks players/teams, writes the initial save and begins base building
+	/// on every machine (flow-redesign F2).
+	void startCampaign();
+	/// PRD-10: push the real START CAMPAIGN confirm dialog (harness hook so a
+	/// test can exercise the true confirm->OK path, not a startCampaign bypass).
+	void openStartConfirmDialog();
+	/// PRD-10: if a confirm dialog is on top, invoke its OK exactly as a click
+	/// would (pops it, re-checks eligibility, starts only if still eligible).
+	/// Returns true if a confirm dialog was found and clicked.
+	bool clickStartConfirmOk();
+	/// Registered players not yet in the lobby (resume mode, F3).
+	std::vector<std::string> missingPlayers() const;
+	/// Serves every resuming player its world and waits for acks (F3).
+	void resumeCampaign();
+	/// Introspection for the test harness.
+	std::string actionButtonText() const;
+	bool actionButtonVisible() const;
+	std::string detailsText() const;
+	std::vector<std::string> rosterNames() const;
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action* action);
 	void sortLatencyClick(Action* action);

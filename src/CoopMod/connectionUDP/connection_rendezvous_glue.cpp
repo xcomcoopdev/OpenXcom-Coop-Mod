@@ -34,7 +34,6 @@ namespace OpenXcom
 
 extern int onConnect;
 extern bool coopSession;
-extern bool server_owner;
 extern bool onTcpHost;
 
 namespace
@@ -334,7 +333,7 @@ static void resetLobbyStateAfterRemoteDisconnect()
 {
     // Remote player is gone. The old TCP disconnect branch will keep the host
     // alive, but the previous ready/locked state is no longer valid.
-    connectionTCP::isCoopSessionLocked = false;
+    connectionTCP::session.sessionLocked = false;
     connectionTCP::isPlayerReady = false;
     connectionTCP::isPlayersReady = false;
     connectionTCP::LobbyFileStatus = -1;
@@ -363,7 +362,7 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
 
         resetLobbyStateAfterRemoteDisconnect();
         coopSession = false;
-        server_owner = true;
+        connectionTCP::session.role = CoopRole::Host;
         onTcpHost = true;
         onConnect = 2; // host is alive and waiting for a replacement player
 
@@ -450,11 +449,11 @@ static void setHostWaitingState()
     g_rendezvousFlowActive.store(true);
     g_cancelRendezvous.store(false);
     coopSession = false;
-    server_owner = true;
+    connectionTCP::session.role = CoopRole::Host;
     onTcpHost = true;
     onConnect = 1;
 
-    connectionTCP::isCoopSessionLocked = false;
+    connectionTCP::session.sessionLocked = false;
     connectionTCP::isPlayerReady = false;
     connectionTCP::isPlayersReady = false;
     connectionTCP::LobbyFileStatus = -1;
@@ -540,7 +539,7 @@ static void rememberHostRoomForClose(const std::string& rendezvousHost,
                 }
             }
 
-            if (connectionTCP::isCoopSessionLocked)
+            if (connectionTCP::session.sessionLocked)
             {
                 closeListedRoomNow();
                 std::lock_guard<std::mutex> lock(g_roomCloseMutex);
@@ -580,8 +579,8 @@ void disconnectRendezvousUdp()
 
     // connectionTCP::disconnectTCP() decides the branch from the current
     // onConnect value. Do not overwrite full-close state here.
-    const bool hostFullDisconnect = server_owner && onConnect == -1;
-    const bool remotePeerLeftHostAlive = server_owner && onConnect == -2;
+    const bool hostFullDisconnect = connectionTCP::getServerOwner() && onConnect == -1;
+    const bool remotePeerLeftHostAlive = connectionTCP::getServerOwner() && onConnect == -2;
 
     cancelRendezvousOperations();
     stopUdpPeer();
@@ -589,7 +588,7 @@ void disconnectRendezvousUdp()
     if (hostFullDisconnect)
     {
         g_rendezvousFlowActive.store(false);
-        server_owner = false;
+        connectionTCP::session.role = CoopRole::None;
         onTcpHost = false;
         coopSession = false;
         return;
@@ -610,7 +609,7 @@ void disconnectRendezvousUdp()
     }
 
     // Client disconnect or any non-host rendezvous disconnect.
-    if (!server_owner)
+    if (!connectionTCP::getServerOwner())
         g_rendezvousFlowActive.store(false);
 }
 
@@ -624,7 +623,7 @@ void handleUdpRemotePeerLost()
     // covers both a graceful F_CLOSE and a forced client shutdown detected by
     // UDP timeout. Do not call disconnectRendezvousUdp() here because this may
     // run from the UDP monitor thread; stopUdpPeer() would try to join itself.
-    if (server_owner && onConnect != -1)
+    if (connectionTCP::getServerOwner() && onConnect != -1)
     {
         // Host stays alive and relists the room for another player.
         g_rendezvousFlowActive.store(true);
@@ -635,7 +634,7 @@ void handleUdpRemotePeerLost()
         return;
     }
 
-    if (!server_owner && onConnect != -1)
+    if (!connectionTCP::getServerOwner() && onConnect != -1)
     {
         // Client lost the host/peer. This is a remote loss, not a user-requested
         // full host shutdown, and the client's rendezvous flow is over.
@@ -1651,8 +1650,8 @@ bool closeListedRoomViaRendezvous()
 {
     // Manual safety hook. Normally hostListedViaRendezvous(...) starts a
     // background monitor which calls this automatically after
-    // connectionTCP::isCoopSessionLocked becomes true.
-    if (!connectionTCP::isCoopSessionLocked)
+    // connectionTCP::session.sessionLocked becomes true.
+    if (!connectionTCP::session.sessionLocked)
         return false;
 
     return closeListedRoomNow();

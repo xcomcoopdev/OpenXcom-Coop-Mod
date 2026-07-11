@@ -78,11 +78,15 @@
 #include "../Mod/RuleResearch.h"
 #include "../Mod/RuleUfo.h"
 #include "../Menu/NewGameState.h"
+#include "../Menu/LoadGameState.h"
+#include "../Menu/SaveGameState.h"
 #include "../Menu/StartState.h"
+#include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/UfoDetectedState.h"
 #include "LobbyMenu.h"
+#include "HostMenu.h"
 #include "Profile.h"
 #include "connectionTCP.h"
 #include "ServerList.h"
@@ -96,6 +100,29 @@
 
 namespace OpenXcom
 {
+
+namespace {
+// PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
+// t = dynamic_cast<T*>(s)) found = t;` was pasted ~20x. These file-local helpers
+// replace the pure find-last and top-only variants. Loops with extra
+// per-iteration logic (early break, multi-type, counting) are left inline.
+
+/// Last (topmost) instance of T on the state stack, or nullptr.
+template <class T> T* findState(Game* game)
+{
+	T* found = nullptr;
+	for (auto* s : game->getStates())
+		if (auto* t = dynamic_cast<T*>(s)) found = t;
+	return found;
+}
+
+/// T only if it is the current top state, else nullptr.
+template <class T> T* topState(Game* game)
+{
+	return game->getStates().empty() ? nullptr
+		: dynamic_cast<T*>(game->getStates().back());
+}
+}
 
 TestServer& TestServer::instance()
 {
@@ -254,6 +281,7 @@ void TestServer::pump()
 	// worker thread; executing commands now races it (e.g. GeoscapeState
 	// needs surfaces that modResources() synthesizes at the very end of the
 	// load). Leave commands queued until loading finishes.
+	// PRD-13: left inline - returns on first match (presence check / early exit), not find-last
 	for (auto* s : _game->getStates())
 	{
 		if (dynamic_cast<StartState*>(s))
@@ -349,6 +377,7 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "get_state")
 		{
 			Json::Value states(Json::arrayValue);
+			// PRD-13: left inline - dumps every state's name into a container, not a find
 			for (auto* s : _game->getStates())
 			{
 				states.append(typeid(*s).name());
@@ -375,12 +404,7 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "server_combo")
 		{
 			// Dump the rendezvous-server combobox state for assertions.
-			ServerList* browser = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* sl = dynamic_cast<ServerList*>(s))
-					browser = sl;
-			}
+			ServerList* browser = findState<ServerList>(_game);
 
 			if (!browser)
 			{
@@ -409,12 +433,7 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// Open the rendezvous-server dropdown so the disabled/greyed rows are
 			// visible for a screenshot.
-			ServerList* browser = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* sl = dynamic_cast<ServerList*>(s))
-					browser = sl;
-			}
+			ServerList* browser = findState<ServerList>(_game);
 			if (!browser)
 			{
 				resp["ok"] = false;
@@ -589,10 +608,7 @@ std::string TestServer::execute(const std::string& line)
 			// advances fast when BOTH players pick the SAME speed; the driver
 			// calls this on host+client together, then lets the real timers run.
 			int idx = req.get("idx", 0).asInt();
-			GeoscapeState* gs = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s))
-					gs = g;
+			GeoscapeState* gs = findState<GeoscapeState>(_game);
 			if (!gs)
 				resp["error"] = "no GeoscapeState on stack (in a popup/battle?)";
 			else
@@ -649,9 +665,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "confirm_landing")
 		{
-			ConfirmLandingState* cl = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* c = dynamic_cast<ConfirmLandingState*>(s)) cl = c;
+			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
 			if (!cl)
 				resp["error"] = "no ConfirmLandingState on stack";
 			else
@@ -665,9 +679,7 @@ std::string TestServer::execute(const std::string& line)
 			// Pre-battle coop inventory (soldiers spawn unarmed, weapons on the
 			// ground). action=autoequip_all cycles units auto-equipping each from
 			// the ground pile; action=ok closes it and starts the tactical turn.
-			InventoryState* inv = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* i = dynamic_cast<InventoryState*>(s)) inv = i;
+			InventoryState* inv = findState<InventoryState>(_game);
 			if (!inv)
 			{
 				resp["error"] = "no InventoryState on stack";
@@ -696,9 +708,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "close_briefing")
 		{
-			BriefingState* br = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* b = dynamic_cast<BriefingState*>(s)) br = b;
+			BriefingState* br = findState<BriefingState>(_game);
 			if (!br)
 				resp["error"] = "no BriefingState on stack";
 			else
@@ -770,6 +780,7 @@ std::string TestServer::execute(const std::string& line)
 			// BattlescapeState. All ops are on the main thread (race-free).
 			BattlescapeGame* bg = nullptr;
 			BattlescapeState* bstate = nullptr;
+			// PRD-13: left inline - assigns two vars + calls getBattleGame() per match, not pure find-last
 			for (auto* s : _game->getStates())
 				if (auto* bs = dynamic_cast<BattlescapeState*>(s)) { bstate = bs; bg = bs->getBattleGame(); }
 			SavedBattleGame* sbg = bg ? bg->getSave() : nullptr;
@@ -865,7 +876,7 @@ std::string TestServer::execute(const std::string& line)
 			// Confirm/close the top geoscape popup (event intro, etc.). Handled
 			// types grow as the play driver discovers them. Reports the type so
 			// unknown popups surface instead of silently hanging.
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
 			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
 			{
@@ -957,11 +968,13 @@ std::string TestServer::execute(const std::string& line)
 			resp["host"] = connectionTCP::getHost();
 			resp["serverOwner"] = connectionTCP::getServerOwner();
 			resp["onConnect"] = coop->isConnected();
-			resp["sessionLocked"] = connectionTCP::isCoopSessionLocked;
+			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
 			resp["playerReady"] = connectionTCP::isPlayerReady;
 			resp["playersReady"] = connectionTCP::isPlayersReady;
-			resp["lobbyClosed"] = connectionTCP::isLobbyMenuClosed;
+			resp["lobbyClosed"] = connectionTCP::session.lobbyClosed;
 			resp["lobbyFileStatus"] = connectionTCP::LobbyFileStatus;
+			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+			resp["resumeAck"] = connectionTCP::session.resumeAck;
 			resp["coopSession"] = coop->isCoopSession();
 			resp["hasSave"] = _game->getSavedGame() != nullptr;
 			resp["inBattle"] = _game->getSavedGame() && _game->getSavedGame()->getSavedBattle();
@@ -969,6 +982,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["clientName"] = coop->getCurrentClientName();
 			resp["insideCoopBase"] = coop->playerInsideCoopBase;
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
 			resp["ok"] = true;
 		}
 		else if (cmd == "load_save")
@@ -987,23 +1001,157 @@ std::string TestServer::execute(const std::string& line)
 			std::string port = req.get("port", "3000").asString();
 			std::string player = req.get("player", "HostPlayer").asString();
 
-			connectionTCP::password = "";
-			connectionTCP::isPasswordRequired = false;
-			connectionTCP::_coopGamemode = 1; // PVE
-			coop->setCoopSession(false);
-			coop->setPlayerTurn(3);
-			coop->setHostName(player);
 			// campaign when a real campaign save is loaded (same check as HostMenu)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
-			coop->setCoopCampaign(campaign);
-			coop->hostTCPServer(server, port);
-			coop->setServerOwner(true);
-			if (Options::HostSaveProgress && campaign)
+
+			// flow-redesign D1: solo campaigns can never be hosted as co-op
+			if (campaign && !_game->getSavedGame()->isCoopSave())
 			{
-				_game->pushState(new LobbyMenu());
+				resp["error"] = "solo campaign cannot be hosted (D1)";
 			}
-			resp["campaign"] = campaign;
+			// D4: the host identity is locked to the save
+			else if (campaign
+				&& !_game->getSavedGame()->getCoopPlayers().empty()
+				&& _game->getSavedGame()->getCoopPlayers()[0] != player)
+			{
+				resp["error"] = "campaign can only be hosted by " + _game->getSavedGame()->getCoopPlayers()[0] + " (D4)";
+			}
+			else
+			{
+				// same lobby-mode derivation as HostMenu::hostTCPGame
+				if (campaign)
+				{
+					connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
+				}
+				connectionTCP::password = "";
+				connectionTCP::isPasswordRequired = false;
+				connectionTCP::_coopGamemode = 1; // PVE
+				coop->setCoopSession(false);
+				coop->setPlayerTurn(3);
+				coop->setHostName(player);
+				coop->setCoopCampaign(campaign);
+				coop->hostTCPServer(server, port);
+				coop->setServerOwner(true);
+				if (campaign)
+				{
+					// replace an open HostMenu with the lobby (the UI path
+					// does this via hostTCPGame)
+					if (topState<HostMenu>(_game))
+					{
+						_game->popState();
+					}
+					_game->pushState(new LobbyMenu());
+				}
+				resp["campaign"] = campaign;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "host_menu_host")
+		{
+			// drive the real host window: pick a connection type
+			// (0 TCP, 1 UDP private, 2 UDP public, 3 hotseat) and START HOST
+			HostMenu* hm = topState<HostMenu>(_game);
+			if (!hm)
+			{
+				resp["error"] = "no HostMenu on top";
+			}
+			else
+			{
+				hm->testHostWithVisibility(req.get("visibility", 0).asInt());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "host_menu_state")
+		{
+			HostMenu* hm = findState<HostMenu>(_game);
+			resp["open"] = (hm != nullptr);
+			resp["controlsVisible"] = hm ? hm->hostControlsVisible() : false;
 			resp["ok"] = true;
+		}
+		else if (cmd == "host_menu_cancel")
+		{
+			HostMenu* hm = topState<HostMenu>(_game);
+			if (!hm)
+			{
+				resp["error"] = "no HostMenu on top";
+			}
+			else
+			{
+				hm->btnCancelClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_disconnect")
+		{
+			LobbyMenu* lobby = topState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu on top";
+			}
+			else
+			{
+				lobby->btnDisconnectClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "disconnect_to_menu")
+		{
+			// Return this instance to the main menu the way the in-game "abandon
+			// to main menu" path does: drop the transport and reset the session.
+			// MainMenuState::init() also calls resetSession(), so this exercises
+			// the real teardown that must return the process to a pristine coop
+			// identity (saveID 0, blob maps empty) for a second campaign.
+			coop->disconnectTCP(true);
+			coop->setServerOwner(false);
+			connectionTCP::session.resetSession();
+			_game->setState(new MainMenuState);
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_info")
+		{
+			// introspect the topmost CoopState dialog anywhere on the stack:
+			// its code, title text, back-button text + visibility. Used by the
+			// harness to assert dialog wording/scaling and to catch a lingering
+			// "Connecting..." (code 15) buried under the lobby.
+			CoopState* cs = findState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["present"] = false;
+			}
+			else
+			{
+				resp["present"] = true;
+				resp["code"] = cs->getStateCode();
+				resp["title"] = cs->getTitleText();
+				resp["backText"] = cs->getBackText();
+				resp["backVisible"] = cs->isBackVisible();
+				resp["windowHeight"] = cs->getWindowHeight();
+			}
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_push_connecting")
+		{
+			// Mirror the real join UI (ServerList/DirectConnect), which pushes a
+			// "Connecting..." wait dialog (CoopState 15) before kicking off the
+			// async connect. join_tcp bypasses that UI, so tests that need the
+			// connecting-dialog scenario (e.g. the lingering-window bug) push it
+			// explicitly right before join_tcp.
+			_game->pushState(new CoopState(15));
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_back")
+		{
+			// click the back/RESUME/OK button of the top CoopState dialog
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else
+			{
+				cs->previous(nullptr);
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "join_tcp")
 		{
@@ -1021,14 +1169,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "profile_ok")
 		{
-			Profile* profile = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* p = dynamic_cast<Profile*>(s))
-				{
-					profile = p;
-				}
-			}
+			Profile* profile = findState<Profile>(_game);
 			if (profile)
 			{
 				profile->buttonOK(nullptr);
@@ -1041,19 +1182,15 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "open_new_game")
 		{
-			_game->pushState(new NewGameState);
+			// mode: "solo" (default) or "coop" - mirrors the main menu's
+			// New Game dropdown (flow-redesign D1)
+			bool coop = req.get("mode", "solo").asString() == "coop";
+			_game->pushState(new NewGameState(coop));
 			resp["ok"] = true;
 		}
 		else if (cmd == "newgame_ok")
 		{
-			NewGameState* ng = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* n = dynamic_cast<NewGameState*>(s))
-				{
-					ng = n;
-				}
-			}
+			NewGameState* ng = findState<NewGameState>(_game);
 			if (ng)
 			{
 				ng->btnOkClick(nullptr);
@@ -1070,14 +1207,7 @@ std::string TestServer::execute(const std::string& line)
 			double lat = req.get("lat", 0.0).asDouble();
 			std::string name = req.get("name", "TestBase").asString();
 
-			BuildNewBaseState* build = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* b = dynamic_cast<BuildNewBaseState*>(s))
-				{
-					build = b;
-				}
-			}
+			BuildNewBaseState* build = findState<BuildNewBaseState>(_game);
 			if (!build)
 			{
 				resp["error"] = "no BuildNewBaseState in state stack";
@@ -1089,14 +1219,7 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				// placeAt pushed BaseNameState (first base); confirm the name.
-				BaseNameState* nameState = nullptr;
-				for (auto* s : _game->getStates())
-				{
-					if (auto* n = dynamic_cast<BaseNameState*>(s))
-					{
-						nameState = n;
-					}
-				}
+				BaseNameState* nameState = findState<BaseNameState>(_game);
 				if (nameState)
 				{
 					nameState->setNameAndConfirm(name);
@@ -1110,14 +1233,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "lobby_ready")
 		{
-			LobbyMenu* lobby = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* l = dynamic_cast<LobbyMenu*>(s))
-				{
-					lobby = l;
-				}
-			}
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
 			if (lobby)
 			{
 				lobby->btnCancelClick(nullptr);
@@ -1210,14 +1326,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "soldiers_ok")
 		{
-			SoldiersState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<SoldiersState*>(s))
-				{
-					st = x;
-				}
-			}
+			SoldiersState* st = findState<SoldiersState>(_game);
 			if (st)
 			{
 				st->btnOkClick(nullptr);
@@ -1267,14 +1376,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "leave_base")
 		{
-			BasescapeState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<BasescapeState*>(s))
-				{
-					st = x;
-				}
-			}
+			BasescapeState* st = findState<BasescapeState>(_game);
 			if (st)
 			{
 				st->btnGeoscapeClick(nullptr);
@@ -1398,6 +1500,7 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "get_notices")
 		{
 			Json::Value notices(Json::arrayValue);
+			// PRD-13: left inline - appends every match's category into a container, not a find
 			for (auto* s : _game->getStates())
 			{
 				if (auto* n = dynamic_cast<TransferNoticeState*>(s))
@@ -1410,14 +1513,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "dismiss_notice")
 		{
-			TransferNoticeState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<TransferNoticeState*>(s))
-				{
-					st = x;
-				}
-			}
+			TransferNoticeState* st = findState<TransferNoticeState>(_game);
 			if (st)
 			{
 				st->btnOkClick(nullptr);
@@ -1430,14 +1526,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "cancel_dialog")
 		{
-			TransferSoldierMenu* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<TransferSoldierMenu*>(s))
-				{
-					st = x;
-				}
-			}
+			TransferSoldierMenu* st = findState<TransferSoldierMenu>(_game);
 			if (st)
 			{
 				st->btnCancelClick(nullptr);
@@ -1453,6 +1542,7 @@ std::string TestServer::execute(const std::string& line)
 			// First N palette entries of the top two states, for asserting
 			// that a dialog adopted its parent's palette (flicker check).
 			Json::Value states(Json::arrayValue);
+			// PRD-13: left inline - reads every state's palette into a container, not a find
 			auto& stack = _game->getStates();
 			for (auto* s : stack)
 			{
@@ -1522,6 +1612,34 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "save_game_ui")
+		{
+			// Save through the real SaveGameState funnel (same path as the
+			// in-game autosaves/quicksave), unlike save_game which calls
+			// SavedGame::save directly. Exercises the coop save cycle and the
+			// client-side save suppression gate. Only the single-pop SaveTypes
+			// are exposed: SAVE_DEFAULT pops the save+pause menus it normally
+			// sits on, which don't exist when pushed from here.
+			std::string type = req.get("type", "").asString();
+			if (!_game->getSavedGame())
+			{
+				resp["error"] = "no loaded save";
+			}
+			else if (type == "auto_geoscape")
+			{
+				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+			else if (type == "quick")
+			{
+				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "need type (auto_geoscape|quick)";
+			}
+		}
 		else if (cmd == "client_reload_progress")
 		{
 			// Reconnect flow: ask the host for our world (same as the client
@@ -1542,6 +1660,135 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "lobby_state")
+		{
+			// campaign-lobby introspection (flow-redesign F2)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			resp["lobbyOpen"] = (lobby != nullptr);
+			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
+			resp["startEligible"] = (lobby != nullptr) && lobby->startEligible();
+			if (lobby)
+			{
+				resp["buttonText"] = lobby->actionButtonText();
+				resp["buttonVisible"] = lobby->actionButtonVisible();
+				resp["detailsText"] = lobby->detailsText();
+				int idx = 0;
+				for (const auto& n : lobby->rosterNames())
+				{
+					resp["players"][idx++] = n;
+				}
+			}
+			resp["ok"] = true;
+		}
+		else if (cmd == "load_save_menu")
+		{
+			// load through the real LoadGameState (runs the co-op routing:
+			// coop save -> host window + resume lobby) (flow-redesign F3)
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				_game->pushState(new LoadGameState(OPT_MENU, file, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_resume_campaign")
+		{
+			// host clicks RESUME CAMPAIGN (flow-redesign F3)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else if (connectionTCP::session.lobbyMode != 2)
+			{
+				resp["error"] = "lobby is not in resume mode";
+			}
+			else if (!lobby->missingPlayers().empty())
+			{
+				std::string missing;
+				for (const auto& m : lobby->missingPlayers())
+				{
+					if (!missing.empty()) missing += ", ";
+					missing += m;
+				}
+				resp["error"] = "waiting for: " + missing;
+			}
+			else
+			{
+				lobby->resumeCampaign();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_start_campaign")
+		{
+			// host clicks START CAMPAIGN + confirms (flow-redesign F2)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else if (connectionTCP::session.lobbyMode != 1)
+			{
+				resp["error"] = "lobby is not in new-campaign mode";
+			}
+			else if (req.get("confirm", "").asString() == "dialog")
+			{
+				// PRD-10: route through the REAL confirm dialog so the test drives
+				// ConfirmStartCampaignState::btnOkClick (the true UI path). Do NOT
+				// pre-check startEligible here - the dialog/OK path IS the gate.
+				lobby->openStartConfirmDialog();
+				resp["ok"] = true;
+			}
+			else if (!lobby->startEligible())
+			{
+				resp["error"] = "no client connected";
+			}
+			else
+			{
+				lobby->startCampaign();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_confirm_ok")
+		{
+			// PRD-10: click OK on the START CAMPAIGN confirm dialog (the real
+			// ConfirmStartCampaignState::btnOkClick path, which re-checks
+			// eligibility before starting).
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else
+			{
+				resp["clicked"] = lobby->clickStartConfirmOk();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "save_markers")
+		{
+			// Co-op campaign markers of the live save (flow-redesign F0)
+			if (!_game->getSavedGame())
+			{
+				resp["error"] = "no loaded save";
+			}
+			else
+			{
+				resp["coop"] = _game->getSavedGame()->isCoopSave();
+				int idx = 0;
+				for (const auto& p : _game->getSavedGame()->getCoopPlayers())
+				{
+					resp["coopPlayers"][idx++] = p;
+				}
+				resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "has_coop_file")
 		{
 			std::string key = req.get("key", "").asString();
@@ -1553,7 +1800,23 @@ std::string TestServer::execute(const std::string& line)
 			std::string name = req.get("name", "").asString();
 			if (name == "HostSaveProgress")
 			{
-				Options::HostSaveProgress = req.get("value", false).asBool();
+				// Removed option (host-save authority is the only mode now);
+				// accepted and ignored so older test scripts keep running.
+				resp["ok"] = true;
+			}
+			else if (name == "autosave")
+			{
+				Options::autosave = req.get("value", false).asBool();
+				resp["ok"] = true;
+			}
+			else if (name == "autosaveFrequency")
+			{
+				Options::autosaveFrequency = req.get("value", 5).asInt();
+				resp["ok"] = true;
+			}
+			else if (name == "oxceGeoAutosaveFrequency")
+			{
+				Options::oxceGeoAutosaveFrequency = req.get("value", 0).asInt();
 				resp["ok"] = true;
 			}
 			else
@@ -1767,11 +2030,9 @@ std::string TestServer::execute(const std::string& line)
 			// up the run and reports readiness. The driver polls geo_state between
 			// geo_run calls. Here we just (a) enable host-only time so the client
 			// mirrors, (b) select the requested speed, (c) drain any popup now.
-			GeoscapeState* gs = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s)) gs = g;
+			GeoscapeState* gs = findState<GeoscapeState>(_game);
 			// Drain a single blocking popup if present (driver calls repeatedly).
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			State* top = topState<State>(_game);
 			bool drained = false;
 			if (top && !dynamic_cast<GeoscapeState*>(top)
 			    && !dynamic_cast<BattlescapeState*>(top))
@@ -1816,9 +2077,7 @@ std::string TestServer::execute(const std::string& line)
 				for (auto* b : *sg->getBases())
 					for (auto* c : *b->getCrafts())
 						if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
-			GeoscapeState* geo = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s)) geo = g;
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
 			if (!craft) resp["error"] = "no matching craft";
 			else if (!geo) resp["error"] = "no geoscape";
 			else

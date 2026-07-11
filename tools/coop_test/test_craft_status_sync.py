@@ -32,7 +32,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, TEST_ROOT, LAND_LON, LAND_LAT
 # Reuse the known-good fresh-coop bring-up from the geoscape-sync test.
-from test_geoscape_sync import bringup, states, HOST_LON, HOST_LAT
+from test_geoscape_sync import bringup, HOST_LON, HOST_LAT  # PRD-13 S7: local `states` removed (was unused here)
 
 # Mission site + UFO placed FAR from the host base so a dispatched craft is
 # perpetually en route (never arrives -> never triggers ConfirmLanding / a

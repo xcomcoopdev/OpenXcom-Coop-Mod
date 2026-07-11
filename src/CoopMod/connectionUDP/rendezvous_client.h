@@ -151,7 +151,7 @@ public:
     static bool joinRoomAndWait(const JoinRoomConfig& cfg, Result& out, std::string* error = nullptr);
 
     // Host-only: closes/removes the listed room after the game lobby has locked.
-    // This should be called only after connectionTCP::isCoopSessionLocked becomes true.
+    // This should be called only after connectionTCP::session.sessionLocked becomes true.
     static bool closeRoom(const RoomControlConfig& cfg, std::string* error = nullptr);
 
     // Compatibility wrapper for old manual JOIN flow.

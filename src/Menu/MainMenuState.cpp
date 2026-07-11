@@ -40,6 +40,77 @@
 namespace OpenXcom
 {
 
+/**
+ * Dropdown shown under the main menu's New Game button: the campaign is
+ * permanently Solo or Co-op from creation (flow-redesign D1). File-local so
+ * no new translation unit is needed.
+ */
+class NewGameModeState : public State
+{
+private:
+	Window *_window;
+	TextButton *_btnSolo, *_btnCoop;
+public:
+	NewGameModeState()
+	{
+		_screen = false;
+
+		// anchored directly under the New Game button (64,90 / 92x20)
+		_window = new Window(this, 100, 52, 60, 88, POPUP_VERTICAL);
+		_btnSolo = new TextButton(92, 20, 64, 92);
+		_btnCoop = new TextButton(92, 20, 64, 114);
+
+		setInterface("mainMenu");
+
+		add(_window, "window", "mainMenu");
+		add(_btnSolo, "button", "mainMenu");
+		add(_btnCoop, "button", "mainMenu");
+
+		centerAllSurfaces();
+
+		setWindowBackground(_window, "mainMenu");
+
+		_btnSolo->setText("SOLO");
+		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
+		_btnCoop->setText("CO-OP");
+		_btnCoop->onMouseClick((ActionHandler)&NewGameModeState::btnCoopClick);
+		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
+	}
+
+	void btnSoloClick(Action *)
+	{
+		_game->popState();
+		_game->pushState(new NewGameState(false));
+	}
+
+	void btnCoopClick(Action *)
+	{
+		_game->popState();
+		_game->pushState(new NewGameState(true));
+	}
+
+	void btnCancelClick(Action *)
+	{
+		_game->popState();
+	}
+
+	// clicking outside the dropdown dismisses it
+	void handle(Action *action) override
+	{
+		State::handle(action);
+		if (action->getDetails()->type == SDL_MOUSEBUTTONDOWN)
+		{
+			int mx = action->getAbsoluteXMouse();
+			int my = action->getAbsoluteYMouse();
+			if (mx < _window->getX() || mx >= _window->getX() + _window->getWidth()
+				|| my < _window->getY() || my >= _window->getY() + _window->getHeight())
+			{
+				_game->popState();
+			}
+		}
+	}
+};
+
 GoToMainMenuState::GoToMainMenuState(bool updateCheck) : _updateCheck(updateCheck)
 {
 	// empty
@@ -270,6 +341,7 @@ void MainMenuState::init()
 	_game->getCoopMod()->disconnectTCP(true);
 
 	connectionTCP::_coopGamemode = 0;
+	connectionTCP::session.resetSession();
 	_game->getCoopMod()->coopMissionEnd = false;
 	_game->getCoopMod()->coopInventory = false;
 
@@ -291,7 +363,7 @@ MainMenuState::~MainMenuState()
  */
 void MainMenuState::btnNewGameClick(Action *)
 {
-	_game->pushState(new NewGameState);
+	_game->pushState(new NewGameModeState);
 }
 
 /**

@@ -873,7 +873,7 @@ namespace
         if (closeRoom)
         {
             // The host sends CLOSE_ROOM only after the game lobby reports
-            // connectionTCP::isCoopSessionLocked == true, meaning all players
+            // connectionTCP::session.sessionLocked == true, meaning all players
             // clicked Ready and the actual game session is locked.
             room->closed = true;
             room->locked = true;
