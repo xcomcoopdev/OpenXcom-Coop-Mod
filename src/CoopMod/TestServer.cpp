@@ -20,6 +20,7 @@
 #include "TestServer.h"
 
 #include <cstdlib>
+#include <fstream>
 #include <set>
 #include <typeinfo>
 
@@ -1004,6 +1005,18 @@ std::string TestServer::execute(const std::string& line)
 			// campaign when a real campaign save is loaded (same check as HostMenu)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
 
+			// Legacy-save migration: an empty host slot is unclaimed - the
+			// re-hosting player claims it (mirrors HostMenu::hostTCPGame)
+			if (campaign
+				&& !_game->getSavedGame()->getCoopPlayers().empty()
+				&& _game->getSavedGame()->getCoopPlayers()[0].empty())
+			{
+				std::vector<std::string> players = _game->getSavedGame()->getCoopPlayers();
+				players[0] = player;
+				_game->getSavedGame()->setCoopPlayers(players);
+				Log(LOG_INFO) << "[coop-migrate] locked legacy roster host slot to '" << player << "'";
+			}
+
 			// flow-redesign D1: solo campaigns can never be hosted as co-op
 			if (campaign && !_game->getSavedGame()->isCoopSave())
 			{
@@ -1794,6 +1807,36 @@ std::string TestServer::execute(const std::string& line)
 			std::string key = req.get("key", "").asString();
 			resp["present"] = connectionTCP::hasCoopFile(key);
 			resp["ok"] = true;
+		}
+		else if (cmd == "dump_coop_file")
+		{
+			// Test fixture builder: write an in-memory blob to the user dir
+			// (used to fabricate legacy sidecar .data files for the
+			// v1.8.4-migration test; nothing in normal play calls this).
+			std::string key = req.get("key", "").asString();
+			std::string blob;
+			{
+				std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+				auto it = connectionTCP::coopFilesHost.find(key);
+				if (it != connectionTCP::coopFilesHost.end())
+					blob = it->second;
+				else
+				{
+					auto cit = connectionTCP::coopFilesClient.find(key);
+					if (cit != connectionTCP::coopFilesClient.end())
+						blob = cit->second;
+				}
+			}
+			if (blob.empty())
+			{
+				resp["error"] = "no such blob";
+			}
+			else
+			{
+				std::ofstream out(Options::getMasterUserFolder() + key, std::ios::binary);
+				out << blob;
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "set_option")
 		{

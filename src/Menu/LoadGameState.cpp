@@ -421,8 +421,12 @@ void LoadGameState::think()
 				{
 					connectionTCP::session.adoptResumeSave();
 					// the host identity is locked to the save (D4): adopt it,
-					// so the UI flow can never host under a different name
-					if (!_game->getSavedGame()->getCoopPlayers().empty())
+					// so the UI flow can never host under a different name.
+					// A migrated legacy save leaves the host slot blank (the
+					// old format carried no host name) - keep the local name
+					// and let the host claim the slot at re-host time.
+					if (!_game->getSavedGame()->getCoopPlayers().empty()
+						&& !_game->getSavedGame()->getCoopPlayers()[0].empty())
 					{
 						_game->getCoopMod()->setHostName(_game->getSavedGame()->getCoopPlayers()[0]);
 					}

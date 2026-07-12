@@ -778,14 +778,47 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	const auto& reader = documents[1].useIndex();
 
 	// Old-format co-op saves (made before the campaign flow redesign) carry
-	// coop traces without the coop marker and are unsupported.
+	// coop traces without the coop marker. When the save is recognizably a
+	// legacy co-op HOST save (a v1 embedded client blob, or client sidecar
+	// .data files still on disk next to it), upgrade it in place instead of
+	// refusing: those sidecars are no longer written, so this is the one-time
+	// import path that keeps pre-redesign (v1.8.4) campaigns loadable.
+	bool legacyCoopMigration = false;
 	if (!_coop)
 	{
 		long long oldSaveID = 0;
 		reader.tryRead("saveID", oldSaveID);
 		if (oldSaveID != 0 || reader["coopClientSaves"] || reader["coopClientSaveKey"])
 		{
-			throw Exception("This save was made on an earlier version of the X-COM Co-op Mod that is no longer supported. Please downgrade to an older version or use the save editor to upgrade your save.");
+			bool hasLegacyEmbed = static_cast<bool>(reader["coopClientSaveKey"]);
+			bool hasLegacySidecar = false;
+			if (oldSaveID != 0)
+			{
+				const std::string prefix = "host_" + std::to_string(oldSaveID) + "_";
+				for (const auto& item : CrossPlatform::getFolderContents(Options::getMasterUserFolder(), "data"))
+				{
+					const std::string& entry = std::get<0>(item);
+					if (entry.size() > prefix.size() && entry.compare(0, prefix.size(), prefix) == 0)
+					{
+						hasLegacySidecar = true;
+						break;
+					}
+				}
+			}
+			if (hasLegacyEmbed || hasLegacySidecar)
+			{
+				_coop = true; // adopt the marker; the next save writes the new format
+				legacyCoopMigration = true;
+				Log(LOG_INFO) << "[coop-migrate] legacy co-op save detected (v1 embed: " << hasLegacyEmbed
+							  << ", disk sidecars: " << hasLegacySidecar << ") - upgrading in place";
+			}
+			else
+			{
+				// No client world anywhere = not a recoverable host save
+				// (e.g. a solo save that a pre-fix version stamped with a
+				// stale saveID). Keep refusing those.
+				throw Exception("This save was made on an earlier version of the X-COM Co-op Mod that is no longer supported. Please downgrade to an older version or use the save editor to upgrade your save.");
+			}
 		}
 	}
 
@@ -829,6 +862,75 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 				std::vector<char> blob = entry["blob"].readValBase64();
 				connectionTCP::coopFilesHost[key] = std::string(blob.begin(), blob.end());
 				Log(LOG_INFO) << "[coop-transfer] restored embedded client blob '" << key << "' (" << blob.size() << " bytes)";
+			}
+		}
+	}
+	// Legacy import (one-time): pull the v1 embedded blob and any client
+	// sidecar .data files into the served store, and synthesize the roster
+	// from the names they carry. Runs after the wipe/restore above so the
+	// imports are not dropped with the stale entries. Sidecar files are left
+	// on disk untouched; from the next save on, the embed in this .sav is
+	// the single authority.
+	if (legacyCoopMigration)
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		const std::string prefix = "host_" + std::to_string(connectionTCP::saveID) + "_";
+		const std::string ext = ".data";
+
+		// v1 embed: a single coopClientSaveKey/coopClientSaveBlob pair.
+		std::string legacyKey;
+		reader.tryRead("coopClientSaveKey", legacyKey);
+		if (!legacyKey.empty() && reader["coopClientSaveBlob"])
+		{
+			std::vector<char> blob = reader["coopClientSaveBlob"].readValBase64();
+			if (!blob.empty())
+			{
+				connectionTCP::coopFilesHost[legacyKey] = std::string(blob.begin(), blob.end());
+				Log(LOG_INFO) << "[coop-migrate] imported v1 embedded client blob '" << legacyKey << "' (" << blob.size() << " bytes)";
+			}
+		}
+
+		// Disk sidecars: host_<saveID>_<name>.data written by older versions.
+		for (const auto& item : CrossPlatform::getFolderContents(Options::getMasterUserFolder(), "data"))
+		{
+			const std::string& entry = std::get<0>(item);
+			if (entry.size() <= prefix.size() + ext.size()
+				|| entry.compare(0, prefix.size(), prefix) != 0)
+				continue;
+			if (connectionTCP::coopFilesHost.count(entry))
+				continue; // the embed already provided this client
+			auto file = CrossPlatform::readFile(Options::getMasterUserFolder() + entry);
+			if (!file)
+				continue;
+			std::string content((std::istreambuf_iterator<char>(*file)), std::istreambuf_iterator<char>());
+			if (content.empty())
+				continue;
+			connectionTCP::coopFilesHost[entry] = std::move(content);
+			Log(LOG_INFO) << "[coop-migrate] imported client sidecar '" << entry << "' from disk";
+		}
+
+		// Roster: legacy saves carry no coopPlayers list. Slot 0 (the host)
+		// is filled by HostMenu from the local profile at re-host time;
+		// client names come from the imported keys (fixed prefix/suffix cut,
+		// so underscores inside names stay intact).
+		if (_coopPlayers.empty())
+		{
+			std::vector<std::string> players;
+			players.push_back("");
+			for (const auto& kv : connectionTCP::coopFilesHost)
+			{
+				const std::string& k = kv.first;
+				if (k.size() > prefix.size() + ext.size()
+					&& k.compare(0, prefix.size(), prefix) == 0
+					&& k.compare(k.size() - ext.size(), ext.size(), ext) == 0)
+				{
+					players.push_back(k.substr(prefix.size(), k.size() - prefix.size() - ext.size()));
+				}
+			}
+			if (players.size() > 1)
+			{
+				_coopPlayers = players;
+				Log(LOG_INFO) << "[coop-migrate] synthesized roster with " << (players.size() - 1) << " client(s)";
 			}
 		}
 	}

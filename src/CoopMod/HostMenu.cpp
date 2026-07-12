@@ -688,6 +688,19 @@ void HostMenu::hostTCPGame(Action* action)
 		return;
 	}
 
+	// Legacy-save migration: the synthesized roster leaves the host slot
+	// blank (pre-redesign saves carry no host name). Whoever re-hosts the
+	// migrated save claims the slot - from then on D4 locks it as usual.
+	if (_game->getCoopMod()->inCoopCampaignContext()
+		&& !_game->getSavedGame()->getCoopPlayers().empty()
+		&& _game->getSavedGame()->getCoopPlayers()[0].empty())
+	{
+		std::vector<std::string> players = _game->getSavedGame()->getCoopPlayers();
+		players[0] = _game->getCoopMod()->getHostName();
+		_game->getSavedGame()->setCoopPlayers(players);
+		Log(LOG_INFO) << "[coop-migrate] locked legacy roster host slot to '" << players[0] << "'";
+	}
+
 	// the host identity is locked to the save (D4): a different local player
 	// name may never host this campaign
 	if (_game->getCoopMod()->inCoopCampaignContext()

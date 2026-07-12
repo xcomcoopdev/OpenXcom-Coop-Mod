@@ -565,6 +565,12 @@ class connectionTCP
 	// LOAD_PROGRESS
 	bool _isLoadProgress = false;
 
+	// Transport scratch only: peer base/battlescape payloads plus the served
+	// client-world blobs for the CURRENT session. Never a permanent save
+	// store - the host .sav embed (coopClientSaves) is the durable copy, and
+	// SavedGame::load redefines the served set from it on every load. (Same
+	// intent as the fixes branch: temp data and permanent saves stay
+	// strictly separate.)
 	// Stores coop files in a hash map instead of separate files in the host folders
 	static std::unordered_map<std::string, std::string> coopFilesHost;
 	// Stores coop files in a hash map instead of separate files in the client folders
