@@ -473,14 +473,14 @@ void LobbyMenu::btnDisconnectClick(Action* action)
 	_game->popState();
 
 	// If the host presses the disconnect button and is allowed to save player progress, disconnect and return to the Host menu
-	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 	{
 		_game->getCoopMod()->setServerOwner(false);
 		_game->getCoopMod()->disconnectTCP(true);
 		_game->pushState(new HostMenu());
 	}
 	// If the client presses Disconnect and the host is allowed to save player progress, or there are no bases, disconnect and return to the main menu
-	else if ((Options::HostSaveProgress == true || connectionTCP::no_bases == true) && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
+	else if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_game->getCoopMod()->setServerOwner(false);
 		_game->getCoopMod()->disconnectTCP();

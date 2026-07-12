@@ -215,10 +215,13 @@ private:
 	bool _disableSoldierEquipment;
 	bool _alienContainmentChecked;
 	ScriptValues<SavedGame> _scriptValues;
-
-	static SaveInfo getSaveInfo(const std::string &file, Language *lang);
+	// coop
+	std::string _coopClientSaveBlob;
+	static SaveInfo getSaveInfo(const std::string& file, Language* lang);
   public:
 	// coop
+	void setCoopClientSaveBlob(const std::string& blob);
+	const std::string& getCoopClientSaveBlob() const;
 	void setMonthsPassed(int months);
 	void setDaysPassed(int days);
 	static const std::string AUTOSAVE_GEOSCAPE, AUTOSAVE_BATTLESCAPE, QUICKSAVE;

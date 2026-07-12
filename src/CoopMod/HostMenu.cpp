@@ -740,7 +740,7 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	if (_game->getCoopMod()->getCoopCampaign() == true && connectionTCP::_host_save_progress == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true)
 	{
 		convert = false;
 	}
@@ -804,7 +804,7 @@ void HostMenu::hostTCPGame(Action* action)
 	_game->getCoopMod()->setServerOwner(true);
 
 	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
-	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true)
 	{
 		_game->popState();
 

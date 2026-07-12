@@ -191,7 +191,7 @@ void SaveGameState::think()
 		{
 		
 			// HostSaveProgress
-			if ((_game->getCoopMod()->isCoopSession() == true && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
+			if ((_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false)
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
@@ -199,20 +199,27 @@ void SaveGameState::think()
 					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
 				}
 
+				_game->getCoopMod()->temp_filename = _filename;
+
+				// Notify client about saving and show a popup.
 				CoopState* coopWindow = new CoopState(54);
 				_game->pushState(coopWindow);
 
 			}
 
-			std::string backup = _filename + ".bak";
-			_game->getSavedGame()->save(backup, _game->getMod());
-			std::string fullPath = Options::getMasterUserFolder() + _filename;
-			std::string bakPath = Options::getMasterUserFolder() + backup;
-
-			// coop
-			if (!CrossPlatform::moveFile(bakPath, fullPath) && _game->getCoopMod()->getCoopStatic() == false)
+			// Host save should not be saved here. It should be saved only after client's save is received.
+			if (_game->getCoopMod()->getCoopStatic() == false)
 			{
-				throw Exception("Save backed up in " + backup);
+				std::string backup = _filename + ".bak";
+				_game->getSavedGame()->save(backup, _game->getMod());
+				std::string fullPath = Options::getMasterUserFolder() + _filename;
+				std::string bakPath = Options::getMasterUserFolder() + backup;
+
+				if (!CrossPlatform::moveFile(bakPath, fullPath))
+				{
+					throw Exception("Save backed up in " + backup);
+				}
+
 			}
 
 			if (_type == SAVE_IRONMAN_END)

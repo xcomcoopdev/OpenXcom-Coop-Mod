@@ -824,7 +824,7 @@ void CoopState::loadWorld()
 
 		client_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
-		if (client_save && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
 			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";

@@ -962,7 +962,7 @@ std::string TestServer::execute(const std::string& line)
 			coop->setCoopCampaign(campaign);
 			coop->hostTCPServer(server, port);
 			coop->setServerOwner(true);
-			if (Options::HostSaveProgress && campaign)
+			if (campaign)
 			{
 				_game->pushState(new LobbyMenu());
 			}
@@ -1517,7 +1517,7 @@ std::string TestServer::execute(const std::string& line)
 			std::string name = req.get("name", "").asString();
 			if (name == "HostSaveProgress")
 			{
-				Options::HostSaveProgress = req.get("value", false).asBool();
+				//Options::HostSaveProgress = req.get("value", false).asBool(); // Options::HostSaveProgress no longer exists
 				resp["ok"] = true;
 			}
 			else

@@ -368,8 +368,6 @@ class connectionTCP
 
 	static bool _unbalanced_craft_soldiers_limit;
 
-	static bool _host_save_progress;
-
 	int walk_end_unit_id = -1;
 
 	bool AbortCoopWalk = false;
@@ -485,10 +483,13 @@ class connectionTCP
 	// LOAD_PROGRESS
 	bool _isLoadProgress = false;
 
+	// I think it would be better to store only .data files here. These files contain only the other player's base data and Battlescape map data. No permanent saves, otherwise it becomes too complex!
 	// Stores coop files in a hash map instead of separate files in the host folders
 	static std::unordered_map<std::string, std::string> coopFilesHost;
+	// I think it would be better to store only .data files here. These files contain only the other player's base data and Battlescape map data. No permanent saves, otherwise it becomes too complex!
 	// Stores coop files in a hash map instead of separate files in the client folders
 	static std::unordered_map<std::string, std::string> coopFilesClient;
+
 	static bool hasCoopFile(const std::string& key);
 
 	// save
@@ -513,6 +514,7 @@ class connectionTCP
 	static int manuallyAddedServerRemoveID;
 	static bool canRemoveManuallyAddedServer;
 	static bool isInfoboxClosed;
+	std::string temp_filename = ""; // perhaps there is a better way...
 
 	// Permanently transfers a soldier to another player (0 = host, 1 = client).
 	// Follows the guest-soldier model: a soldier's object lives in its OWNER's

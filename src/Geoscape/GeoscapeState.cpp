@@ -984,7 +984,7 @@ void GeoscapeState::init()
 
 		std::string coopKey = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
 
-		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		if (connectionTCP::getServerOwner() == false)
 		{
 			// If the player�s save file isn�t found, try to find the basehost file in memory.
 			if (!_game->getCoopMod()->hasCoopFile(coopKey))
@@ -1130,7 +1130,7 @@ void GeoscapeState::init()
 		}
 	
 		// save
-		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		if (connectionTCP::getServerOwner() == false)
 		{
 			newsave->saveCoopToMemory(coopKey, _game->getMod(), coopKey);
 		}
@@ -1143,7 +1143,7 @@ void GeoscapeState::init()
 
 		_game->popState();
 
-		if (connectionTCP::_host_save_progress == true && connectionTCP::getServerOwner() == false)
+		if (connectionTCP::getServerOwner() == false)
 		{
 			_game->pushState(new LoadGameState(OPT_GEOSCAPE, coopKey, _palette, coopKey));
 		}

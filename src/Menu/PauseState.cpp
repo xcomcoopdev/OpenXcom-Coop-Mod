@@ -186,22 +186,6 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		}
 	}
 
-	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == false)
-	{
-		_btnSave->setVisible(false);
-	}
-
-	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == true)
-	{
-		_btnSave->setVisible(true);
-	}
-
-	//  coop
-	if (_origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
-	{
-		_btnSave->setVisible(true);
-	}
-
 	// coop
 	if (_game->getCoopMod()->isCoopSession() == false && _game->getCoopMod()->getServerOwner() == false)
 	{
@@ -264,7 +248,7 @@ void PauseState::btnCoopClick(Action *)
 {
 
 	// Open the host menu if the host saves the players' campaign progress, the client joins the game through the main menu (New Battle)
-	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
+	if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
 	{
 
 		_game->pushState(new HostMenu());
@@ -301,22 +285,6 @@ void PauseState::init()
 	if (_game->getCoopMod()->getCoopStatic() == false && _game->getCoopMod()->isCoopSession() == true)
 	{
 		// Show the save button only for bugs that have occurred!
-		_btnSave->setVisible(true);
-	}
-
-	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == false)
-	{
-		_btnSave->setVisible(false);
-	}
-
-	if (connectionTCP::_host_save_progress == false && _game->getCoopMod()->getHost() == true)
-	{
-		_btnSave->setVisible(true);
-	}
-
-	//  coop
-	if (_origin == OPT_GEOSCAPE && connectionTCP::_host_save_progress == false)
-	{
 		_btnSave->setVisible(true);
 	}
 

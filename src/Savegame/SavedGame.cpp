@@ -715,6 +715,16 @@ SaveInfo SavedGame::getSaveInfo(const std::string &file, Language *lang)
 	return save;
 }
 
+void SavedGame::setCoopClientSaveBlob(const std::string& blob)
+{
+	_coopClientSaveBlob = blob;
+}
+
+const std::string& SavedGame::getCoopClientSaveBlob() const
+{
+	return _coopClientSaveBlob;
+}
+
 // coop
 void SavedGame::setMonthsPassed(int months)
 {
@@ -770,6 +780,10 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// Single-authority: a host save embeds the client-world blob captured at
 	// save time. Restore it as the served copy (RAM + the sidecar file the
 	// reconnect flow streams), so a rolled-back save rolls the client back too.
+	// 
+	// Author: xcomcoopdev
+	// What is coopClientSaveKey used for? Is it used to identify which client this blob belongs to? :)
+	/*
 	{
 		std::string coopClientKey;
 		reader.tryRead("coopClientSaveKey", coopClientKey);
@@ -782,6 +796,17 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 			Log(LOG_INFO) << "[coop-transfer] restored embedded client blob '" << coopClientKey << "' (" << blobStr.size() << " bytes)";
 		}
 	}
+	*/
+	if (reader["coopClientSaveBlob"])
+	{
+		std::vector<char> blob = reader["coopClientSaveBlob"].readValBase64();
+		if (!blob.empty())
+		{
+			std::string blobStr(blob.begin(), blob.end());
+			_coopClientSaveBlob = blobStr;
+		}
+	}
+
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
@@ -1434,6 +1459,13 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// Single-authority: embed the freshest client-world blob so this save
 	// captures BOTH players' rosters atomically. Skip when this call is itself
 	// writing a client sidecar (.data) to avoid recursive embedding.
+	//
+	/*
+	 Author: xcomcoopdev "coopFilesHost" should only store temporary files (.data), such as client base data and Battlescape map data. It should not store permanent saves.
+     When I manually saved the campaign in co-op, this code ran before the host received the client file, so "coopFilesHost" was empty. Files may remain there later, but that is not its intended purpose.
+     I think this logic should be moved to "connectionTCP::writeHostMapSaveProgressFile()". In this function, the host has already received the client’s latest save, both games are paused, and the host save has not yet been written. The client blob can then be embedded directly into the host save. There is no need to use "coopFilesHost".
+	*/
+	/*
 	if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".data")
 	{
 		const std::string prefix = "host_" + std::to_string(connectionTCP::saveID) + "_";
@@ -1446,6 +1478,15 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 				break;
 			}
 		}
+	}
+	*/
+	//  Keep it simple :)
+	if (!_coopClientSaveBlob.empty())
+	{
+		writer.writeBase64(
+			"coopClientSaveBlob",
+			const_cast<char*>(_coopClientSaveBlob.data()),
+			_coopClientSaveBlob.size());
 	}
 
 	writer.write("monthsPassed", _monthsPassed);

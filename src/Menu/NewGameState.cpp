@@ -128,7 +128,7 @@ NewGameState::NewGameState()
 	_txtIronman->setText(tr("STR_IRONMAN_DESC"));
 
 	// coop
-	if (connectionTCP::_host_save_progress == true && connectionTCP::getCoopStatic() == true)
+	if (connectionTCP::getCoopStatic() == true)
 	{
 		_btnCancel->setVisible(false);
 	}

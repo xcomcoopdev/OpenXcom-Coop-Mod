@@ -153,8 +153,6 @@ bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
-bool connectionTCP::_host_save_progress = false;
-
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -466,11 +464,7 @@ void connectionTCP::loopData()
 
 				std::string filepath = "";
 
-				if (sendProgressLoadFileToClient != "")
-				{
-					filepath = sendProgressLoadFileToClient;
-				}
-				else if (sendFileBase)
+				if (sendFileBase)
 				{
 					filepath = "basehost";
 				}
@@ -501,16 +495,13 @@ void connectionTCP::loopData()
 				}
 				else
 				{
-					// Read from file
-					fileStream.open(filepath);
-					if (!fileStream.is_open())
-					{
-						throw std::runtime_error("Failed to open file: " + filepath);
-					}
 
-					myfile = &fileStream;
+					// Read directly from the provided string content
+					memoryStream.str(sendProgressLoadFileToClient);
+					myfile = &memoryStream;
+
 				}
-
+	
 				std::string line;
 				std::string result;
 
@@ -606,10 +597,10 @@ void connectionTCP::loopData()
 				}
 
 				const auto& coopFiles = server_owner
-											? connectionTCP::coopFilesHost
-											: connectionTCP::coopFilesClient;
+							? connectionTCP::coopFilesHost
+							: connectionTCP::coopFilesClient;
 
-				std::string coopKey = filepath; // tai filename, jos mapin avain on filename
+				std::string coopKey = filepath; // or filename, if filename is used as the map key
 
 				auto it = coopFiles.find(coopKey);
 				if (it == coopFiles.end())
@@ -957,7 +948,7 @@ void connectionTCP::pushProgressToHostSilently()
 	// window before the own-world reload (GeoscapeState::init) has run. In all
 	// of those the live save is the PEER's world; uploading it would overwrite
 	// our own-world blob with the host's world and destroy our roster.
-	if (getServerOwner() || !_host_save_progress || !getCoopStatic() || connectionTCP::saveID == 0)
+	if (getServerOwner() || !getCoopStatic() || connectionTCP::saveID == 0)
 	{
 		return;
 	}
@@ -999,7 +990,7 @@ void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::s
 	// to upload its live (host) world as the client blob - the exact corruption
 	// Fix A prevents. We only edit the in-memory own-world blob, which is all the
 	// mission-end reload needs.
-	if (getServerOwner() || !_host_save_progress || !getCoopStatic() || connectionTCP::saveID == 0)
+	if (getServerOwner() || !getCoopStatic() || connectionTCP::saveID == 0)
 	{
 		return;
 	}
@@ -2285,7 +2276,7 @@ void connectionTCP::startTCPHost()
 
 void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
 {
-	if (_game->getCoopMod()->getServerOwner() == false && (connectionTCP::_host_save_progress == true || connectionTCP::no_bases == true))
+	if (_game->getCoopMod()->getServerOwner() == false)
 	{
 		_game->pushState(new LobbyMenu);
 	}
@@ -2921,13 +2912,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 
 			bool found = false;
+			bool disk = false;
 
 			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
 			std::string filepath = Options::getMasterUserFolder() + filename;
 
-			if (OpenXcom::CrossPlatform::fileExists(filepath))
+			if (!_game->getSavedGame()->getCoopClientSaveBlob().empty())
 			{
 				found = true;
+			}
+			// Client ".data" files are no longer written to the host disk, which causes saves from v1.8.4 to break. To fix this problem, if the client world blob in the host save is empty, this function checks whether the correct client .data file exists on the host disk. If it does, the file contents are stored in the host save as a blob.
+			else if (OpenXcom::CrossPlatform::fileExists(filepath))
+			{
+				found = true;
+				disk = true;
 			}
 
 			if (found == false)
@@ -2942,11 +2940,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-
 				// found!
-				sendFileClient = true;
-				sendProgressLoadFileToClient = filepath;
+				if (disk == false)
+				{
+					sendProgressLoadFileToClient = _game->getSavedGame()->getCoopClientSaveBlob();
+				}
+				else
+				{
 
+					// read file
+					auto file = OpenXcom::CrossPlatform::readFile(filepath);
+
+					sendProgressLoadFileToClient.assign(
+						std::istreambuf_iterator<char>(*file),
+						std::istreambuf_iterator<char>());
+
+				}
+
+				sendFileClient = true;
 			}
 
 		}
@@ -6544,10 +6555,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
-		// HostSaveProgress
-		bool host_save_progress = obj["host_save_progress"].asBool();
-		connectionTCP::_host_save_progress = host_save_progress;
-
 		long long saveID = obj["saveID"].asInt64();
 		connectionTCP::saveID = saveID;
 
@@ -6656,9 +6663,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			index++;
 		}
 
-		// HostSaveProgress
-		connectionTCP::_host_save_progress = Options::HostSaveProgress;
-
 		// password
 		if (connectionTCP::isPasswordRequired == true && !OpenXcom::isConnectionUDPActive())
 		{
@@ -6679,10 +6683,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		}
 
-		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true)
+		if (_game->getCoopMod()->getCoopCampaign() == true)
 		{
 			root["state"] = "COOP_READY_SAVE_PROGRESS";
-			root["host_save_progress"] = _host_save_progress;
 
 			if (connectionTCP::saveID == 0)
 			{
@@ -6867,12 +6870,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (host_coop_campaign == true)
 			{
 
+				/*
+				Author xcomcoopdev: The _host_save_progress option no longer exists, which causes problems here. There should probably be an option in the host menu to choose whether players have separate bases or shared bases. In a PvP campaign, alien players should not have bases.
+				I’ll leave this as it is for now and come back to it later. :/
+				*/
+
+				/*
 				if (connectionTCP::_host_save_progress == false)
 				{
 					connectionTCP::no_bases = true;
 					_game->pushState(new GeoscapeState());
 				}
-
+				*/
+				
 			}
 			// if new battle
 			else
@@ -7667,7 +7677,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sendBaseFile();
 
 			// Save the geospace file so the player can return to it later
-			if (_game->getCoopMod()->getCoopCampaign() == true && (connectionTCP::_host_save_progress == false || _game->getCoopMod()->getServerOwner() == true))
+			if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 			{
 				_game->getSavedGame()->setName("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName());
 				_game->getSavedGame()->save("coop_geoscape_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".sav", _game->getMod());
@@ -8871,7 +8881,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 		deleteAllCoopBases();
 
 		// both
-		if ((connectionTCP::no_bases == true || (connectionTCP::_host_save_progress == true && server_owner == false)) && !isMain && connectionTCP::_coopCampaign == true)
+		if ((connectionTCP::no_bases == true || server_owner == false) && !isMain && connectionTCP::_coopCampaign == true)
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -8893,7 +8903,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		{
 
 			onConnect = -1;
-			connectionTCP::_host_save_progress = false;
 
 			if (_chatMenu)
 			{
@@ -9005,7 +9014,7 @@ void connectionTCP::writeHostMapFile()
 
 		client_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
-		if (client_save && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
 			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
@@ -9017,13 +9026,16 @@ void connectionTCP::writeHostMapFile()
 	}
 	else
 	{
-		connectionTCP::coopFilesClient["battleclient"] = std::move(mapData);
+		connectionTCP::coopFilesHost["battleclient"] = std::move(mapData);
 	}
 
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 }
-
+/*
+This function is called when all players are paused and have already received the "Saving..." popup. In this function, the downloaded map data is stored in "coopFilesHost".
+The client world blob is embedded into the current host save.
+*/
 void connectionTCP::writeHostMapSaveProgressFile()
 {
 
@@ -9034,6 +9046,20 @@ void connectionTCP::writeHostMapSaveProgressFile()
 
 	connectionTCP::coopFilesHost[filename] = std::move(mapData);
 
+	if (_game->getSavedGame())
+	{
+		// Temporarily embed the client's latest save blob into the host save.
+		_game->getSavedGame()->setCoopClientSaveBlob(
+			connectionTCP::coopFilesHost[filename]);
+
+		// Write the host save with the client blob included.
+		_game->getSavedGame()->save(temp_filename, _game->getMod());
+
+		temp_filename = "";
+	}
+
+	// old spaghetti code...
+	/*
 	SavedGame* coopFile = new SavedGame();
 	coopFile->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
@@ -9073,11 +9099,10 @@ void connectionTCP::writeHostMapSaveProgressFile()
 	}
 	else
 	{
-
 		_game->pushState(new CoopState(994));
-
 	}
-
+	*/
+	
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 

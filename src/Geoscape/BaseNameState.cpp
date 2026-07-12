@@ -165,7 +165,7 @@ void BaseNameState::btnOkClick(Action *)
 		}
 
 		// coop
-		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == false)
+		if (_game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == false)
 		{
 
 			Json::Value root;
