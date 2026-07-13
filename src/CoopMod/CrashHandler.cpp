@@ -61,6 +61,8 @@ extern "C"
 	BOOL WINAPI SymGetLineFromAddr64(HANDLE hProcess, DWORD64 qwAddr, PDWORD pdwDisplacement, PIMAGEHLP_LINE64 Line64);
 }
 
+extern "C" USHORT WINAPI RtlCaptureStackBackTrace(ULONG FramesToSkip, ULONG FramesToCapture, PVOID* BackTrace, PULONG BackTraceHash);
+
 #pragma comment(lib, "Dbghelp.lib")
 
 #else
@@ -275,6 +277,14 @@ LONG WINAPI vectoredHandler(PEXCEPTION_POINTERS info)
 		std::string addrStr = formatAddress(addr);
 
 		std::fprintf(f, "SEH exception (VEH). Code = 0x%08lX at %s\n", code, addrStr.c_str());
+
+		// Walk the faulting thread's stack (accurate with a PDB present).
+		void* frames[62];
+		USHORT frameCount = RtlCaptureStackBackTrace(0, 62, frames, nullptr);
+		std::fprintf(f, "Stack (%u frames):\n", (unsigned)frameCount);
+		for (USHORT i = 0; i < frameCount; ++i)
+			std::fprintf(f, "  #%u %s\n", (unsigned)i, formatAddress(frames[i]).c_str());
+
 		std::fclose(f);
 	}
 
