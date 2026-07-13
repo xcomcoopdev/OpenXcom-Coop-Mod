@@ -92,6 +92,8 @@ public:
 	void btnTransferAllClick(Action *action);
 	/// Completes the transfer between bases.
 	void completeTransfer();
+	// coop
+	void createPendingTransfers();
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	/// Handler for pressing an Increase arrow in the list.

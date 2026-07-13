@@ -137,6 +137,37 @@ CoopState::CoopState(int state)
 		_btnBack->setVisible(true);
 	}
 
+	// Transfer or purchase failed
+	if (state == 551)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Failed to send items to the other player.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	if (state == 552)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Failed to remove items from your base.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	if (state == 553)
+	{
+
+		_txtTitle->setSmall();
+		_txtTitle->setText("Base not found for transferring items.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
 	// save error
 	if (state == 994)
 	{

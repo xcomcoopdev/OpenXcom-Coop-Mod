@@ -2803,4 +2803,244 @@ ItemContainer* Base::getItemsCoop()
 	return _items;
 }
 
+/**
+ * Removes confirmed pending transfers from this base.
+ *
+ * First validates the entire transfer. Nothing is removed if any
+ * transferred object or quantity is no longer available.
+ *
+ * @param pendingTransfers Transfers that were confirmed by the receiver.
+ * @return True if everything was removed successfully.
+ */
+bool Base::removePendingTransfers(std::vector<Transfer*>* pendingTransfers)
+{
+	if (!pendingTransfers || pendingTransfers->empty())
+	{
+		return false;
+	}
+
+	std::set<Soldier*> soldiers;
+	std::set<Craft*> crafts;
+	std::map<const RuleItem*, int> items;
+
+	int scientists = 0;
+	int engineers = 0;
+
+	/*
+	 * Validate and collect everything first.
+	 */
+	for (Transfer* transfer : *pendingTransfers)
+	{
+		if (!transfer)
+		{
+			return false;
+		}
+
+		switch (transfer->getType())
+		{
+		case TRANSFER_SOLDIER:
+		{
+			Soldier* soldier = transfer->getSoldier();
+
+			if (!soldier)
+			{
+				return false;
+			}
+
+			// Prevent the same soldier from appearing twice.
+			if (!soldiers.insert(soldier).second)
+			{
+				return false;
+			}
+
+			if (std::find(_soldiers.begin(), _soldiers.end(), soldier) == _soldiers.end())
+			{
+				return false;
+			}
+
+			break;
+		}
+
+		case TRANSFER_CRAFT:
+		{
+			Craft* craft = transfer->getCraft();
+
+			if (!craft)
+			{
+				return false;
+			}
+
+			// Prevent the same craft from being removed twice.
+			if (!crafts.insert(craft).second)
+			{
+				return false;
+			}
+
+			if (std::find(_crafts.begin(), _crafts.end(), craft) == _crafts.end())
+			{
+				return false;
+			}
+
+			break;
+		}
+
+		case TRANSFER_SCIENTIST:
+		{
+			int amount = transfer->getScientists();
+
+			if (amount <= 0)
+			{
+				return false;
+			}
+
+			scientists += amount;
+			break;
+		}
+
+		case TRANSFER_ENGINEER:
+		{
+			int amount = transfer->getEngineers();
+
+			if (amount <= 0)
+			{
+				return false;
+			}
+
+			engineers += amount;
+			break;
+		}
+
+		case TRANSFER_ITEM:
+		{
+			const RuleItem* item = transfer->getItems();
+			int amount = transfer->getQuantity();
+
+			if (!item || amount <= 0)
+			{
+				return false;
+			}
+
+			items[item] += amount;
+			break;
+		}
+		}
+	}
+
+	/*
+	 * Validate staff quantities.
+	 */
+	if (_scientists < scientists || _engineers < engineers)
+	{
+		return false;
+	}
+
+	/*
+	 * Validate item quantities.
+	 */
+	for (const auto& entry : items)
+	{
+		const RuleItem* item = entry.first;
+		int amount = entry.second;
+
+		if (_items->getItem(item) < amount)
+		{
+			return false;
+		}
+	}
+
+	/*
+	 * Every soldier assigned to a transferred craft must also exist
+	 * in the pending transfer list.
+	 */
+	for (Craft* craft : crafts)
+	{
+		for (Soldier* soldier : _soldiers)
+		{
+			if (soldier &&
+				soldier->getCraft() == craft &&
+				soldiers.find(soldier) == soldiers.end())
+			{
+				return false;
+			}
+		}
+	}
+
+	/*
+	 * Everything is valid. Remove the transferred contents from this base.
+	 * Soldiers remain in the source base.
+	 */
+
+	for (Craft* craft : crafts)
+	{
+		removeCraft(craft, false);
+	}
+
+	if (scientists > 0)
+	{
+		setScientists(getScientists() - scientists);
+	}
+
+	if (engineers > 0)
+	{
+		setEngineers(getEngineers() - engineers);
+	}
+
+	for (const auto& entry : items)
+	{
+		_items->removeItem(entry.first, entry.second);
+	}
+
+	/*
+	 * Soldiers remain owned by the source base, so detach them from
+	 * the Transfer objects before deleting the transfers.
+	 */
+	for (Transfer* transfer : *pendingTransfers)
+	{
+		if (transfer->getType() == TRANSFER_SOLDIER)
+		{
+			transfer->setSoldier(nullptr);
+		}
+
+	}
+
+	return true;
+}
+
+void Base::decreaseCoopTransferLimits()
+{
+
+	for (auto trade : *getTransfers())
+	{
+		if (!trade)
+		{
+			continue;
+		}
+
+		for (int i = 0; i < trade->getQuantity(); i++)
+		{
+			if (trade->getType() == TRANSFER_SOLDIER)
+			{
+				coop_soldiers--;
+				coop_quarters--;
+			}
+			else if (trade->getType() == TRANSFER_CRAFT)
+			{
+				coop_hangar--;
+			}
+			else if (trade->getType() == TRANSFER_ITEM)
+			{
+				coop_stores--;
+			}
+			else if (trade->getType() == TRANSFER_ENGINEER)
+			{
+				coop_quarters--;
+			}
+			else if (trade->getType() == TRANSFER_SCIENTIST)
+			{
+				coop_quarters--;
+			}
+		}
+	}
+}
+
 }
