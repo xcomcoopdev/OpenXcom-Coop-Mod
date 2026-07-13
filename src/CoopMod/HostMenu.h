@@ -113,6 +113,9 @@ class HostMenu : public State
 	void cbxVisibilityChange(Action* action);
 	void cbxMaxPlayersChange(Action* action);
 	void cbxRegionChange(Action* action);
+	/// Test hooks: drive the host window like a user would.
+	void testHostWithVisibility(int comboIndex);
+	bool hostControlsVisible() const;
 };
 
 }

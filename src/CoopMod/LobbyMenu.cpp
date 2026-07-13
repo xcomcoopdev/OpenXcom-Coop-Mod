@@ -36,6 +36,13 @@
 #include "../Interface/ArrowButton.h"
 
 #include "HostMenu.h"
+#include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/Globe.h"
+#include "../Geoscape/BaseNameState.h"
+#include "../Geoscape/BuildNewBaseState.h"
+#include "../Basescape/PlaceLiftState.h"
+#include "../Menu/NewGameState.h"
+#include "../Savegame/Base.h"
 
 namespace OpenXcom
 {
@@ -108,7 +115,7 @@ struct comparePlayerLatency
 LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
-	connectionTCP::isLobbyMenuClosed = false;
+	connectionTCP::session.markLobbyOpen();
 
 	// coop chat menu
 	if (!_game->getCoopMod()->getChatMenu())
@@ -188,6 +195,21 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_btnCancel->onMouseClick((ActionHandler)&LobbyMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&LobbyMenu::btnCancelClick, Options::keyCancel);
 
+	// Campaign lobbies are host-driven: clients have no ready/start button
+	// at all (flow-redesign D4)
+	if (connectionTCP::session.lobbyMode != 0)
+	{
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_btnCancel->setText(connectionTCP::session.lobbyMode == 1 ? "START CAMPAIGN" : "RESUME CAMPAIGN");
+			_btnCancel->setVisible(false); // shown once eligible (think())
+		}
+		else
+		{
+			_btnCancel->setVisible(false);
+		}
+	}
+
 	_txtTitle->setBig();
 	_txtTitle->setAlign(ALIGN_CENTER);
 
@@ -219,7 +241,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		_txtChangeTeam->setVisible(false);
 	}
 
-	if (connectionTCP::isCoopSessionLocked == true)
+	if (connectionTCP::session.sessionLocked == true)
 	{
 		_txtChangeTeam->setVisible(false);
 	}
@@ -379,12 +401,285 @@ void LobbyMenu::updateArrows()
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
+/**
+ * Confirmation dialog for START CAMPAIGN: the player set and teams are
+ * locked once the campaign begins (flow-redesign D3). File-local.
+ */
+class ConfirmStartCampaignState : public State
+{
+private:
+	LobbyMenu *_lobby;
+	Window *_window;
+	Text *_txtMessage;
+	TextButton *_btnOk, *_btnCancel;
+public:
+	ConfirmStartCampaignState(LobbyMenu *lobby) : _lobby(lobby)
+	{
+		_screen = false;
+
+		_window = new Window(this, 256, 100, 32, 50, POPUP_BOTH);
+		_txtMessage = new Text(240, 48, 40, 60);
+		_btnOk = new TextButton(100, 16, 44, 124);
+		_btnCancel = new TextButton(100, 16, 176, 124);
+
+		setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+
+		add(_window, "window", "saveMenus");
+		add(_txtMessage, "text", "saveMenus");
+		add(_btnOk, "button", "saveMenus");
+		add(_btnCancel, "button", "saveMenus");
+
+		centerAllSurfaces();
+
+		setWindowBackground(_window, "saveMenus");
+
+		_txtMessage->setAlign(ALIGN_CENTER);
+		_txtMessage->setWordWrap(true);
+		_txtMessage->setText("Once the campaign starts, the number and names of the players cannot be changed. Are you sure you want to start?");
+
+		_btnOk->setText("OK");
+		_btnOk->onMouseClick((ActionHandler)&ConfirmStartCampaignState::btnOkClick);
+		_btnCancel->setText("CANCEL");
+		_btnCancel->onMouseClick((ActionHandler)&ConfirmStartCampaignState::btnCancelClick);
+		_btnCancel->onKeyboardPress((ActionHandler)&ConfirmStartCampaignState::btnCancelClick, Options::keyCancel);
+	}
+
+	void btnOkClick(Action *)
+	{
+		LobbyMenu *lobby = _lobby;
+		_game->popState(); // this dialog
+		// PRD-10 C4: re-check at the commit point - a client may have dropped
+		// while this dialog was open. If so, do NOT start; the lobby underneath
+		// already shows the not-eligible state (START button hidden, the ctor's
+		// "Waiting for players on port X" details). startCampaign() also guards
+		// defensively, but bail here so no side effect is even attempted.
+		if (!lobby->startEligible())
+		{
+			Log(LOG_INFO) << "[coop] START CAMPAIGN aborted: lobby no longer eligible at confirm time";
+			return;
+		}
+		lobby->startCampaign();
+	}
+
+	void btnCancelClick(Action *)
+	{
+		_game->popState(); // back to the lobby
+	}
+
+	// PRD-10 C4: nothing else pops this dialog when a client drops (only the top
+	// state's think() runs, so the lobby underneath is dormant). Watch
+	// eligibility here and dismiss ourselves the moment the lone client leaves,
+	// so the host never confirms a start into a departed roster. btnOkClick
+	// re-checks too, covering the click-before-this-fires race.
+	void think() override
+	{
+		State::think();
+		if (!_lobby->startEligible())
+		{
+			Log(LOG_INFO) << "[coop] START CAMPAIGN confirm dialog dismissed: client left the lobby";
+			_game->popState();
+		}
+	}
+};
+
+bool LobbyMenu::startEligible() const
+{
+	// >= 1 non-host client attached (D3); N=1 transport today. NOT
+	// getCoopStatic(): onConnect==1 merely means the host is listening.
+	return connectionTCP::session.clientInLobby;
+}
+
+std::string LobbyMenu::actionButtonText() const
+{
+	return _btnCancel->getText();
+}
+
+bool LobbyMenu::actionButtonVisible() const
+{
+	return _btnCancel->getVisible();
+}
+
+std::string LobbyMenu::detailsText() const
+{
+	return _txtDetails->getText();
+}
+
+std::vector<std::string> LobbyMenu::rosterNames() const
+{
+	std::vector<std::string> names;
+	for (const auto &p : _connectedPlayers)
+	{
+		names.push_back(p.name);
+	}
+	return names;
+}
+
+std::vector<std::string> LobbyMenu::missingPlayers() const
+{
+	// registered players (minus the host) not currently connected
+	std::vector<std::string> missing;
+	if (!_game->getSavedGame())
+	{
+		return missing;
+	}
+	std::string hostName = _game->getCoopMod()->getHostName();
+	std::string connectedClient = connectionTCP::session.clientInLobby
+									  ? _game->getCoopMod()->getCurrentClientName()
+									  : "";
+	for (const auto &p : _game->getSavedGame()->getCoopPlayers())
+	{
+		if (p != hostName && p != connectedClient)
+		{
+			missing.push_back(p);
+		}
+	}
+	return missing;
+}
+
+void LobbyMenu::resumeCampaign()
+{
+
+	connectionTCP::session.campaignStarted();
+	// battle save: after the geoscape world ack, stream the battle (2c)
+	connectionTCP::session.armResumeHandshake(_game->getSavedGame()->getSavedBattle() != nullptr);
+
+	// Serve the connected client its world: stored blob if we have one,
+	// otherwise a fresh world + base building (registered-no-blob, D6).
+	std::string clientName = _game->getCoopMod()->getCurrentClientName();
+	if (connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	{
+		Json::Value root;
+		root["state"] = "campaign_resume";
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+	else
+	{
+		Json::Value root = connectionTCP::buildCampaignStartPacket(_game->getSavedGame());
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
+	// close the lobby (popping anything stacked above it) and hold until
+	// every player reports its world loaded
+	closeLobby();
+
+	_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+
+}
+
+void LobbyMenu::openStartConfirmDialog()
+{
+	_game->pushState(new ConfirmStartCampaignState(this));
+}
+
+bool LobbyMenu::clickStartConfirmOk()
+{
+	if (_game->getStates().empty())
+	{
+		return false;
+	}
+	ConfirmStartCampaignState *dlg = dynamic_cast<ConfirmStartCampaignState *>(_game->getStates().back());
+	if (!dlg)
+	{
+		return false;
+	}
+	dlg->btnOkClick(nullptr); // the real click path: pop + re-check + maybe start
+	return true;
+}
+
+void LobbyMenu::startCampaign()
+{
+
+	// PRD-10 C4: never start with a departed roster. Every UI path re-checks
+	// before reaching here, but guard defensively for any direct caller (the
+	// harness lobby_start_campaign command calls this). No side effects on refusal.
+	if (!startEligible())
+	{
+		Log(LOG_INFO) << "[coop] startCampaign refused: lobby no longer start-eligible (client left)";
+		return;
+	}
+
+	// lock players and teams (change_team refuses while locked)
+	connectionTCP::session.campaignStarted();
+
+	// A NEW campaign always mints a fresh saveID and starts with no world blobs
+	// (fixes C2: a second campaign in the same process must not reuse the first
+	// campaign's ID or serve its stale client world). resumeCampaign keeps the
+	// loaded ID. The campaign_start packet built below carries this fresh ID and
+	// the client adopts it (connectionTCP campaign_start handler); the join-time
+	// mint (connectionTCP ~7149) remains only as a handshake fallback.
+	connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		connectionTCP::coopFilesHost.clear();
+		connectionTCP::coopFilesClient.clear();
+	}
+
+	// the locked player list, host first (D4/D6)
+	std::vector<std::string> players;
+	players.push_back(_game->getCoopMod()->getHostName());
+	players.push_back(_game->getCoopMod()->getCurrentClientName());
+	_game->getSavedGame()->setCoopPlayers(players);
+	_game->getSavedGame()->setCoopSave(true);
+
+	// initial save right at START so a crash during base building resumes
+	// into base placement (D6). Direct write: the funnel's client-progress
+	// pull has nothing to pull yet.
+	try
+	{
+		_game->getSavedGame()->save("_autogeo_.asav", _game->getMod());
+	}
+	catch (const std::exception &e)
+	{
+		Log(LOG_ERROR) << "[coop] initial campaign save failed: " << e.what();
+	}
+
+	// clients: create their worlds and start base building
+	Json::Value root = connectionTCP::buildCampaignStartPacket(_game->getSavedGame());
+	_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+	// host: close the lobby (popping whatever sits above it, e.g. the
+	// Profile pushed by the join handshake) and place the first base
+	closeLobby();
+
+	GeoscapeState *gs = nullptr;
+	for (auto *s : _game->getStates())
+	{
+		if (auto *g = dynamic_cast<GeoscapeState *>(s))
+		{
+			gs = g;
+		}
+	}
+
+	beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+
+}
+
 void LobbyMenu::btnCancelClick(Action*)
 {
 
+	// campaign lobby: the button is START/RESUME CAMPAIGN, host only (D3/D4)
+	if (connectionTCP::session.lobbyMode != 0)
+	{
+		if (connectionTCP::session.lobbyMode == 1
+			&& _game->getCoopMod()->getServerOwner() == true
+			&& connectionTCP::session.sessionLocked == false
+			&& startEligible())
+		{
+			_game->pushState(new ConfirmStartCampaignState(this));
+		}
+		else if (connectionTCP::session.lobbyMode == 2
+			&& _game->getCoopMod()->getServerOwner() == true
+			&& missingPlayers().empty()
+			&& startEligible())
+		{
+			resumeCampaign();
+		}
+		return;
+	}
+
 	connectionTCP::isPlayerReady = !connectionTCP::isPlayerReady;
 
-	if (connectionTCP::isCoopSessionLocked == false && _game->getCoopMod()->getCoopStatic() == true)
+	if (connectionTCP::session.sessionLocked == false && _game->getCoopMod()->getCoopStatic() == true)
 	{
 
 		if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true)
@@ -411,13 +706,13 @@ void LobbyMenu::btnCancelClick(Action*)
 
 		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
 		{
-			connectionTCP::isCoopSessionLocked = true;
+			connectionTCP::session.campaignStarted();
 		}
 
 	}
 	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
-		connectionTCP::isLobbyMenuClosed = true;
+		connectionTCP::session.markLobbyClosed();
 		_game->popState();
 
 		if (connectionTCP::LobbyFileStatus == 1 && _game->getCoopMod()->getCoopStatic() == true)
@@ -456,7 +751,7 @@ void LobbyMenu::btnCancelClick(Action*)
 
 		if (_game->getCoopMod()->getServerOwner() == false)
 		{
-			connectionTCP::isLobbyMenuClosed = true;
+			connectionTCP::session.markLobbyClosed();
 			_game->popState();
 			_game->getCoopMod()->disconnectTCP(true);
 		}
@@ -465,34 +760,65 @@ void LobbyMenu::btnCancelClick(Action*)
 
 }
 
+void LobbyMenu::pushServerListUnlessPresent()
+{
+	for (auto* s : _game->getStates())
+	{
+		if (dynamic_cast<ServerList*>(s) != nullptr)
+		{
+			return; // the browser we came from is already underneath
+		}
+	}
+	_game->pushState(new ServerList());
+}
+
+void LobbyMenu::closeLobby()
+{
+	// pop everything above the lobby, then the lobby itself; the world/geoscape
+	// beneath survives and the session records that the lobby is gone.
+	connectionTCP::session.markLobbyClosed();
+	while (!_game->getStates().empty())
+	{
+		bool isLobby = dynamic_cast<LobbyMenu*>(_game->getStates().back()) != nullptr;
+		_game->popState();
+		if (isLobby)
+		{
+			break;
+		}
+	}
+}
+
 void LobbyMenu::btnDisconnectClick(Action* action)
 {
 
-	connectionTCP::isLobbyMenuClosed = true;
+	connectionTCP::session.markLobbyClosed();
 
 	_game->popState();
 
-	// If the host presses the disconnect button and is allowed to save player progress, disconnect and return to the Host menu
-	if (Options::HostSaveProgress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+	// Disconnect BEFORE dropping the role: the teardown classifies the
+	// machine from session.role, and falsifying it first made the cleanup run
+	// the client path on a host (the disconnect->cancel bug family).
+	// If the host presses the disconnect button, disconnect and return to the Host menu
+	if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 	{
-		_game->getCoopMod()->setServerOwner(false);
 		_game->getCoopMod()->disconnectTCP(true);
+		_game->getCoopMod()->setServerOwner(false);
 		_game->pushState(new HostMenu());
 	}
-	// If the client presses Disconnect and the host is allowed to save player progress, or there are no bases, disconnect and return to the main menu
-	else if ((Options::HostSaveProgress == true || connectionTCP::no_bases == true) && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
+	// If the client presses Disconnect, disconnect and return to the main menu
+	else if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false)
 	{
-		_game->getCoopMod()->setServerOwner(false);
 		_game->getCoopMod()->disconnectTCP();
-		_game->pushState(new ServerList());
+		_game->getCoopMod()->setServerOwner(false);
+		pushServerListUnlessPresent();
 	}
 	// Otherwise, do nothing and just return to the server list
 	else
 	{
-		_game->getCoopMod()->setServerOwner(false);
 		// Prevent returning to the main menu
 		_game->getCoopMod()->disconnectTCP(true);
-		_game->pushState(new ServerList());
+		_game->getCoopMod()->setServerOwner(false);
+		pushServerListUnlessPresent();
 	}
 
 }
@@ -548,7 +874,7 @@ void LobbyMenu::lstSavesPress(Action* action)
 {
 
 	// The host switches a player to another team.
-	if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_LEFT && connectionTCP::isCoopSessionLocked == false)
+	if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_LEFT && connectionTCP::session.sessionLocked == false)
 	{
 		auto connectedPlayer = _connectedPlayers;  
 		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
@@ -664,10 +990,20 @@ void LobbyMenu::think()
 
 	if (_game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
 	{
-		
-		_game->popState();
 
-		_game->pushState(new ServerList());
+		// Connection gone: leave the lobby ONCE, and reuse a server browser
+		// already underneath instead of stacking a fresh one on top of it
+		// (repeated pushes made CANCEL act on a stale browser).
+		if (!_redirected && !_game->getStates().empty() && _game->getStates().back() == this)
+		{
+			_redirected = true;
+
+			_game->popState();
+
+			pushServerListUnlessPresent();
+		}
+
+		return;
 
 	}
 
@@ -726,7 +1062,48 @@ void LobbyMenu::think()
 		// status
 		std::string txtStatus = " ";
 
-		if (connectionTCP::isCoopSessionLocked == false)
+		if (connectionTCP::session.lobbyMode != 0)
+		{
+			// Campaign lobby: host-driven, no ready dance. The host's button
+			// appears once starting is possible (D3/D4).
+			if (_game->getCoopMod()->getServerOwner() == true && connectionTCP::session.sessionLocked == false)
+			{
+				if (connectionTCP::session.lobbyMode == 1)
+				{
+					_btnCancel->setText("START CAMPAIGN");
+					_btnCancel->setVisible(startEligible());
+				}
+				else if (connectionTCP::session.lobbyMode == 2)
+				{
+					// resume gate: all registered players must be present
+					std::vector<std::string> missing = missingPlayers();
+					if (missing.empty())
+					{
+						_btnCancel->setText("RESUME CAMPAIGN");
+						_btnCancel->setVisible(startEligible());
+						_txtDetails->setText(tr("STR_DETAILS").arg("All players connected"));
+					}
+					else
+					{
+						_btnCancel->setVisible(false);
+						// merged form: names AND port (the ctor's generic
+						// "Waiting for players on port X" covers the no-names case)
+						std::string wait = "Waiting for ";
+						for (size_t i = 0; i < missing.size(); ++i)
+						{
+							if (i > 0)
+							{
+								wait += ", ";
+							}
+							wait += missing[i];
+						}
+						wait += " on port " + std::to_string(tcp_port);
+						_txtDetails->setText(tr("STR_DETAILS").arg(wait));
+					}
+				}
+			}
+		}
+		else if (connectionTCP::session.sessionLocked == false)
 		{
 
 			std::string txtTimer = "";
@@ -757,7 +1134,7 @@ void LobbyMenu::think()
 				// Do something after one minute
 				Json::Value root;
 				root["state"] = "lobby_ready";
-				connectionTCP::isCoopSessionLocked = true;
+				connectionTCP::session.campaignStarted();
 
 				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
@@ -792,8 +1169,16 @@ void LobbyMenu::think()
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
 		
-		// other players
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
+		// other players. Machine-aware presence: the HOST shows a peer only
+		// once it passed every join gate (clientInLobby - a refused wrong-name
+		// attempt must never flash into the roster); the CLIENT shows its
+		// host as soon as it is attached (coopStatic).
+		bool peerPresent = _game->getCoopMod()->getServerOwner()
+							   ? connectionTCP::session.clientInLobby
+							   : _game->getCoopMod()->getCoopStatic() == true;
+		if (peerPresent
+			&& (connectionTCP::session.lobbyMode != 0
+				|| _game->getCoopMod()->isCoopSession() == true))
 		{
 			const int playerId = 2; // fix later...
 
@@ -815,7 +1200,7 @@ void LobbyMenu::think()
 			// status
 			std::string txtStatus2 = "";
 
-			if (connectionTCP::isCoopSessionLocked == false)
+			if (connectionTCP::session.lobbyMode == 0 && connectionTCP::session.sessionLocked == false)
 			{
 
 				if (connectionTCP::isPlayersReady == true)

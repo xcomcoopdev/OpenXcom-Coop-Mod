@@ -36,10 +36,9 @@ namespace OpenXcom
 // These are currently globals in the provided connectionTCP.cpp. They are kept
 // here to avoid changing all old TCP code at once. g_txQ and g_rxQ are declared
 // in connectionTCP.h, so do not redeclare them here with another type. New
-// connectionTCP static state, such as connectionTCP::isCoopSessionLocked, is
+// connectionTCP static state, such as connectionTCP::session.sessionLocked, is
 // used directly below.
 extern int onConnect;
-extern bool server_owner;
 extern bool onTcpHost;
 extern bool clearPackets;
 extern bool coopSession;
@@ -314,11 +313,11 @@ bool startUdpPeer(const std::string& remoteHost,
 	// lobby variables.
 	s_udpEnabled = true;
 	coopSession = true;
-	server_owner = isHost;
+	connectionTCP::session.role = isHost ? CoopRole::Host : CoopRole::Client;
 	onTcpHost = isHost;
 	onConnect = 1;
 
-	connectionTCP::isCoopSessionLocked = false;
+	connectionTCP::session.sessionLocked = false;
 	connectionTCP::isPlayerReady = false;
 	connectionTCP::isPlayersReady = false;
 	connectionTCP::LobbyFileStatus = -1;
@@ -403,7 +402,7 @@ void lockUdpSessionWhenBothReady()
 		s_connectionUDP->lockSessionToCurrentPeer();
 
 	// Match existing TCP lobby state, so old UI/game logic sees the same state.
-	connectionTCP::isCoopSessionLocked = true;
+	connectionTCP::session.sessionLocked = true;
 	connectionTCP::isPlayersReady = true;
 }
 

@@ -28,6 +28,8 @@
 #include "../Basescape/PlaceLiftState.h"
 #include "../Engine/Options.h"
 #include "../Engine/RNG.h"
+#include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -165,7 +167,7 @@ void BaseNameState::btnOkClick(Action *)
 		}
 
 		// coop
-		if (connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == false)
+		if (_game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == false)
 		{
 
 			Json::Value root;
@@ -173,6 +175,29 @@ void BaseNameState::btnOkClick(Action *)
 
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
+			// campaign flow: ship the freshly built world to the host so its
+			// "all players placed bases" gate can open (F2); on a resume or
+			// rejoin this also reports us loaded (F3/F4; stray acks with no
+			// waiting dialog are ignored). Then hold with frozen time until
+			// the host resumes the campaign (D5).
+			if (connectionTCP::session.lobbyMode != 0)
+			{
+				_game->getCoopMod()->pushProgressToHostSilently();
+
+				Json::Value ack;
+				ack["state"] = "resume_ack";
+				_game->getCoopMod()->sendTCPPacketData(ack.toStyledString());
+
+				_game->pushState(new CoopState(COOP_DLG_CLIENT_HOLD));
+			}
+
+		}
+
+		// new-campaign flow: the host holds here until every player's world
+		// blob has arrived (F2)
+		if (_game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == true && connectionTCP::session.lobbyMode == 1)
+		{
+			_game->pushState(new CoopState(COOP_DLG_WAIT_BASES));
 		}
 
 	}

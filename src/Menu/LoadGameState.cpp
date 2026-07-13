@@ -35,6 +35,8 @@
 #include "../Engine/Unicode.h"
 #include "../Mod/RuleInterface.h"
 #include "StatisticsState.h"
+#include "../CoopMod/HostMenu.h"
+#include "../CoopMod/CoopState.h"
 
 namespace OpenXcom
 {
@@ -62,7 +64,7 @@ LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, 
  * @param type Type of auto-load being used.
  * @param palette Parent state palette.
  */
-LoadGameState::LoadGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette) : _firstRun(0), _origin(origin)
+LoadGameState::LoadGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette) : _firstRun(0), _origin(origin), _loadCoopProgress(false)
 {
 
 	// coop
@@ -142,6 +144,20 @@ void LoadGameState::buildUi(SDL_Color *palette)
 void LoadGameState::init()
 {
 	State::init();
+
+	// Chokepoint gate: a machine that may not touch local saves (coop client)
+	// can only reach a plain local load through the pause menu / list / confirm
+	// states or a directly-pushed LoadGameState. The coop-orchestrated flows -
+	// loading a host-provided blob (_coopKey set) or a resume/rejoin
+	// (_loadCoopProgress) - are NOT local loads and must still run. Refuse only
+	// the plain local load.
+	if (!_game->getCoopMod()->localLoadsAllowed() && _coopKey.empty() && !_loadCoopProgress)
+	{
+		Log(LOG_INFO) << "[coop] local load refused: no local loads during a live coop session (PRD-08)";
+		_game->popState();
+		return;
+	}
+
 	if (_filename == SavedGame::QUICKSAVE && !CrossPlatform::fileExists(Options::getMasterUserFolder() + _filename))
 	{
 		_game->popState();
@@ -216,6 +232,19 @@ void LoadGameState::think()
 				if (_loadCoopProgress == true)
 				{
 					_game->getSavedGame()->setBattleGame(0);
+
+					// resume/rejoin: report the loaded world to the host and
+					// hold with frozen time until it resumes (F3/F4/D5)
+					if (connectionTCP::session.lobbyMode != 0 && _game->getCoopMod()->getServerOwner() == false)
+					{
+						Json::Value root;
+						root["state"] = "resume_ack";
+						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+						// (in a battle resume the follow-up battle stream
+						// replaces the whole state stack, dialog included)
+						_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+					}
 				}
 
 				if (_game->getSavedGame()->getSavedBattle() != 0)
@@ -372,6 +401,36 @@ void LoadGameState::think()
 					_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
 					// Try to reactivate the touch buttons
 					bs->toggleTouchButtons(false, true);
+
+					// battle-save resume / mid-battle rejoin, phase two
+					// complete: report the loaded battle to the host (F3/F4)
+					if (connectionTCP::session.lobbyMode != 0 && _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
+					{
+						Json::Value root;
+						root["state"] = "resume_ack";
+						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+					}
+				}
+
+				// flow-redesign F3: a co-op campaign save loaded from the
+				// menu opens a lobby-gated session - host window on top of
+				// the paused world; RESUME serves every client its world.
+				if (_coopKey.empty()
+					&& _game->getSavedGame()->isCoopSave()
+					&& _game->getCoopMod()->getCoopStatic() == false)
+				{
+					connectionTCP::session.adoptResumeSave();
+					// the host identity is locked to the save (D4): adopt it,
+					// so the UI flow can never host under a different name.
+					// A migrated legacy save leaves the host slot blank (the
+					// old format carried no host name) - keep the local name
+					// and let the host claim the slot at re-host time.
+					if (!_game->getSavedGame()->getCoopPlayers().empty()
+						&& !_game->getSavedGame()->getCoopPlayers()[0].empty())
+					{
+						_game->getCoopMod()->setHostName(_game->getSavedGame()->getCoopPlayers()[0]);
+					}
+					_game->pushState(new HostMenu());
 				}
 			}
 

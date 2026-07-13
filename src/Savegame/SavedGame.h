@@ -95,6 +95,7 @@ struct SaveInfo
 	std::string details;
 	std::vector<std::string> mods;
 	bool reserved;
+	bool coop = false;
 };
 
 struct ModInfoCoop
@@ -162,6 +163,11 @@ private:
 	GameDifficulty _difficulty;
 	GameEnding _end;
 	bool _ironman;
+	// coop campaign markers: set at campaign start, immutable afterwards.
+	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
+	// is the locked player list (host first).
+	bool _coop;
+	std::vector<std::string> _coopPlayers;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
 	std::vector<std::string> _geoscapeDebugLog;
@@ -260,6 +266,19 @@ private:
 	bool isIronman() const;
 	/// Sets if the game is in ironman mode.
 	void setIronman(bool ironman);
+	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
+	bool isCoopSave() const { return _coop; }
+	void setCoopSave(bool coop) { _coop = coop; }
+	/// Locked co-op player list (host first), set at campaign start.
+	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
+	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }
+	void addCoopPlayer(const std::string &name)
+	{
+		for (const auto &p : _coopPlayers)
+			if (p == name)
+				return;
+		_coopPlayers.push_back(name);
+	}
 	/// Gets the current funds.
 	int64_t getFunds() const;
 	/// Gets the list of funds from previous months.
@@ -320,6 +339,11 @@ private:
 	SavedBattleGame *getSavedBattle();
 	/// Sets the current battle game.
 	void setBattleGame(SavedBattleGame *battleGame);
+	/// Detach the battle WITHOUT deleting it (PRD-09: serialize a geoscape-only
+	/// coop snapshot). Returns the detached pointer; pair with reattachBattleGame.
+	SavedBattleGame *detachBattleGame() { SavedBattleGame *b = _battleGame; _battleGame = 0; return b; }
+	/// Reattach a battle previously detached (does not delete any current pointer).
+	void reattachBattleGame(SavedBattleGame *battleGame) { _battleGame = battleGame; }
 	/// Sets the status of a ufopedia rule
 	void setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus);
 	/// Sets the status of a manufacture rule
