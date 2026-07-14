@@ -38,6 +38,7 @@
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/ItemContainer.h"
+#include "../Savegame/EquipmentLayoutItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Engine/Timer.h"
 #include "../Menu/ErrorMessageState.h"
@@ -552,6 +553,20 @@ void TransferItemsState::btnOkClick(Action *)
 /**
  * Completes the transfer between bases.
  */
+bool TransferItemsState::transferSoldierNow(Soldier* soldier)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_SOLDIER && row.rule == (const void*)soldier)
+		{
+			row.amount = 1;
+			completeTransfer();
+			return true;
+		}
+	}
+	return false;
+}
+
 void TransferItemsState::completeTransfer()
 {
 	int time = (int)floor(6 + _distance / 10.0);
@@ -582,6 +597,45 @@ void TransferItemsState::completeTransfer()
 							t->setSoldier(soldier);
 
 							_baseTo->getTransfers()->push_back(t);
+
+							// Coop: equipment behaviour on transfer to a peer base follows the
+							// "Alternate craft equipment management" option. OFF (default): a
+							// soldier's gear does not travel between bases, so strip its layout
+							// and it arrives empty. ON: move each reserved item (weapon + loaded
+							// ammo) out of the sending base's storage into the transfer, so it
+							// arrives at the receiving base with the soldier.
+							if (_baseTo->_coopBase)
+							{
+								if (Options::oxceAlternateCraftEquipmentManagement)
+								{
+									for (auto* layoutItem : *soldier->getEquipmentLayout())
+									{
+										const RuleItem* itemRule = layoutItem->getItemType();
+										if (itemRule && _baseFrom->getStorageItems()->getItem(itemRule) > 0)
+										{
+											_baseFrom->getStorageItems()->removeItem(itemRule, 1);
+											Transfer* et = new Transfer(0);  // 0h = lands immediately at the peer base
+											et->setItems(itemRule, 1);
+											_baseTo->getTransfers()->push_back(et);
+										}
+										for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
+										{
+											const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
+											if (ammoRule && _baseFrom->getStorageItems()->getItem(ammoRule) > 0)
+											{
+												_baseFrom->getStorageItems()->removeItem(ammoRule, 1);
+												Transfer* at = new Transfer(0);  // 0h = lands immediately at the peer base
+												at->setItems(ammoRule, 1);
+												_baseTo->getTransfers()->push_back(at);
+											}
+										}
+									}
+								}
+								else
+								{
+									soldier->clearEquipmentLayout();
+								}
+							}
 
 							// coop
 							if (_baseTo->_coopIcon == false)

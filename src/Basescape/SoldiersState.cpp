@@ -33,6 +33,9 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Savegame/ItemContainer.h"
+#include "../Mod/RuleItem.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/SavedGame.h"
@@ -48,7 +51,7 @@
 
 #include "../Savegame/Vehicle.h"
 #include "../CoopMod/connectionTCP.h" // coop
-#include "../CoopMod/TransferSoldierMenu.h" // coop
+#include "../CoopMod/GiftSoldierMenu.h" // coop
 
 namespace OpenXcom
 {
@@ -845,9 +848,56 @@ void SoldiersState::btnInventoryClick(Action *)
 		{
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
+
+		// Issue #33 (own-base variant): coop "guest" soldiers stationed at this
+		// base are stripped from the editable roster (see the SoldiersState ctor),
+		// so they are not deployed for this inventory - but their equipment-layout
+		// items still sit in this base's storage and would otherwise show up as
+		// free/available on the ground pane. Pull those reserved items out of
+		// storage while runInventory builds the ground, then put them straight
+		// back. Base-mode runInventory never mutates storage, so the real save is
+		// left untouched.
+		std::vector<const RuleItem*> hiddenReserved;
+		if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getCoopCampaign() && _base->_coopBase == false)
+		{
+			for (auto* guest : _base->base_oldsoldiers)
+			{
+				if (guest->getCoopBase() == -1)
+				{
+					continue; // an editable own soldier - it is deployed normally
+				}
+				for (auto* layoutItem : *guest->getEquipmentLayout())
+				{
+					const RuleItem* itemRule = layoutItem->getItemType();
+					if (itemRule)
+					{
+						hiddenReserved.push_back(itemRule);
+					}
+					for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
+					{
+						const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
+						if (ammoRule)
+						{
+							hiddenReserved.push_back(ammoRule);
+						}
+					}
+				}
+			}
+			for (const RuleItem* itemRule : hiddenReserved)
+			{
+				_base->getStorageItems()->removeItem(itemRule, 1);
+			}
+		}
+
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_base);
 		bgen.runInventory(0);
+
+		// restore the reserved items pulled out above (see issue #33 note)
+		for (const RuleItem* itemRule : hiddenReserved)
+		{
+			_base->getStorageItems()->addItem(itemRule, 1);
+		}
 
 		// pre-select the soldier under the mouse cursor (if possible)
 		if (_availableOptions.empty() || _cbxScreenActions->getSelected() == 0)
@@ -958,7 +1008,7 @@ void SoldiersState::lstSoldiersMousePress(Action *action)
 
 
 /**
- * Coop: opens the transfer-ownership dialog for the hovered soldier.
+ * Coop: opens the gift dialog for the hovered soldier.
  * @param action Pointer to an action.
  */
 void SoldiersState::lstSoldiersGiveUnitPress(Action *)
@@ -973,7 +1023,7 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 		return;
 	}
 	Soldier *soldier = _filteredListOfSoldiers[row];
-	_game->pushState(new TransferSoldierMenu(soldier, TransferSoldierMenu::resolveOwnerId(soldier)));
+	_game->pushState(new GiftSoldierMenu(soldier, GiftSoldierMenu::resolveOwnerId(soldier)));
 }
 
 }

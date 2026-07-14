@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "TransferSoldierMenu.h"
+#include "GiftSoldierMenu.h"
 
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -33,7 +33,7 @@
 namespace OpenXcom
 {
 
-int TransferSoldierMenu::resolveOwnerId(Soldier *soldier)
+int GiftSoldierMenu::resolveOwnerId(Soldier *soldier)
 {
 	if (soldier->getOwnerPlayerId() != 999)
 	{
@@ -47,7 +47,7 @@ int TransferSoldierMenu::resolveOwnerId(Soldier *soldier)
 	return connectionTCP::getHost() ? 0 : 1;
 }
 
-TransferSoldierMenu::TransferSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldier(soldier)
+GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldier(soldier)
 {
 	_screen = false;
 
@@ -133,7 +133,7 @@ TransferSoldierMenu::TransferSoldierMenu(Soldier *soldier, int currentOwnerId) :
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setWordWrap(true);
-	_txtTitle->setText("Transfer " + _soldier->getName() + " to another player?");
+	_txtTitle->setText("Gift " + _soldier->getName() + " to another player?");
 
 	for (size_t i = 0; i < _btnTargets.size(); ++i)
 	{
@@ -143,28 +143,28 @@ TransferSoldierMenu::TransferSoldierMenu(Soldier *soldier, int currentOwnerId) :
 			name = targets[i].first == 0 ? "HOST" : "CLIENT";
 		}
 		_btnTargets[i]->setText(name);
-		_btnTargets[i]->onMouseClick((ActionHandler)&TransferSoldierMenu::btnTransferClick);
+		_btnTargets[i]->onMouseClick((ActionHandler)&GiftSoldierMenu::btnGiftClick);
 	}
 
 	_btnCancel->setText(tr("STR_CANCEL"));
-	_btnCancel->onMouseClick((ActionHandler)&TransferSoldierMenu::btnCancelClick);
-	_btnCancel->onKeyboardPress((ActionHandler)&TransferSoldierMenu::btnCancelClick, Options::keyCancel);
+	_btnCancel->onMouseClick((ActionHandler)&GiftSoldierMenu::btnCancelClick);
+	_btnCancel->onKeyboardPress((ActionHandler)&GiftSoldierMenu::btnCancelClick, Options::keyCancel);
 }
 
-void TransferSoldierMenu::btnTransferClick(Action *action)
+void GiftSoldierMenu::btnGiftClick(Action *action)
 {
 	for (size_t i = 0; i < _btnTargets.size(); ++i)
 	{
 		if (action->getSender() == _btnTargets[i])
 		{
-			_game->getCoopMod()->transferSoldierOwnership(_soldier, _targetIds[i], true);
+			_game->getCoopMod()->giftSoldier(_soldier, _targetIds[i], true);
 			break;
 		}
 	}
 	_game->popState();
 }
 
-void TransferSoldierMenu::btnCancelClick(Action *)
+void GiftSoldierMenu::btnCancelClick(Action *)
 {
 	_game->popState();
 }

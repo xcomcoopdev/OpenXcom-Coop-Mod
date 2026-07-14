@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "TransferNoticeState.h"
+#include "GiftNoticeState.h"
 
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -34,7 +34,7 @@
 namespace OpenXcom
 {
 
-TransferNoticeState::TransferNoticeState(const std::string &message)
+GiftNoticeState::GiftNoticeState(const std::string &message)
 {
 	_screen = false;
 
@@ -66,7 +66,7 @@ TransferNoticeState::TransferNoticeState(const std::string &message)
 		State* context = nullptr;
 		for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 		{
-			if (dynamic_cast<TransferNoticeState*>(*it) == nullptr)
+			if (dynamic_cast<GiftNoticeState*>(*it) == nullptr)
 			{
 				context = *it;
 				break;
@@ -101,12 +101,12 @@ TransferNoticeState::TransferNoticeState(const std::string &message)
 	_txtMessage->setText(message);
 
 	_btnOk->setText(tr("STR_OK"));
-	_btnOk->onMouseClick((ActionHandler)&TransferNoticeState::btnOkClick);
-	_btnOk->onKeyboardPress((ActionHandler)&TransferNoticeState::btnOkClick, Options::keyOk);
-	_btnOk->onKeyboardPress((ActionHandler)&TransferNoticeState::btnOkClick, Options::keyCancel);
+	_btnOk->onMouseClick((ActionHandler)&GiftNoticeState::btnOkClick);
+	_btnOk->onKeyboardPress((ActionHandler)&GiftNoticeState::btnOkClick, Options::keyOk);
+	_btnOk->onKeyboardPress((ActionHandler)&GiftNoticeState::btnOkClick, Options::keyCancel);
 }
 
-void TransferNoticeState::btnOkClick(Action *)
+void GiftNoticeState::btnOkClick(Action *)
 {
 	_game->popState();
 }

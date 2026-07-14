@@ -47,7 +47,7 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CrashHandler.h" // coop
-#include "../CoopMod/TransferSoldierMenu.h" // coop
+#include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
 
 namespace OpenXcom
@@ -366,7 +366,7 @@ void Game::run()
 											{
 
 												// Campaign soldier: open the permanent-transfer dialog.
-												pushState(new TransferSoldierMenu(selectedUnit->getGeoscapeSoldier(), selectedUnit->getCoop()));
+												pushState(new GiftSoldierMenu(selectedUnit->getGeoscapeSoldier(), selectedUnit->getCoop()));
 
 											}
 											else

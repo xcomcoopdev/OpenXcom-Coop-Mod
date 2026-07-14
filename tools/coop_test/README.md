@@ -58,10 +58,10 @@ campaign each run.
 
 - `boot_check.py` - single-instance install smoke test.
 - `test_geoscape_sync.py` - two instances; geoscape host/client sync check.
-- `test_transfer_fresh.py` - soldier ownership transfer on a fresh campaign.
+- `test_gift_fresh.py` - gifting a soldier (ownership change) on a fresh campaign.
 - `test_bug_fixes.py` - owner resolution, notice display, dialog flicker, etc.
   Exposes `bootstrap_fresh_session()` and `own_base()` reused by other tests.
-- `test_transfer_rollback.py` - host-save-is-authority rollback, both directions.
+- `test_gift_rollback.py` - host-save-is-authority rollback of a gift, both directions.
 - `test_server_browser.py` - rendezvous-server combobox state (offline path).
 - `test_ufo_notice.py` - when one player detects a UFO, the peer gets the notice
   too (both `UfoDetectedState` popups); checks both directions.
@@ -77,6 +77,22 @@ campaign each run.
   world back (roster + markers intact).
 - `test_rejoin_flow.py` - mid-session hard-kill -> host freeze dialog ->
   direct rejoin (no lobby) -> RESUME; roster intact, zero-disk.
+- `test_coop_base_equip_visibility.py` - issue #33: items a player reserved by
+  equipping soldiers at a base must not appear as free/available equipment to a
+  peer visiting that base, nor to the owner when the reserving soldier is a
+  stripped co-op guest; checks all four host/client directions.
+- `test_coop_transferred_equipment.py` - vanilla-transferring an equipped
+  soldier to a peer base must not duplicate its equipment: the world-wide item
+  total is unchanged and the client-base equip screen shows the same number of
+  item instances to the visiting host as to the client (conservation).
+- `test_coop_transfer_equipment_option.py` - the "Alternate craft equipment
+  management" option drives transfer behaviour: OFF strips the soldier's gear
+  (empty layout at the peer base), ON keeps its loadout. Runs both modes.
+- `test_coop_transfer_equipment_counts.py` - with the option ON the gear's item
+  counts actually move, immediately (0-hour transfer, matching the instant
+  soldier move): the sending base's stored count drops and the receiving base's
+  stored count rises by the same amount, world total conserved. OFF moves
+  nothing.
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
 / `assert_client_zero_disk`) used by every test.
@@ -94,9 +110,19 @@ campaign each run.
   `lobby_state`, `lobby_start_campaign`, `lobby_resume_campaign`,
   `coop_dialog_back`, `save_markers`, `lobby_ready` (legacy),
   `client_reload_progress`, `quit`.
-- Transfer / UI: `transfer`, `transfer_targets`, `rename_soldier`,
-  `open_soldiers`, `visit_coop_base`, `open_transfer_dialog`, `cancel_dialog`,
-  `show_notice`, `get_notices`, `dismiss_notice`, `get_palettes`.
+- Gift / UI: `gift` (change a soldier's owner), `gift_targets`,
+  `open_gift_dialog`, `rename_soldier`, `open_soldiers`, `soldiers_ok`,
+  `soldiers_inventory` (right-click-equip a base's soldiers), `inventory_ground`
+  (read the open inventory's ground pane: `items`=ground, `carried`=on units,
+  `all`=every instance incl. loaded ammo), `base_report` (storage + per-soldier
+  reserved layout items; `coop:true` picks the visited base), `give_layout`
+  (reserve an `item` on a base's soldiers, optional `slot`=belt|right|left and
+  `name` filter), `set_coop_base` (force a soldier's coopBase, e.g. to make it a
+  stripped guest), `transfer_to_coop_base` (vanilla base->base transfer of a
+  soldier to a peer base, no ownership change), `incoming_transfers` (a base's
+  pending incoming item/soldier transfers), `visit_coop_base`, `leave_base`,
+  `cancel_dialog`, `show_notice`, `get_notices`, `dismiss_notice`,
+  `get_palettes`.
 - Geoscape: `geo_state`, `geo_set_speed`, `dismiss_popup`, `craft_dispatch`,
   `confirm_landing`.
 - Battlescape: `close_briefing`, `battle_inventory`, `battle_state`,

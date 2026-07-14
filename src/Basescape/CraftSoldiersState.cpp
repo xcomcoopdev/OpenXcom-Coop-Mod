@@ -49,7 +49,7 @@
 
 #include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/connectionTCP.h" // coop
-#include "../CoopMod/TransferSoldierMenu.h" // coop
+#include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
@@ -671,7 +671,7 @@ void CraftSoldiersState::lstSoldiersMousePress(Action *action)
 }
 
 /**
- * Coop: opens the transfer-ownership dialog for the hovered soldier.
+ * Coop: opens the gift dialog for the hovered soldier.
  * @param action Pointer to an action.
  */
 void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
@@ -686,7 +686,7 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
 		return;
 	}
 	Soldier *soldier = _base->getSoldiers()->at(row);
-	_game->pushState(new TransferSoldierMenu(soldier, TransferSoldierMenu::resolveOwnerId(soldier)));
+	_game->pushState(new GiftSoldierMenu(soldier, GiftSoldierMenu::resolveOwnerId(soldier)));
 }
 
 /**

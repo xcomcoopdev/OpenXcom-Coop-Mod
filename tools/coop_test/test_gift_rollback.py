@@ -1,10 +1,10 @@
-"""Autonomous test: host save = single source of truth for soldier transfers.
+"""Autonomous test: host save = single source of truth for soldier gifts.
 
 Exact user repro:
   1. new game, host + client connected
-  2. host transfers unit A to client
+  2. host gifts unit A to client
   3. host saves game
-  4. host transfers unit B to client
+  4. host gifts unit B to client
   5. host abandons (in-session: statics survive, like returning to main menu)
   6. host loads the save, client re-fetches its world from the host
   7. EXPECTED: host has B (not A), client has A (not B), no bogus notices
@@ -12,7 +12,7 @@ Exact user repro:
 Also runs the reverse direction (client gives, host's save still authority)
 and the stacked-notice color check.
 
-Run:  python tools/coop_test/test_transfer_rollback.py
+Run:  python tools/coop_test/test_gift_rollback.py
 """
 
 import os
@@ -40,7 +40,7 @@ def dismiss_all_notices(gc):
 
 
 def no_notices(gc):
-    return not any("TransferNoticeState" in s for s in gc.cmd({"cmd": "get_state"})["states"])
+    return not any("GiftNoticeState" in s for s in gc.cmd({"cmd": "get_state"})["states"])
 
 
 def wait_blob_fresh(host, client):
@@ -53,8 +53,8 @@ def wait_blob_fresh(host, client):
     time.sleep(3)  # existence check can't tell a fresh push from an old one
 
 
-def transfer_and_wait(giver, receiver, name, receiver_owner_id):
-    giver.ok({"cmd": "transfer", "name": name, "owner": receiver_owner_id})
+def gift_and_wait(giver, receiver, name, receiver_owner_id):
+    giver.ok({"cmd": "gift", "name": name, "owner": receiver_owner_id})
     receiver.wait_for(f"{name} arrives",
                       lambda: (soldier_count(receiver, name, owner=receiver_owner_id) == 1) or None, timeout=30)
     dismiss_all_notices(receiver)
@@ -67,15 +67,15 @@ def run_repro(host, client, giver, receiver, receiver_owner_id, tag):
     giver.ok({"cmd": "rename_soldier", "name": roster[0]["name"], "newName": unit_a})
     giver.ok({"cmd": "rename_soldier", "name": roster[1]["name"], "newName": unit_b})
 
-    # 2. transfer A
-    transfer_and_wait(giver, receiver, unit_a, receiver_owner_id)
+    # 2. gift A
+    gift_and_wait(giver, receiver, unit_a, receiver_owner_id)
     wait_blob_fresh(host, client)
 
     # 3. HOST saves (the authority snapshot: A traded, B not)
     host.ok({"cmd": "save_game", "file": f"authority_{tag}.sav"})
 
-    # 4. transfer B
-    transfer_and_wait(giver, receiver, unit_b, receiver_owner_id)
+    # 4. gift B
+    gift_and_wait(giver, receiver, unit_b, receiver_owner_id)
     wait_blob_fresh(host, client)
 
     # 5+6. host "abandons" and loads the save; client re-fetches its world
