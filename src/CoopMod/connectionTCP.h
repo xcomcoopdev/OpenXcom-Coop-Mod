@@ -645,7 +645,7 @@ class connectionTCP
 	static bool canRemoveManuallyAddedServer;
 	static bool isInfoboxClosed;
 
-	// Permanently transfers a soldier to another player (0 = host, 1 = client).
+	// Permanently gifts a soldier to another player (0 = host, 1 = client).
 	// Follows the guest-soldier model: a soldier's object lives in its OWNER's
 	// save, tagged with coopBase = the station base's coop id when that base
 	// belongs to the other player (-1 when stationed at one of the owner's own
@@ -653,46 +653,46 @@ class connectionTCP
 	// recreated in the receiver's save, keeping the same station base - so it
 	// stays "in" the base it was in, and shows up when the new owner views
 	// that base. During battle only the control flags flip immediately; the
-	// physical move is queued and runs after the mission ends. Transfers
-	// overwrite unconditionally, so soldiers can be traded back and forth.
-	void transferSoldierOwnership(Soldier* soldier, int newOwnerId, bool broadcast);
-	// Completes queued in-battle transfers once no battle is active. Must run
+	// physical move is queued and runs after the mission ends. Gifts
+	// overwrite unconditionally, so soldiers can be gifted back and forth.
+	void giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast);
+	// Completes queued in-battle gifts once no battle is active. Must run
 	// before the post-battle coop cleanup (GeoscapeState calls it first).
-	void processPendingSoldierTransfers();
+	void processPendingSoldierGifts();
 
   private:
 	// Serializes the soldier (with its station base id) and sends the
-	// physical-transfer packet to the peer.
-	void sendSoldierTransferPacket(Soldier* soldier, int newOwnerId);
+	// physical-gift packet to the peer.
+	void sendSoldierGiftPacket(Soldier* soldier, int newOwnerId);
 	// Erases the soldier pointer from every base roster (including the
 	// SoldiersState/CraftSoldiersState base_oldsoldiers snapshots).
 	void removeSoldierFromLocalBases(Soldier* soldier);
-	// In-battle transfers waiting for the mission to end: soldier + new owner.
-	std::vector<std::pair<Soldier*, int> > _pendingSoldierTransfers;
-	// Soldiers transferred away are parked here instead of deleted: UI states
+	// In-battle gifts waiting for the mission to end: soldier + new owner.
+	std::vector<std::pair<Soldier*, int> > _pendingSoldierGifts;
+	// Soldiers gifted away are parked here instead of deleted: UI states
 	// (sort snapshots, open dialogs) may still hold pointers to them.
-	std::vector<Soldier*> _transferredSoldiers;
-	// Ids of soldiers transferred away this session. A stale copy of one of
+	std::vector<Soldier*> _giftedSoldiers;
+	// Ids of soldiers gifted away this session. A stale copy of one of
 	// these can resurrect when the pre-visit "basehost" snapshot is restored;
-	// the sweep in processPendingSoldierTransfers() parks exactly those (and
+	// the sweep in processPendingSoldierGifts() parks exactly those (and
 	// nothing else - legacy saves carry unrelated ownerPlayerId values).
-	std::unordered_set<int> _transferredAwaySoldierIds;
-	// Counter feeding the unique per-packet transfer id, plus the in-memory
+	std::unordered_set<int> _giftedAwaySoldierIds;
+	// Counter feeding the unique per-packet gift id, plus the in-memory
 	// duplicate-delivery guard (sufficient now: the host's save is the single
 	// authority, so packets are never re-sent across sessions).
-	int _transferSendCounter = 0;
-	std::unordered_set<long long> _seenTransferPacketIds;
-	// Incoming physical transfers received while our SavedGame is swapped out
+	int _giftSendCounter = 0;
+	std::unordered_set<long long> _seenGiftPacketIds;
+	// Incoming physical gifts received while our SavedGame is swapped out
 	// (viewing the peer's base, playerInsideCoopBase). Applying them then
 	// would mutate the temporary peer world and be discarded on exit - the
 	// soldier would vanish on both machines. Replayed once our world is back.
-	std::vector<Json::Value> _pendingIncomingTransfers;
+	std::vector<Json::Value> _pendingIncomingGifts;
   public:
 	// Single-authority model: the HOST's .sav embeds the latest client-world
 	// blob (see SavedGame::save/load), so loading a host save atomically
 	// restores BOTH players' rosters; the client re-fetches its world from
 	// the host on reconnect. To keep the embedded blob fresh, the client
-	// silently pushes its progress to the host after every soldier transfer.
+	// silently pushes its progress to the host after every soldier gift.
 	void pushProgressToHostSilently();
 	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
 	// host craft via the mirror-base UI, the assignment is written only into the
@@ -704,10 +704,10 @@ class connectionTCP
 	// to the host) so the assignment survives the mission-end reload.
 	// assignments maps a guest's CoopName to {CoopCraft, CoopCraftType}.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
-	// Clears session transfer state (pending queues, dedup ids, away-ids)
+	// Clears session gift state (pending queues, dedup ids, away-ids)
 	// after a save load - stale in-memory state must never outlive the save
 	// that is now the authority.
-	void resetTransferSessionState();
+	void resetGiftSessionState();
 };
 
 }

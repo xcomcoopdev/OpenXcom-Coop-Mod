@@ -40,6 +40,9 @@
 #include "../Basescape/BasescapeState.h"
 
 #include "../Savegame/Soldier.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Savegame/ItemContainer.h"
+#include "../Mod/RuleItem.h"
 #include "../Savegame/Vehicle.h"
 
 #include "../Menu/SaveGameState.h"
@@ -1287,6 +1290,35 @@ void CoopState::loadWorld()
 			{
 
 				newbase->isCoopBase(true);
+
+				// Issue #33: the peer's own soldiers are about to be removed from
+				// this visited-base view (only the visitor's guest soldiers are
+				// shown), but a soldier's equipment layout does NOT decrement base
+				// storage - the physical items stay in storage. If we drop the
+				// soldiers but keep their reserved items in storage, those items
+				// appear as free/available on the inventory ground pane. Remove
+				// each departing soldier's layout items (weapon + loaded ammo)
+				// from the visited base's storage so the visitor only sees the
+				// peer's genuinely free equipment.
+				for (auto* peerSoldier : *newbase->getSoldiers())
+				{
+					for (auto* layoutItem : *peerSoldier->getEquipmentLayout())
+					{
+						const RuleItem* itemRule = layoutItem->getItemType();
+						if (itemRule)
+						{
+							newbase->getStorageItems()->removeItem(itemRule, 1);
+						}
+						for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
+						{
+							const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
+							if (ammoRule)
+							{
+								newbase->getStorageItems()->removeItem(ammoRule, 1);
+							}
+						}
+					}
+				}
 
 				// clear all vehicles and soldiers from the base
 				newbase->getSoldiers()->clear();

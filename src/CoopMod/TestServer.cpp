@@ -64,6 +64,10 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Savegame/ItemContainer.h"
+#include "../Savegame/Tile.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Target.h"
@@ -94,9 +98,10 @@
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
+#include "../Basescape/TransferItemsState.h"
 #include "CoopState.h"
-#include "TransferNoticeState.h"
-#include "TransferSoldierMenu.h"
+#include "GiftNoticeState.h"
+#include "GiftSoldierMenu.h"
 #include "../Interface/DisableableComboBox.h"
 
 namespace OpenXcom
@@ -991,7 +996,7 @@ std::string TestServer::execute(const std::string& line)
 			std::string file = req.get("file", "").asString();
 			SavedGame* s = new SavedGame();
 			s->load(file, _game->getMod(), _game->getLanguage());
-			coop->resetTransferSessionState();
+			coop->resetGiftSessionState();
 			_game->setSavedGame(s);
 			_game->setState(new GeoscapeState);
 			resp["ok"] = true;
@@ -1350,6 +1355,322 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "no SoldiersState in state stack";
 			}
 		}
+		else if (cmd == "base_report")
+		{
+			// Read-only snapshot of a base's equipment pool + its soldiers'
+			// reserved (equipment-layout) items. Proves issue #33: a visited
+			// coop base must not expose items reserved by the peer's soldiers'
+			// loadouts. Match: coop=true -> first visited coop base; else base
+			// name if given; else the local own base.
+			std::string reportBase = req.get("base", "").asString();
+			bool wantCoop = req.get("coop", false).asBool();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					bool match;
+					if (wantCoop)
+						match = base->_coopBase;
+					else if (!reportBase.empty())
+						match = (base->getName() == reportBase);
+					else
+						match = (base->_coopBase == false && base->_coopIcon == false);
+					if (match) { target = base; break; }
+				}
+			}
+			if (!target)
+			{
+				resp["error"] = "base not found";
+			}
+			else
+			{
+				resp["name"] = target->getName();
+				resp["coopBaseFlag"] = target->_coopBase;
+				resp["coopBaseId"] = target->_coop_base_id;
+
+				Json::Value storage(Json::objectValue);
+				for (const auto& pair : *target->getStorageItems()->getContents())
+					storage[pair.first->getType()] = pair.second;
+				resp["storage"] = storage;
+
+				Json::Value reserved(Json::objectValue);
+				Json::Value soldiers(Json::arrayValue);
+				for (auto* s : *target->getSoldiers())
+				{
+					Json::Value js;
+					js["name"] = s->getName();
+					js["owner"] = s->getOwnerPlayerId();
+					js["coopBase"] = s->getCoopBase();
+					Json::Value layout(Json::arrayValue);
+					for (auto* eli : *s->getEquipmentLayout())
+					{
+						const RuleItem* it = eli->getItemType();
+						if (it)
+						{
+							layout.append(it->getType());
+							reserved[it->getType()] = reserved.get(it->getType(), 0).asInt() + 1;
+						}
+						for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+						{
+							const RuleItem* am = eli->getAmmoItemForSlot(a);
+							if (am)
+								reserved[am->getType()] = reserved.get(am->getType(), 0).asInt() + 1;
+						}
+					}
+					js["layout"] = layout;
+					soldiers.append(js);
+				}
+				resp["soldiers"] = soldiers;
+				resp["reserved"] = reserved;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "soldiers_inventory")
+		{
+			// Replicate the right-click "equip soldier at base" action: opens the
+			// base inventory (runInventory) for the top SoldiersState's base. The
+			// InventoryState ground then holds the items the player sees in the
+			// bottom pane (read via inventory_ground).
+			SoldiersState* st = findState<SoldiersState>(_game);
+			if (!st)
+			{
+				resp["error"] = "no SoldiersState in state stack";
+			}
+			else
+			{
+				st->btnInventoryClick(nullptr);
+				resp["opened"] = (findState<InventoryState>(_game) != nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "inventory_ground")
+		{
+			// Read-only: the items on the base-inventory ground tile = the
+			// "bottom pane" the player sees. Requires an open base inventory
+			// (soldiers_inventory first).
+			SavedGame* invSg = _game->getSavedGame();
+			SavedBattleGame* bg = invSg ? invSg->getSavedBattle() : nullptr;
+			if (!bg)
+			{
+				resp["error"] = "no battle/inventory active";
+			}
+			else
+			{
+				Tile* ground = bg->getTile(0);
+				Json::Value items(Json::objectValue);
+				int total = 0;
+				if (ground)
+				{
+					for (auto* bi : *ground->getInventory())
+					{
+						std::string t = bi->getRules()->getType();
+						items[t] = items.get(t, 0).asInt() + 1;
+						total++;
+					}
+				}
+				// items carried by player units (on soldiers), to check
+				// conservation: ground + carried should equal what storage had.
+				Json::Value carried(Json::objectValue);
+				int carriedTotal = 0, units = 0;
+				for (auto* u : *bg->getUnits())
+				{
+					if (u->getFaction() != FACTION_PLAYER) continue;
+					units++;
+					for (auto* bi : *u->getInventory())
+					{
+						std::string t = bi->getRules()->getType();
+						carried[t] = carried.get(t, 0).asInt() + 1;
+						carriedTotal++;
+					}
+				}
+				// Every BattleItem instance in the inventory battle (ground +
+				// carried + loaded-into-weapon ammo), to detect true duplication
+				// independent of how items are distributed across soldiers.
+				Json::Value all(Json::objectValue);
+				int allTotal = 0;
+				for (auto* bi : *bg->getItems())
+				{
+					std::string t = bi->getRules()->getType();
+					all[t] = all.get(t, 0).asInt() + 1;
+					allTotal++;
+				}
+				resp["items"] = items;
+				resp["total"] = total;
+				resp["carried"] = carried;
+				resp["carriedTotal"] = carriedTotal;
+				resp["units"] = units;
+				resp["all"] = all;
+				resp["allTotal"] = allTotal;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "incoming_transfers")
+		{
+			// Read a base's pending incoming transfers (item type -> total qty and
+			// soldier count), so a transfer can be checked as "en route" without
+			// advancing game time.
+			std::string tbase = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (tbase.empty() ? (base->_coopBase == false && base->_coopIcon == false) : base->getName() == tbase)
+					{ target = base; break; }
+				}
+			}
+			if (!target)
+				resp["error"] = "base not found";
+			else
+			{
+				Json::Value items(Json::objectValue);
+				int soldiers = 0;
+				for (auto* t : *target->getTransfers())
+				{
+					if (t->getType() == TRANSFER_ITEM && t->getItems())
+						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
+					else if (t->getType() == TRANSFER_SOLDIER)
+						soldiers++;
+				}
+				resp["items"] = items;
+				resp["soldiers"] = soldiers;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "give_layout")
+		{
+			// Test helper: give every soldier at a base an equipment-layout entry
+			// for <item> (optionally capped at <count> soldiers). Reproduces the
+			// state a player creates by equipping soldiers - the layout reserves
+			// the item, but (as in the real game) base storage is NOT decremented,
+			// so the item is double-counted until a battle actually consumes it.
+			std::string layoutBase = req.get("base", "").asString();
+			bool wantCoop = req.get("coop", false).asBool();
+			std::string itemName = req.get("item", "").asString();
+			int count = req.get("count", -1).asInt();
+			std::string slotName = req.get("slot", "belt").asString();  // belt|right|left
+			std::string onlyName = req.get("name", "").asString();      // limit to soldiers matching this
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					bool match;
+					if (wantCoop) match = base->_coopBase;
+					else if (!layoutBase.empty()) match = (base->getName() == layoutBase);
+					else match = (base->_coopBase == false && base->_coopIcon == false);
+					if (match) { target = base; break; }
+				}
+			}
+			const RuleItem* rule = itemName.empty() ? nullptr : _game->getMod()->getItem(itemName, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown item: " + itemName;
+			else
+			{
+				auto* slot = _game->getMod()->getInventoryBelt();
+				if (slotName == "right") slot = _game->getMod()->getInventoryRightHand();
+				else if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
+				int dummyId = 0;
+				int given = 0;
+				for (auto* s : *target->getSoldiers())
+				{
+					if (!onlyName.empty() && s->getName().find(onlyName) == std::string::npos) continue;
+					if (count >= 0 && given >= count) break;
+					BattleItem tmp(rule, &dummyId);
+					tmp.setSlot(slot);
+					tmp.setSlotX(0);
+					tmp.setSlotY(0);
+					s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
+					given++;
+				}
+				resp["given"] = given;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "transfer_to_coop_base")
+		{
+			// Vanilla base->base transfer of one soldier to a co-op base (no
+			// ownership change), driven through the real TransferItemsState /
+			// completeTransfer path. This is the "transfer" (distinct from the
+			// "gift" ownership change).
+			std::string name = req.get("name", "").asString();
+			std::string toBaseName = req.get("toBase", "").asString();
+			Base* baseFrom = nullptr;
+			Soldier* soldier = nullptr;
+			Base* baseTo = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase == false && base->_coopIcon == false)
+					{
+						for (auto* s : *base->getSoldiers())
+						{
+							if (s->getName().find(name) != std::string::npos) { soldier = s; baseFrom = base; break; }
+						}
+					}
+					if (soldier) break;
+				}
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+				}
+				if (!baseTo)
+				{
+					for (auto* base : *_game->getSavedGame()->getBases())
+					{
+						if (base->_coopIcon && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+					}
+				}
+			}
+			if (!soldier)
+				resp["error"] = "soldier not found in own base: " + name;
+			else if (!baseTo)
+				resp["error"] = "coop dest base not found: " + toBaseName;
+			else
+			{
+				resp["toBase"] = baseTo->getName();
+				resp["toBaseCoopBase"] = baseTo->_coopBase;
+				resp["toBaseCoopIcon"] = baseTo->_coopIcon;
+				TransferItemsState* st = new TransferItemsState(baseFrom, baseTo, nullptr);
+				bool ok = st->transferSoldierNow(soldier);
+				delete st;
+				resp["transferred"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "soldier not a transferable row";
+			}
+		}
+		else if (cmd == "set_coop_base")
+		{
+			// Test helper: force a soldier's coopBase field. A value != -1 makes
+			// the own-base SoldiersState treat it as a foreign/guest soldier and
+			// strip it from the editable roster (reproducing the own-base variant
+			// of issue #33 without a cross-machine transfer).
+			std::string name = req.get("name", "").asString();
+			int value = req.get("value", -1).asInt();
+			Soldier* found = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					for (auto* s : *base->getSoldiers())
+					{
+						if (s->getName().find(name) != std::string::npos) { found = s; break; }
+					}
+					if (found) break;
+				}
+			}
+			if (!found)
+				resp["error"] = "soldier not found: " + name;
+			else
+			{
+				found->setCoopBase(value);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "visit_coop_base")
 		{
 			std::string baseName = req.get("base", "").asString();
@@ -1400,7 +1721,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "no BasescapeState in state stack";
 			}
 		}
-		else if (cmd == "transfer_targets")
+		else if (cmd == "gift_targets")
 		{
 			// What the transfer dialog would offer for this soldier - lets
 			// tests validate owner resolution + button names without UI.
@@ -1427,7 +1748,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				int currentOwner = TransferSoldierMenu::resolveOwnerId(found);
+				int currentOwner = GiftSoldierMenu::resolveOwnerId(found);
 				int localPlayerId = connectionTCP::getHost() ? 0 : 1;
 				Json::Value targets(Json::arrayValue);
 				for (int playerId = 0; playerId <= 1; ++playerId)
@@ -1446,7 +1767,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
-		else if (cmd == "open_transfer_dialog")
+		else if (cmd == "open_gift_dialog")
 		{
 			std::string name = req.get("name", "").asString();
 			Soldier* found = nullptr;
@@ -1467,7 +1788,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			if (found)
 			{
-				_game->pushState(new TransferSoldierMenu(found, TransferSoldierMenu::resolveOwnerId(found)));
+				_game->pushState(new GiftSoldierMenu(found, GiftSoldierMenu::resolveOwnerId(found)));
 				resp["ok"] = true;
 			}
 			else
@@ -1507,7 +1828,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "show_notice")
 		{
-			_game->pushState(new TransferNoticeState(req.get("message", "test notice").asString()));
+			_game->pushState(new GiftNoticeState(req.get("message", "test notice").asString()));
 			resp["ok"] = true;
 		}
 		else if (cmd == "get_notices")
@@ -1516,7 +1837,7 @@ std::string TestServer::execute(const std::string& line)
 			// PRD-13: left inline - appends every match's category into a container, not a find
 			for (auto* s : _game->getStates())
 			{
-				if (auto* n = dynamic_cast<TransferNoticeState*>(s))
+				if (auto* n = dynamic_cast<GiftNoticeState*>(s))
 				{
 					notices.append(n->getCategory());
 				}
@@ -1526,7 +1847,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "dismiss_notice")
 		{
-			TransferNoticeState* st = findState<TransferNoticeState>(_game);
+			GiftNoticeState* st = findState<GiftNoticeState>(_game);
 			if (st)
 			{
 				st->btnOkClick(nullptr);
@@ -1534,12 +1855,12 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				resp["error"] = "no TransferNoticeState in state stack";
+				resp["error"] = "no GiftNoticeState in state stack";
 			}
 		}
 		else if (cmd == "cancel_dialog")
 		{
-			TransferSoldierMenu* st = findState<TransferSoldierMenu>(_game);
+			GiftSoldierMenu* st = findState<GiftSoldierMenu>(_game);
 			if (st)
 			{
 				st->btnCancelClick(nullptr);
@@ -1547,7 +1868,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				resp["error"] = "no TransferSoldierMenu in state stack";
+				resp["error"] = "no GiftSoldierMenu in state stack";
 			}
 		}
 		else if (cmd == "get_palettes")
@@ -1573,7 +1894,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["states"] = states;
 			resp["ok"] = true;
 		}
-		else if (cmd == "transfer")
+		else if (cmd == "gift")
 		{
 			std::string name = req.get("name", "").asString();
 			int owner = req.get("owner", -1).asInt();
@@ -1606,7 +1927,7 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else
 				{
-					coop->transferSoldierOwnership(found, owner, true);
+					coop->giftSoldier(found, owner, true);
 					resp["soldier"] = soldierToJson(found);
 					resp["ok"] = true;
 				}
@@ -1860,6 +2181,11 @@ std::string TestServer::execute(const std::string& line)
 			else if (name == "oxceGeoAutosaveFrequency")
 			{
 				Options::oxceGeoAutosaveFrequency = req.get("value", 0).asInt();
+				resp["ok"] = true;
+			}
+			else if (name == "oxceAlternateCraftEquipmentManagement")
+			{
+				Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
 				resp["ok"] = true;
 			}
 			else

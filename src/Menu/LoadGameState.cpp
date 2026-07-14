@@ -201,7 +201,7 @@ void LoadGameState::think()
 				s->load(_filename, _game->getMod(), _game->getLanguage());
 				// the loaded save is now the authority - drop stale
 				// in-memory transfer session state
-				_game->getCoopMod()->resetTransferSessionState();
+				_game->getCoopMod()->resetGiftSessionState();
 			}
 			else
 			{

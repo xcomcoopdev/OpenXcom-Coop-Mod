@@ -905,7 +905,7 @@ void GeoscapeState::init()
 	// below deletes other-player soldiers (the queue still references them).
 	if (_game->getCoopMod()->coopMissionEnd == true)
 	{
-		_game->getCoopMod()->processPendingSoldierTransfers();
+		_game->getCoopMod()->processPendingSoldierGifts();
 	}
 
 	// HOST AFTER THE BATTLE

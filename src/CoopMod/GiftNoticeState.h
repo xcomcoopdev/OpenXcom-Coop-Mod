@@ -29,12 +29,12 @@ class Text;
 class TextButton;
 
 /**
- * Small co-op notification popup ("X transferred ownership of Y to you...").
+ * Small co-op notification popup ("X gifted Y to you...").
  * Adopts the palette of the state it is pushed over, so it can appear on any
  * screen (geoscape, basescape, peer-base view) without a palette flash. As a
  * side effect, closing it re-inits the state below, refreshing soldier lists.
  */
-class TransferNoticeState : public State
+class GiftNoticeState : public State
 {
 private:
 	Window *_window;
@@ -43,7 +43,7 @@ private:
 	std::string _category;
 
 public:
-	TransferNoticeState(const std::string &message);
+	GiftNoticeState(const std::string &message);
 	void btnOkClick(Action *action);
 	/// Interface category the widgets were themed with (test introspection).
 	const std::string &getCategory() const { return _category; }

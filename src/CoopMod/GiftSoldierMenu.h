@@ -37,7 +37,7 @@ class Soldier;
  * "Give Unit to Teammate" keybind (Options::giveUnit) from the base soldier
  * lists, the soldier stat screen, or the battlescape.
  */
-class TransferSoldierMenu : public State
+class GiftSoldierMenu : public State
 {
 private:
 	Window *_window;
@@ -50,11 +50,11 @@ private:
 
 public:
 	/// Creates the dialog. currentOwnerId: 0 = host, 1 = client.
-	TransferSoldierMenu(Soldier *soldier, int currentOwnerId);
+	GiftSoldierMenu(Soldier *soldier, int currentOwnerId);
 	/// Resolves who currently owns a soldier (0 = host, 1 = client) from its
 	/// persistent owner id, falling back to the co-op control flag.
 	static int resolveOwnerId(Soldier *soldier);
-	void btnTransferClick(Action *action);
+	void btnGiftClick(Action *action);
 	void btnCancelClick(Action *action);
 };
 
