@@ -164,6 +164,10 @@ public:
 	// coop
 	void moveCoopItemsToGround(Craft* craft, BattleUnit *unit);
 
+	// test-harness only: expose the inventory view so the TestServer can drive
+	// unload() the same way btnUnloadClick does (see issue #29 unload crash repro).
+	Inventory *getInventoryForTest() const { return _inv; }
+
 private:
 	/// Update the visibility and icons for the template buttons.
 	void updateTemplateButtons(bool isVisible);
