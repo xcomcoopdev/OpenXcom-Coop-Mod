@@ -22,22 +22,50 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: Pick channel (nightly vs release)
-        id: mode
+      - name: Compute version + channel, stamp src/version.h
+        id: meta
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF -like 'refs/tags/*') {
-            "tag=$env:GITHUB_REF_NAME"  >> $env:GITHUB_OUTPUT
-            "name=$env:GITHUB_REF_NAME" >> $env:GITHUB_OUTPUT
-            "prerelease=false" >> $env:GITHUB_OUTPUT
-            "latest=true"      >> $env:GITHUB_OUTPUT
+          $vh = "src\version.h"
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            # ---- official release: version = the tag ----
+            $v = $env:GITHUB_REF_NAME.TrimStart('v')            # 8.4.3
+            $gitSuffix = " (v$v)"
+            "channel=release"          >> $env:GITHUB_OUTPUT
+            "tag=$env:GITHUB_REF_NAME" >> $env:GITHUB_OUTPUT
+            "name=$env:GITHUB_REF_NAME">> $env:GITHUB_OUTPUT
+            "prerelease=false"         >> $env:GITHUB_OUTPUT
+            "latest=true"              >> $env:GITHUB_OUTPUT
           } else {
-            $sha = git rev-parse --short HEAD
-            "tag=nightly"           >> $env:GITHUB_OUTPUT
-            "name=Nightly ($sha)"   >> $env:GITHUB_OUTPUT
-            "prerelease=true"  >> $env:GITHUB_OUTPUT
-            "latest=false"     >> $env:GITHUB_OUTPUT
+            # ---- rolling nightly: patch = last-tag patch + commits since tag ----
+            $desc = (git describe --tags --long --match "v*" 2>$null)
+            if ($desc -match '^v(\d+)\.(\d+)\.(\d+)-(\d+)-g') {
+              $v = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + [int]$Matches[4])"
+            } else {
+              # no release tag yet: base from version.h + total commit count
+              $m = [regex]::Match((Get-Content $vh -Raw), 'OPENXCOM_VERSION_LONG "(\d+)\.(\d+)\.(\d+)')
+              $n = [int](git rev-list --count HEAD)
+              $v = "$($m.Groups[1].Value).$($m.Groups[2].Value).$([int]$m.Groups[3].Value + $n)"
+            }
+            $sha  = (git rev-parse --short HEAD)
+            $date = (git show -s --format=%cd --date=format:'%Y-%m-%d')
+            $gitSuffix = " (nightly $date $sha)"
+            "channel=nightly"                 >> $env:GITHUB_OUTPUT
+            "tag=nightly"                     >> $env:GITHUB_OUTPUT
+            "name=Nightly $v ($sha)"          >> $env:GITHUB_OUTPUT
+            "prerelease=true"                 >> $env:GITHUB_OUTPUT
+            "latest=false"                    >> $env:GITHUB_OUTPUT
           }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          $p = $v.Split('.')
+          # rewrite version.h at build time (not committed)
+          $c = Get-Content $vh -Raw
+          $c = $c -replace 'OPENXCOM_VERSION_SHORT "[^"]*"',   "OPENXCOM_VERSION_SHORT `"Extended $v`""
+          $c = $c -replace 'OPENXCOM_VERSION_LONG "[^"]*"',    "OPENXCOM_VERSION_LONG `"$v.0`""
+          $c = $c -replace 'OPENXCOM_VERSION_NUMBER [0-9, ]+', "OPENXCOM_VERSION_NUMBER $($p[0]),$($p[1]),$($p[2]),0"
+          $c = $c -replace 'OPENXCOM_VERSION_GIT "[^"]*"',     "OPENXCOM_VERSION_GIT `"$gitSuffix`""
+          Set-Content $vh $c -Encoding ascii
+          Write-Host "Stamped version: $v$gitSuffix"
 
       - name: Build x64 Release (serial - /m triggers C1060 on this VM)
         timeout-minutes: 60
@@ -80,12 +108,32 @@ jobs:
         if: success()
         shell: pwsh
         run: |
-          $z = "openxcom-coop-$($env:GITHUB_SHA.Substring(0,7))-x64.zip"
+          $v = "${{ steps.meta.outputs.version }}"
+          $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
           Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
 
+      - name: Release notes from CHANGELOG (release only)
+        if: success() && steps.meta.outputs.channel == 'release'
+        shell: pwsh
+        run: |
+          $v = "${{ steps.meta.outputs.version }}"
+          $out = "release-notes.md"
+          if (-not (Test-Path "CHANGELOG.md")) { throw "CHANGELOG.md missing - add a '## [$v]' section before tagging" }
+          # extract the "## [<v>]" section up to the next "## " heading
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern ("^##\s*\[?" + [regex]::Escape($v) + "\]?") | Select-Object -First 1).LineNumber
+          if (-not $start) { throw "CHANGELOG.md has no section for $v (expected '## [$v]')" }
+          $body = @()
+          for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s') { break }
+            $body += $lines[$i]
+          }
+          Set-Content $out ($body -join "`n").Trim() -Encoding utf8
+          Write-Host "Release notes for $v:"; Get-Content $out
+
       - name: Move rolling nightly tag
-        if: success() && steps.mode.outputs.tag == 'nightly'
+        if: success() && steps.meta.outputs.channel == 'nightly'
         shell: pwsh
         run: |
           git tag -f nightly
@@ -95,9 +143,11 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:    ${{ steps.mode.outputs.tag }}
-          name:        ${{ steps.mode.outputs.name }}
-          prerelease:  ${{ steps.mode.outputs.prerelease }}
-          make_latest: ${{ steps.mode.outputs.latest }}
+          tag_name:    ${{ steps.meta.outputs.tag }}
+          name:        ${{ steps.meta.outputs.name }}
+          prerelease:  ${{ steps.meta.outputs.prerelease }}
+          make_latest: ${{ steps.meta.outputs.latest }}
           files: ${{ env.ZIP }}
-          generate_release_notes: true
+          # release -> curated notes from CHANGELOG.md; nightly -> auto-generated
+          body_path: ${{ steps.meta.outputs.channel == 'release' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ steps.meta.outputs.channel != 'release' }}
