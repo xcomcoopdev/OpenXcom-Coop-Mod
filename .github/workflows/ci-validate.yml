@@ -1,0 +1,68 @@
+name: CI validate (build + coop tests, no publish)
+
+# Validation-only pipeline for pre-merge branches. Same build + stage + coop
+# test gate as ci-main.yml but WITHOUT the package/publish/nightly-tag steps, so
+# a feature branch can be proven green on the self-hosted runner before it is
+# merged to main (which is what fires the real nightly via ci-main.yml).
+#
+# For `push` events GitHub uses the workflow file as it exists on the pushed
+# branch, so this triggers from the branch listed below even though it is not on
+# main. Remove this file (or its branch entry) once the branch is merged.
+on:
+  push:
+    branches: [automated-builds]
+  workflow_dispatch:
+
+concurrency: { group: ci-main, cancel-in-progress: false }   # share ci-main's lane; tests are stateful, never overlap
+permissions: { contents: read }
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, windows, coop-build]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build x64 Release (serial - /m triggers C1060 on this VM)
+        timeout-minutes: 60
+        shell: cmd
+        working-directory: src
+        run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
+
+      - name: Stage data next to exe
+        shell: pwsh
+        run: |
+          $d = "bin\x64\Release"
+          robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
+          robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
+          robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
+          robocopy C:\oxc-data\UFO "$d\UFO"    /E /NFL /NDL /NJH /NJS         # proprietary base data, runner-stored
+          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the repo
+          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+          if (-not (Test-Path "$d\OpenXcom.exe"))          { throw "build produced no exe" }
+          if (-not (Test-Path "$d\UFO\GEODATA"))           { throw "UFO data not staged" }
+          if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
+
+      - name: Coop test suite (headless)   # the gate
+        timeout-minutes: 40
+        shell: pwsh
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          # Discover the actual harness so the suite never goes stale.
+          $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
+                   Select-Object -ExpandProperty BaseName | Sort-Object
+          $quarantine = @()
+          $fail = 0
+          foreach ($t in $tests) {
+            python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
+            if ($rc -ne 0) { python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE }   # retry once (flake tolerance)
+            if ($rc -eq 0)                  { Write-Host "PASS        $t" }
+            elseif ($quarantine -contains $t) { Write-Host "KNOWN-FAIL  $t (quarantined, rc=$rc)" }
+            else                            { Write-Host "FAIL        $t (rc=$rc)"; $fail++ }
+          }
+          if ($fail -gt 0) { throw "$fail non-quarantined test(s) failed" }
