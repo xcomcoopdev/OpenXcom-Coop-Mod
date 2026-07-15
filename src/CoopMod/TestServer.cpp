@@ -554,6 +554,9 @@ std::string TestServer::execute(const std::string& line)
 					ju["type"] = u->getRules()->getType();
 					ju["detected"] = u->getDetected();
 					ju["status"] = (int)u->getStatus();
+					ju["lon"] = u->getLongitude();
+					ju["lat"] = u->getLatitude();
+					ju["coop"] = u->getCoop();
 					ufos.append(ju);
 				}
 				resp["ufos"] = ufos;
@@ -2330,6 +2333,13 @@ std::string TestServer::execute(const std::string& line)
 			{
 				if (req.isMember("lowFuel")) craft->setLowFuel(req["lowFuel"].asBool());
 				if (req.isMember("mission")) craft->setMissionComplete(req["mission"].asBool());
+				// Force the geoscape status string directly (e.g. "STR_OUT" to make
+				// an own craft "out"/airborne without the takeoff sim). Honors the
+				// coop==false guard in Craft::setStatus.
+				if (req.isMember("status")) craft->setStatus(req["status"].asString());
+				// Teleport the craft (e.g. away from its base so it reads as OUT).
+				if (req.isMember("lon")) craft->setLongitude(req["lon"].asDouble());
+				if (req.isMember("lat")) craft->setLatitude(req["lat"].asDouble());
 				if (req.isMember("fuel")) craft->setFuel(req["fuel"].asInt());
 				if (req.isMember("damage")) craft->setDamage(req["damage"].asInt());
 				if (req.isMember("dogfight")) craft->setInDogfight(req["dogfight"].asBool());
@@ -2485,6 +2495,31 @@ std::string TestServer::execute(const std::string& line)
 				base->getCrafts()->push_back(craft);
 				resp["craft_id"] = craft->getId();
 				resp["weapons"] = (int)craft->getWeapons()->size();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "move_ufo")
+		{
+			// Teleport an existing UFO to lon/lat (radians). Used to prove a peer
+			// craft live-tracks a MOVING coop UFO: move the host's UFO and the
+			// client mirror (and any craft bound to it) follows via target_positions.
+			// Target by cross-instance coop id (coop_id) or local id (ufo_id).
+			SavedGame* sg = _game->getSavedGame();
+			int coopId = req.get("coop_id", -1).asInt();
+			int id = req.get("ufo_id", -1).asInt();
+			Ufo* target = nullptr;
+			if (sg)
+				for (auto* u : *sg->getUfos())
+					if ((coopId != -1 && u->getCoopUfoId() == coopId) || (id != -1 && u->getId() == id))
+					{ target = u; break; }
+			if (!sg) resp["error"] = "no saved game";
+			else if (!target) resp["error"] = "no matching ufo";
+			else
+			{
+				target->setLongitude(req.get("lon", target->getLongitude()).asDouble());
+				target->setLatitude(req.get("lat", target->getLatitude()).asDouble());
+				resp["lon"] = target->getLongitude();
+				resp["lat"] = target->getLatitude();
 				resp["ok"] = true;
 			}
 		}

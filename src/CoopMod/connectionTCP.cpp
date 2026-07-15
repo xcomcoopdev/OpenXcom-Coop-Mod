@@ -6337,7 +6337,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 
-
+			// coop (issue #28): the coop UFO / mission-site mirrors have just been
+			// (re)synced above. Rebind any reloaded own craft whose shared
+			// destination was stripped from its world blob back to the live mirror
+			// (by cross-instance coop id), so it keeps chasing the REAL target
+			// instead of the interim waypoint at the stale saved position.
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* craft : *base->getCrafts())
+				{
+					if (!craft->coop)
+						craft->relinkCoopDestination(_game->getSavedGame());
+				}
+			}
 
 		}
 

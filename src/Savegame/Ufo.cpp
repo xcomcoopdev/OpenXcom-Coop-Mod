@@ -174,6 +174,11 @@ void Ufo::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, con
 	}
 	reader.tryRead("fireCountdown", _fireCountdown);
 	reader.tryRead("escapeCountdown", _escapeCountdown);
+	// coop (issue #28): keep the cross-instance coop id stable across the host's
+	// own save/reload, so a client craft that was chasing this UFO can re-link to
+	// the re-synced mirror by id after the world is served back. Without this the
+	// ctor assigns a fresh random id on every reload and the binding is lost.
+	reader.tryRead("coopUfoId", _coop_ufo_id);
 	if (_inBattlescape)
 		setSpeed(0);
 
@@ -314,6 +319,8 @@ void Ufo::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared, bool new
 
 	writer.write("fireCountdown", _fireCountdown);
 	writer.write("escapeCountdown", _escapeCountdown);
+	// coop (issue #28): persist the stable cross-instance coop id (see Ufo::load).
+	writer.write("coopUfoId", _coop_ufo_id);
 
 	_scriptValues.save(writer, shared);
 }

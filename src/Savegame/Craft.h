@@ -102,6 +102,10 @@ private:
 	ItemContainer *_items;
 	// coop
 	std::vector<CoopItem> _coopItems;
+	// coop (issue #28): coop id of the shared target this craft is heading to,
+	// persisted so the destination can be rebound after a client-world reload.
+	int _coopDestUfoId = 0;
+	int _coopDestMissionId = 0;
 	ItemContainer *_tempSoldierItems;
 	ItemContainer *_tempExtraItems;
 	std::vector<Vehicle*> _vehicles;
@@ -409,6 +413,18 @@ public:
 	void setCoopGeoStatus(const std::string& status) { _coopGeoStatus = status; }
 	/// coop: gets the synced geoscape status string (peer craft only).
 	const std::string& getCoopGeoStatus() const { return _coopGeoStatus; }
+	/// coop (issue #28): pending re-link of an own craft's destination to a
+	/// shared/coop target after the client world is reloaded from the host save.
+	/// The coop target (UFO / mission site) is stripped from the client blob, so
+	/// its cross-instance coop id is stored here on save and used to rebind to the
+	/// live mirror once it re-syncs. 0 = no pending re-link.
+	int getCoopDestUfoId() const { return _coopDestUfoId; }
+	int getCoopDestMissionId() const { return _coopDestMissionId; }
+	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; }
+	/// Rebinds the destination to a live coop mirror UFO / mission site matching
+	/// the stored coop id (if any), replacing the interim waypoint. Returns true
+	/// if it re-linked. Called on the client after coop targets are re-synced.
+	bool relinkCoopDestination(SavedGame* save);
 
 };
 

@@ -68,6 +68,10 @@ void MissionSite::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("detected", _detected);
 	//_missionCustomDeploy loaded outside
 	reader.tryRead("ufoUniqueId", _ufoUniqueId);
+	// coop (issue #28): keep the cross-instance coop id stable across the host's
+	// save/reload so a client craft chasing this site can re-link to the re-synced
+	// mirror by id (see Craft::relinkCoopDestination).
+	reader.tryRead("coopMissionId", _coop_mission_id);
 	// _ufo loaded outside
 }
 
@@ -93,6 +97,8 @@ void MissionSite::save(YAML::YamlNodeWriter writer) const
 	writer.write("detected", _detected);
 	if (_ufo)
 		writer.write("ufoUniqueId", _ufo->getUniqueId());
+	// coop (issue #28): persist the stable cross-instance coop id (see load).
+	writer.write("coopMissionId", _coop_mission_id);
 }
 
 /**

@@ -269,7 +269,28 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 				}
 			}
 		}
+		// coop (issue #28): a client's out-craft may be heading to a shared/coop
+		// target (UFO or mission site) that is stripped from the client's own-world
+		// blob on serialize, so the typed lookup above finds nothing when the world
+		// is served back from the host save. Rather than silently drop the
+		// destination - which leaves the craft OUT but PATROLLING, abandoning its
+		// mission - fall back to a waypoint at the destination's saved coordinates
+		// (Target::saveId persists lon/lat) so the craft keeps heading where it was
+		// going. STR_BASE is already resolved above; STR_CRAFT is relinked later in
+		// finishLoading; both are excluded so their handling is untouched.
+		if (getDestination() == 0 && type != "STR_BASE" && type != "STR_CRAFT")
+		{
+			Waypoint* w = new Waypoint();
+			w->setLongitude(dest["lon"].readVal<double>());
+			w->setLatitude(dest["lat"].readVal<double>());
+			w->setId(save->getId("STR_WAY_POINT"));
+			save->getWaypoints()->push_back(w);
+			setDestination(w);
+		}
 	}
+	// coop (issue #28): pending re-link ids for a stripped shared destination.
+	reader.tryRead("coopDestUfoId", _coopDestUfoId);
+	reader.tryRead("coopDestMissionId", _coopDestMissionId);
 	reader.tryRead("takeoff", _takeoff);
 	reader.tryRead("inBattlescape", _inBattlescape);
 	reader.tryRead("isAutoPatrolling", _isAutoPatrolling);
@@ -321,6 +342,52 @@ void Craft::finishLoading(const YAML::YamlNodeReader& reader, SavedGame *save)
 }
 
 /**
+ * coop (issue #28): rebinds this craft's destination to a live coop mirror
+ * (UFO or mission site) matching the stored cross-instance coop id, replacing
+ * the interim waypoint that Craft::load created because the shared target was
+ * stripped from the client-world blob. Runs on the client after the coop
+ * targets are re-synced, so a reloaded out-craft keeps chasing the REAL target
+ * (live-tracking a moving UFO -> dogfight on arrival; a mission site -> the
+ * landing prompt) instead of flying to a stale saved position.
+ * @param save The game data (source of the live coop mirrors).
+ * @return True if the destination was re-linked.
+ */
+bool Craft::relinkCoopDestination(SavedGame* save)
+{
+	if (_coopDestUfoId == 0 && _coopDestMissionId == 0)
+		return false;
+	// Only rebind while still on the interim waypoint fallback (or with no
+	// destination); never override a destination the player has since chosen.
+	if (_dest != 0 && dynamic_cast<Waypoint*>(_dest) == 0)
+		return false;
+	if (_coopDestUfoId != 0)
+	{
+		for (auto* u : *save->getUfos())
+		{
+			if (u->getCoop() && u->getCoopUfoId() == _coopDestUfoId)
+			{
+				setDestination(u);
+				clearCoopDestPending();
+				return true;
+			}
+		}
+	}
+	if (_coopDestMissionId != 0)
+	{
+		for (auto* ms : *save->getMissionSites())
+		{
+			if (ms->getCoop() && ms->getCoopMissionId() == _coopDestMissionId)
+			{
+				setDestination(ms);
+				clearCoopDestPending();
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
  * Initializes fixed weapons.
  */
 void Craft::initFixedWeapons(const Mod* mod)
@@ -365,6 +432,17 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 		writer.write("excessFuel", _excessFuel);
 	writer.write("damage", _damage);
 	writer.write("shield", _shield);
+	// coop (issue #28): if heading to a shared/coop target, persist its
+	// cross-instance coop id. On the client that target is stripped from the
+	// serialized world, so this lets Craft::load + relinkCoopDestination rebind
+	// the destination to the live mirror after a reload instead of losing it.
+	if (_dest)
+	{
+		if (Ufo* du = dynamic_cast<Ufo*>(_dest); du && du->getCoop())
+			writer.write("coopDestUfoId", du->getCoopUfoId());
+		else if (MissionSite* dm = dynamic_cast<MissionSite*>(_dest); dm && dm->getCoop())
+			writer.write("coopDestMissionId", dm->getCoopMissionId());
+	}
 	// coop
 	if (!_coopItems.empty() && _base)
 	{
