@@ -35,6 +35,7 @@ class Timer;
 class Base;
 class DebriefingState;
 class RuleItem;
+class Soldier;
 
 /**
  * Transfer screen that lets the player pick
@@ -92,8 +93,10 @@ public:
 	void btnTransferAllClick(Action *action);
 	/// Completes the transfer between bases.
 	void completeTransfer();
-	// coop
-	void createPendingTransfers();
+	/// Programmatic single-soldier transfer (test-harness hook): sets that
+	/// soldier's row amount to 1 and completes the transfer. Returns false if
+	/// the soldier is not a transferable row.
+	bool transferSoldierNow(Soldier* soldier);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	/// Handler for pressing an Increase arrow in the list.

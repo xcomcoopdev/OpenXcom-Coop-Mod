@@ -20,6 +20,7 @@
 #include "TestServer.h"
 
 #include <cstdlib>
+#include <fstream>
 #include <set>
 #include <typeinfo>
 
@@ -41,6 +42,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/InventoryState.h"
+#include "../Battlescape/Inventory.h"
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
@@ -63,6 +65,10 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Savegame/ItemContainer.h"
+#include "../Savegame/Tile.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Target.h"
@@ -78,24 +84,52 @@
 #include "../Mod/RuleResearch.h"
 #include "../Mod/RuleUfo.h"
 #include "../Menu/NewGameState.h"
+#include "../Menu/LoadGameState.h"
+#include "../Menu/SaveGameState.h"
 #include "../Menu/StartState.h"
+#include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/UfoDetectedState.h"
 #include "LobbyMenu.h"
+#include "HostMenu.h"
 #include "Profile.h"
 #include "connectionTCP.h"
 #include "ServerList.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
+#include "../Basescape/TransferItemsState.h"
 #include "CoopState.h"
-#include "TransferNoticeState.h"
-#include "TransferSoldierMenu.h"
+#include "GiftNoticeState.h"
+#include "GiftSoldierMenu.h"
 #include "../Interface/DisableableComboBox.h"
 
 namespace OpenXcom
 {
+
+namespace {
+// PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
+// t = dynamic_cast<T*>(s)) found = t;` was pasted ~20x. These file-local helpers
+// replace the pure find-last and top-only variants. Loops with extra
+// per-iteration logic (early break, multi-type, counting) are left inline.
+
+/// Last (topmost) instance of T on the state stack, or nullptr.
+template <class T> T* findState(Game* game)
+{
+	T* found = nullptr;
+	for (auto* s : game->getStates())
+		if (auto* t = dynamic_cast<T*>(s)) found = t;
+	return found;
+}
+
+/// T only if it is the current top state, else nullptr.
+template <class T> T* topState(Game* game)
+{
+	return game->getStates().empty() ? nullptr
+		: dynamic_cast<T*>(game->getStates().back());
+}
+}
 
 TestServer& TestServer::instance()
 {
@@ -254,6 +288,7 @@ void TestServer::pump()
 	// worker thread; executing commands now races it (e.g. GeoscapeState
 	// needs surfaces that modResources() synthesizes at the very end of the
 	// load). Leave commands queued until loading finishes.
+	// PRD-13: left inline - returns on first match (presence check / early exit), not find-last
 	for (auto* s : _game->getStates())
 	{
 		if (dynamic_cast<StartState*>(s))
@@ -349,6 +384,7 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "get_state")
 		{
 			Json::Value states(Json::arrayValue);
+			// PRD-13: left inline - dumps every state's name into a container, not a find
 			for (auto* s : _game->getStates())
 			{
 				states.append(typeid(*s).name());
@@ -375,12 +411,7 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "server_combo")
 		{
 			// Dump the rendezvous-server combobox state for assertions.
-			ServerList* browser = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* sl = dynamic_cast<ServerList*>(s))
-					browser = sl;
-			}
+			ServerList* browser = findState<ServerList>(_game);
 
 			if (!browser)
 			{
@@ -409,12 +440,7 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// Open the rendezvous-server dropdown so the disabled/greyed rows are
 			// visible for a screenshot.
-			ServerList* browser = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* sl = dynamic_cast<ServerList*>(s))
-					browser = sl;
-			}
+			ServerList* browser = findState<ServerList>(_game);
 			if (!browser)
 			{
 				resp["ok"] = false;
@@ -528,6 +554,9 @@ std::string TestServer::execute(const std::string& line)
 					ju["type"] = u->getRules()->getType();
 					ju["detected"] = u->getDetected();
 					ju["status"] = (int)u->getStatus();
+					ju["lon"] = u->getLongitude();
+					ju["lat"] = u->getLatitude();
+					ju["coop"] = u->getCoop();
 					ufos.append(ju);
 				}
 				resp["ufos"] = ufos;
@@ -589,10 +618,7 @@ std::string TestServer::execute(const std::string& line)
 			// advances fast when BOTH players pick the SAME speed; the driver
 			// calls this on host+client together, then lets the real timers run.
 			int idx = req.get("idx", 0).asInt();
-			GeoscapeState* gs = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s))
-					gs = g;
+			GeoscapeState* gs = findState<GeoscapeState>(_game);
 			if (!gs)
 				resp["error"] = "no GeoscapeState on stack (in a popup/battle?)";
 			else
@@ -649,9 +675,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "confirm_landing")
 		{
-			ConfirmLandingState* cl = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* c = dynamic_cast<ConfirmLandingState*>(s)) cl = c;
+			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
 			if (!cl)
 				resp["error"] = "no ConfirmLandingState on stack";
 			else
@@ -665,9 +689,7 @@ std::string TestServer::execute(const std::string& line)
 			// Pre-battle coop inventory (soldiers spawn unarmed, weapons on the
 			// ground). action=autoequip_all cycles units auto-equipping each from
 			// the ground pile; action=ok closes it and starts the tactical turn.
-			InventoryState* inv = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* i = dynamic_cast<InventoryState*>(s)) inv = i;
+			InventoryState* inv = findState<InventoryState>(_game);
 			if (!inv)
 			{
 				resp["error"] = "no InventoryState on stack";
@@ -696,9 +718,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "close_briefing")
 		{
-			BriefingState* br = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* b = dynamic_cast<BriefingState*>(s)) br = b;
+			BriefingState* br = findState<BriefingState>(_game);
 			if (!br)
 				resp["error"] = "no BriefingState on stack";
 			else
@@ -770,6 +790,7 @@ std::string TestServer::execute(const std::string& line)
 			// BattlescapeState. All ops are on the main thread (race-free).
 			BattlescapeGame* bg = nullptr;
 			BattlescapeState* bstate = nullptr;
+			// PRD-13: left inline - assigns two vars + calls getBattleGame() per match, not pure find-last
 			for (auto* s : _game->getStates())
 				if (auto* bs = dynamic_cast<BattlescapeState*>(s)) { bstate = bs; bg = bs->getBattleGame(); }
 			SavedBattleGame* sbg = bg ? bg->getSave() : nullptr;
@@ -865,7 +886,7 @@ std::string TestServer::execute(const std::string& line)
 			// Confirm/close the top geoscape popup (event intro, etc.). Handled
 			// types grow as the play driver discovers them. Reports the type so
 			// unknown popups surface instead of silently hanging.
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
 			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
 			{
@@ -957,11 +978,13 @@ std::string TestServer::execute(const std::string& line)
 			resp["host"] = connectionTCP::getHost();
 			resp["serverOwner"] = connectionTCP::getServerOwner();
 			resp["onConnect"] = coop->isConnected();
-			resp["sessionLocked"] = connectionTCP::isCoopSessionLocked;
+			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
 			resp["playerReady"] = connectionTCP::isPlayerReady;
 			resp["playersReady"] = connectionTCP::isPlayersReady;
-			resp["lobbyClosed"] = connectionTCP::isLobbyMenuClosed;
+			resp["lobbyClosed"] = connectionTCP::session.lobbyClosed;
 			resp["lobbyFileStatus"] = connectionTCP::LobbyFileStatus;
+			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+			resp["resumeAck"] = connectionTCP::session.resumeAck;
 			resp["coopSession"] = coop->isCoopSession();
 			resp["hasSave"] = _game->getSavedGame() != nullptr;
 			resp["inBattle"] = _game->getSavedGame() && _game->getSavedGame()->getSavedBattle();
@@ -969,6 +992,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["clientName"] = coop->getCurrentClientName();
 			resp["insideCoopBase"] = coop->playerInsideCoopBase;
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
 			resp["ok"] = true;
 		}
 		else if (cmd == "load_save")
@@ -976,7 +1000,7 @@ std::string TestServer::execute(const std::string& line)
 			std::string file = req.get("file", "").asString();
 			SavedGame* s = new SavedGame();
 			s->load(file, _game->getMod(), _game->getLanguage());
-			coop->resetTransferSessionState();
+			coop->resetGiftSessionState();
 			_game->setSavedGame(s);
 			_game->setState(new GeoscapeState);
 			resp["ok"] = true;
@@ -987,23 +1011,169 @@ std::string TestServer::execute(const std::string& line)
 			std::string port = req.get("port", "3000").asString();
 			std::string player = req.get("player", "HostPlayer").asString();
 
-			connectionTCP::password = "";
-			connectionTCP::isPasswordRequired = false;
-			connectionTCP::_coopGamemode = 1; // PVE
-			coop->setCoopSession(false);
-			coop->setPlayerTurn(3);
-			coop->setHostName(player);
 			// campaign when a real campaign save is loaded (same check as HostMenu)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
-			coop->setCoopCampaign(campaign);
-			coop->hostTCPServer(server, port);
-			coop->setServerOwner(true);
-			if (Options::HostSaveProgress && campaign)
+
+			// Legacy-save migration: an empty host slot is unclaimed - the
+			// re-hosting player claims it (mirrors HostMenu::hostTCPGame)
+			if (campaign
+				&& !_game->getSavedGame()->getCoopPlayers().empty()
+				&& _game->getSavedGame()->getCoopPlayers()[0].empty())
 			{
-				_game->pushState(new LobbyMenu());
+				std::vector<std::string> players = _game->getSavedGame()->getCoopPlayers();
+				players[0] = player;
+				_game->getSavedGame()->setCoopPlayers(players);
+				Log(LOG_INFO) << "[coop-migrate] locked legacy roster host slot to '" << player << "'";
 			}
-			resp["campaign"] = campaign;
+
+			// flow-redesign D1: solo campaigns can never be hosted as co-op
+			if (campaign && !_game->getSavedGame()->isCoopSave())
+			{
+				resp["error"] = "solo campaign cannot be hosted (D1)";
+			}
+			// D4: the host identity is locked to the save
+			else if (campaign
+				&& !_game->getSavedGame()->getCoopPlayers().empty()
+				&& _game->getSavedGame()->getCoopPlayers()[0] != player)
+			{
+				resp["error"] = "campaign can only be hosted by " + _game->getSavedGame()->getCoopPlayers()[0] + " (D4)";
+			}
+			else
+			{
+				// same lobby-mode derivation as HostMenu::hostTCPGame
+				if (campaign)
+				{
+					connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
+				}
+				connectionTCP::password = "";
+				connectionTCP::isPasswordRequired = false;
+				connectionTCP::_coopGamemode = 1; // PVE
+				coop->setCoopSession(false);
+				coop->setPlayerTurn(3);
+				coop->setHostName(player);
+				coop->setCoopCampaign(campaign);
+				coop->hostTCPServer(server, port);
+				coop->setServerOwner(true);
+				if (campaign)
+				{
+					// replace an open HostMenu with the lobby (the UI path
+					// does this via hostTCPGame)
+					if (topState<HostMenu>(_game))
+					{
+						_game->popState();
+					}
+					_game->pushState(new LobbyMenu());
+				}
+				resp["campaign"] = campaign;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "host_menu_host")
+		{
+			// drive the real host window: pick a connection type
+			// (0 TCP, 1 UDP private, 2 UDP public, 3 hotseat) and START HOST
+			HostMenu* hm = topState<HostMenu>(_game);
+			if (!hm)
+			{
+				resp["error"] = "no HostMenu on top";
+			}
+			else
+			{
+				hm->testHostWithVisibility(req.get("visibility", 0).asInt());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "host_menu_state")
+		{
+			HostMenu* hm = findState<HostMenu>(_game);
+			resp["open"] = (hm != nullptr);
+			resp["controlsVisible"] = hm ? hm->hostControlsVisible() : false;
 			resp["ok"] = true;
+		}
+		else if (cmd == "host_menu_cancel")
+		{
+			HostMenu* hm = topState<HostMenu>(_game);
+			if (!hm)
+			{
+				resp["error"] = "no HostMenu on top";
+			}
+			else
+			{
+				hm->btnCancelClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_disconnect")
+		{
+			LobbyMenu* lobby = topState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu on top";
+			}
+			else
+			{
+				lobby->btnDisconnectClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "disconnect_to_menu")
+		{
+			// Return this instance to the main menu the way the in-game "abandon
+			// to main menu" path does: drop the transport and reset the session.
+			// MainMenuState::init() also calls resetSession(), so this exercises
+			// the real teardown that must return the process to a pristine coop
+			// identity (saveID 0, blob maps empty) for a second campaign.
+			coop->disconnectTCP(true);
+			coop->setServerOwner(false);
+			connectionTCP::session.resetSession();
+			_game->setState(new MainMenuState);
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_info")
+		{
+			// introspect the topmost CoopState dialog anywhere on the stack:
+			// its code, title text, back-button text + visibility. Used by the
+			// harness to assert dialog wording/scaling and to catch a lingering
+			// "Connecting..." (code 15) buried under the lobby.
+			CoopState* cs = findState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["present"] = false;
+			}
+			else
+			{
+				resp["present"] = true;
+				resp["code"] = cs->getStateCode();
+				resp["title"] = cs->getTitleText();
+				resp["backText"] = cs->getBackText();
+				resp["backVisible"] = cs->isBackVisible();
+				resp["windowHeight"] = cs->getWindowHeight();
+			}
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_push_connecting")
+		{
+			// Mirror the real join UI (ServerList/DirectConnect), which pushes a
+			// "Connecting..." wait dialog (CoopState 15) before kicking off the
+			// async connect. join_tcp bypasses that UI, so tests that need the
+			// connecting-dialog scenario (e.g. the lingering-window bug) push it
+			// explicitly right before join_tcp.
+			_game->pushState(new CoopState(15));
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_back")
+		{
+			// click the back/RESUME/OK button of the top CoopState dialog
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else
+			{
+				cs->previous(nullptr);
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "join_tcp")
 		{
@@ -1021,14 +1191,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "profile_ok")
 		{
-			Profile* profile = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* p = dynamic_cast<Profile*>(s))
-				{
-					profile = p;
-				}
-			}
+			Profile* profile = findState<Profile>(_game);
 			if (profile)
 			{
 				profile->buttonOK(nullptr);
@@ -1041,19 +1204,15 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "open_new_game")
 		{
-			_game->pushState(new NewGameState);
+			// mode: "solo" (default) or "coop" - mirrors the main menu's
+			// New Game dropdown (flow-redesign D1)
+			bool coop = req.get("mode", "solo").asString() == "coop";
+			_game->pushState(new NewGameState(coop));
 			resp["ok"] = true;
 		}
 		else if (cmd == "newgame_ok")
 		{
-			NewGameState* ng = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* n = dynamic_cast<NewGameState*>(s))
-				{
-					ng = n;
-				}
-			}
+			NewGameState* ng = findState<NewGameState>(_game);
 			if (ng)
 			{
 				ng->btnOkClick(nullptr);
@@ -1070,14 +1229,7 @@ std::string TestServer::execute(const std::string& line)
 			double lat = req.get("lat", 0.0).asDouble();
 			std::string name = req.get("name", "TestBase").asString();
 
-			BuildNewBaseState* build = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* b = dynamic_cast<BuildNewBaseState*>(s))
-				{
-					build = b;
-				}
-			}
+			BuildNewBaseState* build = findState<BuildNewBaseState>(_game);
 			if (!build)
 			{
 				resp["error"] = "no BuildNewBaseState in state stack";
@@ -1089,14 +1241,7 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				// placeAt pushed BaseNameState (first base); confirm the name.
-				BaseNameState* nameState = nullptr;
-				for (auto* s : _game->getStates())
-				{
-					if (auto* n = dynamic_cast<BaseNameState*>(s))
-					{
-						nameState = n;
-					}
-				}
+				BaseNameState* nameState = findState<BaseNameState>(_game);
 				if (nameState)
 				{
 					nameState->setNameAndConfirm(name);
@@ -1110,14 +1255,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "lobby_ready")
 		{
-			LobbyMenu* lobby = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* l = dynamic_cast<LobbyMenu*>(s))
-				{
-					lobby = l;
-				}
-			}
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
 			if (lobby)
 			{
 				lobby->btnCancelClick(nullptr);
@@ -1210,14 +1348,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "soldiers_ok")
 		{
-			SoldiersState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<SoldiersState*>(s))
-				{
-					st = x;
-				}
-			}
+			SoldiersState* st = findState<SoldiersState>(_game);
 			if (st)
 			{
 				st->btnOkClick(nullptr);
@@ -1226,6 +1357,420 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["error"] = "no SoldiersState in state stack";
+			}
+		}
+		else if (cmd == "base_report")
+		{
+			// Read-only snapshot of a base's equipment pool + its soldiers'
+			// reserved (equipment-layout) items. Proves issue #33: a visited
+			// coop base must not expose items reserved by the peer's soldiers'
+			// loadouts. Match: coop=true -> first visited coop base; else base
+			// name if given; else the local own base.
+			std::string reportBase = req.get("base", "").asString();
+			bool wantCoop = req.get("coop", false).asBool();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					bool match;
+					if (wantCoop)
+						match = base->_coopBase;
+					else if (!reportBase.empty())
+						match = (base->getName() == reportBase);
+					else
+						match = (base->_coopBase == false && base->_coopIcon == false);
+					if (match) { target = base; break; }
+				}
+			}
+			if (!target)
+			{
+				resp["error"] = "base not found";
+			}
+			else
+			{
+				resp["name"] = target->getName();
+				resp["coopBaseFlag"] = target->_coopBase;
+				resp["coopBaseId"] = target->_coop_base_id;
+
+				Json::Value storage(Json::objectValue);
+				for (const auto& pair : *target->getStorageItems()->getContents())
+					storage[pair.first->getType()] = pair.second;
+				resp["storage"] = storage;
+
+				Json::Value reserved(Json::objectValue);
+				Json::Value soldiers(Json::arrayValue);
+				for (auto* s : *target->getSoldiers())
+				{
+					Json::Value js;
+					js["name"] = s->getName();
+					js["owner"] = s->getOwnerPlayerId();
+					js["coopBase"] = s->getCoopBase();
+					Json::Value layout(Json::arrayValue);
+					for (auto* eli : *s->getEquipmentLayout())
+					{
+						const RuleItem* it = eli->getItemType();
+						if (it)
+						{
+							layout.append(it->getType());
+							reserved[it->getType()] = reserved.get(it->getType(), 0).asInt() + 1;
+						}
+						for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+						{
+							const RuleItem* am = eli->getAmmoItemForSlot(a);
+							if (am)
+								reserved[am->getType()] = reserved.get(am->getType(), 0).asInt() + 1;
+						}
+					}
+					js["layout"] = layout;
+					soldiers.append(js);
+				}
+				resp["soldiers"] = soldiers;
+				resp["reserved"] = reserved;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "soldiers_inventory")
+		{
+			// Replicate the right-click "equip soldier at base" action: opens the
+			// base inventory (runInventory) for the top SoldiersState's base. The
+			// InventoryState ground then holds the items the player sees in the
+			// bottom pane (read via inventory_ground).
+			SoldiersState* st = findState<SoldiersState>(_game);
+			if (!st)
+			{
+				resp["error"] = "no SoldiersState in state stack";
+			}
+			else
+			{
+				st->btnInventoryClick(nullptr);
+				resp["opened"] = (findState<InventoryState>(_game) != nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "inventory_ground")
+		{
+			// Read-only: the items on the base-inventory ground tile = the
+			// "bottom pane" the player sees. Requires an open base inventory
+			// (soldiers_inventory first).
+			SavedGame* invSg = _game->getSavedGame();
+			SavedBattleGame* bg = invSg ? invSg->getSavedBattle() : nullptr;
+			if (!bg)
+			{
+				resp["error"] = "no battle/inventory active";
+			}
+			else
+			{
+				Tile* ground = bg->getTile(0);
+				Json::Value items(Json::objectValue);
+				int total = 0;
+				if (ground)
+				{
+					for (auto* bi : *ground->getInventory())
+					{
+						std::string t = bi->getRules()->getType();
+						items[t] = items.get(t, 0).asInt() + 1;
+						total++;
+					}
+				}
+				// items carried by player units (on soldiers), to check
+				// conservation: ground + carried should equal what storage had.
+				Json::Value carried(Json::objectValue);
+				int carriedTotal = 0, units = 0;
+				for (auto* u : *bg->getUnits())
+				{
+					if (u->getFaction() != FACTION_PLAYER) continue;
+					units++;
+					for (auto* bi : *u->getInventory())
+					{
+						std::string t = bi->getRules()->getType();
+						carried[t] = carried.get(t, 0).asInt() + 1;
+						carriedTotal++;
+					}
+				}
+				// Every BattleItem instance in the inventory battle (ground +
+				// carried + loaded-into-weapon ammo), to detect true duplication
+				// independent of how items are distributed across soldiers.
+				Json::Value all(Json::objectValue);
+				int allTotal = 0;
+				for (auto* bi : *bg->getItems())
+				{
+					std::string t = bi->getRules()->getType();
+					all[t] = all.get(t, 0).asInt() + 1;
+					allTotal++;
+				}
+				resp["items"] = items;
+				resp["total"] = total;
+				resp["carried"] = carried;
+				resp["carriedTotal"] = carriedTotal;
+				resp["units"] = units;
+				resp["all"] = all;
+				resp["allTotal"] = allTotal;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "inventory_unload")
+		{
+			// Reproduce issue #29: unloading a loaded weapon from the base soldier
+			// equip screen. Drives Inventory::unload() exactly like btnUnloadClick,
+			// which is where the co-op moveItem() path deref'd the just-unloaded
+			// ammo's (null) inventory slot and crashed (0xC0000005).
+			//
+			// Requires an open base inventory (call soldiers_inventory first). If the
+			// currently selected soldier has no loaded firearm, one is built and
+			// loaded so the unload path is always exercised.
+			InventoryState* inv = findState<InventoryState>(_game);
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			if (!inv || !bg)
+			{
+				resp["error"] = "no InventoryState/battle active (call soldiers_inventory first)";
+			}
+			else
+			{
+				Inventory* inventory = inv->getInventoryForTest();
+				BattleUnit* unit = inventory ? inventory->getSelectedUnit() : nullptr;
+				Tile* ground = bg->getTile(0);
+				if (!unit)
+				{
+					resp["error"] = "no selected unit in inventory";
+				}
+				else if (!ground)
+				{
+					resp["error"] = "no ground tile in inventory battle";
+				}
+				else
+				{
+					// Deterministic setup: clear the selected soldier's hands to the
+					// ground so unload(false) always has the free hand it needs and
+					// actually reaches the (previously crashing) moveItem() path -
+					// independent of any state a prior unload left on this soldier.
+					RuleInventory* groundRule = _game->getMod()->getInventoryGround();
+					auto* uinv = unit->getInventory();
+					for (auto it = uinv->begin(); it != uinv->end(); )
+					{
+						BattleItem* bi = *it;
+						if (bi->getSlot() && bi->getSlot()->getType() == INV_HAND)
+						{
+							it = uinv->erase(it);
+							ground->addItem(bi, groundRule);
+						}
+						else
+						{
+							++it;
+						}
+					}
+
+					// Build + load a firearm on the (now empty-handed) soldier.
+					const RuleItem* wRule = nullptr;
+					const RuleItem* aRule = nullptr;
+					for (auto& name : _game->getMod()->getItemsList())
+					{
+						const RuleItem* r = _game->getMod()->getItem(name, false);
+						if (!r || r->getBattleType() != BT_FIREARM) continue;
+						if (r->isFixed()) continue;  // skip tank/vehicle-mounted weapons - not hand-holdable
+						if (r->getInventoryWidth() == 0 || r->getInventoryHeight() == 0) continue;
+						auto* ammos = r->getPrimaryCompatibleAmmo();
+						if (ammos && !ammos->empty()) { wRule = r; aRule = ammos->front(); break; }
+					}
+					if (!wRule)
+					{
+						resp["error"] = "no firearm+ammo rule available in mod";
+					}
+					else
+					{
+						// Place the weapon straight into the (now free) right hand,
+						// bypassing addItem()'s weight/placement heuristics which can
+						// refuse an off-craft base soldier.
+						BattleItem* weapon = bg->createItemForTile(wRule, ground);
+						weapon->moveToOwner(unit);
+						weapon->setSlot(_game->getMod()->getInventoryRightHand());
+						weapon->setSlotX(0);
+						weapon->setSlotY(0);
+
+						BattleItem* ammo = bg->createItemForTile(aRule, ground);
+						ground->removeItem(ammo);
+						if (!weapon->setAmmoPreMission(ammo))
+						{
+							resp["error"] = "could not load ammo into weapon";
+						}
+						else
+						{
+							resp["weapon"] = weapon->getRules()->getType();
+							inventory->setSelectedItem(weapon);
+							// This is the call that crashed pre-fix (issue #29).
+							bool unloaded = inventory->unload(false);
+							resp["unloaded"] = unloaded;
+							resp["ok"] = true;
+						}
+					}
+				}
+			}
+		}
+		else if (cmd == "incoming_transfers")
+		{
+			// Read a base's pending incoming transfers (item type -> total qty and
+			// soldier count), so a transfer can be checked as "en route" without
+			// advancing game time.
+			std::string tbase = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (tbase.empty() ? (base->_coopBase == false && base->_coopIcon == false) : base->getName() == tbase)
+					{ target = base; break; }
+				}
+			}
+			if (!target)
+				resp["error"] = "base not found";
+			else
+			{
+				Json::Value items(Json::objectValue);
+				int soldiers = 0;
+				for (auto* t : *target->getTransfers())
+				{
+					if (t->getType() == TRANSFER_ITEM && t->getItems())
+						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
+					else if (t->getType() == TRANSFER_SOLDIER)
+						soldiers++;
+				}
+				resp["items"] = items;
+				resp["soldiers"] = soldiers;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "give_layout")
+		{
+			// Test helper: give every soldier at a base an equipment-layout entry
+			// for <item> (optionally capped at <count> soldiers). Reproduces the
+			// state a player creates by equipping soldiers - the layout reserves
+			// the item, but (as in the real game) base storage is NOT decremented,
+			// so the item is double-counted until a battle actually consumes it.
+			std::string layoutBase = req.get("base", "").asString();
+			bool wantCoop = req.get("coop", false).asBool();
+			std::string itemName = req.get("item", "").asString();
+			int count = req.get("count", -1).asInt();
+			std::string slotName = req.get("slot", "belt").asString();  // belt|right|left
+			std::string onlyName = req.get("name", "").asString();      // limit to soldiers matching this
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					bool match;
+					if (wantCoop) match = base->_coopBase;
+					else if (!layoutBase.empty()) match = (base->getName() == layoutBase);
+					else match = (base->_coopBase == false && base->_coopIcon == false);
+					if (match) { target = base; break; }
+				}
+			}
+			const RuleItem* rule = itemName.empty() ? nullptr : _game->getMod()->getItem(itemName, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown item: " + itemName;
+			else
+			{
+				auto* slot = _game->getMod()->getInventoryBelt();
+				if (slotName == "right") slot = _game->getMod()->getInventoryRightHand();
+				else if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
+				int dummyId = 0;
+				int given = 0;
+				for (auto* s : *target->getSoldiers())
+				{
+					if (!onlyName.empty() && s->getName().find(onlyName) == std::string::npos) continue;
+					if (count >= 0 && given >= count) break;
+					BattleItem tmp(rule, &dummyId);
+					tmp.setSlot(slot);
+					tmp.setSlotX(0);
+					tmp.setSlotY(0);
+					s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
+					given++;
+				}
+				resp["given"] = given;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "transfer_to_coop_base")
+		{
+			// Vanilla base->base transfer of one soldier to a co-op base (no
+			// ownership change), driven through the real TransferItemsState /
+			// completeTransfer path. This is the "transfer" (distinct from the
+			// "gift" ownership change).
+			std::string name = req.get("name", "").asString();
+			std::string toBaseName = req.get("toBase", "").asString();
+			Base* baseFrom = nullptr;
+			Soldier* soldier = nullptr;
+			Base* baseTo = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase == false && base->_coopIcon == false)
+					{
+						for (auto* s : *base->getSoldiers())
+						{
+							if (s->getName().find(name) != std::string::npos) { soldier = s; baseFrom = base; break; }
+						}
+					}
+					if (soldier) break;
+				}
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+				}
+				if (!baseTo)
+				{
+					for (auto* base : *_game->getSavedGame()->getBases())
+					{
+						if (base->_coopIcon && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+					}
+				}
+			}
+			if (!soldier)
+				resp["error"] = "soldier not found in own base: " + name;
+			else if (!baseTo)
+				resp["error"] = "coop dest base not found: " + toBaseName;
+			else
+			{
+				resp["toBase"] = baseTo->getName();
+				resp["toBaseCoopBase"] = baseTo->_coopBase;
+				resp["toBaseCoopIcon"] = baseTo->_coopIcon;
+				TransferItemsState* st = new TransferItemsState(baseFrom, baseTo, nullptr);
+				bool ok = st->transferSoldierNow(soldier);
+				delete st;
+				resp["transferred"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "soldier not a transferable row";
+			}
+		}
+		else if (cmd == "set_coop_base")
+		{
+			// Test helper: force a soldier's coopBase field. A value != -1 makes
+			// the own-base SoldiersState treat it as a foreign/guest soldier and
+			// strip it from the editable roster (reproducing the own-base variant
+			// of issue #33 without a cross-machine transfer).
+			std::string name = req.get("name", "").asString();
+			int value = req.get("value", -1).asInt();
+			Soldier* found = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					for (auto* s : *base->getSoldiers())
+					{
+						if (s->getName().find(name) != std::string::npos) { found = s; break; }
+					}
+					if (found) break;
+				}
+			}
+			if (!found)
+				resp["error"] = "soldier not found: " + name;
+			else
+			{
+				found->setCoopBase(value);
+				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "visit_coop_base")
@@ -1267,14 +1812,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "leave_base")
 		{
-			BasescapeState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<BasescapeState*>(s))
-				{
-					st = x;
-				}
-			}
+			BasescapeState* st = findState<BasescapeState>(_game);
 			if (st)
 			{
 				st->btnGeoscapeClick(nullptr);
@@ -1285,7 +1823,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "no BasescapeState in state stack";
 			}
 		}
-		else if (cmd == "transfer_targets")
+		else if (cmd == "gift_targets")
 		{
 			// What the transfer dialog would offer for this soldier - lets
 			// tests validate owner resolution + button names without UI.
@@ -1312,7 +1850,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				int currentOwner = TransferSoldierMenu::resolveOwnerId(found);
+				int currentOwner = GiftSoldierMenu::resolveOwnerId(found);
 				int localPlayerId = connectionTCP::getHost() ? 0 : 1;
 				Json::Value targets(Json::arrayValue);
 				for (int playerId = 0; playerId <= 1; ++playerId)
@@ -1331,7 +1869,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
-		else if (cmd == "open_transfer_dialog")
+		else if (cmd == "open_gift_dialog")
 		{
 			std::string name = req.get("name", "").asString();
 			Soldier* found = nullptr;
@@ -1352,7 +1890,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			if (found)
 			{
-				_game->pushState(new TransferSoldierMenu(found, TransferSoldierMenu::resolveOwnerId(found)));
+				_game->pushState(new GiftSoldierMenu(found, GiftSoldierMenu::resolveOwnerId(found)));
 				resp["ok"] = true;
 			}
 			else
@@ -1392,15 +1930,16 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "show_notice")
 		{
-			_game->pushState(new TransferNoticeState(req.get("message", "test notice").asString()));
+			_game->pushState(new GiftNoticeState(req.get("message", "test notice").asString()));
 			resp["ok"] = true;
 		}
 		else if (cmd == "get_notices")
 		{
 			Json::Value notices(Json::arrayValue);
+			// PRD-13: left inline - appends every match's category into a container, not a find
 			for (auto* s : _game->getStates())
 			{
-				if (auto* n = dynamic_cast<TransferNoticeState*>(s))
+				if (auto* n = dynamic_cast<GiftNoticeState*>(s))
 				{
 					notices.append(n->getCategory());
 				}
@@ -1410,14 +1949,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "dismiss_notice")
 		{
-			TransferNoticeState* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<TransferNoticeState*>(s))
-				{
-					st = x;
-				}
-			}
+			GiftNoticeState* st = findState<GiftNoticeState>(_game);
 			if (st)
 			{
 				st->btnOkClick(nullptr);
@@ -1425,19 +1957,12 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				resp["error"] = "no TransferNoticeState in state stack";
+				resp["error"] = "no GiftNoticeState in state stack";
 			}
 		}
 		else if (cmd == "cancel_dialog")
 		{
-			TransferSoldierMenu* st = nullptr;
-			for (auto* s : _game->getStates())
-			{
-				if (auto* x = dynamic_cast<TransferSoldierMenu*>(s))
-				{
-					st = x;
-				}
-			}
+			GiftSoldierMenu* st = findState<GiftSoldierMenu>(_game);
 			if (st)
 			{
 				st->btnCancelClick(nullptr);
@@ -1445,7 +1970,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				resp["error"] = "no TransferSoldierMenu in state stack";
+				resp["error"] = "no GiftSoldierMenu in state stack";
 			}
 		}
 		else if (cmd == "get_palettes")
@@ -1453,6 +1978,7 @@ std::string TestServer::execute(const std::string& line)
 			// First N palette entries of the top two states, for asserting
 			// that a dialog adopted its parent's palette (flicker check).
 			Json::Value states(Json::arrayValue);
+			// PRD-13: left inline - reads every state's palette into a container, not a find
 			auto& stack = _game->getStates();
 			for (auto* s : stack)
 			{
@@ -1470,7 +1996,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["states"] = states;
 			resp["ok"] = true;
 		}
-		else if (cmd == "transfer")
+		else if (cmd == "gift")
 		{
 			std::string name = req.get("name", "").asString();
 			int owner = req.get("owner", -1).asInt();
@@ -1503,7 +2029,7 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else
 				{
-					coop->transferSoldierOwnership(found, owner, true);
+					coop->giftSoldier(found, owner, true);
 					resp["soldier"] = soldierToJson(found);
 					resp["ok"] = true;
 				}
@@ -1520,6 +2046,34 @@ std::string TestServer::execute(const std::string& line)
 			{
 				_game->getSavedGame()->save(file, _game->getMod());
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "save_game_ui")
+		{
+			// Save through the real SaveGameState funnel (same path as the
+			// in-game autosaves/quicksave), unlike save_game which calls
+			// SavedGame::save directly. Exercises the coop save cycle and the
+			// client-side save suppression gate. Only the single-pop SaveTypes
+			// are exposed: SAVE_DEFAULT pops the save+pause menus it normally
+			// sits on, which don't exist when pushed from here.
+			std::string type = req.get("type", "").asString();
+			if (!_game->getSavedGame())
+			{
+				resp["error"] = "no loaded save";
+			}
+			else if (type == "auto_geoscape")
+			{
+				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+			else if (type == "quick")
+			{
+				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "need type (auto_geoscape|quick)";
 			}
 		}
 		else if (cmd == "client_reload_progress")
@@ -1542,18 +2096,198 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "lobby_state")
+		{
+			// campaign-lobby introspection (flow-redesign F2)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			resp["lobbyOpen"] = (lobby != nullptr);
+			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
+			resp["startEligible"] = (lobby != nullptr) && lobby->startEligible();
+			if (lobby)
+			{
+				resp["buttonText"] = lobby->actionButtonText();
+				resp["buttonVisible"] = lobby->actionButtonVisible();
+				resp["detailsText"] = lobby->detailsText();
+				int idx = 0;
+				for (const auto& n : lobby->rosterNames())
+				{
+					resp["players"][idx++] = n;
+				}
+			}
+			resp["ok"] = true;
+		}
+		else if (cmd == "load_save_menu")
+		{
+			// load through the real LoadGameState (runs the co-op routing:
+			// coop save -> host window + resume lobby) (flow-redesign F3)
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				_game->pushState(new LoadGameState(OPT_MENU, file, _game->getScreen()->getPalette()));
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_resume_campaign")
+		{
+			// host clicks RESUME CAMPAIGN (flow-redesign F3)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else if (connectionTCP::session.lobbyMode != 2)
+			{
+				resp["error"] = "lobby is not in resume mode";
+			}
+			else if (!lobby->missingPlayers().empty())
+			{
+				std::string missing;
+				for (const auto& m : lobby->missingPlayers())
+				{
+					if (!missing.empty()) missing += ", ";
+					missing += m;
+				}
+				resp["error"] = "waiting for: " + missing;
+			}
+			else
+			{
+				lobby->resumeCampaign();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_start_campaign")
+		{
+			// host clicks START CAMPAIGN + confirms (flow-redesign F2)
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else if (connectionTCP::session.lobbyMode != 1)
+			{
+				resp["error"] = "lobby is not in new-campaign mode";
+			}
+			else if (req.get("confirm", "").asString() == "dialog")
+			{
+				// PRD-10: route through the REAL confirm dialog so the test drives
+				// ConfirmStartCampaignState::btnOkClick (the true UI path). Do NOT
+				// pre-check startEligible here - the dialog/OK path IS the gate.
+				lobby->openStartConfirmDialog();
+				resp["ok"] = true;
+			}
+			else if (!lobby->startEligible())
+			{
+				resp["error"] = "no client connected";
+			}
+			else
+			{
+				lobby->startCampaign();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "lobby_confirm_ok")
+		{
+			// PRD-10: click OK on the START CAMPAIGN confirm dialog (the real
+			// ConfirmStartCampaignState::btnOkClick path, which re-checks
+			// eligibility before starting).
+			LobbyMenu* lobby = findState<LobbyMenu>(_game);
+			if (!lobby)
+			{
+				resp["error"] = "no LobbyMenu in state stack";
+			}
+			else
+			{
+				resp["clicked"] = lobby->clickStartConfirmOk();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "save_markers")
+		{
+			// Co-op campaign markers of the live save (flow-redesign F0)
+			if (!_game->getSavedGame())
+			{
+				resp["error"] = "no loaded save";
+			}
+			else
+			{
+				resp["coop"] = _game->getSavedGame()->isCoopSave();
+				int idx = 0;
+				for (const auto& p : _game->getSavedGame()->getCoopPlayers())
+				{
+					resp["coopPlayers"][idx++] = p;
+				}
+				resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "has_coop_file")
 		{
 			std::string key = req.get("key", "").asString();
 			resp["present"] = connectionTCP::hasCoopFile(key);
 			resp["ok"] = true;
 		}
+		else if (cmd == "dump_coop_file")
+		{
+			// Test fixture builder: write an in-memory blob to the user dir
+			// (used to fabricate legacy sidecar .data files for the
+			// v1.8.4-migration test; nothing in normal play calls this).
+			std::string key = req.get("key", "").asString();
+			std::string blob;
+			{
+				std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+				auto it = connectionTCP::coopFilesHost.find(key);
+				if (it != connectionTCP::coopFilesHost.end())
+					blob = it->second;
+				else
+				{
+					auto cit = connectionTCP::coopFilesClient.find(key);
+					if (cit != connectionTCP::coopFilesClient.end())
+						blob = cit->second;
+				}
+			}
+			if (blob.empty())
+			{
+				resp["error"] = "no such blob";
+			}
+			else
+			{
+				std::ofstream out(Options::getMasterUserFolder() + key, std::ios::binary);
+				out << blob;
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "set_option")
 		{
 			std::string name = req.get("name", "").asString();
 			if (name == "HostSaveProgress")
 			{
-				Options::HostSaveProgress = req.get("value", false).asBool();
+				// Removed option (host-save authority is the only mode now);
+				// accepted and ignored so older test scripts keep running.
+				resp["ok"] = true;
+			}
+			else if (name == "autosave")
+			{
+				Options::autosave = req.get("value", false).asBool();
+				resp["ok"] = true;
+			}
+			else if (name == "autosaveFrequency")
+			{
+				Options::autosaveFrequency = req.get("value", 5).asInt();
+				resp["ok"] = true;
+			}
+			else if (name == "oxceGeoAutosaveFrequency")
+			{
+				Options::oxceGeoAutosaveFrequency = req.get("value", 0).asInt();
+				resp["ok"] = true;
+			}
+			else if (name == "oxceAlternateCraftEquipmentManagement")
+			{
+				Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
 				resp["ok"] = true;
 			}
 			else
@@ -1599,6 +2333,13 @@ std::string TestServer::execute(const std::string& line)
 			{
 				if (req.isMember("lowFuel")) craft->setLowFuel(req["lowFuel"].asBool());
 				if (req.isMember("mission")) craft->setMissionComplete(req["mission"].asBool());
+				// Force the geoscape status string directly (e.g. "STR_OUT" to make
+				// an own craft "out"/airborne without the takeoff sim). Honors the
+				// coop==false guard in Craft::setStatus.
+				if (req.isMember("status")) craft->setStatus(req["status"].asString());
+				// Teleport the craft (e.g. away from its base so it reads as OUT).
+				if (req.isMember("lon")) craft->setLongitude(req["lon"].asDouble());
+				if (req.isMember("lat")) craft->setLatitude(req["lat"].asDouble());
 				if (req.isMember("fuel")) craft->setFuel(req["fuel"].asInt());
 				if (req.isMember("damage")) craft->setDamage(req["damage"].asInt());
 				if (req.isMember("dogfight")) craft->setInDogfight(req["dogfight"].asBool());
@@ -1757,6 +2498,31 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "move_ufo")
+		{
+			// Teleport an existing UFO to lon/lat (radians). Used to prove a peer
+			// craft live-tracks a MOVING coop UFO: move the host's UFO and the
+			// client mirror (and any craft bound to it) follows via target_positions.
+			// Target by cross-instance coop id (coop_id) or local id (ufo_id).
+			SavedGame* sg = _game->getSavedGame();
+			int coopId = req.get("coop_id", -1).asInt();
+			int id = req.get("ufo_id", -1).asInt();
+			Ufo* target = nullptr;
+			if (sg)
+				for (auto* u : *sg->getUfos())
+					if ((coopId != -1 && u->getCoopUfoId() == coopId) || (id != -1 && u->getId() == id))
+					{ target = u; break; }
+			if (!sg) resp["error"] = "no saved game";
+			else if (!target) resp["error"] = "no matching ufo";
+			else
+			{
+				target->setLongitude(req.get("lon", target->getLongitude()).asDouble());
+				target->setLatitude(req.get("lat", target->getLatitude()).asDouble());
+				resp["lon"] = target->getLongitude();
+				resp["lat"] = target->getLatitude();
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "geo_run")
 		{
 			// Advance geoscape time while auto-draining event popups, until a stop
@@ -1767,11 +2533,9 @@ std::string TestServer::execute(const std::string& line)
 			// up the run and reports readiness. The driver polls geo_state between
 			// geo_run calls. Here we just (a) enable host-only time so the client
 			// mirrors, (b) select the requested speed, (c) drain any popup now.
-			GeoscapeState* gs = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s)) gs = g;
+			GeoscapeState* gs = findState<GeoscapeState>(_game);
 			// Drain a single blocking popup if present (driver calls repeatedly).
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			State* top = topState<State>(_game);
 			bool drained = false;
 			if (top && !dynamic_cast<GeoscapeState*>(top)
 			    && !dynamic_cast<BattlescapeState*>(top))
@@ -1816,9 +2580,7 @@ std::string TestServer::execute(const std::string& line)
 				for (auto* b : *sg->getBases())
 					for (auto* c : *b->getCrafts())
 						if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
-			GeoscapeState* geo = nullptr;
-			for (auto* s : _game->getStates())
-				if (auto* g = dynamic_cast<GeoscapeState*>(s)) geo = g;
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
 			if (!craft) resp["error"] = "no matching craft";
 			else if (!geo) resp["error"] = "no geoscape";
 			else

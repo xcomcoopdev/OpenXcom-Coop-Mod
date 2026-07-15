@@ -47,7 +47,7 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
 #include "../CoopMod/connectionTCP.h" // coop
-#include "../CoopMod/TransferSoldierMenu.h" // coop
+#include "../CoopMod/GiftSoldierMenu.h" // coop
 
 namespace OpenXcom
 {
@@ -693,7 +693,7 @@ void SoldierInfoState::btnOkClick(Action *)
 }
 
 /**
- * Coop: opens the transfer-ownership dialog for this soldier.
+ * Coop: opens the gift dialog for this soldier.
  * @param action Pointer to an action.
  */
 void SoldierInfoState::btnGiveUnitPress(Action *)
@@ -707,7 +707,7 @@ void SoldierInfoState::btnGiveUnitPress(Action *)
 	{
 		return;
 	}
-	_game->pushState(new TransferSoldierMenu(_soldier, TransferSoldierMenu::resolveOwnerId(_soldier)));
+	_game->pushState(new GiftSoldierMenu(_soldier, GiftSoldierMenu::resolveOwnerId(_soldier)));
 }
 
 /**

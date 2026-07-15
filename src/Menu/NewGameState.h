@@ -26,6 +26,14 @@ class TextButton;
 class ToggleTextButton;
 class Window;
 class Text;
+class Game;
+class GeoscapeState;
+class Base;
+
+// Shared by solo new game, host lobby start, and client campaign_start:
+// centers the globe on the base marker and routes into base naming/placement.
+// Null-tolerant on gs (does nothing if gs is null, mirroring the lobby guard).
+void beginInitialBasePlacement(Game* game, GeoscapeState* gs, Base* base);
 
 /**
  * New Game window that displays a list
@@ -41,9 +49,12 @@ private:
 	TextButton *_btnOk, *_btnCancel;
 	Window *_window;
 	Text *_txtTitle, *_txtIronman;
+	// true = creating a co-op campaign: world is created, base placement is
+	// deferred, and the flow continues into the host window + lobby
+	bool _coopCampaign;
 public:
 	/// Creates the New Game state.
-	NewGameState();
+	NewGameState(bool coopCampaign = false);
 	/// Cleans up the New Game state.
 	~NewGameState();
 	/// Handler for clicking the Ok button.

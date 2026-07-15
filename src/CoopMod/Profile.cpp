@@ -108,10 +108,10 @@ void Profile::buttonOK(Action *)
 	_game->popState();
 
 	// save progress
-	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::_host_save_progress == true && connectionTCP::saveID != 0)
+	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::saveID != 0)
 	{
 
-		_game->pushState(new CoopState(52));
+		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
 
 		Json::Value root;
 

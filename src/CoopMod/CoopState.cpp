@@ -40,6 +40,9 @@
 #include "../Basescape/BasescapeState.h"
 
 #include "../Savegame/Soldier.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Savegame/ItemContainer.h"
+#include "../Mod/RuleItem.h"
 #include "../Savegame/Vehicle.h"
 
 #include "../Menu/SaveGameState.h"
@@ -65,9 +68,32 @@ CoopState::CoopState(int state)
 
 	int x = 20;
 
-	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
-
-	_txtTitle = new Text(206, 17, x + 5, 100);
+	if (state == COOP_DLG_CLIENT_HOLD || state == COOP_DLG_CLIENT_RESUME_HOLD)
+	{
+		// compact variant: a third of the standard height, vertically
+		// centered, with room for two small wrapped lines (no button)
+		_window = new Window(this, 216, 54, x, 73, POPUP_BOTH);
+		_txtTitle = new Text(206, 26, x + 5, 88);
+	}
+	else if (state == COOP_DLG_WAIT_BASES)
+	{
+		// same compact styling as the client's hold dialog (they show the same
+		// "waiting for bases" message), but with room for the BEGIN button
+		_window = new Window(this, 216, 68, x, 66, POPUP_BOTH);
+		_txtTitle = new Text(206, 26, x + 5, 72);
+	}
+	else if (state == COOP_DLG_FREEZE)
+	{
+		// ~30% of the old height: a small "waiting for X to reconnect" strip
+		// with room for the RESUME button that appears once the peer is back
+		_window = new Window(this, 216, 52, x, 74, POPUP_BOTH);
+		_txtTitle = new Text(206, 22, x + 5, 78);
+	}
+	else
+	{
+		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
+		_txtTitle = new Text(206, 17, x + 5, 100);
+	}
 	_btnMessage = new TextButton(100, 17, x + 55, 100);
 	_btnBack = new TextButton(100, 17, x + 55, 150);
 	_btnYes = new TextButton(80, 20, 40, 150);
@@ -116,7 +142,7 @@ CoopState::CoopState(int state)
 	_btnYes->onKeyboardPress((ActionHandler)&CoopState::btnYesClick, Options::keyOk);
 
 	// HostLoadProgress (client)
-	if (state == 52)
+	if (state == COOP_DLG_CLIENT_LOAD_WAIT)
 	{
 		_game->getCoopMod()->load_state = "Loading";
 
@@ -124,6 +150,10 @@ CoopState::CoopState(int state)
 
 		_btnBack->setText("Disconnect");
 		_btnBack->setVisible(true);
+
+		// PRD-11 C13: fresh load-wait dialog, clear any stale busy signal so the
+		// first host reply drives the retry state machine cleanly.
+		connectionTCP::loadProgressBusy = false;
 	}
 
 	// Player was kicked
@@ -200,8 +230,106 @@ CoopState::CoopState(int state)
 		_btnBack->setVisible(true);
 	}
 
-	// HostSaveProgress (host)
-	if (state == 54)
+	// refused by a join gate (roster / duplicate name, flow-redesign F3)
+	if (state == 63)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setText(connectionTCP::joinRefusalReason.empty()
+							   ? "You are not a player in this campaign."
+							   : connectionTCP::joinRefusalReason);
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// host waits for resuming players to finish loading (flow-redesign F3)
+	if (state == COOP_DLG_RESUME_ACK_WAIT)
+	{
+		_txtTitle->setText("Waiting for players to load...");
+
+		_btnBack->setText("RESUME");
+		_btnBack->setVisible(false);
+	}
+
+	// mid-session freeze: a registered player dropped; everything waits
+	// until they reconnect and reload (flow-redesign F4/D5)
+	if (state == COOP_DLG_FREEZE)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setText("Waiting for " + _game->getCoopMod()->getCurrentClientName() + " to reconnect...");
+
+		_btnBack->setText("RESUME");
+		_btnBack->setY(104);
+		_btnBack->setVisible(false);
+	}
+
+	// non-host player finished early (base placed / world loaded) and holds
+	// with frozen time until the host resumes the campaign (D5)
+	if (state == COOP_DLG_CLIENT_HOLD || state == COOP_DLG_CLIENT_RESUME_HOLD)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		// fresh new-campaign base building vs. a mid-session rejoin: same hold,
+		// different reason. The rejoining client's bases already exist - it is
+		// only waiting for the host to un-freeze the session.
+		if (state == COOP_DLG_CLIENT_RESUME_HOLD)
+		{
+			_txtTitle->setText("Waiting for host to resume the game.");
+		}
+		else
+		{
+			_txtTitle->setText("Waiting for all players\nto place their bases...");
+		}
+
+		_btnBack->setVisible(false);
+
+		// consume any stale release from a previous hold
+		connectionTCP::session.consumeCampaignBegun();
+	}
+
+	// the host identity is locked to the save (D4)
+	if (state == 66)
+	{
+		std::string owner = "its creator";
+		if (_game->getSavedGame() && !_game->getSavedGame()->getCoopPlayers().empty())
+		{
+			owner = _game->getSavedGame()->getCoopPlayers()[0];
+		}
+		_txtTitle->setSmall();
+		_txtTitle->setText("This campaign can only be hosted by " + owner + ".");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// solo campaigns can never be hosted as co-op (flow-redesign D1)
+	if (state == 61)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setText("This is a solo campaign. Co-op campaigns are created from the New Game menu.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// new-campaign base building: host waits until every player has placed
+	// a base; the button turns into RESUME when they have (flow-redesign F2)
+	if (state == COOP_DLG_WAIT_BASES)
+	{
+		// same wording + compact styling as the client's hold dialog
+		// (COOP_DLG_CLIENT_HOLD) - one message, one look, two actors
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setText("Waiting for all players\nto place their bases...");
+
+		_btnBack->setText("BEGIN");
+		_btnBack->setY(108);
+		_btnBack->setVisible(false);
+	}
+
+	// host-save cycle (host)
+	if (state == COOP_DLG_HOST_SAVE_WAIT)
 	{
 		
 		_game->getCoopMod()->load_state = "Saving";
@@ -217,7 +345,7 @@ CoopState::CoopState(int state)
 
 	}
 
-	// HostSaveProgress (client)
+	// host-save cycle (client)
 	if (state == 53)
 	{
 		_game->getCoopMod()->load_state = "Saving";
@@ -639,6 +767,26 @@ CoopState::~CoopState()
 {
 }
 
+std::string CoopState::getTitleText() const
+{
+	return _txtTitle ? _txtTitle->getText() : "";
+}
+
+std::string CoopState::getBackText() const
+{
+	return _btnBack ? _btnBack->getText() : "";
+}
+
+bool CoopState::isBackVisible() const
+{
+	return _btnBack && _btnBack->getVisible();
+}
+
+int CoopState::getWindowHeight() const
+{
+	return _window ? _window->getHeight() : 0;
+}
+
 void CoopState::think()
 {
 
@@ -651,6 +799,38 @@ void CoopState::think()
 	{
 
 		lastUpdate = now;
+
+		// PRD-11 C13: bounded retry when the host replies "busy" to the client's
+		// request_load_progress. Without this the load-wait dialog (52) hangs
+		// forever (no timeout). On the busy signal, wait ~2s then re-send; after
+		// a bounded number of retries, fall back to the disconnect error UX.
+		if (global_state == COOP_DLG_CLIENT_LOAD_WAIT)
+		{
+			const int kMaxLoadRetries = 15;
+			if (connectionTCP::loadProgressBusy)
+			{
+				connectionTCP::loadProgressBusy = false;
+				_loadWaitTicks = 4; // ~2s at the 500ms gate before retrying
+			}
+			if (_loadWaitTicks > 0 && --_loadWaitTicks == 0)
+			{
+				if (_loadRetries < kMaxLoadRetries)
+				{
+					_loadRetries++;
+					Json::Value root;
+					root["state"] = "request_load_progress";
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+					Log(LOG_INFO) << "[coop] load progress retry " << _loadRetries << "/" << kMaxLoadRetries;
+				}
+				else
+				{
+					_txtTitle->setSmall();
+					_txtTitle->setText("Host is busy; could not load progress.");
+					_btnBack->setText("Disconnect");
+					_btnBack->setVisible(true);
+				}
+			}
+		}
 
 		// Force-close the co-op state menu
 		if (connectionTCP::forceCloseCoopStateMenu == true && global_state == 15)
@@ -680,7 +860,7 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == 4 || global_state == 54 || global_state == 53 || global_state == 52)
+		else if (global_state == 4 || global_state == COOP_DLG_HOST_SAVE_WAIT || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
 		{
 
 			if (state_counter == 0)
@@ -697,6 +877,44 @@ void CoopState::think()
 			{
 				_txtTitle->setText(_game->getCoopMod()->load_state + "...");
 				state_counter = 0;
+			}
+
+		}
+		else if (global_state == COOP_DLG_WAIT_BASES)
+		{
+
+			// all players placed = every registered client's world blob has
+			// arrived (a client pushes progress right after base naming)
+			bool allPlaced = connectionTCP::hasCoopFile(
+				connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
+
+			if (allPlaced)
+			{
+				_txtTitle->setText("All bases placed.");
+				_btnBack->setText("BEGIN");
+				_btnBack->setVisible(true);
+			}
+
+		}
+		else if (global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
+		{
+
+			// resuming/rejoining players report in via resume_ack (F3/F4)
+			if (connectionTCP::session.resumeAck)
+			{
+				_txtTitle->setText("All players connected");
+				_btnBack->setVisible(true);
+			}
+
+		}
+		else if (global_state == COOP_DLG_CLIENT_HOLD || global_state == COOP_DLG_CLIENT_RESUME_HOLD)
+		{
+
+			// released when the host begins/resumes the campaign
+			if (connectionTCP::session.campaignBegun)
+			{
+				connectionTCP::session.consumeCampaignBegun();
+				_game->popState();
 			}
 
 		}
@@ -759,8 +977,22 @@ void CoopState::think()
 void CoopState::previous(Action *)
 {
 
+	// The host clicked RESUME on a waiting dialog: release every non-host
+	// player from their "waiting for players" hold (D5).
+	if (global_state == COOP_DLG_WAIT_BASES || global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
+	{
+		connectionTCP::session.sessionLive();
+
+		Json::Value root;
+		root["state"] = "campaign_begun";
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
 	// disconnect
-	if (global_state == 50 || global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53)
+	// PRD-11 C13: COOP_DLG_CLIENT_LOAD_WAIT (52) added - its "Disconnect" button
+	// must actually tear the connection down, not merely pop the dialog and leave
+	// the client half-attached.
+	if (global_state == 50 || global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
 	{
 
 		if (global_state == 15)
@@ -777,6 +1009,15 @@ void CoopState::previous(Action *)
 	{
 
 		_game->setState(new MainMenuState);
+	}
+	// PRD-06 C5: CANCEL on the host "saving..." wait dialog. The user asked for
+	// a save - honour it NOW with whatever client blob is currently in the store
+	// (same staleness guarantee autosaves already have), then disarm so a late
+	// client blob can't rewrite a possibly-different world.
+	else if (global_state == COOP_DLG_HOST_SAVE_WAIT)
+	{
+		_game->getCoopMod()->writePendingHostSave();
+		_game->popState();
 	}
 	else
 	{
@@ -855,12 +1096,13 @@ void CoopState::loadWorld()
 
 		client_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
 
-		if (client_save && connectionTCP::_host_save_progress == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
+		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			std::string filename = "host_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getCurrentClientName() + ".data";
+			std::string filename = connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 
-			client_save->save(filename, _game->getMod());
+			// served copy lives in memory only; the host .sav embed persists it
+			client_save->saveCoopToMemory(filename, _game->getMod(), filename);
 
 		}
 
@@ -1029,7 +1271,7 @@ void CoopState::loadWorld()
 	}
 	else if (global_state == 555)
 	{
-		std::string filename = "client_" + std::to_string(connectionTCP::saveID) + "_" + _game->getCoopMod()->getHostName() + ".data";
+		std::string filename = connectionTCP::clientBlobKey(_game->getCoopMod()->getHostName());
 		_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette, filename, true));
 	}
 	else if (global_state == 777)
@@ -1079,6 +1321,35 @@ void CoopState::loadWorld()
 			{
 
 				newbase->isCoopBase(true);
+
+				// Issue #33: the peer's own soldiers are about to be removed from
+				// this visited-base view (only the visitor's guest soldiers are
+				// shown), but a soldier's equipment layout does NOT decrement base
+				// storage - the physical items stay in storage. If we drop the
+				// soldiers but keep their reserved items in storage, those items
+				// appear as free/available on the inventory ground pane. Remove
+				// each departing soldier's layout items (weapon + loaded ammo)
+				// from the visited base's storage so the visitor only sees the
+				// peer's genuinely free equipment.
+				for (auto* peerSoldier : *newbase->getSoldiers())
+				{
+					for (auto* layoutItem : *peerSoldier->getEquipmentLayout())
+					{
+						const RuleItem* itemRule = layoutItem->getItemType();
+						if (itemRule)
+						{
+							newbase->getStorageItems()->removeItem(itemRule, 1);
+						}
+						for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
+						{
+							const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
+							if (ammoRule)
+							{
+								newbase->getStorageItems()->removeItem(ammoRule, 1);
+							}
+						}
+					}
+				}
 
 				// clear all vehicles and soldiers from the base
 				newbase->getSoldiers()->clear();
@@ -1211,11 +1482,6 @@ void CoopState::loadWorld()
 		}
 		else
 		{
-
-			// save the co-op mission so it can be continued later
-			SavedGame *oldsave = new SavedGame(*_game->getSavedGame());
-			oldsave->setName("coop_mission");
-			oldsave->save("coop_mission.sav", _game->getMod());
 
 			// load battle
 			_game->pushState(new LoadGameState(_origin, "battleclient", _palette, "battleclient"));

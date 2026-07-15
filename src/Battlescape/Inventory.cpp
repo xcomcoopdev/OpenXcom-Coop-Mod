@@ -553,7 +553,11 @@ void Inventory::moveItem(BattleItem* item, const RuleInventory* slot, int x, int
 		if (item && slot && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->getCoopCampaign() == true)
 		{
 
-			if (item->getSlot()->getType() == INV_GROUND && slot->getType() == INV_GROUND)
+			// item->getSlot() can be null here: ammo just unloaded from a weapon has
+			// its inventory slot cleared (setAmmoForSlot -> setSlot(nullptr)) before
+			// being handed to moveItem. Treat "no slot" as "not a ground->ground move"
+			// so we don't deref null (issue #29: unload crash, 0xC0000005).
+			if (item->getSlot() && item->getSlot()->getType() == INV_GROUND && slot->getType() == INV_GROUND)
 			{
 				send = false;
 			}

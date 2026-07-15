@@ -183,6 +183,84 @@ void clearNetworkSessionQueues();
 
 class Game;
 class Ufo;
+class SavedGame;
+
+// ===== Coop session lifecycle state =====
+
+enum class CoopRole { None, Host, Client };
+
+/**
+ * Single owner of session-lifecycle state, replacing the scattered statics
+ * that produced three flavors of the same missed/mis-ordered-reset bug.
+ * Rules:
+ *  - exactly TWO reset paths (resetSession / onClientDrop) - never clear
+ *    fields ad hoc;
+ *  - mutate through the named transitions where one fits, so every lifecycle
+ *    change is searchable and logged (PRD-12 S4: the encoding is the mirrored
+ *    booleans below; every multi-field or cross-file write funnels through a
+ *    named, logged transition - there is no separate phase enum to drift from);
+ *  - mutate on the main thread. The network threads keep signaling through
+ *    onConnect and the pump/teardown translate. (The thread-side role writes
+ *    and the transport-glue mirrors that predate this struct are kept raw and
+ *    commented - see the residual list in the PRD-12 commit.)
+ */
+struct CoopSession
+{
+	CoopRole role = CoopRole::None;
+
+	// what the lobby is for: 0 = legacy/new-battle (ready dance),
+	// 1 = new co-op campaign (START CAMPAIGN), 2 = resuming a co-op save
+	int lobbyMode = 0;
+	// a client has passed every join gate (roster, password) and is attached;
+	// onConnect==1 only means "listening", so this is the real presence signal
+	bool clientInLobby = false;
+	// players/teams locked (campaign started, resume began, or legacy ready
+	// dance completed)
+	bool sessionLocked = false;
+	// the lobby UI has been dismissed - the session is considered live.
+	// Defaults TRUE (historical isLobbyMenuClosed semantics: "no lobby open");
+	// LobbyMenu's constructor clears it.
+	bool lobbyClosed = true;
+	// resume handshake: a client reported its world loaded (CoopState 62/64)
+	bool resumeAck = false;
+	// battle-save resume is two-phase: geoscape world first, then the battle
+	// stream; set while phase two is still owed
+	bool resumeBattlePending = false;
+	// PRD-11 C8: names of clients that were actually SERVED a resume world blob
+	// this resume cycle. Only an eligible acker gets the battle stream; a
+	// registered-but-no-blob client (routed through fresh base building) must
+	// not. Cleared together with resumeBattlePending.
+	std::set<std::string> resumeBattleEligible;
+	// set on clients when the host begins/resumes the campaign; releases the
+	// "waiting for players" hold (CoopState 65)
+	bool campaignBegun = false;
+	// host .sav awaiting a re-save once the fresh client blob arrives
+	// (stale-embed race fix)
+	std::string pendingHostSaveName;
+
+	// --- named transitions (each logs; the log line is the lifecycle trace) ---
+	void beginHosting();     // main menu/new game -> hosting a lobby
+	void beginJoining();     // client connecting to a host
+	void clientAttached();   // a client passed every join gate
+	void campaignStarted();  // players/teams locked (START / campaign_start / ready-dance done)
+	void sessionLive();      // waiting dialogs released - play begins/resumes
+	void freeze();           // a registered player dropped mid-session (D5)
+	void setRole(CoopRole r);// main-thread role change (setServerOwner)
+
+	// --- multi-field / cross-file lifecycle writes funnelled here (PRD-12) ---
+	void adoptResumeSave();          // a co-op save is loaded for resume (lobbyMode=2, unlock, clear ack)
+	void armResumeHandshake(bool hasBattle); // resume/rejoin: clear ack, arm battle phase-two if a battle is loaded
+	void markLobbyOpen();            // the lobby UI opened (lobbyClosed=false)
+	void markLobbyClosed();          // the lobby UI dismissed (lobbyClosed=true)
+	void armDeferredSave(const std::string& name); // host save deferred until the fresh client blob arrives
+	void clearDeferredSave();        // deferred host save consumed/cleared
+	void signalCampaignBegun();      // host began/resumed: release the client hold (campaignBegun=true)
+	void consumeCampaignBegun();     // client consumed the release / cleared a stale one (campaignBegun=false)
+
+	// --- the ONLY reset paths ---
+	void resetSession();     // full teardown / back to main menu
+	void onClientDrop();     // host side: the campaign/lobby context survives
+};
 
 class connectionTCP
 {
@@ -284,8 +362,12 @@ class connectionTCP
 	static void sendTCPPacketStaticData2(std::string data);
 	void writeHostMapFile2();
 	void writeHostMapFile();
-	void writeHostMapSaveProgressFile();
+	bool writeHostMapSaveProgressFile();
 	void writeHostMapLoadProgressFile();
+	// PRD-06: write the armed deferred host save exactly once (embedding the
+	// current client blob) and disarm. Used by both the completed round-trip
+	// and the wait-dialog CANCEL path. No-op if nothing armed / a battle is live.
+	void writePendingHostSave();
 	bool inventory_battle_window = true; // Do not use inventory if another player joins a saved game
 	static bool getServerOwner();
 	bool ready_coop_battle = false; // notify the other player that the co-op mission is starting
@@ -367,8 +449,6 @@ class connectionTCP
 	static bool _enable_xcom_equipment_aliens_pvp;
 
 	static bool _unbalanced_craft_soldiers_limit;
-
-	static bool _host_save_progress;
 
 	int walk_end_unit_id = -1;
 
@@ -485,11 +565,60 @@ class connectionTCP
 	// LOAD_PROGRESS
 	bool _isLoadProgress = false;
 
+	// Transport scratch only: peer base/battlescape payloads plus the served
+	// client-world blobs for the CURRENT session. Never a permanent save
+	// store - the host .sav embed (coopClientSaves) is the durable copy, and
+	// SavedGame::load redefines the served set from it on every load. (Same
+	// intent as the fixes branch: temp data and permanent saves stay
+	// strictly separate.)
 	// Stores coop files in a hash map instead of separate files in the host folders
 	static std::unordered_map<std::string, std::string> coopFilesHost;
 	// Stores coop files in a hash map instead of separate files in the client folders
 	static std::unordered_map<std::string, std::string> coopFilesClient;
+	// Guards both blob maps: the loopData streamer thread reads them while the
+	// main thread stores/erases entries. Hold only around map access; copy the
+	// blob out before any long work.
+	static std::mutex coopFilesMutex;
 	static bool hasCoopFile(const std::string& key);
+	// Canonical world-blob keys, scoped by the current saveID:
+	// host_<saveID>_<clientName>.data / client_<saveID>_<hostName>.data
+	static std::string hostBlobKey(const std::string& clientName);
+	static std::string clientBlobKey(const std::string& hostName);
+	// Newest stored world blob for a given client, matched by EXACT player-name
+	// field across any saveID (the host re-mints saveID on every save, so the
+	// stored key's id can lag the current one). Returns nullptr if none. Blob
+	// identity comes from the caller's roster, never from reverse-parsing keys.
+	// CALLER MUST HOLD coopFilesMutex; the returned pointer is valid only while
+	// that lock is held.
+	static const std::string* findHostClientBlob(const std::string& clientName);
+	// Single authority: may this machine read/write local .sav files right now?
+	// Truth table: solo play -> yes; coop host -> yes; coop client -> no.
+	// Every local save/load gate and Load/Save button-visibility decision must
+	// route through this so the rule lives in one place (PRD-08 tunes the host
+	// case later by editing only this function).
+	static bool localSavesAllowed();
+	// PRD-08 C7: may this machine LOAD a local save RIGHT NOW? False whenever a
+	// live coop session is attached (host OR client) - loading mid-session forks
+	// the served world silently. True when solo / after the session ends (the
+	// lobby resume/rejoin flows are the sanctioned way to change worlds).
+	static bool localLoadsAllowed();
+	// One authority for the packet that creates/refreshes a client world
+	// (fields: state=campaign_start, difficulty, gamemode, saveID, players[]).
+	// Built identically by host lobby start, resume-no-blob, and the
+	// request_load_progress no-blob fallback.
+	static Json::Value buildCampaignStartPacket(const SavedGame* save);
+	// STATELESS campaign-context check derived from the live save (a co-op
+	// campaign world is loaded). Prefer this over session.lobbyMode for
+	// host-side routing decisions: lobby mode is transport-lifecycle state.
+	bool inCoopCampaignContext() const;
+
+	// The single owner of session-lifecycle state: see CoopSession above the
+	// class. Mutate via its named transitions / the two reset methods.
+	static CoopSession session;
+
+	// Reason string from the last lobby_join_refused, shown by the refusal
+	// dialog (CoopState 63).
+	static std::string joinRefusalReason;
 
 	// save
 	static bool saveError;
@@ -499,22 +628,24 @@ class connectionTCP
 	static bool isPasswordRequired;
 	static std::string password;
 
-	// lobby menu
-	static bool isCoopSessionLocked;
+	// lobby menu (legacy ready-dance fields; campaign lobbies don't use them)
 	static bool isPlayerReady;
 	static bool isPlayersReady;
 	static int LobbyFileStatus;
 	static int lobby_timer;
+	// PRD-11 C13: one-shot signal from the network thread that the host replied
+	// "busy" to a request_load_progress. The client's load-wait dialog (CoopState
+	// 52) consumes it and schedules a retry.
+	static bool loadProgressBusy;
 	static bool forceCloseCoopStateMenu;
 	static bool forceClosePasswordCheckMenu;
-	static bool isLobbyMenuClosed;
 
 	// other
 	static int manuallyAddedServerRemoveID;
 	static bool canRemoveManuallyAddedServer;
 	static bool isInfoboxClosed;
 
-	// Permanently transfers a soldier to another player (0 = host, 1 = client).
+	// Permanently gifts a soldier to another player (0 = host, 1 = client).
 	// Follows the guest-soldier model: a soldier's object lives in its OWNER's
 	// save, tagged with coopBase = the station base's coop id when that base
 	// belongs to the other player (-1 when stationed at one of the owner's own
@@ -522,46 +653,46 @@ class connectionTCP
 	// recreated in the receiver's save, keeping the same station base - so it
 	// stays "in" the base it was in, and shows up when the new owner views
 	// that base. During battle only the control flags flip immediately; the
-	// physical move is queued and runs after the mission ends. Transfers
-	// overwrite unconditionally, so soldiers can be traded back and forth.
-	void transferSoldierOwnership(Soldier* soldier, int newOwnerId, bool broadcast);
-	// Completes queued in-battle transfers once no battle is active. Must run
+	// physical move is queued and runs after the mission ends. Gifts
+	// overwrite unconditionally, so soldiers can be gifted back and forth.
+	void giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast);
+	// Completes queued in-battle gifts once no battle is active. Must run
 	// before the post-battle coop cleanup (GeoscapeState calls it first).
-	void processPendingSoldierTransfers();
+	void processPendingSoldierGifts();
 
   private:
 	// Serializes the soldier (with its station base id) and sends the
-	// physical-transfer packet to the peer.
-	void sendSoldierTransferPacket(Soldier* soldier, int newOwnerId);
+	// physical-gift packet to the peer.
+	void sendSoldierGiftPacket(Soldier* soldier, int newOwnerId);
 	// Erases the soldier pointer from every base roster (including the
 	// SoldiersState/CraftSoldiersState base_oldsoldiers snapshots).
 	void removeSoldierFromLocalBases(Soldier* soldier);
-	// In-battle transfers waiting for the mission to end: soldier + new owner.
-	std::vector<std::pair<Soldier*, int> > _pendingSoldierTransfers;
-	// Soldiers transferred away are parked here instead of deleted: UI states
+	// In-battle gifts waiting for the mission to end: soldier + new owner.
+	std::vector<std::pair<Soldier*, int> > _pendingSoldierGifts;
+	// Soldiers gifted away are parked here instead of deleted: UI states
 	// (sort snapshots, open dialogs) may still hold pointers to them.
-	std::vector<Soldier*> _transferredSoldiers;
-	// Ids of soldiers transferred away this session. A stale copy of one of
+	std::vector<Soldier*> _giftedSoldiers;
+	// Ids of soldiers gifted away this session. A stale copy of one of
 	// these can resurrect when the pre-visit "basehost" snapshot is restored;
-	// the sweep in processPendingSoldierTransfers() parks exactly those (and
+	// the sweep in processPendingSoldierGifts() parks exactly those (and
 	// nothing else - legacy saves carry unrelated ownerPlayerId values).
-	std::unordered_set<int> _transferredAwaySoldierIds;
-	// Counter feeding the unique per-packet transfer id, plus the in-memory
+	std::unordered_set<int> _giftedAwaySoldierIds;
+	// Counter feeding the unique per-packet gift id, plus the in-memory
 	// duplicate-delivery guard (sufficient now: the host's save is the single
 	// authority, so packets are never re-sent across sessions).
-	int _transferSendCounter = 0;
-	std::unordered_set<long long> _seenTransferPacketIds;
-	// Incoming physical transfers received while our SavedGame is swapped out
+	int _giftSendCounter = 0;
+	std::unordered_set<long long> _seenGiftPacketIds;
+	// Incoming physical gifts received while our SavedGame is swapped out
 	// (viewing the peer's base, playerInsideCoopBase). Applying them then
 	// would mutate the temporary peer world and be discarded on exit - the
 	// soldier would vanish on both machines. Replayed once our world is back.
-	std::vector<Json::Value> _pendingIncomingTransfers;
+	std::vector<Json::Value> _pendingIncomingGifts;
   public:
 	// Single-authority model: the HOST's .sav embeds the latest client-world
 	// blob (see SavedGame::save/load), so loading a host save atomically
 	// restores BOTH players' rosters; the client re-fetches its world from
 	// the host on reconnect. To keep the embedded blob fresh, the client
-	// silently pushes its progress to the host after every soldier transfer.
+	// silently pushes its progress to the host after every soldier gift.
 	void pushProgressToHostSilently();
 	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
 	// host craft via the mirror-base UI, the assignment is written only into the
@@ -573,10 +704,10 @@ class connectionTCP
 	// to the host) so the assignment survives the mission-end reload.
 	// assignments maps a guest's CoopName to {CoopCraft, CoopCraftType}.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
-	// Clears session transfer state (pending queues, dedup ids, away-ids)
+	// Clears session gift state (pending queues, dedup ids, away-ids)
 	// after a save load - stale in-memory state must never outlive the save
 	// that is now the authority.
-	void resetTransferSessionState();
+	void resetGiftSessionState();
 };
 
 }

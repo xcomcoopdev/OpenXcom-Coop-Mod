@@ -181,6 +181,16 @@ void Base::syncTrade(std::string items, SavedGame *save, Mod *mod)
 
 			RuleItem *rule_item = mod->getItem(name);
 
+			// A 0-hour item transfer (the co-op "equipment travels with the
+			// soldier" path) lands immediately, matching the instant soldier
+			// move, instead of queuing as a timed transfer.
+			if (hour <= 0)
+			{
+				getStorageItems()->addItem(rule_item, amount);
+				delete t;
+				continue;
+			}
+
 			t->setItems(rule_item, amount);
 		}
 
