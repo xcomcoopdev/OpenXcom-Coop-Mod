@@ -1,0 +1,103 @@
+name: CI (build + coop tests + publish)
+
+# Self-hosted Windows runner (mcservers). Builds x64 Release from a clean
+# checkout, runs the coop harness headless, and publishes a rolling nightly
+# (push to main) or a versioned release (push of a v* tag).
+on:
+  push:
+    branches: [main]        # -> rolling "nightly" prerelease
+    tags: ['v*']            # -> versioned release, marked latest
+  workflow_dispatch:
+
+concurrency: { group: ci-main, cancel-in-progress: false }   # tests are stateful; never overlap
+permissions: { contents: write }                             # publish releases + move nightly tag
+
+jobs:
+  build-test-publish:
+    runs-on: [self-hosted, windows, coop-build]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Pick channel (nightly vs release)
+        id: mode
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            "tag=$env:GITHUB_REF_NAME"  >> $env:GITHUB_OUTPUT
+            "name=$env:GITHUB_REF_NAME" >> $env:GITHUB_OUTPUT
+            "prerelease=false" >> $env:GITHUB_OUTPUT
+            "latest=true"      >> $env:GITHUB_OUTPUT
+          } else {
+            $sha = git rev-parse --short HEAD
+            "tag=nightly"           >> $env:GITHUB_OUTPUT
+            "name=Nightly ($sha)"   >> $env:GITHUB_OUTPUT
+            "prerelease=true"  >> $env:GITHUB_OUTPUT
+            "latest=false"     >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build x64 Release (serial - /m triggers C1060 on this VM)
+        timeout-minutes: 60
+        shell: cmd
+        working-directory: src
+        run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
+
+      - name: Stage data next to exe
+        shell: pwsh
+        run: |
+          $d = "bin\x64\Release"
+          robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
+          robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
+          robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
+          robocopy C:\oxc-data\UFO "$d\UFO"    /E /NFL /NDL /NJH /NJS         # proprietary base data, runner-stored
+          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the repo
+          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+          if (-not (Test-Path "$d\OpenXcom.exe"))          { throw "build produced no exe" }
+          if (-not (Test-Path "$d\UFO\GEODATA"))           { throw "UFO data not staged" }
+          if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
+
+      - name: Coop test suite (headless)   # release gate
+        timeout-minutes: 25
+        shell: pwsh
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          $tests = "boot_check","test_geoscape_sync","test_bug_fixes","test_transfer_fresh",
+                   "test_transfer_rollback","test_ufo_notice","test_craft_status_sync"
+          $fail = 0
+          foreach ($t in $tests) {
+            python "tools\coop_test\$t.py"
+            if ($LASTEXITCODE -ne 0) { Write-Host "FAIL $t (rc=$LASTEXITCODE)"; $fail++ }
+            else { Write-Host "PASS $t" }
+          }
+          if ($fail -gt 0) { throw "$fail test(s) failed" }
+
+      - name: Package
+        if: success()
+        shell: pwsh
+        run: |
+          $z = "openxcom-coop-$($env:GITHUB_SHA.Substring(0,7))-x64.zip"
+          "ZIP=$z" >> $env:GITHUB_ENV
+          Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
+
+      - name: Move rolling nightly tag
+        if: success() && steps.mode.outputs.tag == 'nightly'
+        shell: pwsh
+        run: |
+          git tag -f nightly
+          git push -f origin nightly
+
+      - name: Publish
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:    ${{ steps.mode.outputs.tag }}
+          name:        ${{ steps.mode.outputs.name }}
+          prerelease:  ${{ steps.mode.outputs.prerelease }}
+          make_latest: ${{ steps.mode.outputs.latest }}
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
