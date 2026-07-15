@@ -42,6 +42,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/InventoryState.h"
+#include "../Battlescape/Inventory.h"
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
@@ -1503,6 +1504,104 @@ std::string TestServer::execute(const std::string& line)
 				resp["all"] = all;
 				resp["allTotal"] = allTotal;
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "inventory_unload")
+		{
+			// Reproduce issue #29: unloading a loaded weapon from the base soldier
+			// equip screen. Drives Inventory::unload() exactly like btnUnloadClick,
+			// which is where the co-op moveItem() path deref'd the just-unloaded
+			// ammo's (null) inventory slot and crashed (0xC0000005).
+			//
+			// Requires an open base inventory (call soldiers_inventory first). If the
+			// currently selected soldier has no loaded firearm, one is built and
+			// loaded so the unload path is always exercised.
+			InventoryState* inv = findState<InventoryState>(_game);
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			if (!inv || !bg)
+			{
+				resp["error"] = "no InventoryState/battle active (call soldiers_inventory first)";
+			}
+			else
+			{
+				Inventory* inventory = inv->getInventoryForTest();
+				BattleUnit* unit = inventory ? inventory->getSelectedUnit() : nullptr;
+				Tile* ground = bg->getTile(0);
+				if (!unit)
+				{
+					resp["error"] = "no selected unit in inventory";
+				}
+				else if (!ground)
+				{
+					resp["error"] = "no ground tile in inventory battle";
+				}
+				else
+				{
+					// Deterministic setup: clear the selected soldier's hands to the
+					// ground so unload(false) always has the free hand it needs and
+					// actually reaches the (previously crashing) moveItem() path -
+					// independent of any state a prior unload left on this soldier.
+					RuleInventory* groundRule = _game->getMod()->getInventoryGround();
+					auto* uinv = unit->getInventory();
+					for (auto it = uinv->begin(); it != uinv->end(); )
+					{
+						BattleItem* bi = *it;
+						if (bi->getSlot() && bi->getSlot()->getType() == INV_HAND)
+						{
+							it = uinv->erase(it);
+							ground->addItem(bi, groundRule);
+						}
+						else
+						{
+							++it;
+						}
+					}
+
+					// Build + load a firearm on the (now empty-handed) soldier.
+					const RuleItem* wRule = nullptr;
+					const RuleItem* aRule = nullptr;
+					for (auto& name : _game->getMod()->getItemsList())
+					{
+						const RuleItem* r = _game->getMod()->getItem(name, false);
+						if (!r || r->getBattleType() != BT_FIREARM) continue;
+						if (r->isFixed()) continue;  // skip tank/vehicle-mounted weapons - not hand-holdable
+						if (r->getInventoryWidth() == 0 || r->getInventoryHeight() == 0) continue;
+						auto* ammos = r->getPrimaryCompatibleAmmo();
+						if (ammos && !ammos->empty()) { wRule = r; aRule = ammos->front(); break; }
+					}
+					if (!wRule)
+					{
+						resp["error"] = "no firearm+ammo rule available in mod";
+					}
+					else
+					{
+						// Place the weapon straight into the (now free) right hand,
+						// bypassing addItem()'s weight/placement heuristics which can
+						// refuse an off-craft base soldier.
+						BattleItem* weapon = bg->createItemForTile(wRule, ground);
+						weapon->moveToOwner(unit);
+						weapon->setSlot(_game->getMod()->getInventoryRightHand());
+						weapon->setSlotX(0);
+						weapon->setSlotY(0);
+
+						BattleItem* ammo = bg->createItemForTile(aRule, ground);
+						ground->removeItem(ammo);
+						if (!weapon->setAmmoPreMission(ammo))
+						{
+							resp["error"] = "could not load ammo into weapon";
+						}
+						else
+						{
+							resp["weapon"] = weapon->getRules()->getType();
+							inventory->setSelectedItem(weapon);
+							// This is the call that crashed pre-fix (issue #29).
+							bool unloaded = inventory->unload(false);
+							resp["unloaded"] = unloaded;
+							resp["ok"] = true;
+						}
+					}
+				}
 			}
 		}
 		else if (cmd == "incoming_transfers")
