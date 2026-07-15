@@ -2982,6 +2982,17 @@ bool Base::removePendingTransfers(std::vector<Transfer*>* pendingTransfers)
 
 	for (Craft* craft : crafts)
 	{
+		// Crew soldiers deliberately stay in the source base (see the
+		// cross-check above), but the craft itself is about to be removed and
+		// then freed by the destination Transfer dtor. Detach the kept crew
+		// first so they are not left pointing at freed memory (use-after-free).
+		for (Soldier* soldier : _soldiers)
+		{
+			if (soldier && soldier->getCraft() == craft)
+			{
+				soldier->setCraft(nullptr);
+			}
+		}
 		removeCraft(craft, false);
 	}
 
