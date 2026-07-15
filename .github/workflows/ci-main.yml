@@ -98,14 +98,9 @@ jobs:
           $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
                    Select-Object -ExpandProperty BaseName | Sort-Object
           # Known-broken on main (real failures, not flakes) - run but do not gate.
-          # Remove entries here as they are fixed so they start gating again.
-          $quarantine = @(
-            "test_coop_transfer_equipment_counts",
-            "test_coop_transfer_equipment_option",
-            "test_coop_transferred_equipment",
-            "test_lobby_dialogs",
-            "test_session_hardening"
-          )
+          # Add entries here if a test regresses; remove them as they are fixed so
+          # they gate again. Empty = the whole suite gates (all green as of 2026-07-15).
+          $quarantine = @()
           $fail = 0
           foreach ($t in $tests) {
             python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
