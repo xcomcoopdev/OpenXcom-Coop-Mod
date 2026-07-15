@@ -117,9 +117,13 @@ void TransferConfirmState::btnOkClick(Action *)
 	{
 
 		*_game->getSavedGame()->getBases() = _base->old_bases;
+		_state->createPendingTransfers();
+	}
+	else
+	{
+		_state->completeTransfer();
 	}
 
-	_state->completeTransfer();
 	_game->popState();
 	_game->popState();
 	_game->popState();

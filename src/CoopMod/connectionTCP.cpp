@@ -1600,11 +1600,12 @@ void connectionTCP::updateCoopTask()
 
 			Base* currentBase = nullptr;
 
-			std::string base_name = waitedTrades[i]["base"].asString();
+			int base_id = waitedTrades[i]["base_to_id"].asInt();
 
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
-				if (base->getName() == base_name)
+				// My bad, _coop_base_id should be used instead of the base name.
+				if (base->_coop_base_id == base_id)
 				{
 					currentBase = base;
 					break;
@@ -3758,11 +3759,134 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		
 	}
 
-	// TRADING AND EXPORTING GOODS
-	if (stateString == "trade" || stateString == "transfer")
+	// transfer
+	if (stateString == "transfer_completed")
 	{
 
-		waitedTrades.append(obj);
+		int base_to_id = obj["base_to_id"].asInt();
+		int base_from_id = obj["base_from_id"].asInt();
+		int total_funds = obj["total_funds"].asInt();
+
+		Base* baseFrom = 0;
+		Base* baseTo = 0;
+
+		if (!_game->getSavedGame())
+		{
+			_game->pushState(new CoopState(551));
+			return;
+		}
+		
+		for (auto& base : *_game->getSavedGame()->getBases())
+		{
+			if (base->_coop_base_id == base_from_id)
+			{
+				baseFrom = base;
+				break;
+			}
+		}
+
+		for (auto& base : *_game->getSavedGame()->getBases())
+		{
+			if (base->_coop_base_id == base_to_id)
+			{
+				baseTo = base;
+				break;
+			}
+		}
+
+		if (baseFrom && baseTo)
+		{
+
+			if (baseFrom->removePendingTransfers(baseTo->getTransfers()))
+			{
+
+				_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - total_funds);
+
+				baseTo->decreaseCoopTransferLimits();
+
+				for (Transfer* transfer : *baseTo->getTransfers())
+				{
+					delete transfer;
+				}
+				baseTo->getTransfers()->clear();
+
+			}
+			else
+			{
+				_game->pushState(new CoopState(552));
+			}
+
+		}
+		else
+		{
+			_game->pushState(new CoopState(553));
+		}
+
+	}
+
+	// purchase
+	if (stateString == "purchase_completed")
+	{
+
+		int total_funds = obj["total_funds"].asInt();
+		_game->getCoopMod()->coopFunds = _game->getCoopMod()->coopFunds - total_funds;
+
+	}
+
+	if (stateString == "transfer_failed" || stateString == "purchase_failed")
+	{
+		_game->pushState(new CoopState(551));
+	}
+
+	// Transfer and purchase
+	if (stateString == "purchase" || stateString == "transfer")
+	{
+
+		// Check whether the transfer or purchase data is valid.
+		if (obj.isMember("items") &&
+			!obj["items"].empty())
+		{
+			// The request is valid.
+			waitedTrades.append(obj);
+
+			// Send a success response to the other player.
+			if (stateString == "transfer")
+			{
+				Json::Value obj2;
+				obj2["state"] = "transfer_completed";
+				obj2["base_to_id"] = obj.get("base_to_id", 0);
+				obj2["base_from_id"] = obj.get("base_from_id", 0);
+				obj2["total_funds"] = obj.get("total_funds", 0);
+				sendTCPPacketData(obj2.toStyledString());
+			}
+			else
+			{
+				Json::Value obj3;
+				obj3["state"] = "purchase_completed";
+				obj3["total_funds"] = obj.get("total_funds", 0);
+				sendTCPPacketData(obj3.toStyledString());
+			}
+
+		}
+		else
+		{
+			// The request is invalid.
+			// Send a failure response to the other player.
+			if (stateString == "transfer")
+			{
+				Json::Value obj4;
+				obj4["state"] = "transfer_failed";
+				obj4["base_to_id"] = obj.get("base_to_id", 0);
+				obj4["base_from_id"] = obj.get("base_from_id", 0);
+				sendTCPPacketData(obj4.toStyledString());
+			}
+			else
+			{
+				Json::Value obj5;
+				obj5["state"] = "purchase_failed";
+				sendTCPPacketData(obj5.toStyledString());
+			}
+		}
 	}
 
 	if (stateString == "selected_unit")

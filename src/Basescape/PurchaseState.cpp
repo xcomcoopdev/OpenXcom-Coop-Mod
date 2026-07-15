@@ -870,16 +870,16 @@ void PurchaseState::btnOkClick(Action *)
 		}
 	}
 
-	// COOP (Trade)
+	// COOP
+	// purchase
 	if (_base->_coopBase == true)
 	{
 
-		_game->getCoopMod()->coopFunds = _game->getCoopMod()->coopFunds - _total;
-
 		Json::Value root;
 
-		root["state"] = "trade";
-		root["base"] = _base->getName();
+		root["state"] = "purchase";
+		root["base_to_id"] = _base->_coop_base_id;
+		root["total_funds"] = _total;
 
 		int index = 0;
 
@@ -887,7 +887,7 @@ void PurchaseState::btnOkClick(Action *)
 		{
 
 			std::string item_name = "";
-			int item_amount = 0;
+			int item_amount = trade->getQuantity(); // item_amount must always be included, otherwise it will break saves (fixed).
 
 			root["items"][index]["craft_rule"] = "";
 
@@ -910,8 +910,12 @@ void PurchaseState::btnOkClick(Action *)
 			// TRANSFER_ITEM
 			else
 			{
-				item_name = trade->getItems()->getName();
-				trade->getQuantity();
+
+				if (trade->getItems())
+				{
+					item_name = trade->getItems()->getName();
+				}
+
 			}
 
 			int hour = trade->getHours();
@@ -925,13 +929,11 @@ void PurchaseState::btnOkClick(Action *)
 
 		}
 
-
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 		_base->getTransfers()->clear();
 
 	}
-
 
 	_game->popState();
 }

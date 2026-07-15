@@ -368,6 +368,11 @@ public:
 	double _radar_range_coop = 0;
 	std::vector<Soldier*> base_oldsoldiers;
 	std::vector<Soldier*> base_oldsoldiers2;
+	/**
+	 * Removes confirmed pending transfers.
+	 */
+	bool removePendingTransfers(std::vector<Transfer*>* pendingTransfers);
+	void decreaseCoopTransferLimits();
 };
 
 }
