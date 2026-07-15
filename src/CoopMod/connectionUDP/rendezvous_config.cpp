@@ -2,6 +2,7 @@
 
 #include "../../Engine/CrossPlatform.h"
 #include "../../Engine/Options.h"
+#include "../../version.h"
 
 #include <sodium.h>
 #include <json/json.h>
@@ -23,7 +24,6 @@ namespace
         std::string host;
         uint16_t tcpPort = 0;
         uint16_t udpPort = 0;
-        std::string gameVersion;
         std::string serverBoxPublicKeyB64;
         std::string serverSignPublicKeyB64;
     };
@@ -84,7 +84,6 @@ namespace
             e.host = s.get("host", "").asString();
             e.tcpPort = static_cast<uint16_t>(s.get("tcpPort", 0).asUInt());
             e.udpPort = static_cast<uint16_t>(s.get("udpPort", 0).asUInt());
-            e.gameVersion = s.get("gameVersion", "").asString();
             e.serverBoxPublicKeyB64 = s.get("serverBoxPublicKey", "").asString();
             e.serverSignPublicKeyB64 = s.get("serverSignPublicKey", "").asString();
 
@@ -265,7 +264,7 @@ bool getRendezvousServerConfig(size_t index,
     outCfg.host = e.host;
     outCfg.tcpPort = e.tcpPort;
     outCfg.udpPort = e.udpPort;
-    outCfg.gameVersion = e.gameVersion;
+    outCfg.gameVersion = OPENXCOM_VERSION_LONG;
 
     return decodeKeysFor(e, outKeys, error);
 }
@@ -281,7 +280,7 @@ BuiltInRendezvousConfig getBuiltInRendezvousConfig()
     cfg.host = e.host;
     cfg.tcpPort = e.tcpPort;
     cfg.udpPort = e.udpPort;
-    cfg.gameVersion = e.gameVersion;
+    cfg.gameVersion = OPENXCOM_VERSION_LONG;
     return cfg;
 }
 
