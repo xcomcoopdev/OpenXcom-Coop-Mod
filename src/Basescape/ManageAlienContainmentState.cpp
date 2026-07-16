@@ -43,6 +43,8 @@
 #include "../Mod/RuleInterface.h"
 #include "TechTreeViewerState.h"
 #include "TransferBaseState.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -350,6 +352,39 @@ void ManageAlienContainmentState::btnSellClick(Action *)
  */
 void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 {
+	// COOP JOINT (PRD-J05): route prisoner removal (sell or execute) through the
+	// "containment" joint_cmd and mutate NOTHING locally; the host settles funds +
+	// storage and broadcasts joint_apply. Atomic + host-repriced. Both the OK
+	// (execute) and Sell buttons funnel through here, so this one branch covers
+	// both. SEPARATE/solo path below is unchanged.
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		Json::Value prisoners(Json::arrayValue);
+		for (size_t i = 0; i < _qtys.size(); ++i)
+		{
+			if (_qtys[i] > 0)
+			{
+				Json::Value e;
+				e["rule"] = _aliens[i];
+				e["qty"] = _qtys[i];
+				prisoners.append(e);
+			}
+		}
+		if (!prisoners.empty())
+		{
+			Json::Value payload;
+			payload["prisoners"] = prisoners;
+			payload["sell"] = sell;
+			int baseId = 0;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if ((*bases)[i] == _base) { baseId = (int)i; break; }
+			JointEcon::submitLocalCmd(_game, "containment", baseId, payload);
+		}
+		_game->popState();
+		return;
+	}
+
 	for (size_t i = 0; i < _qtys.size(); ++i)
 	{
 		if (_qtys[i] > 0)
@@ -401,6 +436,26 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 void ManageAlienContainmentState::btnCancelClick(Action *)
 {
 	_game->popState();
+}
+
+/**
+ * Test-harness hook (PRD-J05): set the removal count for alien <alienType> and
+ * run the real deal handler. In JOINT this emits a "containment" joint_cmd and
+ * pops the state. Returns false if no matching alien row is present.
+ */
+bool ManageAlienContainmentState::harnessRemovePrisoner(const std::string& alienType, int count, bool sell)
+{
+	resetListAndTotals(); // build _aliens/_qtys now (normally deferred to init())
+	for (size_t i = 0; i < _aliens.size(); ++i)
+	{
+		if (_aliens[i] == alienType)
+		{
+			_qtys[i] = count;
+			dealWithSelectedAliens(sell);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

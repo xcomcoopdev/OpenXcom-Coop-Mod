@@ -124,6 +124,11 @@ public:
 	void updateItemStrings();
 	/// Handler for changing the category filter.
 	void cbxCategoryChange(Action *action);
+	/// Test-harness hook (PRD-J05): set the sell quantity for ITEM <itemType> to
+	/// <count> and invoke the real OK handler (JOINT -> emits a "sell" joint_cmd;
+	/// SEPARATE/solo -> the vanilla local sell). Returns false if no sellable ITEM
+	/// row matches. Main thread only.
+	bool harnessSellItem(const std::string& itemType, int count);
 };
 
 }

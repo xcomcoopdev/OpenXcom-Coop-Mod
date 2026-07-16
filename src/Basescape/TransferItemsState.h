@@ -95,6 +95,13 @@ public:
 	void completeTransfer();
 	/// Builds the pending-transfer list and serializes it for coop sync.
 	void createPendingTransfers();
+	/// COOP JOINT (PRD-J05): emit the intra-world base->base "transfer" joint_cmd
+	/// from the current selection and mutate NOTHING locally. The host validates
+	/// space + funds, creates the Transfers on the destination, and broadcasts.
+	void submitJointTransfer();
+	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
+	/// <count> then submit the JOINT transfer. Returns false if no matching row.
+	bool harnessTransferItem(const std::string& itemType, int count);
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if
 	/// the soldier is not a transferable row.

@@ -31,20 +31,28 @@
 #include "../Engine/Game.h"
 #include "../Engine/Language.h"
 #include "../Engine/Logger.h"
+#include "../Engine/Options.h"
 #include "../Engine/State.h"
+#include "../Engine/Yaml.h"
 #include "../Mod/Mod.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleCraft.h"
+#include "../Mod/RuleSoldier.h"
 #include "../Mod/RuleResearch.h"
 #include "../Mod/RuleManufacture.h"
+#include "../Mod/Unit.h"
+#include "../Mod/Armor.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/ItemContainer.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/ResearchProject.h"
 #include "../Savegame/Production.h"
+
+#include <cmath>
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/ProductionCompleteState.h"
@@ -129,6 +137,62 @@ void surfaceFail(Game* game)
 	if (game) game->pushState(new CoopState(551));
 }
 
+// ---- Shared J05 helpers ------------------------------------------------------
+
+// Serialize a soldier to a YAML string (same wire form giftSoldier uses), so a
+// host-generated hire can travel INSIDE joint_apply and be reconstructed on the
+// replica without re-rolling RNG (names/stats/nationality would diverge).
+std::string serializeSoldier(Game* game, Soldier* soldier)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	soldier->save(writer["soldier"], game->getMod()->getScriptGlobal());
+	return writer.emit().yaml;
+}
+
+// Reconstruct a soldier from a serialized YAML string. The replica NEVER
+// regenerates; it adopts the host's exact soldier (incl. ownerplayerid).
+Soldier* deserializeSoldier(Game* game, const std::string& yaml)
+{
+	YAML::YamlRootNodeReader reader(YAML::YamlString{yaml}, "jointHire");
+	auto soldierReader = reader["soldier"];
+	std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
+	RuleSoldier* rule = game->getMod()->getSoldier(type, false);
+	if (!rule) return nullptr;
+	Soldier* soldier = new Soldier(rule, nullptr, 0 /*nationality; overwritten by load*/);
+	soldier->load(soldierReader, game->getMod(), game->getSavedGame(), game->getMod()->getScriptGlobal());
+	soldier->setCraft(0);
+	return soldier;
+}
+
+// Shortest base-to-base distance, byte-identical to TransferItemsState::getDistance
+// (both bases are real shared bases with identical coords on host and replica).
+double baseDistance(Base* from, Base* to)
+{
+	double x[3], y[3], z[3], r = 51.2;
+	Base* b = from;
+	for (int i = 0; i < 2; ++i)
+	{
+		x[i] = r * cos(b->getLatitude()) * cos(b->getLongitude());
+		y[i] = r * cos(b->getLatitude()) * sin(b->getLongitude());
+		z[i] = r * -sin(b->getLatitude());
+		b = to;
+	}
+	x[2] = x[1] - x[0];
+	y[2] = y[1] - y[0];
+	z[2] = z[1] - z[0];
+	return sqrt(x[2] * x[2] + y[2] * y[2] + z[2] * z[2]);
+}
+
+// Find a craft at @a base by its per-type id + rule type (Craft::getId() is only
+// unique within a type). Matches TransferItemsState / SellState identity.
+Craft* findCraft(Base* base, int id, const std::string& type)
+{
+	for (auto* c : *base->getCrafts())
+		if (c->getId() == id && c->getRules()->getType() == type) return c;
+	return nullptr;
+}
+
 // ---- Reference command: "buy" ------------------------------------------------
 // Payload: { items:[ {type:<TransferType int>, rule:"<typeString>", qty:int}, ...],
 //            total:int (client estimate, NOT trusted) }.
@@ -190,8 +254,17 @@ bool buyValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*
 			break;
 		}
 		case TRANSFER_SOLDIER:
-			failReason = "joint soldier purchase not yet supported (J05)";
-			return false;
+		{
+			// PRD-J05: hired soldiers spend shared funds; the purchaser owns them
+			// (setOwnerPlayerId at apply). The host GENERATES them (RNG) at apply
+			// time and serializes each into the joint_apply payload so replicas
+			// reconstruct rather than re-roll.
+			RuleSoldier* r = mod->getSoldier(rule, false);
+			if (!r) { failReason = "unknown soldier: " + rule; return false; }
+			total += (int64_t)qty * r->getBuyCost();
+			quartersAdd += qty; // a hired soldier occupies living quarters
+			break;
+		}
 		default:
 			failReason = "unknown transfer type";
 			return false;
@@ -213,19 +286,23 @@ bool buyValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*
 	return true;
 }
 
-void buyApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 {
 	if (!base) return;
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) return;
 	auto& limitLog = save->getMonthlyPurchaseLimitLog();
+	const bool host = connectionTCP::getHost();
 
-	const Json::Value& items = payload["items"];
+	Json::Value& items = payload["items"];
 	if (!items.isArray()) return;
 
-	for (const auto& it : items)
+	// Index-based iteration so the host can WRITE resolved soldier YAML back into
+	// each soldier row before the payload is broadcast (see buyApply's soldier case).
+	for (Json::ArrayIndex i = 0; i < items.size(); ++i)
 	{
+		Json::Value& it = items[i];
 		int type = it.get("type", -1).asInt();
 		std::string rule = it.get("rule", "").asString();
 		int qty = it.get("qty", 0).asInt();
@@ -275,9 +352,406 @@ void buyApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
 			}
 			break;
 		}
-		default:
-			break; // soldiers rejected at validate; nothing to materialize
+		case TRANSFER_SOLDIER:
+		{
+			RuleSoldier* r = mod->getSoldier(rule, false);
+			if (!r) break;
+			if (r->getMonthlyBuyLimit() > 0) limitLog[r->getType()] += qty;
+			int time = r->getTransferTime();
+			if (time == 0) time = mod->getPersonnelTime();
+
+			if (host && !it.isMember("soldiers"))
+			{
+				// HOST first-apply: generate each soldier (RNG), stamp the
+				// purchaser as owner, create the in-transit Transfer, and serialize
+				// the finished soldier INTO the payload so the broadcast carries it.
+				Json::Value serialized(Json::arrayValue);
+				for (int s = 0; s < qty; ++s)
+				{
+					int nationality = save->selectSoldierNationalityByLocation(mod, r, base);
+					Soldier* soldier = mod->genSoldier(save, r, nationality);
+					if (!r->getSpawnedSoldierTemplate().yaml.empty())
+					{
+						YAML::YamlRootNodeReader tReader(r->getSpawnedSoldierTemplate(), "(spawned soldier template)");
+						int nationalityOrig = soldier->getNationality();
+						soldier->load(tReader.toBase(), mod, save, mod->getScriptGlobal(), true);
+						if (soldier->getNationality() != nationalityOrig) soldier->genName();
+					}
+					soldier->setOwnerPlayerId(seat); // PRD-J05: purchaser owns the hire
+					Transfer* t = new Transfer(time);
+					t->setSoldier(soldier);
+					base->getTransfers()->push_back(t);
+					serialized.append(serializeSoldier(game, soldier));
+				}
+				it["soldiers"] = serialized; // travels in joint_apply to the replicas
+			}
+			else
+			{
+				// REPLICA (or a re-apply carrying resolved soldiers): reconstruct the
+				// host's exact soldiers from the serialized YAML - never re-roll.
+				const Json::Value& serialized = it["soldiers"];
+				for (Json::ArrayIndex s = 0; s < serialized.size(); ++s)
+				{
+					Soldier* soldier = deserializeSoldier(game, serialized[s].asString());
+					if (!soldier) continue;
+					soldier->setOwnerPlayerId(seat); // belt-and-braces (also in YAML)
+					Transfer* t = new Transfer(time);
+					t->setSoldier(soldier);
+					base->getTransfers()->push_back(t);
+				}
+			}
+			break;
 		}
+		default:
+			break;
+		}
+	}
+}
+
+// ---- PRD-J05: "sell" ---------------------------------------------------------
+// Payload: { items:[{rule, qty}], soldiers:[id...], crafts:[{id,type}...],
+//            scientists:int, engineers:int }. baseId = the base being sold from.
+// Vanilla sell is atomic (one OK button, immediate removal + credit). The host
+// re-prices against the live world (another player may have sold first); any
+// missing quantity rejects the WHOLE command. cost is NEGATIVE (a credit).
+
+bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                  int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+
+	int64_t credit = 0;
+
+	const Json::Value& items = payload["items"];
+	if (items.isArray())
+		for (const auto& it : items)
+		{
+			std::string rule = it.get("rule", "").asString();
+			int qty = it.get("qty", 0).asInt();
+			if (qty <= 0) continue;
+			RuleItem* r = mod->getItem(rule, false);
+			if (!r) { failReason = "unknown item: " + rule; return false; }
+			if (base->getStorageItems()->getItem(r) < qty)
+				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_SELL"; return false; }
+			credit += (int64_t)qty * r->getSellCostAdjusted(base, save);
+		}
+
+	const Json::Value& soldiers = payload["soldiers"];
+	if (soldiers.isArray())
+		for (const auto& sid : soldiers)
+		{
+			int id = sid.asInt();
+			bool found = false;
+			for (auto* s : *base->getSoldiers())
+				if (s->getId() == id && s->getCraft() == 0) { found = true; break; }
+			if (!found) { failReason = "soldier not sellable"; return false; }
+		}
+
+	const Json::Value& crafts = payload["crafts"];
+	if (crafts.isArray())
+		for (const auto& jc : crafts)
+		{
+			Craft* c = findCraft(base, jc.get("id", -1).asInt(), jc.get("type", "").asString());
+			if (!c || c->getStatus() == "STR_OUT") { failReason = "craft not sellable"; return false; }
+			credit += c->getRules()->getSellCost();
+		}
+
+	int sci = payload.get("scientists", 0).asInt();
+	int eng = payload.get("engineers", 0).asInt();
+	if (sci > base->getAvailableScientists()) { failReason = "not enough scientists"; return false; }
+	if (eng > base->getAvailableEngineers()) { failReason = "not enough engineers"; return false; }
+
+	cost = -credit; // credit the seller
+	return true;
+}
+
+void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Mod* mod = game->getMod();
+	if (!mod) return;
+
+	// ORDER (items -> soldiers -> crafts -> scientists -> engineers) is fixed and
+	// identical on host and replica, so both worlds mutate the same way.
+	const Json::Value& items = payload["items"];
+	if (items.isArray())
+		for (const auto& it : items)
+		{
+			int qty = it.get("qty", 0).asInt();
+			RuleItem* r = mod->getItem(it.get("rule", "").asString(), false);
+			if (r && qty > 0) base->getStorageItems()->removeItem(r, qty);
+		}
+
+	const Json::Value& soldiers = payload["soldiers"];
+	if (soldiers.isArray())
+		for (const auto& sid : soldiers)
+		{
+			int id = sid.asInt();
+			for (auto it = base->getSoldiers()->begin(); it != base->getSoldiers()->end(); ++it)
+			{
+				Soldier* s = *it;
+				if (s->getId() == id && s->getCraft() == 0)
+				{
+					if (s->getArmor()->getStoreItem())
+						base->getStorageItems()->addItem(s->getArmor()->getStoreItem());
+					base->getSoldiers()->erase(it);
+					delete s;
+					break;
+				}
+			}
+		}
+
+	const Json::Value& crafts = payload["crafts"];
+	if (crafts.isArray())
+		for (const auto& jc : crafts)
+		{
+			Craft* c = findCraft(base, jc.get("id", -1).asInt(), jc.get("type", "").asString());
+			if (c) { base->removeCraft(c, true); delete c; }
+		}
+
+	int sci = payload.get("scientists", 0).asInt();
+	int eng = payload.get("engineers", 0).asInt();
+	if (sci > 0) base->setScientists(base->getScientists() - sci);
+	if (eng > 0) base->setEngineers(base->getEngineers() - eng);
+}
+
+// ---- PRD-J05: "containment" --------------------------------------------------
+// Payload: { prisoners:[{rule, qty}], sell:bool }. Mirrors
+// ManageAlienContainmentState::dealWithSelectedAliens: remove live aliens from
+// storage; if sell -> credit funds (host-authoritative), else (execute) -> add
+// the geoscape corpse. Atomic re-price on the host.
+
+bool containmentValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                         int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+	bool sell = payload.get("sell", false).asBool();
+
+	int64_t credit = 0;
+	const Json::Value& prisoners = payload["prisoners"];
+	if (!prisoners.isArray() || prisoners.empty()) { failReason = "no prisoners"; return false; }
+	for (const auto& p : prisoners)
+	{
+		std::string rule = p.get("rule", "").asString();
+		int qty = p.get("qty", 0).asInt();
+		if (qty <= 0) continue;
+		RuleItem* r = mod->getItem(rule, false);
+		if (!r) { failReason = "unknown alien: " + rule; return false; }
+		if (base->getStorageItems()->getItem(r) < qty)
+			{ failReason = "STR_NOT_ENOUGH_PRISONERS"; return false; }
+		if (sell) credit += (int64_t)qty * r->getSellCostAdjusted(base, save);
+	}
+	cost = sell ? -credit : 0;
+	return true;
+}
+
+void containmentApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	bool sell = payload.get("sell", false).asBool();
+
+	const Json::Value& prisoners = payload["prisoners"];
+	if (!prisoners.isArray()) return;
+	for (const auto& p : prisoners)
+	{
+		std::string rule = p.get("rule", "").asString();
+		int qty = p.get("qty", 0).asInt();
+		if (qty <= 0) continue;
+		RuleItem* r = mod->getItem(rule, false);
+		if (!r) continue;
+		base->getStorageItems()->removeItem(r, qty);
+		if (!sell)
+		{
+			// Execute: leave the geoscape corpse behind (funds untouched).
+			Unit* ruleUnit = mod->getUnit(rule, false);
+			if (ruleUnit)
+			{
+				auto* ruleCorpse = ruleUnit->getArmor()->getCorpseGeoscape();
+				if (ruleCorpse && ruleCorpse->isRecoverable() && ruleCorpse->isCorpseRecoverable())
+					base->getStorageItems()->addItem(ruleCorpse, qty);
+			}
+		}
+	}
+}
+
+// ---- PRD-J05: "transfer" (intra-world base -> base) --------------------------
+// Payload: { toBaseId:int, items:[{rule, qty}], soldiers:[id...],
+//            crafts:[{id,type}...], scientists:int, engineers:int }.
+// baseId = SOURCE base. JOINT transfers are vanilla intra-world moves (cost +
+// travel time), NOT the SEPARATE cross-player syncTrade flow. The created
+// Transfer objects arrive later via the J04 transfer_arrived broadcast, so host
+// and replica must build them in identical order (they run the same applier).
+
+bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!fromBase) { failReason = "source base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+
+	Base* toBase = resolveBase(game, payload.get("toBaseId", -1).asInt());
+	if (!toBase || toBase == fromBase) { failReason = "bad destination base"; return false; }
+
+	double distance = baseDistance(fromBase, toBase);
+	int itemCost = (int)(1 * distance);
+	int soldierCost = (int)(5 * distance);
+	int craftCost = (int)(25 * distance);
+	int sciCost = (int)(5 * distance);
+	int engCost = (int)(5 * distance);
+
+	int64_t total = 0;
+	double storeAddTo = 0.0;
+
+	const Json::Value& items = payload["items"];
+	if (items.isArray())
+		for (const auto& it : items)
+		{
+			std::string rule = it.get("rule", "").asString();
+			int qty = it.get("qty", 0).asInt();
+			if (qty <= 0) continue;
+			RuleItem* r = mod->getItem(rule, false);
+			if (!r) { failReason = "unknown item: " + rule; return false; }
+			if (fromBase->getStorageItems()->getItem(r) < qty)
+				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_TRANSFER"; return false; }
+			total += (int64_t)qty * itemCost;
+			storeAddTo += (double)qty * r->getSize();
+		}
+
+	const Json::Value& soldiers = payload["soldiers"];
+	if (soldiers.isArray())
+		for (const auto& sid : soldiers)
+		{
+			int id = sid.asInt();
+			bool found = false;
+			for (auto* s : *fromBase->getSoldiers())
+				if (s->getId() == id && s->getCraft() == 0) { found = true; break; }
+			if (!found) { failReason = "soldier not transferable"; return false; }
+			total += soldierCost;
+		}
+
+	const Json::Value& crafts = payload["crafts"];
+	if (crafts.isArray())
+		for (const auto& jc : crafts)
+		{
+			Craft* c = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
+			if (!c) { failReason = "craft not transferable"; return false; }
+			total += craftCost;
+		}
+
+	int sci = payload.get("scientists", 0).asInt();
+	int eng = payload.get("engineers", 0).asInt();
+	if (sci > fromBase->getAvailableScientists()) { failReason = "not enough scientists"; return false; }
+	if (eng > fromBase->getAvailableEngineers()) { failReason = "not enough engineers"; return false; }
+	total += (int64_t)sci * sciCost;
+	total += (int64_t)eng * engCost;
+
+	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	if (Options::storageLimitsEnforced && toBase->storesOverfull(storeAddTo))
+		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+
+	cost = total; // positive debit
+	return true;
+}
+
+void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*/)
+{
+	if (!fromBase) return;
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	Base* toBase = resolveBase(game, payload.get("toBaseId", -1).asInt());
+	if (!toBase) return;
+
+	double distance = baseDistance(fromBase, toBase);
+	int time = (int)floor(6 + distance / 10.0);
+
+	const Json::Value& items = payload["items"];
+	if (items.isArray())
+		for (const auto& it : items)
+		{
+			int qty = it.get("qty", 0).asInt();
+			RuleItem* r = mod->getItem(it.get("rule", "").asString(), false);
+			if (!r || qty <= 0) continue;
+			fromBase->getStorageItems()->removeItem(r, qty);
+			Transfer* t = new Transfer(time);
+			t->setItems(r, qty);
+			toBase->getTransfers()->push_back(t);
+		}
+
+	const Json::Value& soldiers = payload["soldiers"];
+	if (soldiers.isArray())
+		for (const auto& sid : soldiers)
+		{
+			int id = sid.asInt();
+			for (auto it = fromBase->getSoldiers()->begin(); it != fromBase->getSoldiers()->end(); ++it)
+			{
+				Soldier* s = *it;
+				if (s->getId() == id && s->getCraft() == 0)
+				{
+					s->setPsiTraining(false);
+					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
+					s->setTraining(false);
+					// Ownership unchanged by a transfer (PRD-J05).
+					Transfer* t = new Transfer(time);
+					t->setSoldier(s);
+					toBase->getTransfers()->push_back(t);
+					fromBase->getSoldiers()->erase(it);
+					break;
+				}
+			}
+		}
+
+	const Json::Value& crafts = payload["crafts"];
+	if (crafts.isArray())
+		for (const auto& jc : crafts)
+		{
+			Craft* craft = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
+			if (!craft) continue;
+			// Move the craft's assigned soldiers with it (non-airborne path).
+			for (auto it = fromBase->getSoldiers()->begin(); it != fromBase->getSoldiers()->end();)
+			{
+				Soldier* s = *it;
+				if (s->getCraft() == craft)
+				{
+					s->setPsiTraining(false);
+					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
+					s->setTraining(false);
+					Transfer* t = new Transfer(time);
+					t->setSoldier(s);
+					toBase->getTransfers()->push_back(t);
+					it = fromBase->getSoldiers()->erase(it);
+				}
+				else ++it;
+			}
+			fromBase->removeCraft(craft, false);
+			Transfer* t = new Transfer(time);
+			t->setCraft(craft);
+			toBase->getTransfers()->push_back(t);
+		}
+
+	int sci = payload.get("scientists", 0).asInt();
+	int eng = payload.get("engineers", 0).asInt();
+	if (sci > 0)
+	{
+		fromBase->setScientists(fromBase->getScientists() - sci);
+		Transfer* t = new Transfer(time);
+		t->setScientists(sci);
+		toBase->getTransfers()->push_back(t);
+	}
+	if (eng > 0)
+	{
+		fromBase->setEngineers(fromBase->getEngineers() - eng);
+		Transfer* t = new Transfer(time);
+		t->setEngineers(eng);
+		toBase->getTransfers()->push_back(t);
 	}
 }
 
@@ -315,7 +789,7 @@ bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
 
 // research_done payload: { research, bonus, newResearch } (rule names; bonus /
 // newResearch may be "").
-void researchDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return; // host already applied in time1Day
 	if (!base) return;
@@ -363,7 +837,7 @@ void researchDoneApply(Game* game, const Json::Value& payload, Base* base, int /
 }
 
 // fac_done payload: { x, y, type }.
-void facDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
@@ -385,7 +859,7 @@ void facDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat
 }
 
 // prod_done payload: { manufacture, units, progress }.
-void prodDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
@@ -436,7 +910,7 @@ void prodDoneApply(Game* game, const Json::Value& payload, Base* base, int /*sea
 }
 
 // transfer_arrived payload: { arrived: [ {type, rule, qty} ] }.
-void transferArrivedApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void transferArrivedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
@@ -459,6 +933,13 @@ void transferArrivedApply(Game* game, const Json::Value& payload, Base* base, in
 				match = (t->getQuantity() == qty);
 			else if (match && type == TRANSFER_CRAFT)
 				match = (t->getCraft() && t->getCraft()->getRules()->getType() == rule);
+			else if (match && type == TRANSFER_SOLDIER)
+				// PRD-J05: hired/transferred soldiers arrive here too. Match by the
+				// soldier's rule type (rule may be "" from an older host -> FIFO
+				// falls back to the first pending soldier transfer, still correct
+				// because host and replica built them in identical order).
+				match = (t->getSoldier() && (rule.empty()
+					|| t->getSoldier()->getRules()->getType() == rule));
 			if (!match) continue;
 
 			// Force delivery: advance() delivers exactly once when hours reach 0
@@ -473,7 +954,7 @@ void transferArrivedApply(Game* game, const Json::Value& payload, Base* base, in
 }
 
 // day_tick payload: { soldiers: [ {id, recovery} ] }.
-void dayTickApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
@@ -538,10 +1019,13 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 
 	// Passed: debit the authoritative funds, apply the mutation, then broadcast
 	// joint_apply (carrying the post-mutation funds) to every peer and joint_ok
-	// to the initiator.
+	// to the initiator. The applier gets a MUTABLE payload copy so it can resolve
+	// host-only RNG into it (e.g. buy serializes generated soldiers); the resolved
+	// payload is what we broadcast, so replicas reconstruct instead of re-rolling.
 	SavedGame* save = game->getSavedGame();
 	save->setFunds(save->getFunds() - cost);
-	hit->second.apply(game, pc.payload, base, pc.seat);
+	Json::Value payload = pc.payload;
+	hit->second.apply(game, payload, base, pc.seat);
 	++g_applyN;
 
 	Json::Value apply;
@@ -550,7 +1034,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	apply["seq"] = pc.seq;
 	apply["seat"] = pc.seat;
 	apply["baseId"] = pc.baseId;
-	apply["payload"] = pc.payload;
+	apply["payload"] = payload;
 	apply["funds"] = Json::Value::Int64(save->getFunds());
 	broadcast(game, apply);
 
@@ -578,7 +1062,10 @@ void processApply(Game* game, const Json::Value& ap)
 	auto hit = reg.find(cmd);
 	if (hit == reg.end() || !base) return; // healthy host never broadcasts this
 
-	hit->second.apply(game, ap["payload"], base, ap.get("seat", 0).asInt());
+	// Mutable copy for the applier signature; the replica only READS the resolved
+	// payload (host already resolved any RNG before broadcasting).
+	Json::Value payload = ap["payload"];
+	hit->second.apply(game, payload, base, ap.get("seat", 0).asInt());
 	++g_applyN;
 }
 
@@ -595,6 +1082,10 @@ void init()
 	if (g_inited) return;
 	g_inited = true;
 	registerCmd("buy", &buyValidate, &buyApply);
+	// PRD-J05 economy commands (client -> host mutation requests).
+	registerCmd("sell",        &sellValidate,        &sellApply);
+	registerCmd("containment", &containmentValidate, &containmentApply);
+	registerCmd("transfer",    &transferValidate,    &transferApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);

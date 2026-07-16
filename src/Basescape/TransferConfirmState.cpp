@@ -30,6 +30,7 @@
 #include "TransferItemsState.h"
 
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -111,6 +112,20 @@ void TransferConfirmState::btnCancelClick(Action *)
  */
 void TransferConfirmState::btnOkClick(Action *)
 {
+
+	// COOP JOINT (PRD-J05): intra-world base->base move routed through the
+	// "transfer" joint_cmd. Neither the SEPARATE createPendingTransfers path nor
+	// the local completeTransfer runs; the host applies + broadcasts. This gate
+	// fires before the SEPARATE _coopBase check so the SEPARATE machinery never
+	// runs in JOINT.
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		_state->submitJointTransfer();
+		_game->popState();
+		_game->popState();
+		_game->popState();
+		return;
+	}
 
 	// coop (to base)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)

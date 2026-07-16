@@ -125,6 +125,11 @@ public:
 	/// SEPARATE/solo -> the vanilla local buy). Returns false if no purchasable
 	/// ITEM row matches. Main thread only; not used by normal gameplay.
 	bool harnessBuyItem(const std::string& itemType, int count);
+	/// Test-harness hook (PRD-J05): set the hire quantity for SOLDIER <soldierType>
+	/// to <count> and invoke the real OK handler (JOINT -> emits a "buy" joint_cmd
+	/// carrying the soldier rows the host generates + serializes at apply). Returns
+	/// false if no purchasable SOLDIER row matches. Main thread only.
+	bool harnessBuySoldier(const std::string& soldierType, int count);
 };
 
 }

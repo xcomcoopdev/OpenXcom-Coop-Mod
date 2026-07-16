@@ -88,8 +88,15 @@ using CmdValidator = std::function<bool(Game* game, const Json::Value& payload,
  * deterministic and funds-free: the protocol debits the host and setFunds() on
  * replicas from the packet's authoritative funds, so the applier must never
  * touch funds. @a base is the resolved target (never null here).
+ *
+ * @a payload is passed by mutable reference so the HOST applier may RESOLVE any
+ * host-only RNG into it before it is broadcast (e.g. "buy" serializes each hired
+ * soldier's generated YAML into the payload; replicas reconstruct from that YAML
+ * rather than re-rolling and diverging). The applier must remain deterministic
+ * GIVEN the (post-resolution) payload, so host and replica produce identical
+ * worlds. Replicas receive the resolved payload and must never re-resolve.
  */
-using CmdApplier = std::function<void(Game* game, const Json::Value& payload,
+using CmdApplier = std::function<void(Game* game, Json::Value& payload,
                                       Base* base, int seat)>;
 
 /// Register (or overwrite) a command's validate + apply callbacks.

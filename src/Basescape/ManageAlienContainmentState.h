@@ -105,6 +105,11 @@ public:
 	void decreaseByValue(int change);
 	/// Updates the quantity-strings of the selected alien.
 	void updateStrings();
+	/// Test-harness hook (PRD-J05): set the removal quantity for alien <alienType>
+	/// to <count> then run the real deal handler (JOINT -> emits a "containment"
+	/// joint_cmd; @a sell chooses sell-vs-execute). Returns false if no matching
+	/// alien row. Main thread only.
+	bool harnessRemovePrisoner(const std::string& alienType, int count, bool sell);
 };
 
 }

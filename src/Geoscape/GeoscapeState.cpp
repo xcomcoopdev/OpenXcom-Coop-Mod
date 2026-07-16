@@ -56,6 +56,7 @@
 #include "../Savegame/Waypoint.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Soldier.h"
+#include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDiary.h"
 #include "../Menu/PauseState.h"
 #include "SelectMusicTrackState.h"
@@ -3633,6 +3634,10 @@ void GeoscapeState::time1Hour()
 					d["rule"] = transfer->getItems()->getType();
 				else if (transfer->getType() == TRANSFER_CRAFT && transfer->getCraft())
 					d["rule"] = transfer->getCraft()->getRules()->getType();
+				else if (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
+					// PRD-J05: soldier transfers (hires + base->base moves) now arrive
+					// on replicas too; carry the rule type so the replica matches by it.
+					d["rule"] = transfer->getSoldier()->getRules()->getType();
 				else
 					d["rule"] = "";
 				d["qty"] = transfer->getQuantity();

@@ -53,6 +53,7 @@
 #include "../Battlescape/Position.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
+#include "../Mod/RuleSoldier.h"
 #include "../Mod/Unit.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
@@ -104,6 +105,8 @@
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/PurchaseState.h"
+#include "../Basescape/SellState.h"
+#include "../Basescape/ManageAlienContainmentState.h"
 #include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
@@ -1464,6 +1467,27 @@ std::string TestServer::execute(const std::string& line)
 					js["name"] = s->getName();
 					js["owner"] = s->getOwnerPlayerId();
 					js["coopBase"] = s->getCoopBase();
+					js["id"] = s->getId();
+					js["type"] = s->getRules()->getType();
+					// PRD-J05: a compact stats fingerprint so a hire test can assert
+					// the host-generated soldier is byte-identical on the replica
+					// (reconstructed from the serialized YAML, never re-rolled).
+					{
+						const UnitStats* st = s->getCurrentStats();
+						Json::Value stats(Json::objectValue);
+						stats["tu"] = st->tu;
+						stats["stamina"] = st->stamina;
+						stats["health"] = st->health;
+						stats["bravery"] = st->bravery;
+						stats["reactions"] = st->reactions;
+						stats["firing"] = st->firing;
+						stats["throwing"] = st->throwing;
+						stats["strength"] = st->strength;
+						stats["psiStrength"] = st->psiStrength;
+						stats["psiSkill"] = st->psiSkill;
+						stats["melee"] = st->melee;
+						js["stats"] = stats;
+					}
 					Json::Value layout(Json::arrayValue);
 					for (auto* eli : *s->getEquipmentLayout())
 					{
@@ -1718,16 +1742,156 @@ std::string TestServer::execute(const std::string& line)
 					{ target = base; break; }
 				}
 			}
+			// <kind> "item" (default) or "soldier": PRD-J05 hires spend shared funds
+			// and the host generates + serializes the soldier into joint_apply.
+			std::string kind = req.get("kind", "item").asString();
 			if (!target)
 				resp["error"] = "base not found";
 			else
 			{
 				PurchaseState* ps = new PurchaseState(target);
 				_game->pushState(ps);
-				bool ok = ps->harnessBuyItem(itemType, count); // calls btnOkClick -> popState
+				bool ok = (kind == "soldier")
+					? ps->harnessBuySoldier(itemType, count)
+					: ps->harnessBuyItem(itemType, count); // calls btnOkClick -> popState
 				resp["sent"] = ok;
 				resp["ok"] = ok;
-				if (!ok) resp["error"] = "no purchasable row for item: " + itemType;
+				if (!ok) resp["error"] = "no purchasable row for " + kind + ": " + itemType;
+			}
+		}
+		else if (cmd == "sell")
+		{
+			// PRD-J05: drive a SELL of <count> of ITEM <item> through the real
+			// SellState OK path. In JOINT this emits a "sell" joint_cmd (nothing is
+			// removed until the joint_apply round-trip). <base> optional.
+			std::string itemType = req.get("item", "").asString();
+			int count = req.get("count", 1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else
+			{
+				SellState* ss = new SellState(target, nullptr, OPT_GEOSCAPE);
+				_game->pushState(ss);
+				bool ok = ss->harnessSellItem(itemType, count); // btnOkClick -> popState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "no sellable row for item: " + itemType;
+			}
+		}
+		else if (cmd == "joint_transfer")
+		{
+			// PRD-J05: drive a base->base transfer of <count> of ITEM <item> from
+			// <fromBase> to <toBase> through TransferItemsState -> submitJointTransfer
+			// (the JOINT "transfer" joint_cmd). Bases matched by name.
+			std::string itemType = req.get("item", "").asString();
+			int count = req.get("count", 1).asInt();
+			std::string fromName = req.get("fromBase", "").asString();
+			std::string toName = req.get("toBase", "").asString();
+			Base* from = nullptr; Base* to = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (from == nullptr && (fromName.empty()
+						? (base->_coopBase == false && base->_coopIcon == false)
+						: base->getName() == fromName)) from = base;
+					else if (!toName.empty() && base->getName() == toName) to = base;
+				}
+			if (!from || !to)
+				resp["error"] = "from/to base not found";
+			else
+			{
+				TransferItemsState* st = new TransferItemsState(from, to, nullptr);
+				bool ok = st->harnessTransferItem(itemType, count); // submitJointTransfer
+				delete st;
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "no transferable row for item: " + itemType;
+			}
+		}
+		else if (cmd == "containment")
+		{
+			// PRD-J05: remove <count> live aliens of type <item> from a base's
+			// containment via the real ManageAlienContainmentState path (JOINT ->
+			// "containment" joint_cmd). <sell>=true sells, false executes.
+			std::string alienType = req.get("item", "").asString();
+			int count = req.get("count", 1).asInt();
+			bool sell = req.get("sell", true).asBool();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			RuleItem* alien = _game->getMod()->getItem(alienType, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!alien)
+				resp["error"] = "unknown alien item: " + alienType;
+			else
+			{
+				ManageAlienContainmentState* ms =
+					new ManageAlienContainmentState(target, alien->getPrisonType(), OPT_GEOSCAPE);
+				_game->pushState(ms);
+				bool ok = ms->harnessRemovePrisoner(alienType, count, sell); // dealWith -> popState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "no containment row for alien: " + alienType;
+			}
+		}
+		else if (cmd == "give_items")
+		{
+			// PRD-J05 test helper: add <count> of ITEM <item> directly to a base's
+			// stores on THIS machine. Deterministic (no RNG); call on host AND
+			// client identically to set up an equal shared world for a sell /
+			// containment test.
+			std::string itemType = req.get("item", "").asString();
+			int count = req.get("count", 1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			RuleItem* rule = _game->getMod()->getItem(itemType, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown item: " + itemType;
+			else
+			{
+				target->getStorageItems()->addItem(rule, count);
+				resp["stored"] = target->getStorageItems()->getItem(rule);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "add_base")
+		{
+			// PRD-J05 test helper: append a minimal empty base (name + coords only,
+			// no facilities) to THIS machine's world. Deterministic; call on host
+			// AND client identically so both hold the same base list in the same
+			// order (baseId = index resolves equally). Stands in for J07's proper
+			// joint_apply base creation - test scaffolding only.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg)
+				resp["error"] = "no save";
+			else
+			{
+				Base* b = new Base(_game->getMod());
+				b->setName(req.get("name", "Base B").asString());
+				b->setLongitude(req.get("lon", 1.0).asDouble());
+				b->setLatitude(req.get("lat", 0.3).asDouble());
+				sg->getBases()->push_back(b);
+				resp["baseCount"] = (int)sg->getBases()->size();
+				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "joint_cmd")

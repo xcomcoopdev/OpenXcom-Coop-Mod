@@ -33,6 +33,7 @@
 #include "../Mod/RuleRegion.h"
 #include "TransferItemsState.h"
 #include "../Battlescape/DebriefingState.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -45,8 +46,12 @@ namespace OpenXcom
 TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingState) : _base(base), _debriefingState(debriefingState)
 {
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// coop (SEPARATE only): swap in the peer's mirror bases so the destination
+	// list can include them. In JOINT every base is already a real shared base in
+	// getBases(), so the list below (all bases minus source) is already correct -
+	// this swap must NOT run (PRD-J05).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
+		&& !_game->getCoopMod()->isJointCampaign())
 	{
 
 		*_game->getSavedGame()->getBases() = _base->old_bases;
@@ -138,8 +143,10 @@ TransferBaseState::~TransferBaseState()
 void TransferBaseState::btnCancelClick(Action *)
 {
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// coop (SEPARATE only): restore the real base list after the mirror swap above.
+	// Not done in JOINT (no swap happened there).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
+		&& !_game->getCoopMod()->isJointCampaign())
 	{
 
 		// coop

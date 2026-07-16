@@ -1010,6 +1010,23 @@ bool PurchaseState::harnessBuyItem(const std::string& itemType, int count)
 	return false;
 }
 
+bool PurchaseState::harnessBuySoldier(const std::string& soldierType, int count)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_SOLDIER && row.rule
+			&& ((RuleSoldier*)row.rule)->getType() == soldierType)
+		{
+			row.amount = count;
+			_total += row.cost * count;
+			_pQty += count;
+			btnOkClick(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Returns to the previous screen.
  * @param action Pointer to an action.

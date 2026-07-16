@@ -51,6 +51,9 @@
 #include "TechTreeViewerState.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Battlescape/DebriefingState.h"
+#include "../Mod/RuleCraft.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -699,6 +702,88 @@ void TransferItemsState::createPendingTransfers()
 	// Send to the other player
 	_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
+}
+
+/**
+ * COOP JOINT (PRD-J05): emit the intra-world base->base "transfer" joint_cmd from
+ * the current selection. Mutates NOTHING locally - the host validates space +
+ * funds, creates the destination Transfers, and broadcasts joint_apply (which
+ * reconstructs them on every replica, and later delivers via transfer_arrived).
+ * This is the JOINT replacement for completeTransfer()/createPendingTransfers()
+ * (the SEPARATE cross-player syncTrade flow) and must not run those.
+ */
+void TransferItemsState::submitJointTransfer()
+{
+	Json::Value items(Json::arrayValue);
+	Json::Value soldiers(Json::arrayValue);
+	Json::Value crafts(Json::arrayValue);
+	int scientists = 0, engineers = 0;
+	for (const auto& row : _items)
+	{
+		if (row.amount <= 0) continue;
+		switch (row.type)
+		{
+		case TRANSFER_ITEM:
+		{
+			Json::Value e;
+			e["rule"] = ((RuleItem*)row.rule)->getType();
+			e["qty"] = row.amount;
+			items.append(e);
+			break;
+		}
+		case TRANSFER_SOLDIER:
+			soldiers.append(((Soldier*)row.rule)->getId());
+			break;
+		case TRANSFER_CRAFT:
+		{
+			Craft* c = (Craft*)row.rule;
+			Json::Value e;
+			e["id"] = c->getId();
+			e["type"] = c->getRules()->getType();
+			crafts.append(e);
+			break;
+		}
+		case TRANSFER_SCIENTIST: scientists += row.amount; break;
+		case TRANSFER_ENGINEER:  engineers  += row.amount; break;
+		}
+	}
+	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers)
+		return;
+
+	auto* bases = _game->getSavedGame()->getBases();
+	int fromId = 0, toId = 0;
+	for (size_t i = 0; i < bases->size(); ++i)
+	{
+		if ((*bases)[i] == _baseFrom) fromId = (int)i;
+		if ((*bases)[i] == _baseTo)   toId = (int)i;
+	}
+	Json::Value payload;
+	payload["toBaseId"] = toId;
+	payload["items"] = items;
+	payload["soldiers"] = soldiers;
+	payload["crafts"] = crafts;
+	payload["scientists"] = scientists;
+	payload["engineers"] = engineers;
+	JointEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+}
+
+/**
+ * Test-harness hook (PRD-J05): transfer <count> of ITEM <itemType> A->B via the
+ * JOINT submission path. Returns false if no matching row.
+ */
+bool TransferItemsState::harnessTransferItem(const std::string& itemType, int count)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			row.amount = count;
+			submitJointTransfer();
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
