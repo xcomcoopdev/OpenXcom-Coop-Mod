@@ -343,8 +343,9 @@ ServerList::ServerList() : _sortable(true)
 
 	updateArrows();
 
-	// check if campaign
-	if (!_game->getSavedGame()->getCountries()->empty())
+	// check if campaign (no loaded game = not a campaign; guard the deref so
+	// a save-less path into the browser cannot crash here)
+	if (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty())
 	{
 		_game->getCoopMod()->setCoopCampaign(true);
 	}
