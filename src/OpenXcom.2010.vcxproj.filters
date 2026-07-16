@@ -149,6 +149,12 @@
     <ClCompile Include="Savegame\SavedGame.cpp">
       <Filter>Savegame</Filter>
     </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SaveUpgrade.cpp">
+      <Filter>Savegame\Upgrade</Filter>
+    </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SchemaStep1to2.cpp">
+      <Filter>Savegame\Upgrade</Filter>
+    </ClCompile>
     <ClCompile Include="Savegame\Soldier.cpp">
       <Filter>Savegame</Filter>
     </ClCompile>
@@ -1403,6 +1409,12 @@
     </ClInclude>
     <ClInclude Include="Savegame\SavedGame.h">
       <Filter>Savegame</Filter>
+    </ClInclude>
+    <ClInclude Include="Savegame\Upgrade\SaveUpgrade.h">
+      <Filter>Savegame\Upgrade</Filter>
+    </ClInclude>
+    <ClInclude Include="Savegame\Upgrade\SaveUpgradeTypes.h">
+      <Filter>Savegame\Upgrade</Filter>
     </ClInclude>
     <ClInclude Include="Savegame\Soldier.h">
       <Filter>Savegame</Filter>
@@ -2765,6 +2777,9 @@
     </Filter>
     <Filter Include="Savegame">
       <UniqueIdentifier>{3b64dd6e-f151-4246-a211-0c6fec5766c5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Savegame\Upgrade">
+      <UniqueIdentifier>{6d2f4a1c-9e3b-4c7a-bf10-2a5c7e9d4b81}</UniqueIdentifier>
     </Filter>
     <Filter Include="Menu">
       <UniqueIdentifier>{4218da2f-b393-45b2-a55f-da7fa4d91fe4}</UniqueIdentifier>

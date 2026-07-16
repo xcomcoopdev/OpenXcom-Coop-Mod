@@ -741,6 +741,12 @@
     <ClCompile Include="Savegame\SaveConverter.cpp" />
     <ClCompile Include="Savegame\SavedBattleGame.cpp" />
     <ClCompile Include="Savegame\SavedGame.cpp" />
+    <ClCompile Include="Savegame\Upgrade\SaveUpgrade.cpp">
+      <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SchemaStep1to2.cpp">
+      <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="Savegame\SerializationHelper.cpp" />
     <ClCompile Include="Savegame\Soldier.cpp" />
     <ClCompile Include="Savegame\Node.cpp">
@@ -1249,6 +1255,8 @@
     <ClInclude Include="Savegame\SaveConverter.h" />
     <ClInclude Include="Savegame\SavedBattleGame.h" />
     <ClInclude Include="Savegame\SavedGame.h" />
+    <ClInclude Include="Savegame\Upgrade\SaveUpgrade.h" />
+    <ClInclude Include="Savegame\Upgrade\SaveUpgradeTypes.h" />
     <ClInclude Include="Savegame\SerializationHelper.h" />
     <ClInclude Include="Savegame\Soldier.h" />
     <ClInclude Include="Savegame\Node.h" />
