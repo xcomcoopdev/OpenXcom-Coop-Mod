@@ -1,8 +1,9 @@
 name: CI (build + coop tests + publish)
 
-# Self-hosted Windows runner (mcservers). Builds x64 Release from a clean
-# checkout, runs the coop harness headless, and publishes a rolling nightly
-# (push to main) or a versioned release (push of a v* tag).
+# FREE GitHub-hosted windows-latest. Builds x64 Release from a clean checkout,
+# runs the coop harness headless, and publishes a rolling nightly (push to main)
+# or a versioned release (push of a v* tag). Licensed UFO game data is pulled from
+# the private OpenXcom-Coop/UFO_Data repo via the UFO_DATA_TOKEN secret.
 on:
   push:
     branches: [main]        # -> rolling "nightly" prerelease
@@ -14,8 +15,8 @@ permissions: { contents: write }                             # publish releases 
 
 jobs:
   build-test-publish:
-    runs-on: [self-hosted, windows, coop-build]
-    timeout-minutes: 150
+    runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -67,17 +68,23 @@ jobs:
           Set-Content $vh $c -Encoding ascii
           Write-Host "Stamped version: $v$gitSuffix"
 
-      - name: Build x64 Release (serial - /m triggers C1060 on this VM)
-        timeout-minutes: 100   # full clean rebuild on the 2-vCPU VM can exceed 60 min
-        # Per-build mspdbsrv endpoint: mspdbsrv.exe is a per-USER singleton, so a
-        # concurrent same-user MSBuild (e.g. another session on a shared runner)
-        # collides on it -> C1090 'PDB API call failed' / D8040 'communicating with
-        # child process' / CL killed. A unique endpoint gives this build its own.
+      - name: Build x64 Release (serial)
+        timeout-minutes: 60
+        # Serial: /m can OOM the template-heavy TUs (C1060). Unique _MSPDBSRV_ENDPOINT_
+        # avoids the per-user mspdbsrv PDB-server collision (C1090 / D8040) if a runner
+        # is ever shared with another build.
         env:
           _MSPDBSRV_ENDPOINT_: ci_${{ github.run_id }}_${{ github.run_attempt }}
         shell: cmd
         working-directory: src
         run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
+
+      - name: Fetch UFO data (private, licensed)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenXcom-Coop/UFO_Data
+          token: ${{ secrets.UFO_DATA_TOKEN }}
+          path: .ufo_data
 
       - name: Stage data next to exe
         shell: pwsh
@@ -86,8 +93,8 @@ jobs:
           robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
           robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
           robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
-          robocopy C:\oxc-data\UFO "$d\UFO"    /E /NFL /NDL /NJH /NJS         # proprietary base data, runner-stored
-          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the repo
+          robocopy .ufo_data "$d\UFO" /E /XD .git /NFL /NDL /NJH /NJS               # licensed UFO data from private repo
+          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the public repo
           if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
           # Rendezvous config (git-ignored real one is per-deployment): the coop
           # harness needs a parseable rendezvous.json next to the exe or ServerList's
