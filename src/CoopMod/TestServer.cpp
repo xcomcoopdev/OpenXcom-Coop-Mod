@@ -2594,6 +2594,92 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "repro_craft_uaf")
+		{
+			// Bug #1 shim: drives the REAL Base::removePendingTransfers + the REAL
+			// Transfer dtor. Mirrors createPendingTransfers (one soldier transfer
+			// for the crew + one craft transfer), then runs exactly the
+			// connectionTCP "transfer_completed" removal+delete sequence and checks
+			// whether the kept crew's Craft* is left dangling.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg) { resp["error"] = "no save loaded"; }
+			else {
+				Base* baseFrom = nullptr;
+				for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { baseFrom = b; break; }
+				if (!baseFrom) resp["error"] = "no own base";
+				else if (baseFrom->getCrafts()->empty()) resp["error"] = "base has no craft";
+				else if (baseFrom->getSoldiers()->empty()) resp["error"] = "base has no soldier";
+				else {
+					Craft* craft = baseFrom->getCrafts()->front();
+					Soldier* crew = baseFrom->getSoldiers()->front();
+					// SETUP FIX: strip any default crew so the transfer set is complete (else validation rejects).
+					for (auto* s : *baseFrom->getSoldiers())
+						if (s->getCraft() == craft && s != crew) s->setCraft(nullptr);
+					crew->setCraft(craft);
+
+					// Mirror createPendingTransfers: one soldier transfer for the crew + one craft transfer.
+					std::vector<Transfer*> pending;
+					Transfer* st = new Transfer(6); st->setSoldier(crew); pending.push_back(st);
+					Transfer* ct = new Transfer(6); ct->setCraft(craft);  pending.push_back(ct);
+
+					// Exactly the connectionTCP "transfer_completed" sequence:
+					bool removeOk = baseFrom->removePendingTransfers(&pending);
+					if (removeOk) { for (Transfer* t : pending) delete t; pending.clear(); } // dtor frees _craft
+
+					// Detect the dangling ref WITHOUT dereferencing the freed craft:
+					Craft* stored = crew->getCraft();
+					bool craftStillLive = false;
+					for (auto* c : *baseFrom->getCrafts()) if (c == stored) { craftStillLive = true; break; }
+
+					resp["removeOk"] = removeOk;
+					resp["crewName"] = crew->getName();
+					resp["crewCraftNonNull"] = (stored != nullptr);
+					resp["crewCraftDangling"] = (stored != nullptr && !craftStillLive); // TRUE == bug present
+					crew->setCraft(nullptr); // repair the live instance so teardown/save is safe
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "repro_receiver_ack_gap")
+		{
+			// Bug #2 shim: drives the REAL onTCPMessage("transfer", ...) + the REAL
+			// updateCoopTask() drain. Feeds a transfer whose base_to_id exists on no
+			// base and checks the receiver does not accept+queue (and would ACK) it.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg || !coop) { resp["error"] = "no save/coop"; }
+			else {
+				int bogus = 424242;
+				for (auto* b : *sg->getBases()) if (b->_coop_base_id == bogus) bogus = 424243;
+				int before = 0; for (auto* b : *sg->getBases()) before += (int)b->getTransfers()->size();
+
+				Json::Value obj;
+				obj["state"] = "transfer";
+				obj["base_to_id"] = bogus; obj["base_from_id"] = bogus; obj["total_funds"] = 0;
+				obj["items"][0]["name"] = "STR_PISTOL_CLIP"; obj["items"][0]["amount"] = 3;
+				obj["items"][0]["hour"] = 1; obj["items"][0]["type"] = 0; obj["items"][0]["craft_rule"] = "";
+
+				coop->onTCPMessage("transfer", obj);   // real receiver: accepts (items non-empty), would ACK
+				coop->updateCoopTask();                // real drain: no base matches -> silently retained
+
+				int afterNoMatch = 0; for (auto* b : *sg->getBases()) afterNoMatch += (int)b->getTransfers()->size();
+
+				// Prove it was accepted+queued (not rejected): give a real base the bogus id, drain again.
+				Base* victim = nullptr;
+				for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { victim = b; break; }
+				bool acceptedAndQueued = false;
+				if (victim) {
+					int vBefore = (int)victim->getTransfers()->size();
+					int saved = victim->_coop_base_id; victim->_coop_base_id = bogus;
+					coop->updateCoopTask();
+					acceptedAndQueued = ((int)victim->getTransfers()->size() > vBefore);
+					victim->_coop_base_id = saved;
+				}
+				resp["bogusBaseId"] = bogus;
+				resp["appliedToAnyBaseWhenNoMatch"] = (afterNoMatch > before); // FALSE == silent drop
+				resp["receiverAcceptedAndQueued"] = acceptedAndQueued;         // TRUE  == bug present
+				resp["ok"] = true;
+			}
+		}
 		else
 		{
 			resp["error"] = "unknown cmd: " + cmd;

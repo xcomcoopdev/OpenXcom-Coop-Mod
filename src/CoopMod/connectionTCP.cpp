@@ -67,6 +67,7 @@
 #include "../Mod/Mod.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
 
 namespace OpenXcom
 {
@@ -3842,8 +3843,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "purchase" || stateString == "transfer")
 	{
 
+		// Resolve the target base BEFORE acknowledging. updateCoopTask() only
+		// applies a queued trade to a base whose _coop_base_id == base_to_id;
+		// if no local base matches, the trade is silently retained forever while
+		// the sender - told "*_completed" - has already removed its goods. So a
+		// missing target base must be rejected here, not accepted (silent loss).
+		int base_to_id = obj.get("base_to_id", 0).asInt();
+		Base* targetBase = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto& base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coop_base_id == base_to_id)
+				{
+					targetBase = base;
+					break;
+				}
+			}
+		}
+
 		// Check whether the transfer or purchase data is valid.
-		if (obj.isMember("items") &&
+		if (targetBase &&
+			obj.isMember("items") &&
 			!obj["items"].empty())
 		{
 			// The request is valid.

@@ -93,6 +93,8 @@ public:
 	void btnTransferAllClick(Action *action);
 	/// Completes the transfer between bases.
 	void completeTransfer();
+	/// Builds the pending-transfer list and serializes it for coop sync.
+	void createPendingTransfers();
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if
 	/// the soldier is not a transferable row.

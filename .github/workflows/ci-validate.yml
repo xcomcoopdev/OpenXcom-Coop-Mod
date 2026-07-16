@@ -1,0 +1,101 @@
+name: CI validate (build + coop tests, no publish)
+
+# PR merge gate on FREE GitHub-hosted windows-latest. Every PR into main is proven
+# on a clean build (+ the coop test suite for trusted runs) before it can merge;
+# the `build-test` job is a required status check in main's branch protection.
+#
+# Proprietary UFO game data (licensed) is pulled from the private
+# OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY secret).
+# Secrets are NOT exposed to FORK pull requests, so fork PRs run build-only (no data,
+# no coop tests) while same-repo PRs / manual dispatch run the full gate. Keep "Require
+# approval for all external collaborators" on (Settings > Actions > Fork pull request workflows).
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Hosted runs are isolated VMs, so per-ref concurrency + cancel-in-progress is safe
+# and cheap (supersede stale gate runs when a PR gets new commits).
+concurrency:
+  group: ci-validate-${{ github.ref }}
+  cancel-in-progress: true
+permissions: { contents: read }
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      # true for pushes/dispatch and SAME-REPO PRs (secrets available); false for fork PRs.
+      TRUSTED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build x64 Release (serial)
+        timeout-minutes: 60
+        # Serial: /m can OOM the template-heavy TUs (C1060). Unique _MSPDBSRV_ENDPOINT_
+        # avoids the per-user mspdbsrv PDB-server collision (C1090 / D8040) if a runner
+        # is ever shared with another build.
+        env:
+          _MSPDBSRV_ENDPOINT_: ci_${{ github.run_id }}_${{ github.run_attempt }}
+        shell: cmd
+        working-directory: src
+        run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
+
+      - name: Fetch UFO data (private, licensed)
+        if: env.TRUSTED == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: OpenXcom-Coop/UFO_Data
+          ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
+          path: .ufo_data
+
+      - name: Stage data next to exe
+        if: env.TRUSTED == 'true'
+        shell: pwsh
+        run: |
+          $d = "bin\x64\Release"
+          robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
+          robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
+          robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
+          robocopy .ufo_data "$d\UFO" /E /XD .git /NFL /NDL /NJH /NJS               # licensed UFO data from private repo
+          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the public repo
+          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+          # Rendezvous config: the coop harness needs a parseable rendezvous.json next to
+          # the exe or ServerList's ctor errors into a CoopState and the UDP-public host
+          # path crashes. Ship the CI config (blackhole host + throwaway valid keys).
+          Copy-Item tools\coop_test\rendezvous.ci.json "$d\rendezvous.json" -Force
+          if (-not (Test-Path "$d\OpenXcom.exe"))             { throw "build produced no exe" }
+          if (-not (Test-Path "$d\UFO\GEODATA"))              { throw "UFO data not staged (UFO_DATA_TOKEN / private repo?)" }
+          if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
+          if (-not (Test-Path "$d\rendezvous.json"))          { throw "rendezvous.json not staged" }
+
+      - name: Coop test suite (headless)   # the gate (trusted runs only)
+        if: env.TRUSTED == 'true'
+        timeout-minutes: 40
+        shell: pwsh
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
+                   Select-Object -ExpandProperty BaseName | Sort-Object
+          $quarantine = @()
+          $fail = 0
+          foreach ($t in $tests) {
+            python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
+            if ($rc -ne 0) { python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE }   # retry once (flake tolerance)
+            if ($rc -eq 0)                    { Write-Host "PASS        $t" }
+            elseif ($quarantine -contains $t) { Write-Host "KNOWN-FAIL  $t (quarantined, rc=$rc)" }
+            else                              { Write-Host "FAIL        $t (rc=$rc)"; $fail++ }
+          }
+          if ($fail -gt 0) { throw "$fail non-quarantined test(s) failed" }
+
+      - name: Fork PR - build only (no private data / coop tests)
+        if: env.TRUSTED != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Fork PR built OK; coop tests skipped (private UFO data not available to fork runs). A maintainer runs the full gate from a same-repo branch."

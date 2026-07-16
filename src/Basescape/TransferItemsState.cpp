@@ -891,6 +891,96 @@ void TransferItemsState::completeTransfer()
 		_debriefingState->hideSellTransferButtons();
 	}
 
+	// COOP (Transportation of goods for export)
+	// completeTransfer is the immediate (non-ACK-gated) coop transfer path used
+	// for the soldier-ownership / "alternate craft equipment management" gear
+	// move. It builds the pending transfers on the local mirror of the peer base
+	// above; the peer must still be told about them or the goods never arrive
+	// (that notify was dropped in PR #38 - equipment tests regressed). Uses the
+	// current base-id schema (createPendingTransfers / updateCoopTask key on
+	// _coop_base_id, not the base name the old block sent).
+	if (_baseTo->_coopBase == true && _baseTo->getTransfers())
+	{
+		Json::Value root;
+		root["state"] = "transfer";
+		root["base_to_id"] = _baseTo->_coop_base_id;
+		root["base_from_id"] = _baseFrom->_coop_base_id;
+		root["total_funds"] = _total;
+
+		int index = 0;
+		for (auto trade : *_baseTo->getTransfers())
+		{
+			if (!trade)
+				continue;
+
+			for (int i = 0; i < trade->getQuantity(); i++)
+			{
+				if (trade->getType() == TRANSFER_SOLDIER)
+				{
+					_baseTo->coop_soldiers--;
+					_baseTo->coop_quarters--;
+				}
+				else if (trade->getType() == TRANSFER_CRAFT)
+				{
+					_baseTo->coop_hangar--;
+				}
+				else if (trade->getType() == TRANSFER_ITEM)
+				{
+					_baseTo->coop_stores--;
+				}
+				else if (trade->getType() == TRANSFER_ENGINEER)
+				{
+					_baseTo->coop_quarters--;
+				}
+				else if (trade->getType() == TRANSFER_SCIENTIST)
+				{
+					_baseTo->coop_quarters--;
+				}
+			}
+
+			root["items"][index]["craft_rule"] = "";
+
+			std::string item_name = "";
+			int item_amount = trade->getQuantity();
+			int hour = trade->getHours();
+
+			if (trade->getType() == TRANSFER_SOLDIER)
+			{
+				// Let's make a co-op soldier
+				trade->getSoldier()->setCoopBase(_baseTo->_coop_base_id);
+			}
+			else if (trade->getType() == TRANSFER_CRAFT)
+			{
+				root["items"][index]["craft_rule"] = trade->getCraft()->getRules()->getType();
+			}
+			else if (trade->getType() == TRANSFER_SCIENTIST)
+			{
+				item_amount = trade->getScientists();
+			}
+			else if (trade->getType() == TRANSFER_ENGINEER)
+			{
+				item_amount = trade->getEngineers();
+			}
+			// TRANSFER_ITEM
+			else if (trade->getItems())
+			{
+				item_name = trade->getItems()->getName();
+			}
+
+			root["items"][index]["amount"] = item_amount;
+			root["items"][index]["hour"] = hour;
+			root["items"][index]["type"] = (int)trade->getType();
+			root["items"][index]["name"] = item_name;
+
+			index++;
+		}
+
+		// Send to the other player.
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+		_baseTo->getTransfers()->clear();
+	}
+
 }
 
 /**
