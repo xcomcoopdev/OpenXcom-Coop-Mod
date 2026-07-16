@@ -9,6 +9,7 @@ drive both through save-load / host / join / lobby, then assert on soldiers.
 """
 
 import json
+import msvcrt
 import os
 import shutil
 import socket
@@ -18,6 +19,39 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXE = os.path.join(REPO, "bin", "x64", "Release", "OpenXcom.exe")
 TEST_ROOT = os.path.join(os.environ["TEMP"], "oxc-coop-test")
+
+# Machine-wide harness lock: suites are stateful (fixed TCP ports per test,
+# shared TEST_ROOT under %TEMP%), so concurrent runs — e.g. from two git
+# worktrees — would collide. First spawn in a process takes the lock; the OS
+# releases it when the process exits (including on crash).
+_LOCK_PATH = os.path.join(os.environ["TEMP"], "oxc-coop-harness.lock")
+_lock_handle = None
+
+
+def _acquire_machine_lock(timeout=3600):
+    global _lock_handle
+    if _lock_handle is not None:
+        return
+    h = open(_LOCK_PATH, "a")
+    deadline = time.time() + timeout
+    waited = False
+    while True:
+        try:
+            msvcrt.locking(h.fileno(), msvcrt.LK_NBLCK, 1)
+            _lock_handle = h  # held for process lifetime
+            if waited:
+                print("[harness] machine lock acquired")
+            return
+        except OSError:
+            if time.time() > deadline:
+                h.close()
+                raise TimeoutError(
+                    "another coop harness run holds " + _LOCK_PATH)
+            if not waited:
+                print("[harness] waiting for machine-wide harness lock "
+                      "(another suite is running)...")
+                waited = True
+            time.sleep(5)
 
 # A known-good land tile for first-base placement (place_first_base rejects
 # water). Shared by the fresh-campaign tests so they need no pre-existing save.
@@ -57,6 +91,7 @@ class GameClient:
         self.buf = b""
 
     def spawn(self, extra_args=()):
+        _acquire_machine_lock()
         env = os.environ.copy()
         env["OXC_TEST_PORT"] = str(self.port)
         # tuck the window into a corner (host left, client right of it)
