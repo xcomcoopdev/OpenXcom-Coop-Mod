@@ -9,6 +9,8 @@ on:
         default: "main"
 
   push:
+    branches:
+      - automated-builds        # TEMP: one-time validation that the current coop code cross-compiles under MinGW
     tags:
       - "v*"
       - "winxp-*"
