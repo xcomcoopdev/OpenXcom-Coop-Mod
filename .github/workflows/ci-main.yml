@@ -18,6 +18,10 @@ jobs:
   build-test-publish:
     runs-on: windows-latest
     timeout-minutes: 120
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag:     ${{ steps.meta.outputs.tag }}
+      channel: ${{ steps.meta.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -213,3 +217,84 @@ jobs:
           # release -> curated notes from CHANGELOG.md; nightly -> auto-generated
           body_path: ${{ steps.meta.outputs.channel == 'release' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ steps.meta.outputs.channel != 'release' }}
+
+  # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Runs after
+  # the x64 job publishes the release, then attaches its zip as an extra asset.
+  # (Folded in from the old build-mxe.yml/build-winxp.yml - one unified CI.)
+  build-winxp:
+    needs: [build-test-publish]
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build tools + MXE deps
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git make g++ build-essential \
+            autopoint gperf intltool libtool-bin lzip zip \
+            ca-certificates wget xz-utils bzip2 \
+            file patch perl pkg-config curl \
+            python2-minimal \
+            p7zip-full bison flex ruby \
+            gdk-pixbuf2.0-bin \
+            libssl-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev libncurses5-dev
+          ln -sf /usr/bin/python2.7 /usr/bin/python  || true
+          ln -sf /usr/bin/python2.7 /usr/bin/python2 || true
+
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, submodules: recursive }
+
+      - name: Cache MXE toolchain
+        id: cache-mxe
+        uses: actions/cache@v4
+        with:
+          path: mxe
+          key: Linux-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-libsodium-v8
+
+      - name: Build MXE toolchain (only on cache miss)
+        if: steps.cache-mxe.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -d mxe ]; then git clone https://github.com/mxe/mxe.git mxe; fi
+          cd mxe
+          git checkout 7e39b555dee5e906b24a44940055dc28d4056d23
+          # keep mingw-w64 VERSION + CHECKSUM in sync
+          sed -i 's/$(PKG)_VERSION := 8\.0\.2/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
+          sed -i 's/$(PKG)_CHECKSUM := f00cf1e2f975008855c93b9e0f8ec97decbf50f478e7ae4c7b5ffb9cdc54b743/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
+          export MXE_PLUGIN_DIRS="$PWD/plugins/gcc11"
+          make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
+            gcc cmake \
+            sdl sdl_net sdl_gfx sdl_mixer sdl_image \
+            yaml-cpp jsoncpp libsodium
+
+      - name: Configure + build (WinXP i686 static)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
+          export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
+          export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$MXE_PREFIX/lib/pkgconfig"
+          rm -rf build && mkdir -p build && cd build
+          i686-w64-mingw32.static-cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCMAKE_PREFIX_PATH="$MXE_PREFIX" \
+            -DDEPS_DIR= \
+            "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Package WinXP zip
+        run: |
+          cd build/bin
+          rm -f libopenxcom.dll.a || true
+          zip -r "$GITHUB_WORKSPACE/openxcom-coop-winxp-${{ needs.build-test-publish.outputs.version }}-i686.zip" .
+
+      - name: Attach WinXP zip to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-test-publish.outputs.tag }}
+          files: openxcom-coop-winxp-${{ needs.build-test-publish.outputs.version }}-i686.zip
