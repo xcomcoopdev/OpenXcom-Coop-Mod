@@ -3,7 +3,8 @@ name: CI (build + coop tests + publish)
 # FREE GitHub-hosted windows-latest. Builds x64 Release from a clean checkout,
 # runs the coop harness headless, and publishes a rolling nightly (push to main)
 # or a versioned release (push of a v* tag). Licensed UFO game data is pulled from
-# the private OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY).
+# the private OpenXcom-Coop/UFO_Data repo via the UFO_DATA_TOKEN secret and is STRIPPED
+# before packaging so it is never redistributed in a release.
 on:
   push:
     branches: [main]        # -> rolling "nightly" prerelease
@@ -83,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: OpenXcom-Coop/UFO_Data
-          ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
+          token: ${{ secrets.UFO_DATA_TOKEN }}
           path: .ufo_data
 
       - name: Stage data next to exe
@@ -148,6 +149,16 @@ jobs:
           Set-Content "$d\rendezvous.json" $env:RELEASE_RENDEZVOUS_JSON -Encoding ascii -NoNewline
           Write-Host "release rendezvous.json written ($((Get-Item "$d\rendezvous.json").Length) bytes)"
 
+      - name: Strip licensed UFO data before packaging
+        if: success()
+        shell: pwsh
+        run: |
+          # Belt-and-suspenders: the Package allowlist below already excludes UFO, but
+          # delete the licensed retail data outright so it can never end up in a release,
+          # even if the packaging list is later changed to a wildcard.
+          Remove-Item -Recurse -Force bin\x64\Release\UFO -ErrorAction SilentlyContinue
+          if (Test-Path bin\x64\Release\UFO) { throw "UFO data still present after strip" }
+
       - name: Package
         if: success()
         shell: pwsh
@@ -156,6 +167,13 @@ jobs:
           $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
           Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\x64\Release\rendezvous.json,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
+          # Guard: assert no licensed retail X-COM data (GEODATA is the canary) is in the zip.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $z).Path)
+          $bad = @($zip.Entries.FullName | Where-Object { $_ -match 'GEODATA' })
+          $zip.Dispose()
+          if ($bad.Count) { throw "licensed retail data leaked into release zip: $($bad -join ', ')" }
+          Write-Host "package OK ($z); no licensed retail data included"
 
       - name: Release notes from CHANGELOG (release only)
         if: success() && steps.meta.outputs.channel == 'release'
