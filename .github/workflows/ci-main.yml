@@ -205,6 +205,20 @@ jobs:
           git tag -f nightly
           git push -f origin nightly
 
+      - name: Reset rolling nightly release (avoid notes + asset buildup)
+        if: success() && steps.meta.outputs.channel == 'nightly'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The nightly tag/release rolls. Re-publishing to it appends release notes
+          # and accumulates versioned assets (old x64/WinXP/Linux files never get
+          # overwritten). Delete the previous nightly RELEASE (keep the just-moved
+          # tag) so Publish recreates it fresh: correct notes + only this run's assets.
+          gh release delete nightly --repo "$env:GITHUB_REPOSITORY" --yes 2>$null
+          $global:LASTEXITCODE = 0
+          Write-Host "Cleared previous nightly release (if any)"
+
       - name: Publish
         if: success()
         uses: softprops/action-gh-release@v2
