@@ -67,6 +67,7 @@
 #include "../Mod/Mod.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
 
 namespace OpenXcom
 {
