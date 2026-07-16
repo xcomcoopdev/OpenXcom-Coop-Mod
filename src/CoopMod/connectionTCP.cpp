@@ -2752,12 +2752,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "tcp_password")
 	{
 
-		onConnect = -5;
+		// A bounce while the prompt is already up means the password the
+		// player submitted was wrong: let updateCoopTask() raise the
+		// "Incorrect password" dialog (441). The FIRST bounce is only the
+		// challenge; flagging it -5 too made 441 bury the prompt on the
+		// next frame, before the player could type anything.
+		bool promptAlreadyOpen = false;
+		for (State* s : _game->getStates())
+		{
+			if (dynamic_cast<PasswordCheckMenu*>(s) != nullptr)
+			{
+				promptAlreadyOpen = true;
+				break;
+			}
+		}
 
-		connectionTCP::forceCloseCoopStateMenu = true;
+		if (promptAlreadyOpen)
+		{
+			onConnect = -5;
+		}
+		else
+		{
+			connectionTCP::forceCloseCoopStateMenu = true;
 
-		// If this room/server requires a password, open passwordCheck menu.
-		_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), tcp_port, false, true));
+			// If this room/server requires a password, open passwordCheck menu.
+			_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), tcp_port, false, true));
+		}
 
 	}
 
@@ -7306,10 +7326,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// once buried (a non-top state gets no think() tick, and LobbyMenu's ctor
 		// clears the flag anyway), so it would linger and resurface as a stale
 		// "Connecting..." window when the client later leaves the lobby.
+		// A password join buries [Connecting, PasswordCheckMenu, Connecting]
+		// (JOIN pushes a second wait dialog), so pop the stale password menu
+		// too, not just a run of Connecting dialogs (issue #46).
 		while (!_game->getStates().empty())
 		{
-			CoopState* connecting = dynamic_cast<CoopState*>(_game->getStates().back());
-			if (connecting && connecting->getStateCode() == 15)
+			State* top = _game->getStates().back();
+			CoopState* connecting = dynamic_cast<CoopState*>(top);
+			if ((connecting && connecting->getStateCode() == 15) || dynamic_cast<PasswordCheckMenu*>(top) != nullptr)
 				_game->popState();
 			else
 				break;
