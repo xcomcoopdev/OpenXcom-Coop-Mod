@@ -1242,6 +1242,9 @@
     <ClCompile Include="CoopMod\TestServer.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\JointEcon.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2738,6 +2741,9 @@
     </ClInclude>
     <ClInclude Include="CoopMod\CrashHandler.h" />
     <ClInclude Include="CoopMod\TestServer.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\JointEcon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
   </ItemGroup>

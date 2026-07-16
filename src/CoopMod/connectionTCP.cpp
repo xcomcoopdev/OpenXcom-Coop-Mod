@@ -59,6 +59,7 @@
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
 #include "GiftNoticeState.h"
+#include "JointEcon.h"
 #include "connectionUDP/connection_udp_glue.h"
 
 #include "../Savegame/BaseFacility.h"
@@ -390,6 +391,8 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 {
 	// PRD-J01: publish the process-single Game for the static seat accessors.
 	_staticGame = game;
+	// PRD-J03: register the JOINT economy command handlers (idempotent).
+	JointEcon::init();
 }
 
 connectionTCP::~connectionTCP()
@@ -1652,6 +1655,11 @@ void connectionTCP::updateCoopTask()
 		waitedTrades = newWaitedTrades;
 	}
 
+	// PRD-J03: drain the JOINT economy protocol queues at the same controlled
+	// main-thread point as waitedTrades (host validates+applies+broadcasts queued
+	// joint_cmd; replicas apply queued joint_apply and surface joint_fail).
+	JointEcon::update(_game);
+
 	// wrong password
 	if (onConnect == -5)
 	{
@@ -2730,6 +2738,12 @@ long long connectionTCP::getDateTimeCoop() const
 // TCP
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
+
+	// PRD-J03: single early hook routing the joint_* economy protocol into the
+	// JointEcon dispatch table (the anti-if-chain requirement). If JointEcon
+	// consumes the message, it never falls through to the if-chain below.
+	if (JointEcon::onMessage(_game, stateString, obj))
+		return;
 
 	if (stateString == "kick_player")
 	{

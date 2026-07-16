@@ -51,6 +51,8 @@
 #include "../Battlescape/CannotReequipState.h"
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -776,6 +778,52 @@ void PurchaseState::btnOkClick(Action *)
 		}
 	}
 
+	// COOP JOINT (PRD-J03): a JOINT campaign is one host-authoritative world.
+	// Route the whole purchase through the joint_cmd protocol and mutate NOTHING
+	// locally - funds and incoming transfers arrive via joint_apply. The SEPARATE
+	// cross-player `purchase` packet path below is untouched and JOINT-fenced (a
+	// JOINT world has no _coopBase mirror bases, so it never fires here anyway).
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		Json::Value items(Json::arrayValue);
+		int64_t estTotal = 0;
+		for (const auto& row : _items)
+		{
+			if (row.amount <= 0) continue;
+			Json::Value entry;
+			entry["type"] = (int)row.type;
+			std::string ruleId;
+			switch (row.type)
+			{
+			case TRANSFER_ITEM:    ruleId = ((RuleItem*)row.rule)->getType(); break;
+			case TRANSFER_CRAFT:   ruleId = ((RuleCraft*)row.rule)->getType(); break;
+			case TRANSFER_SOLDIER: ruleId = ((RuleSoldier*)row.rule)->getType(); break;
+			default: break; // scientists / engineers carry no rule id
+			}
+			entry["rule"] = ruleId;
+			entry["qty"] = row.amount;
+			items.append(entry);
+			estTotal += (int64_t)row.amount * row.cost;
+		}
+		if (!items.empty())
+		{
+			Json::Value payload;
+			payload["items"] = items;
+			payload["total"] = Json::Value::Int64(estTotal); // client estimate; host recomputes
+			// baseId = index into SavedGame::getBases() (the JOINT shared key; see
+			// JointEcon::resolveBase). Host and replica hold the same base list.
+			int baseId = 0;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+			{
+				if ((*bases)[i] == _base) { baseId = (int)i; break; }
+			}
+			JointEcon::submitLocalCmd(_game, "buy", baseId, payload);
+		}
+		_game->popState();
+		return;
+	}
+
 	// coop
 	if (_base->_coopBase == false)
 	{
@@ -936,6 +984,30 @@ void PurchaseState::btnOkClick(Action *)
 	}
 
 	_game->popState();
+}
+
+/**
+ * Test-harness hook (PRD-J03): drive a purchase of <count> of ITEM <itemType>
+ * through the real OK path. Sets the matching row's amount, keeps the running
+ * totals consistent (harmless for the JOINT branch, which recomputes host-side),
+ * and calls btnOkClick - which pops this state. Returns false if no purchasable
+ * ITEM row matches.
+ */
+bool PurchaseState::harnessBuyItem(const std::string& itemType, int count)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			row.amount = count;
+			_total += row.cost * count;
+			_iQty += ((RuleItem*)row.rule)->getSize() * count;
+			btnOkClick(nullptr);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

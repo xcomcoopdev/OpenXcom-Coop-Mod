@@ -101,6 +101,8 @@
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
+#include "../Basescape/PurchaseState.h"
+#include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
@@ -1665,6 +1667,82 @@ std::string TestServer::execute(const std::string& line)
 				}
 				resp["items"] = items;
 				resp["soldiers"] = soldiers;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "buy")
+		{
+			// PRD-J03: drive a purchase through the real PurchaseState OK path.
+			// <item> = item ruleset type, <count> = quantity, <base> = target base
+			// name (default: first real, non-mirror base). In a JOINT campaign this
+			// emits a joint_cmd (client) or queues a local command (host); nothing
+			// is applied until the joint_apply round-trip completes.
+			std::string itemType = req.get("item", "").asString();
+			int count = req.get("count", 1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+				}
+			}
+			if (!target)
+				resp["error"] = "base not found";
+			else
+			{
+				PurchaseState* ps = new PurchaseState(target);
+				_game->pushState(ps);
+				bool ok = ps->harnessBuyItem(itemType, count); // calls btnOkClick -> popState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "no purchasable row for item: " + itemType;
+			}
+		}
+		else if (cmd == "joint_cmd")
+		{
+			// PRD-J03: submit an arbitrary joint_cmd through the protocol (used to
+			// exercise the unknown-command path). <jcmd> = command string,
+			// <baseId> = base index, <payload> = optional JSON object.
+			std::string jcmd = req.get("jcmd", "").asString();
+			int baseId = req.get("baseId", 0).asInt();
+			Json::Value payload = req.get("payload", Json::Value(Json::objectValue));
+			JointEcon::submitLocalCmd(_game, jcmd, baseId, payload);
+			resp["ok"] = true;
+		}
+		else if (cmd == "joint_stats")
+		{
+			// PRD-J03: read this machine's JointEcon protocol counters + the most
+			// recent joint_fail reason surfaced here.
+			JointEcon::Stats st = JointEcon::stats();
+			resp["cmd"] = Json::Value::UInt64(st.cmd);
+			resp["okCount"] = Json::Value::UInt64(st.ok);
+			resp["failCount"] = Json::Value::UInt64(st.fail);
+			resp["applyCount"] = Json::Value::UInt64(st.apply);
+			resp["unknownCount"] = Json::Value::UInt64(st.unknown);
+			resp["lastFail"] = JointEcon::lastFailReason();
+			resp["ok"] = true;
+		}
+		else if (cmd == "joint_reset_stats")
+		{
+			JointEcon::resetStats();
+			resp["ok"] = true;
+		}
+		else if (cmd == "set_funds")
+		{
+			// PRD-J03 test helper: force this world's funds (host-authoritative in
+			// JOINT). Used to set up the insufficient-funds rejection path cleanly
+			// without also tripping storage/space limits.
+			if (!_game->getSavedGame())
+				resp["error"] = "no saved game";
+			else
+			{
+				int64_t value = req.get("value", 0).asInt64();
+				_game->getSavedGame()->setFunds(value);
+				resp["funds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
 				resp["ok"] = true;
 			}
 		}

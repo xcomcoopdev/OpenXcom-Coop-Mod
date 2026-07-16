@@ -120,6 +120,11 @@ public:
 	void updateItemStrings();
 	/// Handler for changing the category filter.
 	void cbxCategoryChange(Action *action);
+	/// Test-harness hook (PRD-J03): set the buy quantity for ITEM <itemType> to
+	/// <count> and invoke the real OK handler (JOINT -> emits a joint_cmd;
+	/// SEPARATE/solo -> the vanilla local buy). Returns false if no purchasable
+	/// ITEM row matches. Main thread only; not used by normal gameplay.
+	bool harnessBuyItem(const std::string& itemType, int count);
 };
 
 }

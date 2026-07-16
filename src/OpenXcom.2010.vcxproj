@@ -348,6 +348,7 @@
     <ClCompile Include="CoopMod\Profile.cpp" />
     <ClCompile Include="CoopMod\GiftNoticeState.cpp" />
     <ClCompile Include="CoopMod\GiftSoldierMenu.cpp" />
+    <ClCompile Include="CoopMod\JointEcon.cpp" />
     <ClCompile Include="CoopMod\TestServer.cpp" />
     <ClCompile Include="CoopMod\AddServerMenu.cpp" />
     <ClCompile Include="CoopMod\DirectConnect.cpp" />
@@ -789,6 +790,7 @@
     <ClInclude Include="CoopMod\Profile.h" />
     <ClInclude Include="CoopMod\GiftNoticeState.h" />
     <ClInclude Include="CoopMod\GiftSoldierMenu.h" />
+    <ClInclude Include="CoopMod\JointEcon.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="..\libs\miniz\miniz.h" />
     <ClInclude Include="..\libs\rapidyaml\c4\allocator.hpp" />
