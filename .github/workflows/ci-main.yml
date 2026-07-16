@@ -15,7 +15,7 @@ permissions: { contents: write }                             # publish releases 
 jobs:
   build-test-publish:
     runs-on: [self-hosted, windows, coop-build]
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -68,7 +68,7 @@ jobs:
           Write-Host "Stamped version: $v$gitSuffix"
 
       - name: Build x64 Release (serial - /m triggers C1060 on this VM)
-        timeout-minutes: 60
+        timeout-minutes: 100   # full clean rebuild on the 2-vCPU VM can exceed 60 min
         shell: cmd
         working-directory: src
         run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
