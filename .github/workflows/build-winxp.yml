@@ -9,6 +9,8 @@ on:
         default: "main"
 
   push:
+    branches:
+      - ci/winxp-mingw-port     # TEMP: iterating on the MinGW port; remove before merge
     tags:
       - "v*"
       - "winxp-*"
