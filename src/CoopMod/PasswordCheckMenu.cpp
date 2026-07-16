@@ -196,6 +196,12 @@ void PasswordCheckMenu::joinTCPGame(Action* action)
 
 }
 
+void PasswordCheckMenu::submitPassword(const std::string &password)
+{
+	_password->setText(password);
+	joinTCPGame(nullptr);
+}
+
 void PasswordCheckMenu::think()
 {
 	State::think();

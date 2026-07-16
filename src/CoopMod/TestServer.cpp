@@ -96,6 +96,7 @@
 #include "Profile.h"
 #include "connectionTCP.h"
 #include "ServerList.h"
+#include "PasswordCheckMenu.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
@@ -1045,8 +1046,9 @@ std::string TestServer::execute(const std::string& line)
 				{
 					connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
 				}
-				connectionTCP::password = "";
-				connectionTCP::isPasswordRequired = false;
+				// optional room password (default: open server, like an empty UI box)
+				connectionTCP::password = req.get("password", "").asString();
+				connectionTCP::isPasswordRequired = !connectionTCP::password.empty();
 				connectionTCP::_coopGamemode = 1; // PVE
 				coop->setCoopSession(false);
 				coop->setPlayerTurn(3);
@@ -1160,6 +1162,21 @@ std::string TestServer::execute(const std::string& line)
 			// explicitly right before join_tcp.
 			_game->pushState(new CoopState(15));
 			resp["ok"] = true;
+		}
+		else if (cmd == "password_join")
+		{
+			// fill the PasswordCheckMenu password box and click JOIN, like a
+			// player answering the host's password challenge
+			PasswordCheckMenu* pw = topState<PasswordCheckMenu>(_game);
+			if (!pw)
+			{
+				resp["error"] = "no PasswordCheckMenu on top";
+			}
+			else
+			{
+				pw->submitPassword(req.get("password", "").asString());
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "coop_dialog_back")
 		{

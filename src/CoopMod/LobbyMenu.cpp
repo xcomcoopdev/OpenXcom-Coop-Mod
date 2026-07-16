@@ -762,6 +762,13 @@ void LobbyMenu::btnCancelClick(Action*)
 
 void LobbyMenu::pushServerListUnlessPresent()
 {
+	// ServerList's ctor dereferences the SavedGame (getCountries()); a fresh
+	// client that never received a world (F2 lobby, mid-join rejoin) has none,
+	// so pushing the browser would crash - land back on the state underneath.
+	if (!_game->getSavedGame())
+	{
+		return;
+	}
 	for (auto* s : _game->getStates())
 	{
 		if (dynamic_cast<ServerList*>(s) != nullptr)
