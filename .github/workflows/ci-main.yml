@@ -1,9 +1,10 @@
 name: CI (build + coop tests + publish)
 
-# FREE GitHub-hosted windows-latest. Builds x64 Release from a clean checkout,
-# runs the coop harness headless, and publishes a rolling nightly (push to main)
-# or a versioned release (push of a v* tag). Licensed UFO game data is pulled from the
-# private OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY)
+# FREE GitHub-hosted runners. Builds x64 Release from a clean checkout, runs the
+# coop harness headless, and publishes a rolling nightly (push to main) or a
+# versioned release (push of a v* tag), then attaches WinXP i686 and Linux x86_64
+# builds to the same release. Licensed UFO game data is pulled from the private
+# OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY)
 # and only ever exists in the test job, so it can never leak into a release.
 #
 # Split into build -> coop-tests -> publish jobs so a flaky test can be re-run
@@ -16,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency: { group: ci-main, cancel-in-progress: false }   # publishes are ordered; never overlap
-permissions: { contents: read }                              # write only in the publish job
+permissions: { contents: read }                              # write only in the publishing jobs
 
 jobs:
   build:
@@ -210,6 +211,20 @@ jobs:
           git tag -f nightly
           git push -f origin nightly
 
+      - name: Reset rolling nightly release (avoid notes + asset buildup)
+        if: needs.build.outputs.channel == 'nightly'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The nightly tag/release rolls. Re-publishing to it appends release notes
+          # and accumulates versioned assets (old x64/WinXP/Linux files never get
+          # overwritten). Delete the previous nightly RELEASE (keep the just-moved
+          # tag) so Publish recreates it fresh: correct notes + only this run's assets.
+          gh release delete nightly --repo "$env:GITHUB_REPOSITORY" --yes 2>$null
+          $global:LASTEXITCODE = 0
+          Write-Host "Cleared previous nightly release (if any)"
+
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
@@ -221,3 +236,142 @@ jobs:
           # release -> curated notes from CHANGELOG.md; nightly -> auto-generated
           body_path: ${{ needs.build.outputs.channel == 'release' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ needs.build.outputs.channel != 'release' }}
+
+  # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Runs after
+  # the publish job creates the release, then attaches its zip as an extra asset.
+  # (Folded in from the old build-mxe.yml/build-winxp.yml - one unified CI.)
+  build-winxp:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    timeout-minutes: 120
+    permissions: { contents: write }   # attach zip to the release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build tools + MXE deps
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git make g++ build-essential \
+            autopoint gperf intltool libtool-bin lzip zip \
+            ca-certificates wget xz-utils bzip2 \
+            file patch perl pkg-config curl \
+            python2-minimal \
+            p7zip-full bison flex ruby \
+            gdk-pixbuf2.0-bin \
+            libssl-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev libncurses5-dev
+          ln -sf /usr/bin/python2.7 /usr/bin/python  || true
+          ln -sf /usr/bin/python2.7 /usr/bin/python2 || true
+
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, submodules: recursive }
+
+      - name: Cache MXE toolchain
+        id: cache-mxe
+        uses: actions/cache@v4
+        with:
+          path: mxe
+          key: Linux-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-libsodium-v8
+
+      - name: Build MXE toolchain (only on cache miss)
+        if: steps.cache-mxe.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -d mxe ]; then git clone https://github.com/mxe/mxe.git mxe; fi
+          cd mxe
+          git checkout 7e39b555dee5e906b24a44940055dc28d4056d23
+          # keep mingw-w64 VERSION + CHECKSUM in sync
+          sed -i 's/$(PKG)_VERSION := 8\.0\.2/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
+          sed -i 's/$(PKG)_CHECKSUM := f00cf1e2f975008855c93b9e0f8ec97decbf50f478e7ae4c7b5ffb9cdc54b743/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
+          export MXE_PLUGIN_DIRS="$PWD/plugins/gcc11"
+          make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
+            gcc cmake \
+            sdl sdl_net sdl_gfx sdl_mixer sdl_image \
+            yaml-cpp jsoncpp libsodium
+
+      - name: Configure + build (WinXP i686 static)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
+          export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
+          export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$MXE_PREFIX/lib/pkgconfig"
+          rm -rf build && mkdir -p build && cd build
+          i686-w64-mingw32.static-cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCMAKE_PREFIX_PATH="$MXE_PREFIX" \
+            -DDEPS_DIR= \
+            "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Package WinXP zip
+        run: |
+          cd build/bin
+          rm -f libopenxcom.dll.a || true
+          zip -r "$GITHUB_WORKSPACE/openxcom-coop-winxp-${{ needs.build.outputs.version }}-i686.zip" .
+
+      - name: Attach WinXP zip to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          files: openxcom-coop-winxp-${{ needs.build.outputs.version }}-i686.zip
+
+  # Native Linux (x86_64) build via GCC. Runs after the publish job creates the
+  # release, then attaches its tarball to the same release.
+  build-linux:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: { contents: write }   # attach tarball to the release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake g++ make \
+            libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
+            libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, submodules: recursive }
+
+      - name: Configure + build (Linux x86_64)
+        run: |
+          set -euxo pipefail
+          # ubuntu's libjsoncpp-dev installs headers under /usr/include/jsoncpp;
+          # the code includes <json/json.h>, so add jsoncpp's include dir.
+          JSONCPP_CFLAGS=$(pkg-config --cflags jsoncpp)
+          rm -rf build && mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Package Linux tarball
+        env:
+          RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
+        run: |
+          set -euxo pipefail
+          v="${{ needs.build.outputs.version }}"
+          pkg="openxcom-coop-linux-$v-x86_64"
+          mkdir -p "$pkg"
+          cp build/bin/openxcom "$pkg/"
+          cp -r bin/common bin/standard "$pkg/"
+          cp LICENSE.txt "$pkg/" 2>/dev/null || true
+          # real rendezvous.json from the secret (same as the x64 release); UFO data is NOT included (licensed)
+          if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
+          printf '%s' "$RELEASE_RENDEZVOUS_JSON" > "$pkg/rendezvous.json"
+          python3 -c "import json; json.load(open('$pkg/rendezvous.json'))" || { echo "rendezvous.json not valid JSON"; exit 1; }
+          tar czf "$pkg.tar.gz" "$pkg"
+
+      - name: Attach Linux tarball to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          files: openxcom-coop-linux-${{ needs.build.outputs.version }}-x86_64.tar.gz

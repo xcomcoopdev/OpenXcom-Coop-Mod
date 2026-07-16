@@ -218,8 +218,8 @@ CoopMenu::CoopMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_cbxGameMode->setOptions(_gamemodeTypes, false);
 	_cbxGameMode->onChange((ActionHandler)&CoopMenu::cbxGameModeChange);
 
-	// check if campaign mission
-	if (!_game->getSavedGame()->getCountries()->empty())
+	// check if campaign mission (no loaded game = not a campaign)
+	if (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty())
 	{
 		_game->getCoopMod()->setCoopCampaign(true);
 	}
@@ -399,7 +399,7 @@ void CoopMenu::init()
 		}
 	}
 
-	if (_game->getSavedGame()->getSavedBattle())
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
 
 		// check if already converted units...
@@ -666,7 +666,7 @@ void CoopMenu::joinTCPGame(Action *action)
 
 	bool convert = true;
 
-	if (_game->getSavedGame()->getSavedBattle())
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
 
 		// check if already converted units...
@@ -733,7 +733,7 @@ void CoopMenu::hostTCPGame(Action *action)
 
 	bool convert = true;
 
-	if (_game->getSavedGame()->getSavedBattle())
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
 
 		// check if already converted units...
@@ -813,7 +813,7 @@ void CoopMenu::disconnect(Action *action)
 
 	
 
-	if (_game->getSavedGame()->getSavedBattle())
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
 
 		// check if already converted units...
