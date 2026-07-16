@@ -123,6 +123,24 @@ jobs:
           }
           if ($fail -gt 0) { throw "$fail non-quarantined test(s) failed" }
 
+      - name: Write release rendezvous.json (real Official server, from secret)
+        if: success()
+        shell: pwsh
+        env:
+          RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
+        run: |
+          # The test stage above ran against the blackhole tools/coop_test/rendezvous.ci.json.
+          # For the shipped zip, replace it with the real config from the repo secret so
+          # end users get a working "Official" server. Fail loudly if the secret is unset
+          # so a broken/placeholder config never ships.
+          $d = "bin\x64\Release"
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_RENDEZVOUS_JSON)) {
+            throw "RELEASE_RENDEZVOUS_JSON secret is empty/unset - set it (repo Settings > Secrets and variables > Actions) before publishing a release."
+          }
+          try { $null = $env:RELEASE_RENDEZVOUS_JSON | ConvertFrom-Json } catch { throw "RELEASE_RENDEZVOUS_JSON is not valid JSON: $_" }
+          Set-Content "$d\rendezvous.json" $env:RELEASE_RENDEZVOUS_JSON -Encoding ascii -NoNewline
+          Write-Host "release rendezvous.json written ($((Get-Item "$d\rendezvous.json").Length) bytes)"
+
       - name: Package
         if: success()
         shell: pwsh
@@ -130,7 +148,7 @@ jobs:
           $v = "${{ steps.meta.outputs.version }}"
           $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
-          Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
+          Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\x64\Release\rendezvous.json,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
 
       - name: Release notes from CHANGELOG (release only)
         if: success() && steps.meta.outputs.channel == 'release'
