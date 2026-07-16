@@ -1,0 +1,14 @@
+{
+  "_comment": "CI/headless-test rendezvous config, staged next to the exe as rendezvous.json by the CI 'Stage data' step. The real rendezvous.json is git-ignored and per-deployment; the coop harness only needs a PARSEABLE config so ServerList constructs (missing file makes its ctor error into a CoopState). Keys are throwaway-but-VALID public keys (X25519 box + Ed25519 sign) generated for CI only - never a real server's. host is an RFC5737 TEST-NET-1 blackhole (192.0.2.1) so the UDP-public host path times out gracefully offline; 127.0.0.1 here causes an immediate connection-refuse that crashes the host in the rendezvous path (a separate product-robustness bug). Tests join peers via direct TCP on 127.0.0.1, not via this rendezvous server.",
+  "servers": [
+    {
+      "name": "Test",
+      "host": "192.0.2.1",
+      "tcpPort": 39000,
+      "udpPort": 39001,
+      "gameVersion": "1.8.4 [v2026-06-28]",
+      "serverBoxPublicKey": "psZ8LGDj8Lty7V2EfnAGbP9z17zoIiOvN2xjWHsFYVg=",
+      "serverSignPublicKey": "cqtrC6FaAOwy/mwgDSHxHPgiITsXsYbpzdUh+xSSie0="
+    }
+  ]
+}

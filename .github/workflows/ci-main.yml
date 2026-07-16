@@ -83,9 +83,15 @@ jobs:
           robocopy C:\oxc-data\UFO "$d\UFO"    /E /NFL /NDL /NJH /NJS         # proprietary base data, runner-stored
           robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the repo
           if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+          # Rendezvous config (git-ignored real one is per-deployment): the coop
+          # harness needs a parseable rendezvous.json next to the exe or ServerList's
+          # ctor errors into a CoopState (lobby tests) and the UDP-public host path
+          # crashes. Ship the CI config (blackhole host + throwaway valid keys).
+          Copy-Item tools\coop_test\rendezvous.ci.json "$d\rendezvous.json" -Force
           if (-not (Test-Path "$d\OpenXcom.exe"))          { throw "build produced no exe" }
           if (-not (Test-Path "$d\UFO\GEODATA"))           { throw "UFO data not staged" }
           if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
+          if (-not (Test-Path "$d\rendezvous.json"))       { throw "rendezvous.json not staged" }
 
       - name: Coop test suite (headless)   # release gate
         timeout-minutes: 40
