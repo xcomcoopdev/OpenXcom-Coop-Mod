@@ -3,7 +3,7 @@ name: CI (build + coop tests + publish)
 # FREE GitHub-hosted windows-latest. Builds x64 Release from a clean checkout,
 # runs the coop harness headless, and publishes a rolling nightly (push to main)
 # or a versioned release (push of a v* tag). Licensed UFO game data is pulled from
-# the private OpenXcom-Coop/UFO_Data repo via the UFO_DATA_TOKEN secret.
+# the private OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY).
 on:
   push:
     branches: [main]        # -> rolling "nightly" prerelease
@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: OpenXcom-Coop/UFO_Data
-          token: ${{ secrets.UFO_DATA_TOKEN }}
+          ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
           path: .ufo_data
 
       - name: Stage data next to exe
