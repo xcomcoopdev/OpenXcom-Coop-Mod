@@ -5,11 +5,10 @@ name: CI validate (build + coop tests, no publish)
 # the `build-test` job is a required status check in main's branch protection.
 #
 # Proprietary UFO game data (licensed) is pulled from the private
-# OpenXcom-Coop/UFO_Data repo via the UFO_DATA_TOKEN secret (fine-grained PAT,
-# read-only Contents on UFO_Data). Secrets are NOT exposed to FORK pull requests, so
-# fork PRs run build-only (no data, no coop tests) while same-repo PRs / manual dispatch
-# run the full gate. Keep "Require approval for all external collaborators" on
-# (Settings > Actions > Fork pull request workflows).
+# OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY secret).
+# Secrets are NOT exposed to FORK pull requests, so fork PRs run build-only (no data,
+# no coop tests) while same-repo PRs / manual dispatch run the full gate. Keep "Require
+# approval for all external collaborators" on (Settings > Actions > Fork pull request workflows).
 on:
   pull_request:
     branches: [main]
@@ -51,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: OpenXcom-Coop/UFO_Data
-          token: ${{ secrets.UFO_DATA_TOKEN }}
+          ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
           path: .ufo_data
 
       - name: Stage data next to exe
