@@ -33,6 +33,8 @@
 #include "../Interface/ArrowButton.h"
 #include "../Engine/Timer.h"
 #include "../Engine/RNG.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 #include <climits>
 
 namespace OpenXcom
@@ -74,6 +76,12 @@ ResearchInfoState::ResearchInfoState(Base *base, ResearchProject *project) : _ba
 void ResearchInfoState::buildUi()
 {
 	_screen = false;
+
+	// PRD-J06: in a JOINT campaign the shared world is host-authoritative. This
+	// screen still edits it live (so vanilla's scientist/lab capping works), but
+	// btnOkClick/btnCancelClick reverse those edits and submit a joint_cmd instead.
+	_joint = _game->getCoopMod() && _game->getCoopMod()->isJointCampaign();
+	_jointOrigAssigned = _project ? _project->getAssigned() : 0;
 
 	_window = new Window(this, 230, 140, 45, 30);
 	_txtTitle = new Text(210, 17, 61, 40);
@@ -184,6 +192,42 @@ ResearchInfoState::~ResearchInfoState()
  */
 void ResearchInfoState::btnOkClick(Action *)
 {
+	// PRD-J06 (JOINT): the local edits (a NEW project was added / scientists were
+	// (re)allocated) were only for the vanilla capping UX - reverse them and submit
+	// the authoritative command; the shared world settles from joint_apply.
+	if (_joint)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if ((*bases)[i] == _base) { baseId = (int)i; break; }
+		int finalAssigned = _project->getAssigned();
+		std::string project = _project->getRules()->getName();
+		if (_rule)
+		{
+			// NEW: removeResearch fully undoes the local start (frees the assigned
+			// scientists, refunds the needed item, deletes the scratch project).
+			_base->removeResearch(_project);
+			Json::Value p; p["project"] = project;
+			JointEcon::submitLocalCmd(_game, "res_start", baseId, p);
+			if (finalAssigned > 0)
+			{
+				Json::Value a; a["project"] = project; a["assigned"] = finalAssigned;
+				JointEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+			}
+		}
+		else
+		{
+			// MODIFY: reverse the live re-allocation, submit the ABSOLUTE target.
+			int delta = _project->getAssigned() - _jointOrigAssigned;
+			_project->setAssigned(_jointOrigAssigned);
+			_base->setScientists(_base->getScientists() + delta);
+			Json::Value a; a["project"] = project; a["assigned"] = finalAssigned;
+			JointEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+		}
+		_game->popState();
+		return;
+	}
 	_game->popState();
 }
 
@@ -194,8 +238,39 @@ void ResearchInfoState::btnOkClick(Action *)
  */
 void ResearchInfoState::btnCancelClick(Action *)
 {
+	// PRD-J06 (JOINT): cancelling an EXISTING project must go through res_cancel
+	// (host-authoritative). Reverse any live re-allocation first, then submit.
+	if (_joint && !_rule)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if ((*bases)[i] == _base) { baseId = (int)i; break; }
+		std::string project = _project->getRules()->getName();
+		int delta = _project->getAssigned() - _jointOrigAssigned;
+		_project->setAssigned(_jointOrigAssigned);
+		_base->setScientists(_base->getScientists() + delta);
+		Json::Value p; p["project"] = project;
+		JointEcon::submitLocalCmd(_game, "res_cancel", baseId, p);
+		_game->popState();
+		return;
+	}
+	// A NEW project (JOINT or SEPARATE): removeResearch reverses the local start
+	// entirely (no joint_cmd needed - nothing was ever committed to the host).
 	_base->removeResearch(_project);
 	_game->popState();
+}
+
+/**
+ * Test harness (JOINT): allocate N scientists through the vanilla arrow path and
+ * confirm via the real btnOkClick. Only valid for a NEW-project state.
+ */
+bool ResearchInfoState::harnessStart(int scientists)
+{
+	if (!_rule) return false;
+	if (scientists > 0) moreByValue(scientists);
+	btnOkClick(nullptr);
+	return true;
 }
 
 /**

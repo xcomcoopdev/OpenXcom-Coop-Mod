@@ -34,6 +34,7 @@
 #include "../Mod/RuleResearch.h"
 #include "ResearchInfoState.h"
 #include "TechTreeViewerState.h"
+#include "../CoopMod/connectionTCP.h"
 #include <algorithm>
 
 namespace OpenXcom
@@ -178,6 +179,13 @@ void ResearchState::onOpenTechTreeViewer(Action *action)
  */
 void ResearchState::lstResearchMousePress(Action *action)
 {
+	// PRD-J06 (JOINT): the mouse-wheel shortcut re-allocates scientists by directly
+	// mutating the shared world - disabled in JOINT, where allocation is host-
+	// authoritative (open the project and use OK -> res_alloc). SEPARATE untouched.
+	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		return;
+	}
 	if (!_lstResearch->isInsideNoScrollArea(action->getAbsoluteXMouse()))
 	{
 		return;

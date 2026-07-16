@@ -65,6 +65,7 @@
 #include "../Savegame/GameTime.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/ResearchProject.h"
+#include "../Savegame/Production.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
@@ -85,6 +86,7 @@
 #include "../Mod/RuleCraftWeapon.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleResearch.h"
+#include "../Mod/RuleManufacture.h"
 #include "../Mod/RuleUfo.h"
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
@@ -107,6 +109,9 @@
 #include "../Basescape/PurchaseState.h"
 #include "../Basescape/SellState.h"
 #include "../Basescape/ManageAlienContainmentState.h"
+#include "../Basescape/ResearchInfoState.h"
+#include "../Basescape/ManufactureState.h"
+#include "../Basescape/ManufactureInfoState.h"
 #include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
@@ -563,9 +568,26 @@ std::string TestServer::execute(const std::string& line)
 						jr["name"] = rp->getRules()->getName();
 						jr["spent"] = rp->getSpent();
 						jr["cost"] = rp->getCost();
+						jr["assigned"] = rp->getAssigned(); // PRD-J06
 						research.append(jr);
 					}
 					jb["research"] = research;
+					// PRD-J06: running productions (engineers/qty/progress) so a JOINT
+					// research/manufacture test can assert host and replica agree.
+					Json::Value productions(Json::arrayValue);
+					for (auto* prod : b->getProductions())
+					{
+						Json::Value jp;
+						jp["item"] = prod->getRules()->getName();
+						jp["engineers"] = prod->getAssignedEngineers();
+						jp["amount"] = prod->getAmountTotal();
+						jp["infinite"] = prod->getInfiniteAmount();
+						jp["sell"] = prod->getSellItems();
+						jp["timeSpent"] = prod->getTimeSpent();
+						jp["produced"] = prod->getAmountProduced();
+						productions.append(jp);
+					}
+					jb["productions"] = productions;
 					// PRD-J04: facilities (buildTime + grid position) so a JOINT
 					// replica-freeze test can prove construction days-left change only
 					// via fac_done, never locally.
@@ -581,6 +603,9 @@ std::string TestServer::execute(const std::string& line)
 					}
 					jb["facilities"] = facilities;
 					jb["freeScientists"] = b->getScientists();
+					jb["freeEngineers"] = b->getEngineers();     // PRD-J06
+					jb["freeLab"] = b->getFreeLaboratories();     // PRD-J06
+					jb["freeWorkshop"] = b->getFreeWorkshops();   // PRD-J06
 					jb["soldiers"] = (int)b->getSoldiers()->size();
 					bases.append(jb);
 				}
@@ -2000,6 +2025,156 @@ std::string TestServer::execute(const std::string& line)
 			RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
 			resp["researched"] = (sg && rule) ? sg->isResearched(rule, false) : false;
 			resp["ok"] = true;
+		}
+		else if (cmd == "available_research")
+		{
+			// PRD-J06 test helper: topics res_start would accept at the base right now
+			// (SavedGame::getAvailableResearchProjects). Lets a test pick a real topic.
+			SavedGame* sg = _game->getSavedGame();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (sg)
+				for (auto* base : *sg->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else
+			{
+				std::vector<RuleResearch*> avail;
+				sg->getAvailableResearchProjects(avail, _game->getMod(), target, false);
+				Json::Value topics(Json::arrayValue);
+				for (auto* r : avail) topics.append(r->getName());
+				resp["topics"] = topics;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "discover_research")
+		{
+			// PRD-J06 test helper: mark <topic> discovered on THIS machine (call on
+			// host AND client to keep the shared world equal). Unlocks manufactures /
+			// research gated on it so a man_start test has an available production.
+			// Deterministic; touches no funds.
+			SavedGame* sg = _game->getSavedGame();
+			RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+			Base* base = nullptr;
+			if (sg)
+				for (auto* b : *sg->getBases())
+					if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+			if (!sg || !rule)
+				resp["error"] = "no world / unknown research";
+			else
+			{
+				sg->addFinishedResearch(rule, _game->getMod(), base);
+				resp["researched"] = sg->isResearched(rule, false);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "set_research_cost")
+		{
+			// PRD-J06 test helper: override a running project's _cost on THIS machine
+			// (call on the HOST to force a fast completion). Host-authoritative
+			// completion then broadcasts research_done regardless of replica cost.
+			SavedGame* sg = _game->getSavedGame();
+			std::string topic = req.get("topic", "").asString();
+			int cost = req.get("cost", 1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (sg)
+				for (auto* base : *sg->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			bool found = false;
+			if (target)
+				for (auto* p : target->getResearch())
+					if (p->getRules()->getName() == topic) { p->setCost(cost); found = true; break; }
+			resp["found"] = found;
+			resp["ok"] = found;
+			if (!found) resp["error"] = "research not running: " + topic;
+		}
+		else if (cmd == "set_production_progress")
+		{
+			// PRD-J06 test helper: set a running production's _timeSpent on THIS
+			// machine (call on the HOST to drive a deterministic completion on the
+			// next hourly step - host-authoritative prod_done then delivers items to
+			// both). Avoids the coarse speed-5 overshoot completing early.
+			SavedGame* sg = _game->getSavedGame();
+			std::string item = req.get("item", "").asString();
+			int spent = req.get("timeSpent", 0).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (sg)
+				for (auto* base : *sg->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			bool found = false;
+			if (target)
+				for (auto* p : target->getProductions())
+					if (p->getRules()->getName() == item) { p->setTimeSpent(spent); found = true; break; }
+			resp["found"] = found;
+			resp["ok"] = found;
+			if (!found) resp["error"] = "production not running: " + item;
+		}
+		else if (cmd == "research_start")
+		{
+			// PRD-J06: drive the REAL ResearchInfoState "start project" OK path. In
+			// JOINT this emits res_start (+ res_alloc when scientists>0); nothing is
+			// applied until the joint_apply round-trip. Proves the UI submit path.
+			std::string topic = req.get("topic", "").asString();
+			int scientists = req.get("scientists", 0).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			RuleResearch* rule = _game->getMod()->getResearch(topic, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown research: " + topic;
+			else
+			{
+				ResearchInfoState* st = new ResearchInfoState(target, rule);
+				_game->pushState(st);
+				bool ok = st->harnessStart(scientists); // btnOkClick -> popState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+			}
+		}
+		else if (cmd == "manufacture_start")
+		{
+			// PRD-J06: drive the REAL ManufactureInfoState "start production" OK path
+			// (JOINT -> man_start). A parent ManufactureState is pushed first because
+			// ManufactureInfoState::exitState pops TWO states for a new production.
+			std::string item = req.get("item", "").asString();
+			int engineers = req.get("engineers", 0).asInt();
+			int qty = req.get("qty", 1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			RuleManufacture* rule = _game->getMod()->getManufacture(item, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown manufacture: " + item;
+			else
+			{
+				_game->pushState(new ManufactureState(target)); // absorbs the 2nd pop
+				ManufactureInfoState* st = new ManufactureInfoState(target, rule);
+				_game->pushState(st);
+				bool ok = st->harnessStart(engineers, qty); // btnOkClick -> exitState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+			}
 		}
 		else if (cmd == "set_facility_build_time")
 		{

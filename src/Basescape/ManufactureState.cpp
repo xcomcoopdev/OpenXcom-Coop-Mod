@@ -36,6 +36,7 @@
 #include "ManufactureInfoState.h"
 #include "TechTreeViewerState.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/connectionTCP.h"
 #include <algorithm>
 
 namespace OpenXcom
@@ -264,6 +265,13 @@ void ManufactureState::lstManufactureClickMiddle(Action *)
  */
 void ManufactureState::lstManufactureMousePress(Action *action)
 {
+	// PRD-J06 (JOINT): the mouse-wheel shortcut re-allocates engineers by directly
+	// mutating the shared world - disabled in JOINT, where allocation is host-
+	// authoritative (open the production and use OK -> man_alloc). SEPARATE untouched.
+	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		return;
+	}
 	if (!_lstManufacture->isInsideNoScrollArea(action->getAbsoluteXMouse()))
 	{
 		return;

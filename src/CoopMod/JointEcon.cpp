@@ -20,6 +20,7 @@
 
 #include "JointEcon.h"
 
+#include <algorithm>
 #include <atomic>
 #include <deque>
 #include <map>
@@ -32,6 +33,7 @@
 #include "../Engine/Language.h"
 #include "../Engine/Logger.h"
 #include "../Engine/Options.h"
+#include "../Engine/RNG.h"
 #include "../Engine/State.h"
 #include "../Engine/Yaml.h"
 #include "../Mod/Mod.h"
@@ -190,6 +192,25 @@ Craft* findCraft(Base* base, int id, const std::string& type)
 {
 	for (auto* c : *base->getCrafts())
 		if (c->getId() == id && c->getRules()->getType() == type) return c;
+	return nullptr;
+}
+
+// PRD-J06: a research project / a production is keyed by its ruleset NAME, which
+// is UNIQUE per base: SavedGame::getAvailableResearchProjects /
+// getAvailableProductions both exclude a rule already running at the base, and
+// the res_start / man_start validators re-run that availability check, so a
+// second start of the same rule is rejected. No per-entity sequence id needed
+// (verified against vanilla; see session notes).
+ResearchProject* findResearchProject(Base* base, const std::string& name)
+{
+	for (auto* p : base->getResearch())
+		if (p->getRules()->getName() == name) return p;
+	return nullptr;
+}
+Production* findProduction(Base* base, const std::string& name)
+{
+	for (auto* p : base->getProductions())
+		if (p->getRules()->getName() == name) return p;
 	return nullptr;
 }
 
@@ -755,6 +776,275 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	}
 }
 
+// ---- PRD-J06: research start / allocate / cancel -----------------------------
+// A JOINT research screen mutates NOTHING locally; the OK/Start/Cancel buttons
+// emit one of these commands and the host-authoritative world settles via
+// joint_apply. Completion stays host-driven (J04 research_done). Research has no
+// funds cost, so every validator here sets cost 0 (the apply still carries the
+// authoritative funds per the protocol invariant).
+
+// res_start payload: { project:<ruleName> } (+ host-resolved "cost").
+bool resStartValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+	std::string pname = payload.get("project", "").asString();
+	RuleResearch* rule = mod->getResearch(pname, false);
+	if (!rule) { failReason = "unknown research: " + pname; return false; }
+	// Availability = rules + not-already-running-here + needed item + base funcs.
+	std::vector<RuleResearch*> avail;
+	save->getAvailableResearchProjects(avail, mod, base, false);
+	bool ok = false;
+	for (auto* r : avail) if (r == rule) { ok = true; break; }
+	if (!ok) { failReason = "STR_RESEARCH_NOT_AVAILABLE"; return false; }
+	cost = 0;
+	return true;
+}
+
+void resStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	std::string pname = payload.get("project", "").asString();
+	RuleResearch* rule = mod->getResearch(pname, false);
+	if (!rule) return;
+	if (findResearchProject(base, pname)) return; // idempotent guard
+
+	// Randomised cost is HOST-only RNG (vanilla ResearchInfoState ctor). Resolve it
+	// once on the host, write it into the payload, and let replicas adopt it - the
+	// buy-soldier pattern - so host and replica hold the same _cost.
+	int projCost;
+	if (connectionTCP::getHost() && !payload.isMember("cost"))
+	{
+		int rng = RNG::generate(50, 150);
+		projCost = rule->getCost() * rng / 100;
+		if (rule->getCost() > 0) projCost = std::max(1, projCost);
+		payload["cost"] = projCost;
+	}
+	else
+	{
+		projCost = payload.get("cost", rule->getCost()).asInt();
+	}
+	ResearchProject* proj = new ResearchProject(rule, projCost);
+	base->addResearch(proj); // 0 scientists (allocation is a separate res_alloc)
+	// Consume the needed item exactly as the vanilla start does (deterministic).
+	if (rule->needItem() && rule->destroyItem())
+		base->getStorageItems()->removeItem(rule->getNeededItem(), 1);
+}
+
+// res_alloc payload: { project:<ruleName>, assigned:<absolute int> }. ABSOLUTE
+// target (last-write-wins) so two players adjusting the same project converge
+// instead of compounding deltas.
+bool resAllocValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	std::string pname = payload.get("project", "").asString();
+	ResearchProject* proj = findResearchProject(base, pname);
+	if (!proj) { failReason = "research not running: " + pname; return false; }
+	int target = payload.get("assigned", -1).asInt();
+	if (target < 0) { failReason = "bad allocation"; return false; }
+	int delta = target - proj->getAssigned();
+	if (delta > base->getAvailableScientists()) { failReason = "STR_NOT_ENOUGH_SCIENTISTS"; return false; }
+	if (delta > base->getFreeLaboratories()) { failReason = "STR_NOT_ENOUGH_LABORATORY_SPACE"; return false; }
+	cost = 0;
+	return true;
+}
+
+void resAllocApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	std::string pname = payload.get("project", "").asString();
+	ResearchProject* proj = findResearchProject(base, pname);
+	if (!proj) return;
+	int target = payload.get("assigned", proj->getAssigned()).asInt();
+	int delta = target - proj->getAssigned(); // replica's current matches host (FIFO)
+	proj->setAssigned(target);
+	base->setScientists(base->getScientists() - delta);
+}
+
+// res_cancel payload: { project:<ruleName> }.
+bool resCancelValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                       int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	std::string pname = payload.get("project", "").asString();
+	if (!findResearchProject(base, pname)) { failReason = "research not running: " + pname; return false; }
+	cost = 0;
+	return true;
+}
+
+void resCancelApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	std::string pname = payload.get("project", "").asString();
+	ResearchProject* proj = findResearchProject(base, pname);
+	if (!proj) return;
+	// removeResearch frees the assigned scientists AND (if unfinished + needItem +
+	// destroyItem) refunds the needed item - identical on host and replica because
+	// the project's assigned is kept in lock-step and a running project is
+	// not-finished on both sides.
+	base->removeResearch(proj);
+}
+
+// ---- PRD-J06: manufacture start / allocate / cancel --------------------------
+// man_start/man_cancel change funds (first-unit debit / refund); man_alloc does
+// not but carries funds anyway (protocol invariant). The host re-validates funds,
+// materials, engineer pool + workshop space against the live world.
+
+// man_start payload: { item:<ruleName>, engineers, qty, infinite, sell, fallback }.
+bool manStartValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+	std::string item = payload.get("item", "").asString();
+	RuleManufacture* rule = mod->getManufacture(item, false);
+	if (!rule) { failReason = "unknown manufacture: " + item; return false; }
+	// Availability = requirements researched + not-already-producing-here.
+	std::vector<RuleManufacture*> avail;
+	save->getAvailableProductions(avail, mod, base, MANU_FILTER_DEFAULT);
+	bool ok = false;
+	for (auto* m : avail) if (m == rule) { ok = true; break; }
+	if (!ok) { failReason = "STR_PRODUCTION_NOT_AVAILABLE"; return false; }
+
+	int engineers = payload.get("engineers", 0).asInt();
+	if (engineers < 0) { failReason = "bad allocation"; return false; }
+	// First-unit gate (vanilla startItem): funds + materials + crafts.
+	if (save->getFunds() < rule->getManufactureCost()) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	for (const auto& i : rule->getRequiredItems())
+		if (base->getStorageItems()->getItem(i.first) < i.second)
+			{ failReason = "STR_NOT_ENOUGH_SPECIAL_MATERIALS"; return false; }
+	for (const auto& i : rule->getRequiredCrafts())
+		if (base->getCraftCountForProduction(i.first) < i.second)
+			{ failReason = "STR_NOT_ENOUGH_SPECIAL_MATERIALS"; return false; }
+	// Engineer pool + workshop (flat requiredSpace on activation + one slot each).
+	if (engineers > base->getAvailableEngineers()) { failReason = "STR_NOT_ENOUGH_ENGINEERS"; return false; }
+	int wsNeed = engineers + (engineers > 0 ? rule->getRequiredSpace() : 0);
+	if (wsNeed > base->getFreeWorkshops()) { failReason = "STR_NOT_ENOUGH_WORK_SPACE"; return false; }
+	if (rule->getProducedCraft() && base->getAvailableHangars() - base->getUsedHangars() <= 0)
+		{ failReason = "STR_NO_FREE_HANGARS_FOR_CRAFT_PRODUCTION"; return false; }
+	if (!rule->getSpawnedPersonType().empty() && base->getAvailableQuarters() <= base->getUsedQuarters())
+		{ failReason = "STR_NOT_ENOUGH_LIVING_SPACE"; return false; }
+
+	cost = rule->getManufactureCost(); // debit the first unit; protocol adjusts funds
+	return true;
+}
+
+void manStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	std::string item = payload.get("item", "").asString();
+	RuleManufacture* rule = mod->getManufacture(item, false);
+	if (!rule) return;
+	if (findProduction(base, item)) return; // idempotent guard
+
+	int engineers = payload.get("engineers", 0).asInt();
+	int qty = payload.get("qty", 1).asInt();
+	if (qty < 1) qty = 1;
+	Production* p = new Production(rule, qty);
+	p->setInfiniteAmount(payload.get("infinite", false).asBool());
+	p->setAssignedEngineers(engineers);
+	p->setSellItems(payload.get("sell", false).asBool());
+	base->addProduction(p);
+	base->setEngineers(base->getEngineers() - engineers);
+	if (payload.get("fallback", false).asBool())
+	{
+		for (auto* pp : base->getProductions()) pp->setFallback(false);
+		p->setFallback(true);
+	}
+	// Vanilla startItem's non-funds effects (funds are the protocol's job): remove
+	// the first unit's required items + consume one matching required craft each.
+	for (const auto& i : rule->getRequiredItems())
+		base->getStorageItems()->removeItem(i.first, i.second);
+	for (const auto& i : rule->getRequiredCrafts())
+	{
+		for (auto* c : *base->getCrafts())
+		{
+			if (c->getRules() == i.first) { base->removeCraft(c, true); delete c; break; }
+		}
+	}
+}
+
+// man_alloc payload: { item, engineers, qty, infinite, sell, fallback } (absolute).
+bool manAllocValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	std::string item = payload.get("item", "").asString();
+	Production* p = findProduction(base, item);
+	if (!p) { failReason = "production not running: " + item; return false; }
+	int engineers = payload.get("engineers", -1).asInt();
+	if (engineers < 0) { failReason = "bad allocation"; return false; }
+	int delta = engineers - p->getAssignedEngineers();
+	if (delta > base->getAvailableEngineers()) { failReason = "STR_NOT_ENOUGH_ENGINEERS"; return false; }
+	int wsNeed = delta;
+	if (p->isQueuedOnly() && engineers > 0) wsNeed += p->getRules()->getRequiredSpace();
+	if (wsNeed > base->getFreeWorkshops()) { failReason = "STR_NOT_ENOUGH_WORK_SPACE"; return false; }
+	cost = 0;
+	return true;
+}
+
+void manAllocApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	std::string item = payload.get("item", "").asString();
+	Production* p = findProduction(base, item);
+	if (!p) return;
+	int engineers = payload.get("engineers", p->getAssignedEngineers()).asInt();
+	int delta = engineers - p->getAssignedEngineers();
+	p->setAssignedEngineers(engineers);
+	base->setEngineers(base->getEngineers() - delta);
+	p->setInfiniteAmount(payload.get("infinite", p->getInfiniteAmount()).asBool());
+	int qty = payload.get("qty", p->getAmountTotal()).asInt();
+	if (qty >= 1) p->setAmountTotal(qty);
+	p->setSellItems(payload.get("sell", p->getSellItems()).asBool());
+	if (payload.get("fallback", false).asBool())
+	{
+		for (auto* pp : base->getProductions()) pp->setFallback(false);
+		p->setFallback(true);
+	}
+	else p->setFallback(false);
+}
+
+// man_cancel payload: { item, refund } (refund re-derived host-side from the rule).
+bool manCancelValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                       int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	std::string item = payload.get("item", "").asString();
+	Production* p = findProduction(base, item);
+	if (!p) { failReason = "production not running: " + item; return false; }
+	// Refund is a property of the rule, not a client choice - re-derive it.
+	cost = p->getRules()->getRefund() ? -(int64_t)p->getRules()->getManufactureCost() : 0;
+	return true;
+}
+
+void manCancelApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	std::string item = payload.get("item", "").asString();
+	Production* p = findProduction(base, item);
+	if (!p) return;
+	const RuleManufacture* rule = p->getRules();
+	if (rule->getRefund())
+	{
+		// refundItem's non-funds effects (funds via the protocol credit above).
+		for (const auto& i : rule->getRequiredItems())
+			base->getStorageItems()->addItem(i.first, i.second);
+	}
+	base->removeProduction(p); // frees engineers, deletes the Production
+}
+
 // ---- PRD-J04: host simulation-result commands --------------------------------
 // These mirror a host-only completion to replicas. The host has ALREADY applied
 // the change via vanilla sim, so:
@@ -953,26 +1243,44 @@ void transferArrivedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	}
 }
 
-// day_tick payload: { soldiers: [ {id, recovery} ] }.
+// day_tick payload: { soldiers:[{id,recovery}], productions:[{item,spent}],
+// research:[{project,spent}] }. PRD-J06: the replica's timeXxx handlers are
+// frozen, so production _timeSpent and research _spent never advance locally;
+// the host broadcasts the day's progress so the "days left" / "Progress" columns
+// render current on replicas. Display-only (completion is host-driven J04).
 void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
 	const Json::Value& soldiers = payload["soldiers"];
-	if (!soldiers.isArray()) return;
-	for (const auto& s : soldiers)
-	{
-		int id = s.get("id", -1).asInt();
-		int recovery = s.get("recovery", 0).asInt();
-		for (auto* soldier : *base->getSoldiers())
+	if (soldiers.isArray())
+		for (const auto& s : soldiers)
 		{
-			if (soldier->getId() == id)
+			int id = s.get("id", -1).asInt();
+			int recovery = s.get("recovery", 0).asInt();
+			for (auto* soldier : *base->getSoldiers())
 			{
-				soldier->setWoundRecovery(recovery);
-				break;
+				if (soldier->getId() == id)
+				{
+					soldier->setWoundRecovery(recovery);
+					break;
+				}
 			}
 		}
-	}
+	const Json::Value& productions = payload["productions"];
+	if (productions.isArray())
+		for (const auto& pr : productions)
+		{
+			Production* p = findProduction(base, pr.get("item", "").asString());
+			if (p) p->setTimeSpent(pr.get("spent", p->getTimeSpent()).asInt());
+		}
+	const Json::Value& research = payload["research"];
+	if (research.isArray())
+		for (const auto& rr : research)
+		{
+			ResearchProject* rp = findResearchProject(base, rr.get("project", "").asString());
+			if (rp) rp->setSpent(rr.get("spent", rp->getSpent()).asInt());
+		}
 }
 
 // ---- Host-side command processing (main thread) ------------------------------
@@ -1086,6 +1394,13 @@ void init()
 	registerCmd("sell",        &sellValidate,        &sellApply);
 	registerCmd("containment", &containmentValidate, &containmentApply);
 	registerCmd("transfer",    &transferValidate,    &transferApply);
+	// PRD-J06 research + manufacture commands (client -> host mutation requests).
+	registerCmd("res_start",   &resStartValidate,    &resStartApply);
+	registerCmd("res_alloc",   &resAllocValidate,    &resAllocApply);
+	registerCmd("res_cancel",  &resCancelValidate,   &resCancelApply);
+	registerCmd("man_start",   &manStartValidate,    &manStartApply);
+	registerCmd("man_alloc",   &manAllocValidate,    &manAllocApply);
+	registerCmd("man_cancel",  &manCancelValidate,   &manCancelApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -1312,8 +1627,9 @@ void hostDayTick(Game* game)
 	auto* bases = save->getBases();
 	for (int bi = 0; bi < (int)bases->size(); ++bi)
 	{
+		Base* base = (*bases)[bi];
 		Json::Value soldiers(Json::arrayValue);
-		for (auto* soldier : *(*bases)[bi]->getSoldiers())
+		for (auto* soldier : *base->getSoldiers())
 		{
 			int id = soldier->getId();
 			int rec = soldier->getWoundRecoveryInt();
@@ -1327,10 +1643,31 @@ void hostDayTick(Game* game)
 				soldiers.append(js);
 			}
 		}
-		if (!soldiers.empty())
+		// PRD-J06: carry each running production's _timeSpent and each research
+		// project's _spent so the frozen replica's progress columns stay current
+		// (its own step() never runs). Small payload; sent whole each active day.
+		Json::Value productions(Json::arrayValue);
+		for (auto* prod : base->getProductions())
+		{
+			Json::Value jp;
+			jp["item"] = prod->getRules()->getName();
+			jp["spent"] = prod->getTimeSpent();
+			productions.append(jp);
+		}
+		Json::Value research(Json::arrayValue);
+		for (auto* rp : base->getResearch())
+		{
+			Json::Value jr;
+			jr["project"] = rp->getRules()->getName();
+			jr["spent"] = rp->getSpent();
+			research.append(jr);
+		}
+		if (!soldiers.empty() || !productions.empty() || !research.empty())
 		{
 			Json::Value p;
 			p["soldiers"] = soldiers;
+			p["productions"] = productions;
+			p["research"] = research;
 			submitLocalCmd(game, "day_tick", bi, p);
 		}
 	}
