@@ -56,10 +56,13 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 	_txtHostLbl = new Text(150, 9, 14, 141);
 	_edtHostName = new TextEdit(this, 132, 9, 166, 141);
 	_txtHostHint = new Text(300, 9, 10, 151);
-	_btnContinue = new TextButton(74, 16, 8, 176);
-	_btnRefresh = new TextButton(74, 16, 86, 176);
-	_btnSkip = new TextButton(74, 16, 164, 176);
-	_btnCancel = new TextButton(74, 16, 242, 176);
+	// Uneven widths so every caption fits on one line: "Skip - fresh start" needs
+	// far more room than "Refresh"/"Cancel" (74px each clipped/wrapped it). The row
+	// still spans 8..316 with even 4px gaps.
+	_btnContinue = new TextButton(60, 16, 8, 176);
+	_btnRefresh = new TextButton(56, 16, 72, 176);
+	_btnSkip = new TextButton(120, 16, 132, 176);
+	_btnCancel = new TextButton(60, 16, 256, 176);
 
 	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 

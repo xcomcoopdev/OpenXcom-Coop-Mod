@@ -98,6 +98,12 @@
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
+#include "../Menu/SaveUpgradeDialogState.h"
+#include "../Menu/SaveUpgradeClientState.h"
+#include "../Menu/SaveUpgradeMessageState.h"
+#include "../Menu/SaveUpgradeSummaryState.h"
+#include "../Menu/SaveUpgradeFlow.h"
+#include "../Engine/Language.h"
 #include "../Menu/StartState.h"
 #include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
@@ -5376,6 +5382,93 @@ std::string TestServer::execute(const std::string& line)
 			resp["log"] = jlog;
 			resp["pass"] = pass;
 			resp["ok"] = true;
+		}
+		else if (cmd == "pop_state")
+		{
+			// Debug-only: pop the top state (screenshot scenarios use this to reset
+			// between synthetic dialog pushes). Never pops the last state.
+			if (_game->getStates().size() > 1)
+			{
+				_game->popState();
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["ok"] = false;
+				resp["error"] = "refusing to pop the last state";
+			}
+		}
+		else if (cmd == "upgrade_show")
+		{
+			// Debug-only (visual QA): push one Save-Upgrader UI state with realistic
+			// sample data so its layout can be screenshotted without driving the whole
+			// load flow. Mirrors the constructor args the real flow (SaveUpgradeUI /
+			// LoadGameState gate) passes. 'origin':battlescape exercises the themed
+			// variant (applyBattlescapeTheme, no live battle required).
+			std::string which = req.get("state", "dialog").asString();
+			std::string host = req.get("host", "dual_host.sav").asString();
+			OptionsOrigin origin = (req.get("origin", "menu").asString() == "battlescape") ? OPT_BATTLESCAPE : OPT_MENU;
+			Language* lang = _game->getLanguage();
+			if (which == "dialog")
+			{
+				SaveUpgrade::DetectedSchema d = SaveUpgrade::SchemaDetector::detect(host);
+				_game->pushState(new SaveUpgradeDialogState(origin, host, d));
+				resp["ok"] = true;
+			}
+			else if (which == "client")
+			{
+				_game->pushState(new SaveUpgradeClientState(origin, host));
+				resp["ok"] = true;
+			}
+			else if (which == "info")
+			{
+				// A representative blocking-refusal INFO dialog (multi-line wrapped body).
+				std::vector<std::string> lines;
+				lines.push_back("This is a mid-battle save. Finish the mission and save from the Geoscape using the old version first, then upgrade.");
+				_game->pushState(new SaveUpgradeMessageState(origin, lang->getString("STR_SAVE_UPGRADE_BLOCKED"), lines));
+				resp["ok"] = true;
+			}
+			else if (which == "confirm")
+			{
+				// A plausible non-blocking warnings CONFIRM (time-divergence + mod-list).
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = "dual_client.sav";
+				in.clientName = "ClientPlayer";
+				in.hostName = "HostPlayer";
+				in.skipClient = false;
+				std::vector<std::string> warns;
+				warns.push_back("The host and client saves are more than 24 in-game hours apart; the client world may resurrect rolled-back state.");
+				warns.push_back("The mod lists differ between the host and client saves.");
+				_game->pushState(new SaveUpgradeMessageState(origin, host, in, lang->getString("STR_SAVE_UPGRADE_WARN_INTRO"), warns));
+				resp["ok"] = true;
+			}
+			else if (which == "summary")
+			{
+				// Run the REAL runner on the staged dual pair so the report + backup name
+				// shown are exactly what a live upgrade produces.
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = req.get("client", "dual_client.sav").asString();
+				in.clientName = req.get("clientName", "ClientPlayer").asString();
+				in.hostName = req.get("hostName", "HostPlayer").asString();
+				in.skipClient = req.get("skip", false).asBool();
+				SaveUpgrade::UpgradeRunner runner(host);
+				SaveUpgrade::ExecuteResult r = runner.execute(in);
+				if (!r.success)
+				{
+					resp["ok"] = false;
+					resp["error"] = "execute failed: " + r.errorMessage;
+				}
+				else
+				{
+					_game->pushState(new SaveUpgradeSummaryState(origin, host, in, r));
+					resp["ok"] = true;
+				}
+			}
+			else
+			{
+				resp["ok"] = false;
+				resp["error"] = "unknown upgrade_show state: " + which;
+			}
 		}
 		else
 		{
