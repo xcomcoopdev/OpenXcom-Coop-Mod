@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mxe
-          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-v7
+          key: ${{ runner.os }}-mxe-v${{ inputs.MXE_VERSION }}-gcc${{ inputs.GCC_VERSION }}-jsoncpp-sdl_net-libsodium-v8
 
       - name: Install MXE dependencies (only if no cache)
         if: steps.cache-mxe.outputs.cache-hit != 'true'
@@ -70,7 +70,7 @@ jobs:
           make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
             gcc cmake \
             sdl sdl_net sdl_gfx sdl_mixer sdl_image \
-            yaml-cpp jsoncpp
+            yaml-cpp jsoncpp libsodium
 
       - name: Show CMake log on failure
         if: failure()
