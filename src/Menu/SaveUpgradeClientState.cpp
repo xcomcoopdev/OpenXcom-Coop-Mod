@@ -141,6 +141,23 @@ SaveUpgradeClientState::~SaveUpgradeClientState()
 }
 
 /**
+ * This state stays beneath the preflight/warning/summary dialogs so a cancel
+ * or error there returns here with the inputs intact. If it ever resurfaces
+ * AFTER the upgrade already succeeded (e.g. the follow-up load of the upgraded
+ * file failed and the error dialog popped back to us), the file no longer
+ * needs upgrading and this state is stale - pop straight back to the invoker.
+ */
+void SaveUpgradeClientState::init()
+{
+	State::init();
+	SaveUpgrade::DetectedSchema detected = SaveUpgrade::SchemaDetector::detect(_filename);
+	if (!detected.needsUpgrade())
+	{
+		_game->popState();
+	}
+}
+
+/**
  * Scans the saves folder for candidate client .sav files, excluding the file
  * being upgraded and any _bak_v backups, and fills the list. Reads each file's
  * header "name" for display, falling back to the filename stem.

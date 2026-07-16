@@ -62,6 +62,8 @@ public:
 	SaveUpgradeClientState(OptionsOrigin origin, const std::string& filename);
 	/// Cleans up the state.
 	~SaveUpgradeClientState();
+	/// Self-heals: pops itself if the save no longer needs upgrading.
+	void init() override;
 	/// Selects a candidate save.
 	void lstSavesClick(Action* action);
 	/// Reacts to name edits (updates the echo).
