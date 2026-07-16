@@ -108,6 +108,8 @@ class PasswordCheckMenu : public State
 	void init() override;
 	void btnCancelClick(Action *action);
 	void joinTCPGame(Action *action);
+	/// Fills the password box and clicks JOIN (test-harness entry point).
+	void submitPassword(const std::string &password);
 	/// Runs the timers and handles popups.
 	void think() override;
 };
