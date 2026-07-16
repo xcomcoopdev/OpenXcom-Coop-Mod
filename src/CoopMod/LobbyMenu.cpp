@@ -220,6 +220,19 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		lobby_title = _game->getCoopMod()->getHostServer();
 	}
 
+	// PRD-J01: read-only campaign economy model so a client sees what it is
+	// joining before the roster locks. Host reads its own save; a client (no
+	// save yet) uses the type carried in the join handshake.
+	if (connectionTCP::session.lobbyMode != 0)
+	{
+		int ct = connectionTCP::_lobbyCampaignType;
+		if (_game->getCoopMod()->getServerOwner() == true && _game->getSavedGame())
+		{
+			ct = static_cast<int>(_game->getSavedGame()->getCampaignType());
+		}
+		lobby_title += (ct == static_cast<int>(CoopCampaignType::Joint)) ? "  [JOINT]" : "  [SEPARATE]";
+	}
+
 	_txtTitle->setText(lobby_title);
 
 	if (isMobile)

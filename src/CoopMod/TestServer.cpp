@@ -1221,10 +1221,14 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "open_new_game")
 		{
-			// mode: "solo" (default) or "coop" - mirrors the main menu's
-			// New Game dropdown (flow-redesign D1)
-			bool coop = req.get("mode", "solo").asString() == "coop";
-			_game->pushState(new NewGameState(coop));
+			// mode: "solo" (default), "coop"/"coop_separate" or
+			// "coop_joint"/"joint" - mirrors the New Game dropdown (D1; PRD-J01).
+			std::string mode = req.get("mode", "solo").asString();
+			bool coop = (mode == "coop" || mode == "coop_separate"
+				|| mode == "coop_joint" || mode == "joint");
+			CoopCampaignType ct = (mode == "coop_joint" || mode == "joint")
+				? CoopCampaignType::Joint : CoopCampaignType::Separate;
+			_game->pushState(new NewGameState(coop, ct));
 			resp["ok"] = true;
 		}
 		else if (cmd == "newgame_ok")
@@ -1868,7 +1872,7 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				int currentOwner = GiftSoldierMenu::resolveOwnerId(found);
-				int localPlayerId = connectionTCP::getHost() ? 0 : 1;
+				int localPlayerId = connectionTCP::localSeat();
 				Json::Value targets(Json::arrayValue);
 				for (int playerId = 0; playerId <= 1; ++playerId)
 				{
@@ -2238,6 +2242,8 @@ std::string TestServer::execute(const std::string& line)
 				{
 					resp["coopPlayers"][idx++] = p;
 				}
+				// PRD-J01: campaign economy model (0 = Separate, 1 = Joint).
+				resp["campaignType"] = static_cast<int>(_game->getSavedGame()->getCampaignType());
 				resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 				resp["ok"] = true;
 			}

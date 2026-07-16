@@ -84,6 +84,13 @@ enum SaveType { SAVE_DEFAULT, SAVE_INSTA, SAVE_QUICK, SAVE_AUTO_GEOSCAPE, SAVE_A
 enum GameEnding { END_NONE, END_WIN, END_LOSE };
 
 /**
+ * Co-op campaign economy model, chosen at campaign creation and immutable
+ * afterwards (PRD-J01). Separate = today's two mirrored economies; Joint =
+ * one host-authoritative shared world. Serialized as int key coopCampaignType.
+ */
+enum class CoopCampaignType : int { Separate = 0, Joint = 1 };
+
+/**
  * Container for savegame info displayed on listings.
  */
 struct SaveInfo
@@ -167,6 +174,8 @@ private:
 	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
 	// is the locked player list (host first).
 	bool _coop;
+	// JOINT vs SEPARATE economy model (PRD-J01); immutable after campaign start.
+	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
@@ -269,6 +278,9 @@ private:
 	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
 	bool isCoopSave() const { return _coop; }
 	void setCoopSave(bool coop) { _coop = coop; }
+	/// JOINT/SEPARATE campaign economy model (PRD-J01). Immutable after start.
+	CoopCampaignType getCampaignType() const { return _campaignType; }
+	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
 	/// Locked co-op player list (host first), set at campaign start.
 	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
 	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }

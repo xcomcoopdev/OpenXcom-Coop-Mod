@@ -44,7 +44,7 @@ int GiftSoldierMenu::resolveOwnerId(Soldier *soldier)
 	// the dialog is open. (The old fallback returned 0/host, which on the
 	// client's machine offered the client their own name as a transfer
 	// target for their own fresh soldiers.)
-	return connectionTCP::getHost() ? 0 : 1;
+	return connectionTCP::localSeat();
 }
 
 GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldier(soldier)
@@ -59,7 +59,7 @@ GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldie
 	// LOCAL player's own name (every machine writes its own name box there)
 	// and getCurrentClientName() is the PEER's name (from received packets).
 	connectionTCP *coop = _game->getCoopMod();
-	int localPlayerId = coop->getHost() ? 0 : 1;
+	int localPlayerId = connectionTCP::localSeat();
 
 	std::vector<std::pair<int, std::string> > targets;
 	for (int playerId = 0; playerId <= 1; ++playerId)

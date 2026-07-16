@@ -39,7 +39,7 @@ namespace OpenXcom
  * Initializes all the elements in the Difficulty window.
  * @param game Pointer to the core game.
  */
-NewGameState::NewGameState(bool coopCampaign) : _coopCampaign(coopCampaign)
+NewGameState::NewGameState(bool coopCampaign, CoopCampaignType campaignType) : _coopCampaign(coopCampaign), _campaignType(campaignType)
 {
 	// Create objects
 	_window = new Window(this, 192, 180, 64, 10, POPUP_VERTICAL);
@@ -182,6 +182,8 @@ void NewGameState::btnOkClick(Action *)
 	{
 		// permanent solo/co-op distinction (D1)
 		save->setCoopSave(true);
+		// PRD-J01: record the chosen economy model (JOINT/SEPARATE), immutable.
+		save->setCampaignType(_campaignType);
 	}
 	_game->setSavedGame(save);
 

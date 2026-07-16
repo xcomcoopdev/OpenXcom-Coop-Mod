@@ -117,7 +117,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
-	_txtTitle->setText(tr("HOST"));
+	// PRD-J01: show the campaign economy model read-only beside the HOST title.
+	std::string hostTitle = tr("HOST");
+	if (_game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+	{
+		hostTitle += (_game->getSavedGame()->getCampaignType() == CoopCampaignType::Joint)
+			? "  [JOINT]" : "  [SEPARATE]";
+	}
+	_txtTitle->setText(hostTitle);
 
 	_hotseatTooltip->setBorderColor(color);
 	_hotseatTooltip->setText("Active: In this machine, players swap turns.\nAll locally (no internet).");

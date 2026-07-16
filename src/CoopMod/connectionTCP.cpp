@@ -144,6 +144,12 @@ int connectionTCP::_coopGamemode = 0;
 
 int connectionTCP::coop_save_owner_player_id = 0; 
 
+// PRD-J01: economy model shown in the lobby to a joining client (0=Sep,1=Joint).
+int connectionTCP::_lobbyCampaignType = 0;
+
+// PRD-J01: set once in the ctor; lets the static seat accessors reach the roster.
+Game* connectionTCP::_staticGame = nullptr;
+
 bool connectionTCP::_isChatActiveStatic = false;
 
 bool connectionTCP::_isActiveAISync = false;
@@ -382,7 +388,8 @@ std::string current_ping = "";
 
 connectionTCP::connectionTCP(Game* game) : _game(game)
 {
-
+	// PRD-J01: publish the process-single Game for the static seat accessors.
+	_staticGame = game;
 }
 
 connectionTCP::~connectionTCP()
@@ -683,6 +690,8 @@ Json::Value connectionTCP::buildCampaignStartPacket(const SavedGame* save)
 	root["difficulty"] = (int)save->getDifficulty();
 	root["gamemode"] = connectionTCP::_coopGamemode;
 	root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
+	// PRD-J01: propagate the campaign economy model so the client adopts it.
+	root["campaignType"] = static_cast<int>(save->getCampaignType());
 	int idx = 0;
 	for (const auto& p : save->getCoopPlayers())
 	{
@@ -1036,7 +1045,7 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 	soldier->setOwnerPlayerId(newOwnerId);
 	soldier->setCoop(newOwnerId);
 
-	int localPlayerId = getHost() ? 0 : 1;
+	int localPlayerId = localSeat();
 
 	Log(LOG_INFO) << "[coop-gift] giftSoldier '" << soldier->getName() << "' id=" << soldier->getId()
 	              << " newOwner=" << newOwnerId << " localPlayer=" << localPlayerId
@@ -1169,7 +1178,7 @@ void connectionTCP::processPendingSoldierGifts()
 		if (!_giftedAwaySoldierIds.empty())
 		{
 
-			int localPlayerId = getHost() ? 0 : 1;
+			int localPlayerId = localSeat();
 
 			for (auto& base : *_game->getSavedGame()->getBases())
 			{
@@ -2857,6 +2866,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		save->setDifficulty((GameDifficulty)difficulty);
 		save->setCoopSave(true);
 		save->setCoopPlayers(players);
+		// PRD-J01: adopt the host's campaign economy model (default Separate).
+		save->setCampaignType(static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt()));
 		_game->setSavedGame(save);
 
 		connectionTCP::session.markLobbyClosed();
@@ -3302,7 +3313,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								unit->getGeoscapeSoldier()->setCoop(owner);
 							}
 
-							int localPlayerId = getHost() ? 0 : 1;
+							int localPlayerId = localSeat();
 
 							if (battle->getSelectedUnit() == unit && owner != localPlayerId)
 							{
@@ -7320,6 +7331,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// path (Profile -> request_load_progress).
 		bool campaignStarted = obj.get("campaign_started", true).asBool();
 		bool rejoin = obj.get("rejoin", false).asBool();
+		// PRD-J01: remember the lobby's economy model for the type label (the
+		// client has no save yet; the real adoption happens at campaign_start).
+		connectionTCP::_lobbyCampaignType = obj.get("campaignType", 0).asInt();
 
 		// Pop the "Connecting..." wait dialog (CoopState 15) NOW, before pushing
 		// the lobby/load dialog over it. forceCloseCoopStateMenu can't reach it
@@ -7551,6 +7565,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			root["campaign_started"] = (connectionTCP::session.lobbyMode == 0 || connectionTCP::session.lobbyClosed == true);
 			root["rejoin"] = (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true);
 			root["lobby_mode"] = connectionTCP::session.lobbyMode;
+			// PRD-J01: tell the joining client the campaign economy model now,
+			// before its save exists, so the lobby type label can render.
+			root["campaignType"] = _game->getSavedGame()
+				? static_cast<int>(_game->getSavedGame()->getCampaignType()) : 0;
 
 			// Handshake fallback only: a resume carries the loaded saveID (nonzero,
 			// so skipped here) and a new campaign re-mints in startCampaign and
@@ -8732,6 +8750,49 @@ void connectionTCP::setCoopCampaign(bool coop)
 bool connectionTCP::getCoopCampaign()
 {
 	return _coopCampaign;
+}
+
+// PRD-J01: true only when the active save is a JOINT co-op campaign.
+bool connectionTCP::isJointCampaign()
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Joint;
+}
+
+// PRD-J01: this machine's seat. Host is always 0; a client's seat is its
+// roster index, carried today by coop_save_owner_player_id (2-player: 1).
+// Byte-identical to the historical `getHost() ? 0 : 1` in 2-player play.
+int connectionTCP::localSeat()
+{
+	if (getHost())
+		return 0;
+	return coop_save_owner_player_id != 0 ? coop_save_owner_player_id : 1;
+}
+
+// PRD-J01: active roster size (host + clients). Falls back to the legacy
+// 2-player count before the roster locks.
+int connectionTCP::seatCount()
+{
+	if (_staticGame && _staticGame->getSavedGame())
+	{
+		size_t n = _staticGame->getSavedGame()->getCoopPlayers().size();
+		if (n > 0)
+			return static_cast<int>(n);
+	}
+	return 2;
+}
+
+// PRD-J01: player name for a seat, or empty if out of range / no roster.
+std::string connectionTCP::seatName(int seat)
+{
+	if (_staticGame && _staticGame->getSavedGame())
+	{
+		const auto& roster = _staticGame->getSavedGame()->getCoopPlayers();
+		if (seat >= 0 && static_cast<size_t>(seat) < roster.size())
+			return roster[seat];
+	}
+	return std::string();
 }
 
 int connectionTCP::getCoopGamemode()

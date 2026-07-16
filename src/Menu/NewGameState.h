@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../Savegame/SavedGame.h" // PRD-J01: CoopCampaignType for the ctor
 
 namespace OpenXcom
 {
@@ -52,9 +53,11 @@ private:
 	// true = creating a co-op campaign: world is created, base placement is
 	// deferred, and the flow continues into the host window + lobby
 	bool _coopCampaign;
+	// PRD-J01: JOINT/SEPARATE economy model, applied to the new save on OK.
+	CoopCampaignType _campaignType;
 public:
 	/// Creates the New Game state.
-	NewGameState(bool coopCampaign = false);
+	NewGameState(bool coopCampaign = false, CoopCampaignType campaignType = CoopCampaignType::Separate);
 	/// Cleans up the New Game state.
 	~NewGameState();
 	/// Handler for clicking the Ok button.

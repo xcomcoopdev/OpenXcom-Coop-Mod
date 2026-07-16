@@ -271,6 +271,9 @@ class connectionTCP
 	// chat menu
 	ChatMenu* _chatMenu = nullptr;
 	Game* _game;
+	// PRD-J01: process-single Game handle so the static seat accessors can
+	// read the active roster (SavedGame::_coopPlayers). Set once in the ctor.
+	static Game* _staticGame;
 	Uint32 lastRandomClear = 0;
 	void generateCraftSoldiers();
 	bool _onTCP = false;
@@ -355,7 +358,18 @@ class connectionTCP
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
+	// PRD-J01: campaign economy model carried to a joining client during the
+	// lobby handshake (before its save exists) so the type label can render.
+	// 0 = Separate, 1 = Joint. Mirrors SavedGame::getCampaignType().
+	static int _lobbyCampaignType;
 	bool getCoopCampaign();
+	// PRD-J01: true when the ACTIVE save is a JOINT co-op campaign. Every later
+	// JOINT-gated behavior tests this; SEPARATE/solo return false.
+	bool isJointCampaign();
+	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
+	static int localSeat();                 // this machine's seat
+	static int seatCount();                 // active roster size
+	static std::string seatName(int seat);  // player name for a seat
 	// no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int getCoopGamemode();
 	void createCoopMenu();

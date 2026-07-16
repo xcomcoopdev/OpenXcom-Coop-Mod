@@ -112,7 +112,7 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
  * Initializes a brand new saved game according to the specified difficulty.
  */
 SavedGame::SavedGame() :
-	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
+	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _campaignType(CoopCampaignType::Separate), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
 	_battleGame(0), _previewBase(nullptr), _debug(false), _warned(false),
 	_togglePersonalLight(true), _toggleNightVision(false), _toggleBrightness(0),
 	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
@@ -327,6 +327,12 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
+	// PRD-J01: JOINT/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	{
+		int coopCampaignTypeInt = 0;
+		header.tryRead("coopCampaignType", coopCampaignTypeInt);
+		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
+	}
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
@@ -773,6 +779,12 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
+	// PRD-J01: JOINT/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	{
+		int coopCampaignTypeInt = 0;
+		header.tryRead("coopCampaignType", coopCampaignTypeInt);
+		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
+	}
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
@@ -1344,6 +1356,8 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	{
 		headerWriter.write("coop", _coop);
 		headerWriter.write("coopPlayers", _coopPlayers);
+		// PRD-J01: economy model beside coop (int); mirror of the load read.
+		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
 	// Saves the full game data to the save
@@ -1593,6 +1607,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	{
 		headerWriter.write("coop", _coop);
 		headerWriter.write("coopPlayers", _coopPlayers);
+		// PRD-J01: economy model beside coop (int); mirror of the load read.
+		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
 	// Saves the full game data to the save

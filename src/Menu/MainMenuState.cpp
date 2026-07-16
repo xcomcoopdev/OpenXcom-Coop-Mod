@@ -49,31 +49,39 @@ class NewGameModeState : public State
 {
 private:
 	Window *_window;
-	TextButton *_btnSolo, *_btnCoop;
+	TextButton *_btnSolo, *_btnCoopSeparate, *_btnCoopJoint;
 public:
 	NewGameModeState()
 	{
 		_screen = false;
 
-		// anchored directly under the New Game button (64,90 / 92x20)
-		_window = new Window(this, 100, 52, 60, 88, POPUP_VERTICAL);
+		// anchored directly under the New Game button (64,90 / 92x20). PRD-J01
+		// adds a third choice, so the popup and button stack grow by one row.
+		_window = new Window(this, 100, 74, 60, 88, POPUP_VERTICAL);
 		_btnSolo = new TextButton(92, 20, 64, 92);
-		_btnCoop = new TextButton(92, 20, 64, 114);
+		_btnCoopSeparate = new TextButton(92, 20, 64, 114);
+		_btnCoopJoint = new TextButton(92, 20, 64, 136);
 
 		setInterface("mainMenu");
 
 		add(_window, "window", "mainMenu");
 		add(_btnSolo, "button", "mainMenu");
-		add(_btnCoop, "button", "mainMenu");
+		add(_btnCoopSeparate, "button", "mainMenu");
+		add(_btnCoopJoint, "button", "mainMenu");
 
 		centerAllSurfaces();
 
 		setWindowBackground(_window, "mainMenu");
 
+		// Literal button text matches the fork's coop-UI convention (no STR_COOP
+		// translation keys exist); SEPARATE = today's mirrored economies, JOINT =
+		// one shared host-authoritative world (PRD-J01).
 		_btnSolo->setText("SOLO");
 		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
-		_btnCoop->setText("CO-OP");
-		_btnCoop->onMouseClick((ActionHandler)&NewGameModeState::btnCoopClick);
+		_btnCoopSeparate->setText("CO-OP (SEPARATE)");
+		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
+		_btnCoopJoint->setText("CO-OP (JOINT)");
+		_btnCoopJoint->onMouseClick((ActionHandler)&NewGameModeState::btnCoopJointClick);
 		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
 	}
 
@@ -83,10 +91,16 @@ public:
 		_game->pushState(new NewGameState(false));
 	}
 
-	void btnCoopClick(Action *)
+	void btnCoopSeparateClick(Action *)
 	{
 		_game->popState();
-		_game->pushState(new NewGameState(true));
+		_game->pushState(new NewGameState(true, CoopCampaignType::Separate));
+	}
+
+	void btnCoopJointClick(Action *)
+	{
+		_game->popState();
+		_game->pushState(new NewGameState(true, CoopCampaignType::Joint));
 	}
 
 	void btnCancelClick(Action *)

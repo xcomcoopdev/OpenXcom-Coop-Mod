@@ -40,11 +40,16 @@ _has_state = has_state
 
 def new_campaign(host, client, port="47900",
                  host_name="HostPlayer", client_name="ClientPlayer",
-                 host_base="HostBase", client_base="ClientBase"):
-    """Bring up a fresh co-op campaign through the redesigned flow."""
+                 host_base="HostBase", client_base="ClientBase",
+                 campaign_mode="coop"):
+    """Bring up a fresh co-op campaign through the redesigned flow.
+
+    campaign_mode selects the New Game dropdown choice: "coop" (SEPARATE,
+    the default, unchanged) or "joint" (PRD-J01 JOINT economy).
+    """
 
     # host: New Game -> Co-op -> difficulty OK (world created, HostMenu opens)
-    host.ok({"cmd": "open_new_game", "mode": "coop"})
+    host.ok({"cmd": "open_new_game", "mode": campaign_mode})
     host.wait_for("difficulty", lambda: _has_state(host, "NewGameState"))
     host.ok({"cmd": "newgame_ok"})
     host.wait_for("host window", lambda: _has_state(host, "HostMenu"))
