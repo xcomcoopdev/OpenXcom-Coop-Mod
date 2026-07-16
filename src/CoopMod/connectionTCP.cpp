@@ -1288,6 +1288,12 @@ void connectionTCP::pushProgressToHostSilently()
 	{
 		return;
 	}
+	// PRD-J02: a JOINT replica has no world of its own to push - the host's
+	// single authoritative save is the whole truth. No-op.
+	if (isJointReplica())
+	{
+		return;
+	}
 	State* topStatePush = _game->getStates().empty() ? nullptr : _game->getStates().back();
 	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle()
 	    || _game->getCoopMod()->playerInsideCoopBase
@@ -2862,21 +2868,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			players.push_back(p.asString());
 		}
 
-		SavedGame* save = _game->getMod()->newSave((GameDifficulty)difficulty);
-		save->setDifficulty((GameDifficulty)difficulty);
-		save->setCoopSave(true);
-		save->setCoopPlayers(players);
-		// PRD-J01: adopt the host's campaign economy model (default Separate).
-		save->setCampaignType(static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt()));
-		_game->setSavedGame(save);
+		CoopCampaignType campaignType =
+			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
 
-		connectionTCP::session.markLobbyClosed();
+		if (campaignType == CoopCampaignType::Joint)
+		{
+			// PRD-J02: a JOINT client is a replica - it never builds its own
+			// world. Do NOT run beginInitialBasePlacement. Hold the wait dialog
+			// until the host finishes placing its first base and streams the
+			// authoritative world (streamJointWorldToClient ->
+			// MAP_RESULT_LOAD_PROGRESS), which the client then adopts exactly
+			// like a resume. The roster/type ride the streamed save's header.
+			connectionTCP::session.markLobbyClosed();
+			connectionTCP::session.resumeAck = false;
+			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
+		}
+		else
+		{
+			SavedGame* save = _game->getMod()->newSave((GameDifficulty)difficulty);
+			save->setDifficulty((GameDifficulty)difficulty);
+			save->setCoopSave(true);
+			save->setCoopPlayers(players);
+			// PRD-J01: adopt the host's campaign economy model (default Separate).
+			save->setCampaignType(campaignType);
+			_game->setSavedGame(save);
 
-		GeoscapeState* gs = new GeoscapeState;
-		_game->setState(gs);
-		gs->init();
+			connectionTCP::session.markLobbyClosed();
 
-		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			GeoscapeState* gs = new GeoscapeState;
+			_game->setState(gs);
+			gs->init();
+
+			beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+		}
 
 	}
 
@@ -3477,7 +3501,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "request_load_progress")
 	{
 
-		if (_game->getSavedGame() && !sendFileClient)
+		if (_game->getSavedGame() && !sendFileClient && isJointCampaign())
+		{
+
+			// PRD-J02: JOINT resume/bootstrap. There is exactly one authoritative
+			// world (the host's) and no per-client stored blob - serialize the
+			// CURRENT world fresh and stream it as the client's replica. The
+			// client adopts it via the same MAP_RESULT_LOAD_PROGRESS path a
+			// SEPARATE resume uses. Battlescape resume stays 2-player/out of scope.
+			streamJointWorldToClient();
+			if (!sendFileClient)
+			{
+				// serialization refused (unplaced base etc.): let the client retry
+				Json::Value busy;
+				busy["state"] = "load_progress_busy";
+				sendTCPPacketData(busy.toStyledString());
+			}
+		}
+		else if (_game->getSavedGame() && !sendFileClient)
 		{
 
 			// battle live: after the geoscape world ack, stream the battle
@@ -5958,7 +5999,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "target_positions")
 	{
 
-		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false)
+		// PRD-J02: SEPARATE-only peer economy/craft mirror. A JOINT replica already
+		// holds every base/craft/fund as real data in the streamed world, so
+		// consuming the mirror snapshot would duplicate them. Fence it off.
+		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isJointCampaign())
 		{
 
 			// funds
@@ -7978,6 +8022,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "coopBase" && onTcpHost == true)
 	{
 
+		// PRD-J02: SEPARATE-only mirror-base machinery (creates _coopIcon peer
+		// bases). JOINT has one shared world with real bases - never mirror.
+		if (isJointCampaign())
+		{
+			return;
+		}
+
 		bool inBattle = obj["battle"].asBool();
 
 		// funds
@@ -8198,6 +8249,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "baseRequest")
 	{
 
+		// PRD-J02: SEPARATE-only mirror machinery; never in JOINT. Also guard the
+		// save deref: a JOINT replica can receive stray packets before its world
+		// exists, and the loop below dereferences the SavedGame.
+		if (isJointCampaign() || !_game->getSavedGame())
+		{
+			return;
+		}
+
 		Json::Value markers;
 
 		int index = 0;
@@ -8292,6 +8351,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// COOP BASE CLIENT
 	if (stateString == "coopBase2" && onTcpHost == false)
 	{
+
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in JOINT.
+		if (isJointCampaign())
+		{
+			return;
+		}
 
 		if (getServerOwner() == false)
 		{
@@ -8398,6 +8463,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// COOP BASE HOST
 	if (stateString == "coopBase3" && getHost() == true)
 	{
+
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in JOINT.
+		if (isJointCampaign())
+		{
+			return;
+		}
 
 		Json::Value m_markers;
 		Json::Reader reader;
@@ -8758,6 +8829,56 @@ bool connectionTCP::isJointCampaign()
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
 	return save && save->isCoopSave()
 		&& save->getCampaignType() == CoopCampaignType::Joint;
+}
+
+// PRD-J02: a JOINT client holds a replica of the host's single authoritative
+// world. Host = seat 0 owns the world; every other seat is a replica.
+bool connectionTCP::isJointReplica()
+{
+	return isJointCampaign() && !getHost();
+}
+
+// PRD-J02: hand the host's authoritative world to the single-client streamer.
+// Serializes FRESH (not a stale stored blob) into a scratch key, then routes it
+// through the same resume-blob lane the client already knows how to adopt
+// (streamer sendProgressLoadBlob path -> MAP_RESULT_LOAD_PROGRESS ->
+// CoopState(555) -> LoadGameState). Reuses the existing file-transfer chunking;
+// no second chunk protocol. Host only; caller must ensure the streamer is idle.
+void connectionTCP::streamJointWorldToClient()
+{
+	if (!getServerOwner() || !_game->getSavedGame())
+	{
+		return;
+	}
+
+	const std::string key = "joint_world";
+	connectionTCP::saveError = false;
+	_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
+
+	std::string blob;
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		auto it = coopFilesHost.find(key);
+		if (it != coopFilesHost.end())
+		{
+			blob = it->second;
+		}
+	}
+
+	if (blob.empty())
+	{
+		Log(LOG_ERROR) << "[coop-joint] streamJointWorldToClient: no world blob"
+		               << " (saveError=" << connectionTCP::saveError << ")";
+		return;
+	}
+
+	// snapshot for the streamer thread (same fields request_load_progress sets)
+	sendProgressLoadBlob = blob;
+	sendProgressLoadFileToClient = key;
+	sendFileClient = true;
+
+	Log(LOG_INFO) << "[coop-joint] streaming authoritative world to client ("
+	              << blob.size() << " bytes)";
 }
 
 // PRD-J01: this machine's seat. Host is always 0; a client's seat is its

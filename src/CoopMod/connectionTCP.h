@@ -366,6 +366,14 @@ class connectionTCP
 	// PRD-J01: true when the ACTIVE save is a JOINT co-op campaign. Every later
 	// JOINT-gated behavior tests this; SEPARATE/solo return false.
 	bool isJointCampaign();
+	// PRD-J02: true for a JOINT client - a world replica the host streams. A
+	// replica never builds its own world, never saves to disk, and never runs
+	// the SEPARATE mirror machinery. (isJointCampaign() && !host)
+	bool isJointReplica();
+	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
+	// streamer (single-client resume-blob lane) so the connected client adopts
+	// it as its replica. Host only; used at JOINT campaign start and resume.
+	void streamJointWorldToClient();
 	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
 	static int localSeat();                 // this machine's seat
 	static int seatCount();                 // active roster size

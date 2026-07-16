@@ -497,6 +497,13 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value jb;
 					jb["name"] = b->getName(_game->getLanguage());
+					// PRD-J02: coordinates + mirror flag, so a JOINT bootstrap/resume
+					// test can assert the client replica holds the SAME real base
+					// (not a _coopBase/_coopIcon mirror).
+					jb["lon"] = b->getLongitude();
+					jb["lat"] = b->getLatitude();
+					jb["coopBase"] = b->_coopBase;
+					jb["coopIcon"] = b->_coopIcon;
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{

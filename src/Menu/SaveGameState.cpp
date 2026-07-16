@@ -32,6 +32,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/CoopState.h"
 
 namespace OpenXcom
 {
@@ -198,6 +199,15 @@ void SaveGameState::think()
 
 				_game->setState(new MainMenuState);
 				_game->setSavedGame(0);
+			}
+			// PRD-J02: a JOINT replica must never write to disk. Autosaves stay
+			// silent (they fire automatically), but a user-initiated save gets an
+			// explicit refusal popup (same UX as the PauseState "cannot save"
+			// dialog) so the player understands nothing was written.
+			else if (_game->getCoopMod()->isJointReplica()
+				&& _type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
+			{
+				_game->pushState(new CoopState(123));
 			}
 			return;
 		}

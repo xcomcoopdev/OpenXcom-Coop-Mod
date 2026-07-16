@@ -69,30 +69,42 @@ def new_campaign(host, client, port="47900",
     )
     host.ok({"cmd": "lobby_start_campaign"})
 
-    # both sides place their first base in their own world
+    # the host always places its own first base
     host.wait_for("host base placement", lambda: _has_state(host, "BuildNewBaseState"))
     r = host.cmd({"cmd": "place_first_base", "lon": HOST_LON, "lat": HOST_LAT, "name": host_base})
     if not r.get("ok"):
         host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": host_base})
 
-    client.wait_for("client base placement", lambda: _has_state(client, "BuildNewBaseState"))
-    client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": client_base})
+    if campaign_mode == "joint":
+        # PRD-J02: a JOINT client never builds its own world - it waits for the
+        # host to stream the authoritative world after the host's base is placed.
+        # The host holds in COOP_DLG_RESUME_ACK_WAIT until the client acks the
+        # streamed world loaded, then BEGIN releases both.
+        host.wait_for(
+            "client world ack",
+            lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
+            timeout=120,
+        )
+        host.ok({"cmd": "coop_dialog_back"})
+    else:
+        # SEPARATE: the client places its own base and pushes its world blob;
+        # the host waits for that blob, then clicks BEGIN.
+        client.wait_for("client base placement", lambda: _has_state(client, "BuildNewBaseState"))
+        client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": client_base})
 
-    # host holds in the waiting dialog until the client's world blob arrives,
-    # then clicks RESUME
-    host.wait_for(
-        "all players placed bases",
-        lambda: host.cmd({"cmd": "has_coop_file",
-                          "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_{client_name}.data"}).get("present") or None,
-        timeout=120,
-    )
-    host.ok({"cmd": "coop_dialog_back"})
+        host.wait_for(
+            "all players placed bases",
+            lambda: host.cmd({"cmd": "has_coop_file",
+                              "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_{client_name}.data"}).get("present") or None,
+            timeout=120,
+        )
+        host.ok({"cmd": "coop_dialog_back"})
 
-    # session up: both synced (client received basehost etc.)
+    # session up: both synced (client holds the streamed / synced world)
     try:
         client.wait_for(
             "session up",
-            lambda: (lambda c: (c.get("lobbyClosed") and c.get("hasSave")) or None)(client.cmd({"cmd": "get_coop"})),
+            lambda: (lambda c: (c.get("hasSave") and not _has_state(client, "LobbyMenu")) or None)(client.cmd({"cmd": "get_coop"})),
             timeout=120,
         )
     except TimeoutError:

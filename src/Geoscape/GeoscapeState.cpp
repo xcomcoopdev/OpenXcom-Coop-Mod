@@ -1178,7 +1178,11 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->setPlayerTurn(0);
 
-		if (_game->getCoopMod()->coopFunds != 0)
+		// PRD-J02: coopFunds is the SEPARATE peer-funds mirror. In JOINT every
+		// player runs the one authoritative world (each replica applies the same
+		// deterministic start-of-game maintenance below), so this override would
+		// clobber the replica's funds back to a pre-deduction mirror value. Fence.
+		if (_game->getCoopMod()->coopFunds != 0 && !_game->getCoopMod()->isJointCampaign())
 		{
 
 			_game->getSavedGame()->setFunds(_game->getCoopMod()->coopFunds);
@@ -1187,10 +1191,18 @@ void GeoscapeState::init()
 
 		}
 	
-		Json::Value markers;
-		markers["state"] = "baseRequest";
+		// PRD-J02: baseRequest is SEPARATE mirror machinery (asks the peer to
+		// send its base markers so we can build _coopIcon mirror bases). JOINT
+		// has one shared world - suppress it. It is also unsafe to send here at
+		// JOINT campaign start: the replica has no SavedGame yet and the handler
+		// dereferences it.
+		if (!_game->getCoopMod()->isJointCampaign())
+		{
+			Json::Value markers;
+			markers["state"] = "baseRequest";
 
-		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+			_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+		}
 
 	}
 
@@ -1239,6 +1251,23 @@ void GeoscapeState::init()
 		_game->getSavedGame()->increaseDaysPassed();
 		determineAlienMissions();
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
+
+		// PRD-J02: JOINT campaign start. The host's authoritative world is now
+		// fully initialized (month advanced, start-of-game maintenance charged),
+		// so serialize it and stream it to the waiting client as its replica.
+		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
+		// funds: the client's own init sees monthsPassed==0 and never re-charges,
+		// and the host's time-sync then agrees. Hold in COOP_DLG_RESUME_ACK_WAIT
+		// until the client acks loaded, then BEGIN releases both. The dialog also
+		// keeps the host's geoscape from broadcasting before the client is ready.
+		if (_game->getCoopMod()->isJointCampaign()
+			&& _game->getCoopMod()->getServerOwner()
+			&& connectionTCP::session.lobbyMode == 1)
+		{
+			connectionTCP::session.resumeAck = false;
+			_game->getCoopMod()->streamJointWorldToClient();
+			_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+		}
 	}
 }
 
@@ -1634,18 +1663,24 @@ void GeoscapeState::think()
 
 			// send — full-state positional snapshot via the conflation slot
 			// (last-write-wins; never FIFO-queued, so it can't overflow g_txQ).
-			_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
-
-			// Positions are conflatable, but UFO/mission spawns and despawns are
-			// not: the conflation slot elides intermediate snapshots, so a UFO
-			// that appears and vanishes between two delivered snapshots would
-			// never reach the client. Whenever the membership set changes, also
-			// send this snapshot on the reliable FIFO lane so no spawn/despawn is
-			// dropped. Membership changes rarely, so this can't reintroduce the
-			// flood the conflation slot was added to prevent.
-			if (_game->getCoopMod()->geoMembershipChanged(root))
+			// PRD-J02: this is the SEPARATE-only peer economy/craft mirror. In
+			// JOINT every player already holds the authoritative world, so the
+			// mirror snapshot is suppressed (the receiver fences it too).
+			if (!_game->getCoopMod()->isJointCampaign())
 			{
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
+
+				// Positions are conflatable, but UFO/mission spawns and despawns are
+				// not: the conflation slot elides intermediate snapshots, so a UFO
+				// that appears and vanishes between two delivered snapshots would
+				// never reach the client. Whenever the membership set changes, also
+				// send this snapshot on the reliable FIFO lane so no spawn/despawn is
+				// dropped. Membership changes rarely, so this can't reintroduce the
+				// flood the conflation slot was added to prevent.
+				if (_game->getCoopMod()->geoMembershipChanged(root))
+				{
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				}
 			}
 
 		}

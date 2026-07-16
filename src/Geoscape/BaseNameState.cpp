@@ -197,7 +197,15 @@ void BaseNameState::btnOkClick(Action *)
 		// blob has arrived (F2)
 		if (_game->getCoopMod()->getCoopStatic() == true && _first && _game->getCoopMod()->getServerOwner() == true && connectionTCP::session.lobbyMode == 1)
 		{
-			_game->pushState(new CoopState(COOP_DLG_WAIT_BASES));
+			// PRD-J02: in JOINT the host neither waits for client base blobs nor
+			// pushes a dialog here. A dialog would block the geoscape init that
+			// finalizes the world (month advance + start-of-game maintenance);
+			// GeoscapeState::init streams the SETTLED world and holds in
+			// COOP_DLG_RESUME_ACK_WAIT there.
+			if (!_game->getCoopMod()->isJointCampaign())
+			{
+				_game->pushState(new CoopState(COOP_DLG_WAIT_BASES));
+			}
 		}
 
 	}

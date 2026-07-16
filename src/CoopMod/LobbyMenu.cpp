@@ -558,8 +558,13 @@ void LobbyMenu::resumeCampaign()
 
 	// Serve the connected client its world: stored blob if we have one,
 	// otherwise a fresh world + base building (registered-no-blob, D6).
+	// PRD-J02: JOINT has no per-client stored blob - there is a single
+	// authoritative world. Always take the campaign_resume path: the client's
+	// request_load_progress makes the host serialize the CURRENT world fresh and
+	// stream it (streamJointWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
-	if (connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	if (_game->getCoopMod()->isJointCampaign()
+		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
 	{
 		Json::Value root;
 		root["state"] = "campaign_resume";

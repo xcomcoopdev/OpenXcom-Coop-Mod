@@ -1632,7 +1632,11 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
 	// campaign's save with another campaign's blobs).
 	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
-	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite)
+	// PRD-J02: a JOINT save is already the single authoritative world for every
+	// player - there are no separate client worlds to embed. Skip the
+	// coopClientSaves sequence entirely (SEPARATE keeps embedding as before).
+	bool jointSave = (_campaignType == CoopCampaignType::Joint);
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !jointSave)
 	{
 		// Blob identity comes from the locked roster (host at [0], clients after),
 		// NOT from reverse-parsing map keys: each client's world lives under
