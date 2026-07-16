@@ -298,3 +298,59 @@ jobs:
         with:
           tag_name: ${{ needs.build-test-publish.outputs.tag }}
           files: openxcom-coop-winxp-${{ needs.build-test-publish.outputs.version }}-i686.zip
+
+  # Native Linux (x86_64) build via GCC. Runs after the x64 job publishes, then
+  # attaches its tarball to the same release.
+  build-linux:
+    needs: [build-test-publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake g++ make \
+            libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
+            libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, submodules: recursive }
+
+      - name: Configure + build (Linux x86_64)
+        run: |
+          set -euxo pipefail
+          # ubuntu's libjsoncpp-dev installs headers under /usr/include/jsoncpp;
+          # the code includes <json/json.h>, so add jsoncpp's include dir.
+          JSONCPP_CFLAGS=$(pkg-config --cflags jsoncpp)
+          rm -rf build && mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Package Linux tarball
+        env:
+          RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
+        run: |
+          set -euxo pipefail
+          v="${{ needs.build-test-publish.outputs.version }}"
+          pkg="openxcom-coop-linux-$v-x86_64"
+          mkdir -p "$pkg"
+          cp build/bin/openxcom "$pkg/"
+          cp -r bin/common bin/standard "$pkg/"
+          cp LICENSE.txt "$pkg/" 2>/dev/null || true
+          # real rendezvous.json from the secret (same as the x64 release); UFO data is NOT included (licensed)
+          if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
+          printf '%s' "$RELEASE_RENDEZVOUS_JSON" > "$pkg/rendezvous.json"
+          python3 -c "import json; json.load(open('$pkg/rendezvous.json'))" || { echo "rendezvous.json not valid JSON"; exit 1; }
+          tar czf "$pkg.tar.gz" "$pkg"
+
+      - name: Attach Linux tarball to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-test-publish.outputs.tag }}
+          files: openxcom-coop-linux-${{ needs.build-test-publish.outputs.version }}-x86_64.tar.gz
