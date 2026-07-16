@@ -1,0 +1,35 @@
+name: Embed Coop
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 0
+monthsPassed: 0
+coop_gamemode: 1
+saveID: 12340000
+funds:
+  - 1000000
+bases:
+  - name: HostBase
+    lon: 0.1
+    lat: 0.2
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Alice
+        coopname: ""
+      - type: STR_SOLDIER
+        id: 2
+        name: Bravo
+coopClientSaveKey: host_12340000_Bob.data
+coopClientSaveBlob: bmFtZTogQm9iLWNsaWVudAp2ZXJzaW9uOiBFeHRlbmRlZCA4LjQuMgplbmdpbmU6IEV4dGVuZGVkCmJ1aWxkOiA4LjQuMi4wCnRpbWU6CiAgeWVhcjogMTk5OQogIG1vbnRoOiAxCiAgZGF5OiAxCiAgaG91cjogMTIKICBtaW51dGU6IDAKICBzZWNvbmQ6IDAKICB3ZWVrZGF5OiA2Cm1vZHM6CiAgLSB4Y29tMSB2ZXI6IDEuMAotLS0KZGlmZmljdWx0eTogMAptb250aHNQYXNzZWQ6IDAKY29vcF9nYW1lbW9kZTogMQpmdW5kczoKICAtIDUwMDAwMApyZXNlYXJjaDoKICAtIG5hbWU6IFNUUl9NRURJX0tJVAogICAgZGlzY292ZXJlZDogdHJ1ZQpiYXNlczoKICAtIG5hbWU6IENsaWVudEJhc2UKICAgIGxvbjogMC41CiAgICBsYXQ6IDAuNgogICAgc29sZGllcnM6CiAgICAgIC0gdHlwZTogU1RSX1NPTERJRVIKICAgICAgICBpZDogMTAKICAgICAgICBuYW1lOiBDYXJvbAo=

@@ -1,0 +1,34 @@
+name: Dual Battle
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 0
+monthsPassed: 0
+coop_gamemode: 1
+funds:
+  - 1000000
+bases:
+  - name: HostBase
+    lon: 0.1
+    lat: 0.2
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Alice
+        coopname: ""
+      - type: STR_SOLDIER
+        id: 2
+        name: Bravo
+battleGame:
+  turn: 3

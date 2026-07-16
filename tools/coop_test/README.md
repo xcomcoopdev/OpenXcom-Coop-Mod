@@ -142,6 +142,18 @@ campaign each run.
   soldier move): the sending base's stored count drops and the receiving base's
   stored count rises by the same amount, world total conserved. OFF moves
   nothing.
+- `test_save_upgrade.py` - in-game Save Upgrader units/e2e on synthetic legacy
+  fixtures (`fixtures/synth.py`): SchemaDetector classification table
+  (dual / dual+saveID / embed / sidecar / solo / current / unknown-future /
+  malformed), the disk-less self-test, the DUAL 1->2 runner e2e (backup naming +
+  original preserved, upgraded header/body shape + embedded client world),
+  embed + sidecar recovery, and the negatives (mid-battle refused, gamemode
+  mismatch refused, skip-client warns + 0 client worlds).
+- `test_save_upgrade_flow.py` - the load-gate + full flow on a REAL save: a real
+  campaign save is stripped into a legacy DUAL pair; loading it through the real
+  `LoadGameState` must hit the upgrade dialog (not load as solo); then the
+  upgraded save loads through the menu -> resume lobby and a fresh client rejoins
+  with the exact name and is served its world (roster intact, zero-disk).
 
 ### JOINT campaign tests (PRD-J01..J11)
 
@@ -286,6 +298,11 @@ JOINT bring-up + world equality on top of it.
   `battle_action` (`select` / `move` / `shoot` / `end_turn` / `abort`).
 - Server browser: `open_server_browser`, `server_combo`, `combo_open`,
   `screenshot`.
+- Save upgrader (drives the Phase A engine headless, no UI): `upgrade_detect`
+  (`file` -> `kind`/`variant`/`schema`/`needsUpgrade`), `upgrade_run`
+  (`host` [, `client`, `clientName`, `hostName`, `skip`] -> runs
+  `UpgradeRunner` preflight+execute; returns `errors`/`warnings`/`success`/
+  `backupPath`/`report`), `upgrade_selftest` (`runSelfTest` -> `pass` + `log`).
 
 Add a command by extending `TestServer::execute`. Add a test by composing
 `GameClient` calls and asserts in a new `test_*.py`.

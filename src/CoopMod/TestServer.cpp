@@ -97,6 +97,7 @@
 #include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "../Menu/StartState.h"
 #include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
@@ -5279,6 +5280,102 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// handled by the second sub-dispatcher (executeShared11), split off to
 			// stay under MSVC's C1061 nested-block limit (same reason as executeShared10).
+		}
+		else if (cmd == "upgrade_detect")
+		{
+			// Classify a save file with the real SchemaDetector (Phase A). Drives the
+			// load-gate decision without any UI.
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				SaveUpgrade::DetectedSchema d = SaveUpgrade::SchemaDetector::detect(file);
+				const char* kind = "solo";
+				switch (d.kind)
+				{
+				case SaveUpgrade::DetectedSchema::Current:       kind = "current"; break;
+				case SaveUpgrade::DetectedSchema::Solo:          kind = "solo"; break;
+				case SaveUpgrade::DetectedSchema::Legacy:        kind = "legacy"; break;
+				case SaveUpgrade::DetectedSchema::UnknownFuture: kind = "unknown_future"; break;
+				case SaveUpgrade::DetectedSchema::Malformed:     kind = "malformed"; break;
+				}
+				const char* variant = "none";
+				switch (d.variant)
+				{
+				case SaveUpgrade::SchemaVariant::None:    variant = "none"; break;
+				case SaveUpgrade::SchemaVariant::Embed:   variant = "embed"; break;
+				case SaveUpgrade::SchemaVariant::Sidecar: variant = "sidecar"; break;
+				case SaveUpgrade::SchemaVariant::Dual:    variant = "dual"; break;
+				}
+				resp["kind"] = kind;
+				resp["variant"] = variant;
+				resp["schema"] = d.schema;
+				resp["needsUpgrade"] = d.needsUpgrade();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "upgrade_run")
+		{
+			// Drive the real UpgradeRunner (preflight + execute) headless. Mirrors
+			// SaveUpgradeUI::beginUpgrade: blocking errors refuse the run; warnings are
+			// reported but do not stop execute (execute re-validates, blocks on errors).
+			std::string host = req.get("host", "").asString();
+			if (host.empty())
+			{
+				resp["error"] = "need host";
+			}
+			else
+			{
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = req.get("client", "").asString();
+				in.clientName = req.get("clientName", "").asString();
+				in.hostName = req.get("hostName", "").asString();
+				in.skipClient = req.get("skip", false).asBool();
+
+				SaveUpgrade::UpgradeRunner runner(host);
+				SaveUpgrade::DetectedSchema d = runner.detect();
+				resp["needsUpgrade"] = d.needsUpgrade();
+				resp["variant"] = (int)d.variant;
+
+				SaveUpgrade::PreflightResult pf = runner.preflight(in);
+				Json::Value errs(Json::arrayValue), warns(Json::arrayValue);
+				for (const auto& e : pf.errors) errs.append(e);
+				for (const auto& w : pf.warnings) warns.append(w);
+				resp["errors"] = errs;
+				resp["warnings"] = warns;
+
+				if (!pf.ok())
+				{
+					// Correctly refused: the command itself ran fine.
+					resp["success"] = false;
+					resp["ok"] = true;
+				}
+				else
+				{
+					SaveUpgrade::ExecuteResult r = runner.execute(in);
+					resp["success"] = r.success;
+					resp["backupPath"] = r.backupPath;
+					resp["errorMessage"] = r.errorMessage;
+					Json::Value report(Json::arrayValue);
+					for (const auto& l : r.reportLines) report.append(l);
+					resp["report"] = report;
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "upgrade_selftest")
+		{
+			// Run the disk-less self-test (detector + 1->2 transform + post-flight).
+			std::vector<std::string> selftestLog;
+			bool pass = SaveUpgrade::runSelfTest(selftestLog);
+			Json::Value jlog(Json::arrayValue);
+			for (const auto& l : selftestLog) jlog.append(l);
+			resp["log"] = jlog;
+			resp["pass"] = pass;
+			resp["ok"] = true;
 		}
 		else
 		{
