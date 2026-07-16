@@ -4,23 +4,34 @@ name: CI (build + coop tests + publish)
 # runs the coop harness headless, and publishes a rolling nightly (push to main)
 # or a versioned release (push of a v* tag). Licensed UFO game data is pulled from the
 # private OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY)
-# and is STRIPPED before packaging so it is never redistributed in a release.
+# and only ever exists in the test job, so it can never leak into a release.
+#
+# Split into build -> coop-tests -> publish jobs so a flaky test can be re-run
+# ("Re-run failed jobs") without repeating the ~1h build, and so per-stage
+# durations show in the run summary graph.
 on:
   push:
     branches: [main]        # -> rolling "nightly" prerelease
     tags: ['v*']            # -> versioned release, marked latest
   workflow_dispatch:
 
-concurrency: { group: ci-main, cancel-in-progress: false }   # tests are stateful; never overlap
-permissions: { contents: write }                             # publish releases + move nightly tag
+concurrency: { group: ci-main, cancel-in-progress: false }   # publishes are ordered; never overlap
+permissions: { contents: read }                              # write only in the publish job
 
 jobs:
-  build-test-publish:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 75
+    outputs:
+      version:    ${{ steps.meta.outputs.version }}
+      channel:    ${{ steps.meta.outputs.channel }}
+      tag:        ${{ steps.meta.outputs.tag }}
+      name:       ${{ steps.meta.outputs.name }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      latest:     ${{ steps.meta.outputs.latest }}
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0 }    # full history: version = git describe
 
       - uses: microsoft/setup-msbuild@v2
 
@@ -80,66 +91,73 @@ jobs:
         working-directory: src
         run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-exe
+          path: bin/x64/Release/OpenXcom.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  coop-tests:   # release gate
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4    # shallow: only needs bin data + tools/, not history
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: game-exe
+          path: bin/x64/Release
+
       - name: Fetch UFO data (private, licensed)
         uses: actions/checkout@v4
         with:
           repository: OpenXcom-Coop/UFO_Data
           ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
           path: .ufo_data
+          persist-credentials: false
 
       - name: Stage data next to exe
         shell: pwsh
-        run: |
-          $d = "bin\x64\Release"
-          robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
-          robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
-          robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
-          robocopy .ufo_data "$d\UFO" /E /XD .git /NFL /NDL /NJH /NJS               # licensed UFO data from private repo
-          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the public repo
-          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
-          # Rendezvous config (git-ignored real one is per-deployment): the coop
-          # harness needs a parseable rendezvous.json next to the exe or ServerList's
-          # ctor errors into a CoopState (lobby tests) and the UDP-public host path
-          # crashes. Ship the CI config (blackhole host + throwaway valid keys).
-          Copy-Item tools\coop_test\rendezvous.ci.json "$d\rendezvous.json" -Force
-          if (-not (Test-Path "$d\OpenXcom.exe"))          { throw "build produced no exe" }
-          if (-not (Test-Path "$d\UFO\GEODATA"))           { throw "UFO data not staged" }
-          if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
-          if (-not (Test-Path "$d\rendezvous.json"))       { throw "rendezvous.json not staged" }
+        run: ./tools/ci/stage_data.ps1
 
-      - name: Coop test suite (headless)   # release gate
+      - name: Coop test suite (headless)
         timeout-minutes: 40
         shell: pwsh
         env:
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
+        run: ./tools/ci/run_coop_suite.ps1
+
+  publish:
+    needs: [build, coop-tests]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions: { contents: write }   # publish releases + move nightly tag
+    steps:
+      - uses: actions/checkout@v4      # shallow: bin data, LICENSE, CHANGELOG, tag push
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: game-exe
+          path: bin/x64/Release
+
+      - name: Stage packaging inputs (no UFO data in this job)
+        shell: pwsh
         run: |
-          # Discover main's actual harness so the suite never goes stale.
-          $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
-                   Select-Object -ExpandProperty BaseName | Sort-Object
-          # Known-broken on main (real failures, not flakes) - run but do not gate.
-          # Add entries here if a test regresses; remove them as they are fixed so
-          # they gate again. Empty = the whole suite gates (all green as of 2026-07-15).
-          $quarantine = @()
-          $fail = 0
-          foreach ($t in $tests) {
-            python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
-            if ($rc -ne 0) { python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE }   # retry once (flake tolerance)
-            if ($rc -eq 0)                  { Write-Host "PASS        $t" }
-            elseif ($quarantine -contains $t) { Write-Host "KNOWN-FAIL  $t (quarantined, rc=$rc)" }
-            else                            { Write-Host "FAIL        $t (rc=$rc)"; $fail++ }
-          }
-          if ($fail -gt 0) { throw "$fail non-quarantined test(s) failed" }
+          robocopy deps\lib\x64 bin\x64\Release *.dll /NFL /NDL /NJH /NJS
+          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+          if (-not (Test-Path "bin\x64\Release\OpenXcom.exe")) { throw "exe artifact missing" }
 
       - name: Write release rendezvous.json (real Official server, from secret)
-        if: success()
         shell: pwsh
         env:
           RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
         run: |
-          # The test stage above ran against the blackhole tools/coop_test/rendezvous.ci.json.
-          # For the shipped zip, replace it with the real config from the repo secret so
-          # end users get a working "Official" server. Fail loudly if the secret is unset
+          # The test job ran against the blackhole tools/coop_test/rendezvous.ci.json.
+          # For the shipped zip, write the real config from the repo secret so end
+          # users get a working "Official" server. Fail loudly if the secret is unset
           # so a broken/placeholder config never ships.
           $d = "bin\x64\Release"
           if ([string]::IsNullOrWhiteSpace($env:RELEASE_RENDEZVOUS_JSON)) {
@@ -149,25 +167,16 @@ jobs:
           Set-Content "$d\rendezvous.json" $env:RELEASE_RENDEZVOUS_JSON -Encoding ascii -NoNewline
           Write-Host "release rendezvous.json written ($((Get-Item "$d\rendezvous.json").Length) bytes)"
 
-      - name: Strip licensed UFO data before packaging
-        if: success()
-        shell: pwsh
-        run: |
-          # Belt-and-suspenders: the Package allowlist below already excludes UFO, but
-          # delete the licensed retail data outright so it can never end up in a release,
-          # even if the packaging list is later changed to a wildcard.
-          Remove-Item -Recurse -Force bin\x64\Release\UFO -ErrorAction SilentlyContinue
-          if (Test-Path bin\x64\Release\UFO) { throw "UFO data still present after strip" }
-
       - name: Package
-        if: success()
         shell: pwsh
         run: |
-          $v = "${{ steps.meta.outputs.version }}"
+          $v = "${{ needs.build.outputs.version }}"
           $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
           Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\x64\Release\rendezvous.json,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
-          # Guard: assert no licensed retail X-COM data (GEODATA is the canary) is in the zip.
+          # Guard: assert no licensed retail X-COM data (GEODATA is the canary) is in the
+          # zip. This job never stages UFO data at all, but keep the canary in case the
+          # packaging list is ever changed to a wildcard.
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $z).Path)
           $bad = @($zip.Entries.FullName | Where-Object { $_ -match 'GEODATA' })
@@ -176,10 +185,10 @@ jobs:
           Write-Host "package OK ($z); no licensed retail data included"
 
       - name: Release notes from CHANGELOG (release only)
-        if: success() && steps.meta.outputs.channel == 'release'
+        if: needs.build.outputs.channel == 'release'
         shell: pwsh
         run: |
-          $v = "${{ steps.meta.outputs.version }}"
+          $v = "${{ needs.build.outputs.version }}"
           $out = "release-notes.md"
           if (-not (Test-Path "CHANGELOG.md")) { throw "CHANGELOG.md missing - add a '## [$v]' section before tagging" }
           # extract the "## [<v>]" section up to the next "## " heading
@@ -195,21 +204,20 @@ jobs:
           Write-Host "Release notes for $v:"; Get-Content $out
 
       - name: Move rolling nightly tag
-        if: success() && steps.meta.outputs.channel == 'nightly'
+        if: needs.build.outputs.channel == 'nightly'
         shell: pwsh
         run: |
           git tag -f nightly
           git push -f origin nightly
 
       - name: Publish
-        if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:    ${{ steps.meta.outputs.tag }}
-          name:        ${{ steps.meta.outputs.name }}
-          prerelease:  ${{ steps.meta.outputs.prerelease }}
-          make_latest: ${{ steps.meta.outputs.latest }}
+          tag_name:    ${{ needs.build.outputs.tag }}
+          name:        ${{ needs.build.outputs.name }}
+          prerelease:  ${{ needs.build.outputs.prerelease }}
+          make_latest: ${{ needs.build.outputs.latest }}
           files: ${{ env.ZIP }}
           # release -> curated notes from CHANGELOG.md; nightly -> auto-generated
-          body_path: ${{ steps.meta.outputs.channel == 'release' && 'release-notes.md' || '' }}
-          generate_release_notes: ${{ steps.meta.outputs.channel != 'release' }}
+          body_path: ${{ needs.build.outputs.channel == 'release' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ needs.build.outputs.channel != 'release' }}
