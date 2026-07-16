@@ -1,16 +1,17 @@
 name: CI validate (build + coop tests, no publish)
 
-# Validation-only pipeline for pre-merge branches. Same build + stage + coop
-# test gate as ci-main.yml but WITHOUT the package/publish/nightly-tag steps, so
-# a feature branch can be proven green on the self-hosted runner before it is
-# merged to main (which is what fires the real nightly via ci-main.yml).
+# PR merge gate. Same build + stage + coop test gate as ci-main.yml but WITHOUT
+# the package/publish/nightly-tag steps, so every PR into main is proven on a
+# CLEAN build before it can merge (make the `build-test` job a required status
+# check in main's branch protection). ci-main.yml still runs post-merge to
+# publish the nightly.
 #
-# For `push` events GitHub uses the workflow file as it exists on the pushed
-# branch, so this triggers from the branch listed below even though it is not on
-# main. Remove this file (or its branch entry) once the branch is merged.
+# SECURITY: this runs on a self-hosted runner. A pull_request from a FORK would
+# execute untrusted code on the runner - keep GitHub's "Require approval for all
+# external collaborators" (Settings > Actions > Fork pull request workflows) on.
 on:
-  push:
-    branches: [automated-builds]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency: { group: ci-main, cancel-in-progress: false }   # share ci-main's lane; tests are stateful, never overlap
