@@ -41,6 +41,7 @@ private:
 	std::string _filename;
 	std::string _coopKey;
 	bool _loadCoopProgress;
+	bool _gateChecked = false;
   public:
 	/// Creates the Load Game state.
 	LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey = "", bool loadCoopProgress = false);

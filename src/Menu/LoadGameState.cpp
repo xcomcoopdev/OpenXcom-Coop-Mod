@@ -39,6 +39,9 @@
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../Savegame/Upgrade/SaveUpgrade.h"
+#include "SaveUpgradeDialogState.h"
+#include "SaveUpgradeMessageState.h"
 
 namespace OpenXcom
 {
@@ -164,6 +167,32 @@ void LoadGameState::init()
 	{
 		_game->popState();
 		return;
+	}
+
+	// Save-schema load gate (PRD save-upgrader.md 4): classify the file before it
+	// is ever handed to SavedGame::load. Legacy co-op saves route to the upgrade
+	// dialog; saves from a newer build get an informative refusal; current/solo
+	// saves load as usual; malformed saves fall through to the load error path.
+	// Coop-orchestrated loads (host-served blobs / resume) are upgraded host-side
+	// and must never gate, so they are excluded here.
+	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked)
+	{
+		_gateChecked = true;
+		SaveUpgrade::DetectedSchema detected = SaveUpgrade::SchemaDetector::detect(_filename);
+		if (detected.kind == SaveUpgrade::DetectedSchema::UnknownFuture)
+		{
+			std::vector<std::string> lines;
+			lines.push_back(tr("STR_SAVE_UPGRADE_FUTURE").arg(detected.schema));
+			_game->popState();
+			_game->pushState(new SaveUpgradeMessageState(_origin, tr("STR_SAVE_UPGRADE_FUTURE_TITLE"), lines));
+			return;
+		}
+		if (detected.needsUpgrade())
+		{
+			_game->popState();
+			_game->pushState(new SaveUpgradeDialogState(_origin, _filename, detected));
+			return;
+		}
 	}
 }
 
