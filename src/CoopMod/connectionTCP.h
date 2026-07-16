@@ -532,6 +532,16 @@ class connectionTCP
 	int ratingTotalCoop = -1;
 	int lastMonthsRatingCoop = -1;
 
+	// PRD-J04: authoritative monthly settlement carried on the extended
+	// monthly_report packet (JOINT). A replica overwrites its own recomputed tails
+	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
+	bool jointMonthlyPending = false;
+	int64_t jointMonthlyFunds = 0;
+	int64_t jointMonthlyMaintenance = 0;
+	int64_t jointMonthlyIncome = 0;
+	int64_t jointMonthlyExpenditure = 0;
+	int jointMonthlyResearchScore = 0;
+
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
 	Json::Value _coopFacility;

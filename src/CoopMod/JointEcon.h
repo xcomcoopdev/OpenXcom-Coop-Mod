@@ -119,6 +119,47 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 /// changes this body.
 void broadcast(Game* game, const Json::Value& msg);
 
+// ---- PRD-J04: host simulation-result broadcasts ------------------------------
+// In JOINT only the host runs world simulation; replicas are frozen (their
+// timeXxx handlers early-return). Each host-only completion event is therefore
+// mirrored to replicas over the SAME registerCmd/joint_apply channel: the host
+// has ALREADY applied the mutation via vanilla code, so it submits a command
+// whose validator is always-accept (cost 0, funds carried authoritatively) and
+// whose applier runs on REPLICAS ONLY (it early-returns on the host to avoid a
+// double-apply). Each helper is a no-op unless isJointCampaign() && the caller is
+// the host; call them right where the vanilla sim applied the change.
+
+/// Research finished on the host (time1Day): replica removes the base's matching
+/// ResearchProject (freeing its scientists), adds the discovered topic + bonus +
+/// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
+void hostResearchDone(Game* game, int baseId, const std::string& research,
+                      const std::string& bonus, const std::string& newResearch);
+
+/// Facility construction finished on the host (time1Day): replica sets the
+/// facility at (x,y) buildTime 0 and mirrors the completion popup.
+void hostFacilityDone(Game* game, int baseId, int x, int y,
+                      const std::string& facilityType);
+
+/// Manufacture batch finished on the host (time1Hour): replica materializes the
+/// produced items/crafts, removes the Production (freeing engineers), and mirrors
+/// the completion popup.
+void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
+                        int units, int progress);
+
+/// Transfers delivered on the host (time1Hour): replica delivers the matching
+/// pending transfers (items/scientists/engineers/craft) and removes them.
+void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
+
+/// End-of-day soldier changes on the host (time1Day): replica adopts the
+/// per-soldier wound-recovery values for CHANGED soldiers only.
+void hostDayTick(Game* game);
+
+// ---- PRD-J04: lightweight world checksum (log-only desync detect) ------------
+// Repair is PRD-J10; here the host stamps funds + base count + discovered-tech
+// count onto an outgoing snapshot and the replica logs a warning on mismatch.
+void attachWorldChecksum(Game* game, Json::Value& msg);
+void verifyWorldChecksum(Game* game, const Json::Value& msg);
+
 /// Harness / diagnostics: monotonic counters for the protocol traffic this
 /// process has processed, plus the most recent joint_fail reason surfaced here.
 struct Stats

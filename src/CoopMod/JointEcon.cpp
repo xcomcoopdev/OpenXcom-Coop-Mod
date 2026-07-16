@@ -29,13 +29,25 @@
 #include <vector>
 
 #include "../Engine/Game.h"
+#include "../Engine/Language.h"
+#include "../Engine/Logger.h"
+#include "../Engine/State.h"
 #include "../Mod/Mod.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleCraft.h"
+#include "../Mod/RuleResearch.h"
+#include "../Mod/RuleManufacture.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/BaseFacility.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/Transfer.h"
+#include "../Savegame/Soldier.h"
+#include "../Savegame/ResearchProject.h"
+#include "../Savegame/Production.h"
+#include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/ResearchCompleteState.h"
+#include "../Geoscape/ProductionCompleteState.h"
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -269,6 +281,219 @@ void buyApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
+// ---- PRD-J04: host simulation-result commands --------------------------------
+// These mirror a host-only completion to replicas. The host has ALREADY applied
+// the change via vanilla sim, so:
+//   validator : always accept, cost 0 (funds stay host-authoritative; the packet
+//               carries getFunds() so replicas re-sync funds for free).
+//   applier   : runs on the REPLICA only (early-returns on the host) to avoid a
+//               double-apply.
+
+// Locate the live GeoscapeState (for completion popups that need it). Null if the
+// replica is currently in a sub-screen/battle -> we simply skip the popup then.
+GeoscapeState* findGeoState(Game* game)
+{
+	if (!game) return nullptr;
+	for (auto* st : game->getStates())
+	{
+		if (auto* gs = dynamic_cast<GeoscapeState*>(st)) return gs;
+	}
+	return nullptr;
+}
+
+// Last wound-recovery value the host broadcast per soldier id, so day_tick only
+// carries CHANGED soldiers (process-global; compare-and-set makes stale entries
+// self-correct on the next change).
+std::unordered_map<int, int> g_soldierRecovery;
+
+bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
+               int /*seat*/, int64_t& cost, std::string& /*failReason*/)
+{
+	cost = 0; // host-authoritative funds unchanged; broadcast carries getFunds()
+	return true;
+}
+
+// research_done payload: { research, bonus, newResearch } (rule names; bonus /
+// newResearch may be "").
+void researchDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // host already applied in time1Day
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+
+	const std::string rName = payload.get("research", "").asString();
+	RuleResearch* research = mod->getResearch(rName, false);
+	if (!research) return;
+	const std::string bName = payload.get("bonus", "").asString();
+	RuleResearch* bonus = bName.empty() ? nullptr : mod->getResearch(bName, false);
+
+	// Remove the base's matching ResearchProject and free its scientists, exactly
+	// as the host's time1Day did. Mark it finished first so removeResearch() does
+	// not take the "cancelled research" branch and refund the needed item (the
+	// replica's frozen project never stepped, so it looks unfinished).
+	for (auto* proj : base->getResearch())
+	{
+		if (proj->getRules()->getName() == rName)
+		{
+			proj->setSpent(proj->getCost());
+			base->removeResearch(proj);
+			break;
+		}
+	}
+
+	// Add the discovered topic(s). The host already selected the getOneFree
+	// (RNG) and passed it as `bonus`; addFinishedResearch itself is deterministic,
+	// so applying the host's exact choices keeps the replica identical.
+	if (bonus)
+	{
+		save->addFinishedResearch(bonus, mod, base);
+		if (!bonus->getLookup().empty())
+			save->addFinishedResearch(mod->getResearch(bonus->getLookup(), true), mod, base);
+	}
+	save->addFinishedResearch(research, mod, base);
+	if (!research->getLookup().empty())
+		save->addFinishedResearch(mod->getResearch(research->getLookup(), true), mod, base);
+
+	// Mirror the host popup (coop=true -> the ctor does NOT re-broadcast).
+	const std::string nrName = payload.get("newResearch", "").asString();
+	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
+	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+}
+
+// fac_done payload: { x, y, type }.
+void facDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	if (!base) return;
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+	for (auto* fac : *base->getFacilities())
+	{
+		if (fac->getX() == x && fac->getY() == y && fac->getBuildTime() > 0)
+		{
+			fac->setBuildTime(0);
+			GeoscapeState* gs = findGeoState(game);
+			if (gs)
+				game->pushState(new ProductionCompleteState(
+					base, game->getLanguage()->getString(payload.get("type", "").asString()),
+					gs, PROGRESS_CONSTRUCTION));
+			break;
+		}
+	}
+}
+
+// prod_done payload: { manufacture, units, progress }.
+void prodDoneApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+
+	const std::string mName = payload.get("manufacture", "").asString();
+	int units = payload.get("units", 0).asInt();
+	RuleManufacture* rule = mod->getManufacture(mName, false);
+	if (!rule || units <= 0) return;
+
+	// Materialize the deterministic output (items + crafts). Random/spawned-person
+	// production is host-RNG and NOT reconstructed here (documented limitation);
+	// the next joint_apply / checksum surfaces any resulting drift.
+	for (const auto& it : rule->getProducedItems())
+		base->getStorageItems()->addItem(it.first, it.second * units);
+	if (const RuleCraft* craftRule = rule->getProducedCraft())
+	{
+		for (int c = 0; c < units; ++c)
+		{
+			// getId(craftType) advances the per-type counter identically to the
+			// host (all craft creation rides joint_apply), so ids stay in lockstep.
+			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base,
+			                         save->getId(craftRule->getType()));
+			craft->initFixedWeapons(mod);
+			craft->checkup();
+			base->getCrafts()->push_back(craft);
+		}
+	}
+
+	// Remove the matching Production (returns its engineers to the base pool) and
+	// mirror the completion popup.
+	for (auto* prod : base->getProductions())
+	{
+		if (prod->getRules()->getName() == mName)
+		{
+			GeoscapeState* gs = findGeoState(game);
+			if (gs)
+				game->pushState(new ProductionCompleteState(
+					base, game->getLanguage()->getString(mName), gs,
+					(productionProgress_e)payload.get("progress", PROGRESS_COMPLETE).asInt(),
+					prod));
+			base->removeProduction(prod);
+			break;
+		}
+	}
+}
+
+// transfer_arrived payload: { arrived: [ {type, rule, qty} ] }.
+void transferArrivedApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	if (!base) return;
+	const Json::Value& arrived = payload["arrived"];
+	if (!arrived.isArray()) return;
+
+	auto& transfers = *base->getTransfers();
+	for (const auto& d : arrived)
+	{
+		int type = d.get("type", -1).asInt();
+		std::string rule = d.get("rule", "").asString();
+		int qty = d.get("qty", 0).asInt();
+		for (auto it = transfers.begin(); it != transfers.end(); ++it)
+		{
+			Transfer* t = *it;
+			bool match = (t->getType() == type);
+			if (match && type == TRANSFER_ITEM)
+				match = (t->getItems() && t->getItems()->getType() == rule && t->getQuantity() == qty);
+			else if (match && (type == TRANSFER_SCIENTIST || type == TRANSFER_ENGINEER))
+				match = (t->getQuantity() == qty);
+			else if (match && type == TRANSFER_CRAFT)
+				match = (t->getCraft() && t->getCraft()->getRules()->getType() == rule);
+			if (!match) continue;
+
+			// Force delivery: advance() delivers exactly once when hours reach 0
+			// and sets _delivered, so the subsequent delete won't free a craft/
+			// soldier now owned by the base.
+			while (t->getHours() > 0) t->advance(base);
+			transfers.erase(it);
+			delete t;
+			break;
+		}
+	}
+}
+
+// day_tick payload: { soldiers: [ {id, recovery} ] }.
+void dayTickApply(Game* game, const Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	if (!base) return;
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray()) return;
+	for (const auto& s : soldiers)
+	{
+		int id = s.get("id", -1).asInt();
+		int recovery = s.get("recovery", 0).asInt();
+		for (auto* soldier : *base->getSoldiers())
+		{
+			if (soldier->getId() == id)
+			{
+				soldier->setWoundRecovery(recovery);
+				break;
+			}
+		}
+	}
+}
+
 // ---- Host-side command processing (main thread) ------------------------------
 void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 {
@@ -370,6 +595,13 @@ void init()
 	if (g_inited) return;
 	g_inited = true;
 	registerCmd("buy", &buyValidate, &buyApply);
+	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
+	// run replica-side only).
+	registerCmd("research_done",    &simAccept, &researchDoneApply);
+	registerCmd("fac_done",         &simAccept, &facDoneApply);
+	registerCmd("prod_done",        &simAccept, &prodDoneApply);
+	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
+	registerCmd("day_tick",         &simAccept, &dayTickApply);
 }
 
 void broadcast(Game* game, const Json::Value& msg)
@@ -527,6 +759,120 @@ void resetStats()
 	g_cmdN = 0; g_okN = 0; g_failN = 0; g_applyN = 0; g_unknownN = 0;
 	std::lock_guard<std::mutex> lk(g_failMx);
 	g_lastFail.clear();
+}
+
+// ---- PRD-J04 host sim-result broadcasts --------------------------------------
+// All gate on isJointCampaign() && host; each rides submitLocalCmd (host-origin),
+// which validate(accept)+apply(host no-op)+broadcasts joint_apply to the replica.
+namespace {
+bool jointHost(Game* game)
+{
+	return game && game->getCoopMod() && game->getCoopMod()->isJointCampaign()
+		&& connectionTCP::getHost();
+}
+}
+
+void hostResearchDone(Game* game, int baseId, const std::string& research,
+                      const std::string& bonus, const std::string& newResearch)
+{
+	if (!jointHost(game)) return;
+	Json::Value p;
+	p["research"] = research;
+	p["bonus"] = bonus;
+	p["newResearch"] = newResearch;
+	submitLocalCmd(game, "research_done", baseId, p);
+}
+
+void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& facilityType)
+{
+	if (!jointHost(game)) return;
+	Json::Value p;
+	p["x"] = x;
+	p["y"] = y;
+	p["type"] = facilityType;
+	submitLocalCmd(game, "fac_done", baseId, p);
+}
+
+void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
+                        int units, int progress)
+{
+	if (!jointHost(game)) return;
+	Json::Value p;
+	p["manufacture"] = manufacture;
+	p["units"] = units;
+	p["progress"] = progress;
+	submitLocalCmd(game, "prod_done", baseId, p);
+}
+
+void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived)
+{
+	if (!jointHost(game)) return;
+	if (!arrived.isArray() || arrived.empty()) return;
+	Json::Value p;
+	p["arrived"] = arrived;
+	submitLocalCmd(game, "transfer_arrived", baseId, p);
+}
+
+void hostDayTick(Game* game)
+{
+	if (!jointHost(game)) return;
+	SavedGame* save = game->getSavedGame();
+	if (!save) return;
+	auto* bases = save->getBases();
+	for (int bi = 0; bi < (int)bases->size(); ++bi)
+	{
+		Json::Value soldiers(Json::arrayValue);
+		for (auto* soldier : *(*bases)[bi]->getSoldiers())
+		{
+			int id = soldier->getId();
+			int rec = soldier->getWoundRecoveryInt();
+			auto hit = g_soldierRecovery.find(id);
+			if (hit == g_soldierRecovery.end() || hit->second != rec)
+			{
+				g_soldierRecovery[id] = rec;
+				Json::Value js;
+				js["id"] = id;
+				js["recovery"] = rec;
+				soldiers.append(js);
+			}
+		}
+		if (!soldiers.empty())
+		{
+			Json::Value p;
+			p["soldiers"] = soldiers;
+			submitLocalCmd(game, "day_tick", bi, p);
+		}
+	}
+}
+
+// ---- PRD-J04 world checksum (log-only) ---------------------------------------
+void attachWorldChecksum(Game* game, Json::Value& msg)
+{
+	if (!game || !game->getSavedGame()) return;
+	SavedGame* save = game->getSavedGame();
+	msg["chkFunds"] = Json::Value::Int64(save->getFunds());
+	msg["chkBases"] = (int)save->getBases()->size();
+	msg["chkResearch"] = (int)save->getDiscoveredResearch().size();
+}
+
+void verifyWorldChecksum(Game* game, const Json::Value& msg)
+{
+	if (!game || !game->getSavedGame()) return;
+	if (!msg.isMember("chkFunds")) return; // older/non-JOINT host
+	SavedGame* save = game->getSavedGame();
+	int64_t hostFunds = msg["chkFunds"].asInt64();
+	int hostBases = msg.get("chkBases", -1).asInt();
+	int hostResearch = msg.get("chkResearch", -1).asInt();
+	int64_t myFunds = save->getFunds();
+	int myBases = (int)save->getBases()->size();
+	int myResearch = (int)save->getDiscoveredResearch().size();
+	if (hostFunds != myFunds || hostBases != myBases || hostResearch != myResearch)
+	{
+		Log(LOG_WARNING) << "[JOINT] world checksum mismatch (repair is J10): "
+			<< "funds host=" << hostFunds << " replica=" << myFunds
+			<< ", bases host=" << hostBases << " replica=" << myBases
+			<< ", research host=" << hostResearch << " replica=" << myResearch;
+	}
 }
 
 } // namespace JointEcon

@@ -55,6 +55,8 @@
 #include "../Mod/RuleItem.h"
 #include "../Mod/Unit.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/BaseFacility.h"
+#include "../Mod/RuleBaseFacility.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -493,6 +495,17 @@ std::string TestServer::execute(const std::string& line)
 				resp["time"] = time;
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
 				resp["monthsPassed"] = sg->getMonthsPassed();
+				// PRD-J04: monthly settlement tails, so a JOINT month-end sync test
+				// can assert the replica's funds/maintenance equal the host's. The
+				// just-ended month's maintenance lives at [size-2] after the roll.
+				{
+					auto& maint = sg->getMaintenances();
+					int64_t maintTail = maint.empty() ? 0
+						: (maint.size() >= 2 ? maint[maint.size() - 2] : maint.back());
+					resp["maintenanceTail"] = Json::Value::Int64(maintTail);
+					resp["incomeTail"] = Json::Value::Int64(sg->getIncomes().empty() ? 0 : sg->getIncomes().back());
+					resp["expenditureTail"] = Json::Value::Int64(sg->getExpenditures().empty() ? 0 : sg->getExpenditures().back());
+				}
 
 				Json::Value bases(Json::arrayValue);
 				for (auto* b : *sg->getBases())
@@ -550,6 +563,21 @@ std::string TestServer::execute(const std::string& line)
 						research.append(jr);
 					}
 					jb["research"] = research;
+					// PRD-J04: facilities (buildTime + grid position) so a JOINT
+					// replica-freeze test can prove construction days-left change only
+					// via fac_done, never locally.
+					Json::Value facilities(Json::arrayValue);
+					for (auto* f : *b->getFacilities())
+					{
+						Json::Value jf;
+						jf["type"] = f->getRules()->getType();
+						jf["x"] = f->getX();
+						jf["y"] = f->getY();
+						jf["buildTime"] = f->getBuildTime();
+						facilities.append(jf);
+					}
+					jb["facilities"] = facilities;
+					jb["freeScientists"] = b->getScientists();
 					jb["soldiers"] = (int)b->getSoldiers()->size();
 					bases.append(jb);
 				}
@@ -1743,6 +1771,152 @@ std::string TestServer::execute(const std::string& line)
 				int64_t value = req.get("value", 0).asInt64();
 				_game->getSavedGame()->setFunds(value);
 				resp["funds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "start_research")
+		{
+			// PRD-J04 test helper: force-start a research project at the first real
+			// base on THIS machine (vanilla has no naturally-available research at
+			// game start). Low cost -> finishes in ~1 game day. In JOINT the host
+			// ticks it to completion and broadcasts research_done; a replica that
+			// also started it here gets its project removed + scientists freed on
+			// apply, matching the host.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg || sg->getBases()->empty())
+				resp["error"] = "no base";
+			else
+			{
+				Base* base = nullptr;
+				for (auto* b : *sg->getBases())
+					if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+				if (!base) base = sg->getBases()->front();
+				std::string topic = req.get("topic", "").asString();
+				int cost = req.get("cost", 1).asInt();
+				int want = req.get("scientists", 1).asInt();
+				RuleResearch* rule = nullptr;
+				if (!topic.empty())
+					rule = _game->getMod()->getResearch(topic, false);
+				else
+				{
+					for (const auto& name : _game->getMod()->getResearchList())
+					{
+						RuleResearch* r = _game->getMod()->getResearch(name, false);
+						if (!r || sg->isResearched(r, false)) continue;
+						if (sg->isResearchRuleStatusDisabled(name)) continue;
+						bool inProg = false;
+						for (auto* p : base->getResearch())
+							if (p->getRules() == r) { inProg = true; break; }
+						if (!inProg) { rule = r; break; }
+					}
+				}
+				if (!rule)
+					resp["error"] = "no research rule";
+				else
+				{
+					int assign = want;
+					if (assign > base->getScientists()) assign = base->getScientists();
+					if (assign < 1) assign = 1;
+					ResearchProject* proj = new ResearchProject(rule, cost);
+					proj->setAssigned(assign);
+					base->addResearch(proj);
+					if (base->getScientists() >= assign)
+						base->setScientists(base->getScientists() - assign);
+					resp["topic"] = rule->getName();
+					resp["assigned"] = assign;
+					resp["freeScientists"] = base->getScientists();
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "is_researched")
+		{
+			// PRD-J04 test helper: has a research topic been discovered on THIS world?
+			SavedGame* sg = _game->getSavedGame();
+			RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+			resp["researched"] = (sg && rule) ? sg->isResearched(rule, false) : false;
+			resp["ok"] = true;
+		}
+		else if (cmd == "set_facility_build_time")
+		{
+			// PRD-J04 test helper: set a base facility's buildTime on THIS machine.
+			// A JOINT replica's time1Day must NOT decrement it; only fac_done (host
+			// completion broadcast) may drive it to 0.
+			SavedGame* sg = _game->getSavedGame();
+			int baseId = req.get("baseId", 0).asInt();
+			int index = req.get("index", -1).asInt();
+			int t = req.get("time", 10).asInt();
+			if (!sg || baseId < 0 || baseId >= (int)sg->getBases()->size())
+				resp["error"] = "bad base";
+			else
+			{
+				Base* base = (*sg->getBases())[baseId];
+				auto* facs = base->getFacilities();
+				BaseFacility* fac = nullptr;
+				if (index >= 0 && index < (int)facs->size()) fac = (*facs)[index];
+				else if (!facs->empty()) fac = facs->front();
+				if (!fac)
+					resp["error"] = "no facility";
+				else
+				{
+					fac->setBuildTime(t);
+					resp["x"] = fac->getX();
+					resp["y"] = fac->getY();
+					resp["type"] = fac->getRules()->getType();
+					resp["buildTime"] = fac->getBuildTime();
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "set_geo_day")
+		{
+			// PRD-J04 test helper: jump the host clock to near month-end so a short
+			// advance rolls the month (exercising the monthly settlement sync)
+			// without simulating 30 in-game days. Host-authoritative; the client's
+			// clock follows via the time packet.
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg)
+				resp["error"] = "no save";
+			else
+			{
+				GameTime* t = sg->getTime();
+				int day = req.get("day", 28).asInt();
+				int hour = req.get("hour", t->getHour()).asInt();
+				GameTime nt(t->getWeekday(), day, t->getMonth(), t->getYear(),
+				            hour, t->getMinute(), t->getSecond());
+				sg->setTime(nt);
+				resp["day"] = sg->getTime()->getDay();
+				resp["month"] = sg->getTime()->getMonth();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "fly_craft")
+		{
+			// PRD-J04 test helper: launch the first ready craft at the first real
+			// base toward a distant waypoint, so the host moves it and the JOINT
+			// position snapshot carries the motion to the (frozen) replica.
+			SavedGame* sg = _game->getSavedGame();
+			Base* base = nullptr; Craft* craft = nullptr;
+			if (sg)
+				for (auto* b : *sg->getBases())
+					if (!b->_coopBase && !b->_coopIcon && !b->getCrafts()->empty())
+					{ base = b; craft = b->getCrafts()->front(); break; }
+			if (!craft)
+				resp["error"] = "no craft";
+			else
+			{
+				Waypoint* w = new Waypoint();
+				// lon/lat are radians; a large longitude offset (wraps, no pole
+				// clamp) keeps the craft en route for the whole observation window.
+				w->setLongitude(base->getLongitude() + 0.5);
+				w->setLatitude(base->getLatitude() + 0.1);
+				w->setId(sg->getId("STR_WAY_POINT"));
+				sg->getWaypoints()->push_back(w);
+				craft->setDestination(w);
+				craft->setStatus("STR_OUT");
+				resp["craftId"] = craft->getId();
+				resp["baseLon"] = base->getLongitude();
+				resp["baseLat"] = base->getLatitude();
 				resp["ok"] = true;
 			}
 		}

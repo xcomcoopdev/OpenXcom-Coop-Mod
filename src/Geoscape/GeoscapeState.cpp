@@ -136,6 +136,7 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/JointEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -1683,6 +1684,80 @@ void GeoscapeState::think()
 				}
 			}
 
+			// PRD-J04: JOINT position snapshot. Replicas are simulation-frozen, so
+			// they never move crafts/UFOs themselves; the HOST mirrors the REAL
+			// object positions (keyed by real id, not a _coop mirror id) so replicas
+			// still SEE movement. Reuses the SNAP_GEO_POSITIONS conflation slot (can't
+			// flood) + a FIFO resend on membership change (so spawns/despawns aren't
+			// elided). The receiver applies it under the `joint` flag to real objects.
+			else if (_game->getCoopMod()->getServerOwner() && _game->getSavedGame())
+			{
+				Json::Value jroot;
+				jroot["state"] = "target_positions";
+				jroot["joint"] = true;
+
+				Json::Value jcrafts(Json::arrayValue);
+				auto& jbases = *_game->getSavedGame()->getBases();
+				for (size_t bi = 0; bi < jbases.size(); ++bi)
+				{
+					for (auto* craft : *jbases[bi]->getCrafts())
+					{
+						Json::Value jc;
+						jc["baseId"] = (int)bi;
+						jc["id"] = craft->getId();
+						jc["rule"] = craft->getRules()->getType();
+						jc["lon"] = craft->getLongitude();
+						jc["lat"] = craft->getLatitude();
+						jc["status"] = craft->getStatus();
+						jc["speed"] = craft->getSpeed();
+						jcrafts.append(jc);
+					}
+				}
+				jroot["crafts"] = jcrafts;
+
+				Json::Value jufos(Json::arrayValue);
+				for (auto* ufo : *_game->getSavedGame()->getUfos())
+				{
+					if (!ufo->getMission()) continue;
+					Json::Value ju;
+					ju["id"] = ufo->getId();
+					ju["ufo_rule"] = ufo->getRules()->getType();
+					ju["mission_id"] = ufo->getMission()->getId();
+					ju["mission_rule"] = ufo->getMission()->getRules().getType();
+					ju["race"] = ufo->getMission()->getRace();
+					ju["region"] = ufo->getMission()->getRegion();
+					ju["lon"] = ufo->getLongitude();
+					ju["lat"] = ufo->getLatitude();
+					ju["status"] = _game->getCoopMod()->ufostatusToInt(ufo->getStatus());
+					ju["detected"] = ufo->getDetected();
+					ju["altitude"] = ufo->getAltitude();
+					ju["speed"] = ufo->getSpeed();
+					jufos.append(ju);
+				}
+				jroot["ufos"] = jufos;
+
+				Json::Value jsites(Json::arrayValue);
+				for (auto* site : *_game->getSavedGame()->getMissionSites())
+				{
+					Json::Value jm;
+					jm["id"] = site->getId();
+					jm["deployment"] = site->getDeployment()->getType();
+					jm["rules"] = site->getRules()->getType();
+					jm["race"] = site->getAlienRace();
+					jm["city"] = site->getCity();
+					jm["lon"] = site->getLongitude();
+					jm["lat"] = site->getLatitude();
+					jsites.append(jm);
+				}
+				jroot["missions"] = jsites;
+
+				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, jroot.toStyledString());
+				if (_game->getCoopMod()->geoMembershipChanged(jroot))
+				{
+					_game->getCoopMod()->sendTCPPacketData(jroot.toStyledString());
+				}
+			}
+
 		}
 
 
@@ -1713,8 +1788,14 @@ void GeoscapeState::think()
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
 
+			// PRD-J04: piggyback a lightweight world checksum (funds + base count +
+			// discovered-tech count) on the periodic time heartbeat. The replica
+			// logs a warning on mismatch; full desync repair is PRD-J10.
+			if (_game->getCoopMod()->isJointCampaign())
+				JointEcon::attachWorldChecksum(_game, root);
+
 		}
-	
+
 		root["time_speed"] = "";
 
 		if (_timeSpeed == _btn5Secs)
@@ -2162,6 +2243,29 @@ void GeoscapeState::time5Seconds()
 	{
 		return;
 	}
+
+	// PRD-J04: replica simulation freeze. In JOINT only the host runs world
+	// simulation; a replica's clock still advances (from the host "time" packet,
+	// applied in updateCoopTask) and its globe still draws, but every timeXxx
+	// handler that MUTATES world state must not run its body on a replica. The
+	// results arrive as host broadcasts instead:
+	//   time5Seconds  -> craft/UFO movement, dogfight spawns, mission spawns, base
+	//                    defense (RNG, host-authoritative). Positions the replica
+	//                    must still SEE ride the JOINT position snapshot
+	//                    (target_positions, joint:true) applied in connectionTCP.
+	//   time10Minutes -> fuel burn, base/HK detection, alien-base hunt missions.
+	//   time30Minutes -> alien-mission countdowns, UFO detection, mission-site
+	//                    processing, geoscape events.
+	//   time1Hour     -> craft repair/rearm/refuel, transfer arrival (-> broadcast
+	//                    transfer_arrived), production step (-> prod_done).
+	//   time1Day      -> facility build (-> fac_done), research step (-> research
+	//                    complete broadcast), soldier recovery/training (-> day_tick),
+	//                    autosave (a replica never writes to disk).
+	//   time1Month/   -> monthly funding settle -> replica adopts host funds/tails
+	//   time1MonthCoop   from the extended monthly_report (NOT frozen: it IS the
+	//                    replica's monthly apply path).
+	if (_game->getCoopMod()->isJointReplica())
+		return;
 
 	// If in "slow mode", handle UFO hunting and escorting logic every 5 seconds, not only every 10 minutes
 	if ((_timeSpeed == _btn5Secs || _timeSpeed == _btn1Min) && _game->getMod()->getHunterKillerFastRetarget())
@@ -2778,6 +2882,11 @@ void GeoscapeState::time10Minutes()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
+	// detection and alien-base hunt-mission generation are host-only.
+	if (_game->getCoopMod()->isJointReplica())
+		return;
+
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		// Fuel consumption for XCOM craft.
@@ -3143,6 +3252,12 @@ void GeoscapeState::time30Minutes()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
+	// countdowns, UFO detection, mission-site processing and geoscape events are
+	// host-only; the replica sees them via snapshots / mirrored popups.
+	if (_game->getCoopMod()->isJointReplica())
+		return;
+
 	// Decrease mission countdowns
 	for (auto* am : _game->getSavedGame()->getAlienMissions())
 	{
@@ -3435,6 +3550,21 @@ void GeoscapeState::time1Hour()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Craft
+	// repair/rearm/refuel, transfer arrival and production steps are host-only;
+	// the host mirrors transfer arrivals (transfer_arrived) and production
+	// completions (prod_done) to replicas below.
+	if (_game->getCoopMod()->isJointReplica())
+		return;
+
+	// PRD-J04: index of a base in the shared list = the JOINT baseId (stable, the
+	// replica holds the same ordered list). Used by the host sim-result broadcasts.
+	auto jointBaseId = [&](Base* b) -> int {
+		auto& v = *_game->getSavedGame()->getBases();
+		for (size_t i = 0; i < v.size(); ++i) if (v[i] == b) return (int)i;
+		return -1;
+	};
+
 	// Handle craft maintenance
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
@@ -3485,14 +3615,31 @@ void GeoscapeState::time1Hour()
 	bool window = false;
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		// PRD-J04: collect transfers that arrive THIS hour so the host can mirror
+		// them to JOINT replicas (whose own transfers are frozen and never tick).
+		Json::Value arrived(Json::arrayValue);
 		for (auto* transfer : *xbase->getTransfers())
 		{
 			transfer->advance(xbase);
-			if (!window && transfer->getHours() <= 0)
+			if (transfer->getHours() <= 0)
 			{
-				window = true;
+				if (!window)
+				{
+					window = true;
+				}
+				Json::Value d;
+				d["type"] = transfer->getType();
+				if (transfer->getType() == TRANSFER_ITEM && transfer->getItems())
+					d["rule"] = transfer->getItems()->getType();
+				else if (transfer->getType() == TRANSFER_CRAFT && transfer->getCraft())
+					d["rule"] = transfer->getCraft()->getRules()->getType();
+				else
+					d["rule"] = "";
+				d["qty"] = transfer->getQuantity();
+				arrived.append(d);
 			}
 		}
+		JointEcon::hostTransferArrived(_game, jointBaseId(xbase), arrived);
 	}
 	if (window)
 	{
@@ -3511,6 +3658,10 @@ void GeoscapeState::time1Hour()
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
 				popup(new ProductionCompleteState(xbase,  tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
+				// PRD-J04: mirror the finished manufacture to JOINT replicas before
+				// the Production object is destroyed (units produced + progress).
+				JointEcon::hostProductionDone(_game, jointBaseId(xbase),
+					pair.first->getRules()->getName(), pair.first->getAmountProduced(), pair.second);
 				xbase->removeProduction(pair.first);
 			}
 		}
@@ -3687,11 +3838,26 @@ void GeoscapeState::time1Day()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Research/facility/
+	// soldier daily progress and the autosave are host-only; the host mirrors
+	// research completions, facility completions (fac_done) and soldier recovery
+	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
+	if (_game->getCoopMod()->isJointReplica())
+		return;
+
 	_game->getSavedGame()->increaseDaysPassed();
 
 	SavedGame *saveGame = _game->getSavedGame();
 	Mod *mod = _game->getMod();
 	bool psiStrengthEval = (Options::psiStrengthEval && saveGame->isResearched(mod->getPsiRequirements()));
+
+	// PRD-J04: index of a base in the shared list = the JOINT baseId; used by the
+	// host sim-result broadcasts (research/facility/day_tick).
+	auto jointBaseId = [&](Base* b) -> int {
+		auto& v = *_game->getSavedGame()->getBases();
+		for (size_t i = 0; i < v.size(); ++i) if (v[i] == b) return (int)i;
+		return -1;
+	};
 
 	auto addResearchDiaryEntryForBase = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const Base* sourceBase, const RuleResearch* sourceResearch)
 	{
@@ -3725,6 +3891,10 @@ void GeoscapeState::time1Day()
 				if (facility->getBuildTime() == 0)
 				{
 					finishedFacilities[facility->getRules()] += 1;
+					// PRD-J04: mirror the completed facility (by grid position) to
+					// JOINT replicas, which set its buildTime to 0.
+					JointEcon::hostFacilityDone(_game, jointBaseId(xbase),
+						facility->getX(), facility->getY(), facility->getRules()->getType());
 				}
 			}
 		}
@@ -3844,6 +4014,14 @@ void GeoscapeState::time1Day()
 			}
 			// 3e. handle research complete popup + ufopedia article popups (topic+bonus)
 			popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
+			// PRD-J04: mirror this completion to JOINT replicas. Carry the exact
+			// discovered topic + the host-selected getOneFree + the popup topic, so
+			// the replica removes the project (freeing scientists) and adds the SAME
+			// tech deterministically (no RNG re-roll). The SEPARATE `research` packet
+			// that ResearchCompleteState would emit is fenced off in JOINT.
+			JointEcon::hostResearchDone(_game, jointBaseId(xbase), research->getName(),
+				bonus ? bonus->getName() : std::string(),
+				newResearch ? newResearch->getName() : std::string());
 			// 3f. reset timer
 			timerReset();
 			// 3g. warning if weapon is researched before its clip
@@ -4170,6 +4348,10 @@ void GeoscapeState::time1Day()
 			popup(new CraftErrorState(this, msg, false));
 		}
 	}
+
+	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to JOINT
+	// replicas, for CHANGED soldiers only.
+	JointEcon::hostDayTick(_game);
 }
 
 /**
@@ -4184,6 +4366,13 @@ void GeoscapeState::time1Month()
 	{
 		return;
 	}
+
+	// PRD-J04: replica simulation freeze (see time5Seconds). A JOINT replica never
+	// settles funding locally; it adopts the host's monthly result via the extended
+	// monthly_report packet (applied in time1MonthCoop). Redundant with the coop
+	// serverOwner gate below, but kept explicit.
+	if (_game->getCoopMod()->isJointReplica())
+		return;
 
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -4246,8 +4435,16 @@ void GeoscapeState::time1MonthCoop()
 {
 	_game->getSavedGame()->addMonth();
 
-	// Determine alien mission for this month.
-	determineAlienMissions();
+	// PRD-J04: on a JOINT replica this is the monthly APPLY path (host's time1Month
+	// settled funding and broadcast monthly_report). Skip the host-only alien
+	// mission determination (RNG); missions ride the host's world. The replica's
+	// own monthlyFunding() still rolls the graph vectors below, then the
+	// authoritative funds/tails from the packet overwrite any drift.
+	if (!_game->getCoopMod()->isJointReplica())
+	{
+		// Determine alien mission for this month.
+		determineAlienMissions();
+	}
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
 	if (!Options::anytimePsiTraining)
@@ -4273,6 +4470,28 @@ void GeoscapeState::time1MonthCoop()
 	timerReset();
 
 	_game->getSavedGame()->monthlyFunding();
+
+	// PRD-J04: overwrite the just-rolled tail with the host's authoritative
+	// settlement (carried on the extended monthly_report packet). setFunds fixes
+	// _funds.back() but nudges incomes/expenditures, so re-assert those tails too.
+	if (_game->getCoopMod()->isJointReplica() && _game->getCoopMod()->jointMonthlyPending)
+	{
+		SavedGame* sg = _game->getSavedGame();
+		sg->setFunds(_game->getCoopMod()->jointMonthlyFunds);
+		// monthlyFunding() rolled a new (0) month onto each vector, so the
+		// just-ended month's real values live at [size-2] for maintenance, and at
+		// back() for incomes/expenditures. Overwrite them with the host's.
+		auto& maint = sg->getMaintenances();
+		if (maint.size() >= 2) maint[maint.size() - 2] = _game->getCoopMod()->jointMonthlyMaintenance;
+		else if (!maint.empty()) maint.back() = _game->getCoopMod()->jointMonthlyMaintenance;
+		if (!sg->getIncomes().empty())
+			sg->getIncomes().back() = _game->getCoopMod()->jointMonthlyIncome;
+		if (!sg->getExpenditures().empty())
+			sg->getExpenditures().back() = _game->getCoopMod()->jointMonthlyExpenditure;
+		if (!sg->getResearchScores().empty())
+			sg->getResearchScores().back() = _game->getCoopMod()->jointMonthlyResearchScore;
+		_game->getCoopMod()->jointMonthlyPending = false;
+	}
 
 	popup(new MonthlyReportState(_globe));
 

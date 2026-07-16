@@ -4044,6 +4044,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			connectionTCP::monthsPassed = monthsPassed;
 			connectionTCP::daysPassed = daysPassed;
 
+			// PRD-J04: verify the host's world checksum piggybacked on this
+			// heartbeat (funds + base count + research count). Log-only detect;
+			// repair is J10. No-op unless the host stamped a JOINT checksum.
+			JointEcon::verifyWorldChecksum(_game, obj);
+
 		}
 
 		std::string time_speed = obj["time_speed"].asString();
@@ -6005,6 +6010,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			 }
 		 }
 
+		// PRD-J04: authoritative monthly settlement (JOINT). Stored here; applied to
+		// the replica's tails in time1MonthCoop after its own monthlyFunding roll.
+		if (obj.isMember("jointFunds"))
+		{
+			jointMonthlyFunds = obj["jointFunds"].asInt64();
+			jointMonthlyMaintenance = obj.get("jointMaintenance", 0).asInt64();
+			jointMonthlyIncome = obj.get("jointIncome", 0).asInt64();
+			jointMonthlyExpenditure = obj.get("jointExpenditure", 0).asInt64();
+			jointMonthlyResearchScore = obj.get("jointResearchScore", 0).asInt();
+			jointMonthlyPending = true;
+		}
+
 		_game->getCoopMod()->show_coop_monthly_report = true;
 
 	}
@@ -6012,6 +6029,120 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// target positions
 	if (stateString == "target_positions")
 	{
+
+		// PRD-J04: JOINT position snapshot (`joint:true`). The replica is
+		// simulation-frozen, so it applies the HOST's real object positions here
+		// (matched by REAL id, not a _coop mirror id) so it still SEES crafts/UFOs
+		// move. This is the JOINT counterpart of the SEPARATE mirror below; the two
+		// are mutually exclusive (JOINT never sends the SEPARATE snapshot and the
+		// SEPARATE block is fenced with !isJointCampaign()).
+		if (obj.get("joint", false).asBool() && isJointReplica() && _game->getSavedGame())
+		{
+			SavedGame* sg = _game->getSavedGame();
+
+			// crafts: update the matching real craft (base index + craft id).
+			auto& jbases = *sg->getBases();
+			for (Json::ArrayIndex i = 0; i < obj["crafts"].size(); i++)
+			{
+				const Json::Value& jc = obj["crafts"][i];
+				int baseId = jc["baseId"].asInt();
+				int craftId = jc["id"].asInt();
+				if (baseId < 0 || baseId >= (int)jbases.size()) continue;
+				for (auto* craft : *jbases[baseId]->getCrafts())
+				{
+					if (craft->getId() == craftId && craft->getRules()->getType() == jc["rule"].asString())
+					{
+						craft->setLongitude(jc["lon"].asDouble());
+						craft->setLatitude(jc["lat"].asDouble());
+						craft->setStatus(jc["status"].asString());
+						craft->setSpeed(jc["speed"].asInt());
+						break;
+					}
+				}
+			}
+
+			// ufos: create-or-update the matching real UFO (by real id). Track the
+			// live id set so despawned UFOs can be hidden afterwards.
+			std::unordered_set<int> liveUfoIds;
+			for (Json::ArrayIndex i = 0; i < obj["ufos"].size(); i++)
+			{
+				const Json::Value& ju = obj["ufos"][i];
+				int ufoId = ju["id"].asInt();
+				liveUfoIds.insert(ufoId);
+				int missionId = ju["mission_id"].asInt();
+
+				// find/create the owning AlienMission (needed for Ufo::getMission()).
+				AlienMission* mission = nullptr;
+				for (auto* m : sg->getAlienMissions())
+					if (m->getId() == missionId) { mission = m; break; }
+				if (!mission)
+				{
+					const RuleAlienMission* mrule = _game->getMod()->getAlienMission(ju["mission_rule"].asString(), false);
+					if (!mrule) continue;
+					mission = new AlienMission(*mrule);
+					mission->setRace(ju["race"].asString());
+					mission->setId(missionId);
+					mission->setRegion(ju["region"].asString(), *_game->getMod());
+					sg->getAlienMissions().push_back(mission);
+				}
+
+				Ufo* ufo = nullptr;
+				for (auto* u : *sg->getUfos())
+					if (u->getId() == ufoId) { ufo = u; break; }
+				if (!ufo)
+				{
+					RuleUfo* ufoRule = _game->getMod()->getUfo(ju["ufo_rule"].asString(), false);
+					if (!ufoRule) continue;
+					const UfoTrajectory& traj = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
+					ufo = new Ufo(ufoRule, ufoId);
+					ufo->setMissionInfo(mission, &traj);
+					sg->getUfos()->push_back(ufo);
+				}
+				ufo->setLongitude(ju["lon"].asDouble());
+				ufo->setLatitude(ju["lat"].asDouble());
+				ufo->setStatus(intToUfostatus(ju["status"].asInt()));
+				ufo->setDetected(ju["detected"].asBool());
+				ufo->setAltitude(ju["altitude"].asString());
+				ufo->setSpeed(ju["speed"].asInt());
+				ufo->setSecondsRemaining(100000000);
+			}
+			// despawn: hide replica UFOs no longer in the authoritative set (a frozen
+			// replica has no dogfights/followers to unwind; full cleanup is J10).
+			for (auto* u : *sg->getUfos())
+			{
+				if (liveUfoIds.find(u->getId()) == liveUfoIds.end())
+				{
+					u->setDetected(false);
+					u->setStatus(Ufo::DESTROYED);
+					u->setSecondsRemaining(0);
+				}
+			}
+
+			// mission sites: create-or-update the matching real site (by real id).
+			for (Json::ArrayIndex i = 0; i < obj["missions"].size(); i++)
+			{
+				const Json::Value& jm = obj["missions"][i];
+				int siteId = jm["id"].asInt();
+				MissionSite* site = nullptr;
+				for (auto* s : *sg->getMissionSites())
+					if (s->getId() == siteId) { site = s; break; }
+				if (!site)
+				{
+					const RuleAlienMission* srule = _game->getMod()->getAlienMission(jm["rules"].asString(), false);
+					AlienDeployment* dep = _game->getMod()->getDeployment(jm["deployment"].asString(), false);
+					if (!srule || !dep) continue;
+					site = new MissionSite(srule, dep, nullptr);
+					site->setId(siteId);
+					sg->getMissionSites()->push_back(site);
+				}
+				site->setLongitude(jm["lon"].asDouble());
+				site->setLatitude(jm["lat"].asDouble());
+				site->setAlienRace(jm["race"].asString());
+				site->setCity(jm["city"].asString());
+				site->setDetected(true);
+				site->setSecondsRemaining(100000000);
+			}
+		}
 
 		// PRD-J02: SEPARATE-only peer economy/craft mirror. A JOINT replica already
 		// holds every base/craft/fund as real data in the streamed world, so
