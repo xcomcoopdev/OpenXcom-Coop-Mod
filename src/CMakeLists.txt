@@ -651,7 +651,10 @@ endif ()
 
 if (WIN32)
   set(CMAKE_EXE_LINKER_FLAGS -Wl,--export-all-symbols)
-  set(WIN32_LIBS imagehlp dbghelp)
+  # ws2_32 (Winsock) + iphlpapi (GetAdaptersInfo) are needed by SDL_net and the
+  # coop networking (connectionTCP/UDP, LAN discovery). MSVC pulls these via
+  # #pragma comment(lib,...), which MinGW ignores, so link them explicitly here.
+  set(WIN32_LIBS imagehlp dbghelp ws2_32 iphlpapi)
 endif(WIN32)
 
 target_link_libraries ( openxcom ${system_libs} ${PKG_DEPS_LDFLAGS} jsoncpp vorbisfile SDL_net ${WIN32_LIBS} )
