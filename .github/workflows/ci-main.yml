@@ -69,6 +69,12 @@ jobs:
 
       - name: Build x64 Release (serial - /m triggers C1060 on this VM)
         timeout-minutes: 100   # full clean rebuild on the 2-vCPU VM can exceed 60 min
+        # Per-build mspdbsrv endpoint: mspdbsrv.exe is a per-USER singleton, so a
+        # concurrent same-user MSBuild (e.g. another session on a shared runner)
+        # collides on it -> C1090 'PDB API call failed' / D8040 'communicating with
+        # child process' / CL killed. A unique endpoint gives this build its own.
+        env:
+          _MSPDBSRV_ENDPOINT_: ci_${{ github.run_id }}_${{ github.run_attempt }}
         shell: cmd
         working-directory: src
         run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
