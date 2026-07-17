@@ -246,9 +246,14 @@ jobs:
           # "New Contributors" is meaningless on a rolling tag: GitHub recomputes it each
           # run against a shifting base (the last release tag) and flags even the original
           # dev as "new". Remove that section, keeping "## What's Changed" + "Full Changelog".
-          $body  = gh release view nightly --repo "$env:GITHUB_REPOSITORY" --json body --jq '.body'
-          $clean = [regex]::Replace($body, "(?s)\r?\n?## New Contributors\r?\n(?:\*.*\r?\n?)*?(?=\r?\n?\*\*Full Changelog\*\*)", "`n")
+          # NOTE: gh returns the body as a string[] (one element per line). Without an
+          # explicit -join, PowerShell coerces it to a single string joined with SPACES,
+          # which destroys every newline (notes render as one run-on paragraph) and makes
+          # the regex below never match. Always -join "`n" first.
+          $body  = (gh release view nightly --repo "$env:GITHUB_REPOSITORY" --json body --jq '.body') -join "`n"
+          $clean = [regex]::Replace($body, "(?s)\r?\n?## New Contributors\r?\n(?:\*.*\r?\n?)*\r?\n?(?=\*\*Full Changelog\*\*)", "`n`n")
           Set-Content nightly-notes.md $clean -Encoding utf8
+          if ($clean -notmatch "## What's Changed") { throw "nightly notes look wrong after strip - aborting rather than publishing mangled notes" }
           gh release edit nightly --repo "$env:GITHUB_REPOSITORY" --notes-file nightly-notes.md
           Write-Host "Stripped 'New Contributors' from nightly notes"
 
