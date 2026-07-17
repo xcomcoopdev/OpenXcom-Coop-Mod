@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
 #include "SoldierSortUtil.h"
 
@@ -52,6 +53,9 @@ private:
 	getStatFn_t _dynGetter;
 	std::vector<std::string> _availableOptions;
 	///initializes the display list based on the craft soldier's list and the position to display
+	/// PRD-J10: live refresh - a peer's sack / craft_assign / hire arrival changes
+	/// this roster, which in JOINT is the ONE shared roster.
+	JointEcon::ScreenRefresh _jointRefresh;
 	void initList(size_t scrl);
 public:
 	/// Creates the Soldiers state.
@@ -62,6 +66,8 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier names.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
 	/// Moves a soldier up.

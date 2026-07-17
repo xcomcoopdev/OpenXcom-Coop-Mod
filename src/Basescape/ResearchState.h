@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -56,9 +57,15 @@ public:
 	/// Handler for opening the Current Global Research UI.
 	void onCurrentGlobalResearchClick(Action *action);
 	/// Fills the ResearchProject list with Base ResearchProjects.
+	/// PRD-J10: live refresh. A list view holds no pending user input, so it
+	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick
+	/// too - the progress columns it draws are exactly what day_tick carries.
+	JointEcon::ScreenRefresh _jointRefresh;
 	void fillProjectList(size_t scrl);
 	/// Updates the research list.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 
 	/// Handler for clicking the reordering up button.
 	void lstResearchLeftArrowClick(Action* action);

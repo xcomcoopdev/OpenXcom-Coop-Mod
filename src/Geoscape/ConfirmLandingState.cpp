@@ -47,6 +47,7 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -58,7 +59,7 @@ namespace OpenXcom
  * @param globeTexture Globe texture of the landing site.
  * @param shade Shade of the landing site.
  */
-ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade)
+ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool jointBroker) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade), _jointBroker(jointBroker)
 {
 	_screen = false;
 
@@ -247,6 +248,16 @@ std::string ConfirmLandingState::checkStartingCondition()
  */
 void ConfirmLandingState::btnYesClick(Action *)
 {
+
+	// PRD-J10 landing broker: this is the copy shown on the commanding seat's
+	// machine, which is a REPLICA - it cannot generate the battle and must not
+	// touch the shared world. Report the answer; the host does the rest.
+	if (_jointBroker)
+	{
+		JointEcon::submitLandReply(_game, _craft, true, false);
+		_game->popState();
+		return;
+	}
 
 	if (connectionTCP::getCoopStatic() == true)
 	{
@@ -465,6 +476,15 @@ void ConfirmLandingState::startCoopMission()
  */
 void ConfirmLandingState::btnNoClick(Action *)
 {
+	// PRD-J10 landing broker: same as btnYesClick - report, mutate nothing. CTRL
+	// still means "patrol here" rather than "return to base"; the host applies it.
+	if (_jointBroker)
+	{
+		JointEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		_game->popState();
+		return;
+	}
+
 	if (_game->isCtrlPressed())
 	{
 		_craft->setDestination(0);

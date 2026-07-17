@@ -132,7 +132,7 @@ ManufactureState::ManufactureState(Base *base) : _base(base)
  */
 ManufactureState::~ManufactureState()
 {
-
+	_jointRefresh.unbind(this);
 }
 
 /**
@@ -144,6 +144,10 @@ void ManufactureState::init()
 	State::init();
 	fillProductionList(0);
 
+	// PRD-J10: silent live refresh - see ResearchState::init. day_tick included:
+	// it is what moves this screen's "days left" / progress columns on a replica.
+	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+
 	if (Options::oxceManufactureScrollSpeed > 0 || Options::oxceManufactureScrollSpeedWithCtrl > 0)
 	{
 		// 140 +/- 20
@@ -152,6 +156,24 @@ void ManufactureState::init()
 	else
 	{
 		_lstManufacture->setNoScrollArea(0, 0);
+	}
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh: refill the list, keep the scroll.
+ */
+void ManufactureState::think()
+{
+	State::think();
+
+	if (_jointRefresh.consume())
+	{
+		if (JointEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		fillProductionList(_lstManufacture->getScroll());
 	}
 }
 

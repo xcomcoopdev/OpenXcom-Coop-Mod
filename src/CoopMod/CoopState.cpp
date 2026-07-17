@@ -89,6 +89,14 @@ CoopState::CoopState(int state)
 		_window = new Window(this, 216, 52, x, 74, POPUP_BOTH);
 		_txtTitle = new Text(206, 22, x + 5, 78);
 	}
+	else if (state == COOP_DLG_JOINT_FAIL)
+	{
+		// PRD-J10: the host's rejection reason is a full sentence (a translated
+		// STR_ id or a raw validator message), so give the title room to wrap
+		// instead of the standard one-liner strip.
+		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
+		_txtTitle = new Text(206, 72, x + 5, 62);
+	}
 	else
 	{
 		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
@@ -162,6 +170,23 @@ CoopState::CoopState(int state)
 
 		_txtTitle->setSmall();
 		_txtTitle->setText("You have been kicked.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// PRD-J10: THE single JOINT command-rejection dialog. Every J05-J08 failure
+	// path reaches this through JointEcon::showFail, on the replica (from
+	// joint_fail) and on the host (its own command failing validation). The text is
+	// the host validator's reason, already translated by showFail - same
+	// static-string idiom as the join-refusal dialog (63) above.
+	if (state == COOP_DLG_JOINT_FAIL)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setText(connectionTCP::jointFailReason.empty()
+							   ? "The host rejected your command."
+							   : connectionTCP::jointFailReason);
 
 		_btnBack->setText(tr("OK"));
 		_btnBack->setVisible(true);

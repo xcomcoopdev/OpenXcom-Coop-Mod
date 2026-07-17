@@ -196,6 +196,7 @@ bool connectionTCP::saveError = false;
 CoopSession connectionTCP::session;
 
 std::string connectionTCP::joinRefusalReason = "";
+std::string connectionTCP::jointFailReason = "";
 
 // --- CoopSession transitions: every lifecycle change is logged. The mirrored
 // --- booleans ARE the encoding (PRD-12 S4 deleted the write-only phase enum);
@@ -2974,23 +2975,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			connectionTCP::session.resumeAck = true;
 
-			// PRD-J09: a POST-BATTLE JOINT world restream just landed on the
-			// client. Adopting a streamed world always parks it in
+			// PRD-J09 / PRD-J10: an AUTOMATIC JOINT world restream just landed on
+			// the client - post-battle (J09) or desync repair (J10). Adopting a
+			// streamed world always parks the client in
 			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) until the host
 			// "resumes" - at bootstrap/resume that release is the operator's
-			// BEGIN click (campaign_begun). After a battle nobody clicks, so
-			// release the hold here: the mission already ended and the replica
-			// now holds the authoritative post-battle world.
-			if (jointPostBattleRestream && isJointCampaign() && getServerOwner())
+			// BEGIN click (campaign_begun). Neither of these restreams has a
+			// click behind it, so release the hold here: the replica now holds
+			// the authoritative world and the session is already live.
+			if ((jointPostBattleRestream || jointResyncRestream)
+				&& isJointCampaign() && getServerOwner())
 			{
+				const char* why = jointPostBattleRestream ? "post-battle" : "resync";
 				jointPostBattleRestream = false;
+				jointResyncRestream = false;
 				connectionTCP::session.sessionLive();
 
 				Json::Value begun;
 				begun["state"] = "campaign_begun";
 				sendTCPPacketData(begun.toStyledString());
 
-				Log(LOG_INFO) << "[coop-joint] post-battle restream adopted; released the client hold";
+				Log(LOG_INFO) << "[coop-joint] " << why << " restream adopted; released the client hold";
 			}
 		}
 
@@ -9091,6 +9096,38 @@ void connectionTCP::streamJointWorldToClient()
 
 	Log(LOG_INFO) << "[coop-joint] streaming authoritative world to client ("
 	              << blob.size() << " bytes)";
+}
+
+// PRD-J10: desync repair. A replica reported a world-checksum mismatch; hand it a
+// fresh authoritative world down the same J02 bootstrap lane. The release flag is
+// the load-bearing half: LoadGameState parks EVERY client that adopts a streamed
+// world in COOP_DLG_CLIENT_RESUME_HOLD until a campaign_begun arrives, and
+// mid-session there is no operator BEGIN click to send one (PRD-J09 learned this
+// the hard way after battles). resume_ack releases it when this flag is set.
+void connectionTCP::jointResyncStream()
+{
+	if (!getServerOwner() || !isJointCampaign() || !_game->getSavedGame())
+	{
+		return;
+	}
+	if (sendFileClient)
+	{
+		// The streamer is single-slot and already busy (bootstrap/resume/post-battle
+		// transfer in flight). Drop this request rather than corrupt that transfer -
+		// the replica's next mismatching checksum re-asks once its guard expires.
+		Log(LOG_WARNING) << "[coop-joint] resync request dropped: streamer busy";
+		return;
+	}
+
+	jointResyncRestream = true;
+	streamJointWorldToClient();
+	if (!sendFileClient)
+	{
+		// serialization refused: nothing is in flight, so do not leave the
+		// auto-release armed for an unrelated future stream.
+		jointResyncRestream = false;
+		Log(LOG_ERROR) << "[coop-joint] resync restream failed to serialize the world";
+	}
 }
 
 // PRD-J01: this machine's seat. Host is always 0; a client's seat is its

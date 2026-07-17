@@ -256,6 +256,8 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
  */
 BasescapeState::~BasescapeState()
 {
+	_jointRefresh.unbind(this);
+
 	// Clean up any temporary bases
 	bool exists = false;
 	for (const auto* xbase : *_game->getSavedGame()->getBases())
@@ -355,6 +357,11 @@ void BasescapeState::init()
 
 	}
 
+	// PRD-J10: live refresh. Bind base-agnostically (null base) - the funds header
+	// is world-scoped, so an apply against ANY base must refresh it. day_tick is
+	// included so build-time progress on the facility grid stays honest.
+	_jointRefresh.bind(_game, this, nullptr, true /*wantProgress*/);
+
 
 
 
@@ -362,6 +369,15 @@ void BasescapeState::init()
 
 void BasescapeState::think()
 {
+
+	// PRD-J10: the PRD's "funds label screens: update the Text directly, no full
+	// rebuild" case. Cheap enough to do unconditionally on any apply, and it also
+	// re-draws the facility grid so a peer's fac_build/fac_dismantle shows up
+	// without leaving and re-entering the base (the J08 gap).
+	if (_jointRefresh.consume())
+	{
+		jointRefresh();
+	}
 
 	//  coop (SEPARATE mirror machinery: applies the peer's place_facility markers.
 	//  PRD-J07: fenced in JOINT - facility builds arrive via the fac_build
@@ -485,6 +501,33 @@ void BasescapeState::think()
 
 	}
 
+}
+
+/**
+ * PRD-J10: a peer's joint_apply moved the shared world - re-read it into this
+ * screen without rebuilding it. Nothing here is user input, so there is nothing
+ * to lose; this is the PRD's "funds label / direct update" case plus a base-view
+ * redraw for facilities.
+ */
+void BasescapeState::jointRefresh()
+{
+	auto* bases = _game->getSavedGame()->getBases();
+	if (bases->empty())
+	{
+		return; // nothing sane to show; the geoscape owns this endgame
+	}
+	// The displayed base can be REMOVED by an apply (fac_dismantle of the access
+	// lift, base_destroyed). setBase() would dereference the freed pointer while
+	// looking for it, so re-point at a live base first.
+	if (JointEcon::baseIndex(_game, _base) < 0)
+	{
+		setBase(bases->front());
+	}
+
+	_view->setBase(_base);
+	_mini->draw();
+	_edtBase->setText(_base->getName());
+	_txtFunds->setText(tr("STR_FUNDS").arg(Unicode::formatFunding(_game->getSavedGame()->getFunds())));
 }
 
 /**

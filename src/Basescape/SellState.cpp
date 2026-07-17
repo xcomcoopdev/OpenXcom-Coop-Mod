@@ -364,6 +364,7 @@ void SellState::delayedInit()
  */
 SellState::~SellState()
 {
+	_jointRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -384,6 +385,15 @@ void SellState::init()
 	}
 
 	touchComponentsRefresh();
+
+	// PRD-J10: rows, sell values, stock and funds are all constructor snapshots -
+	// rebuild when a peer's joint_apply moves this base. The post-battle
+	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
+	// and the J09 world restream heals it wholesale.
+	if (!_debriefingState)
+	{
+		_jointRefresh.bind(_game, this, _base);
+	}
 }
 
 /**
@@ -392,6 +402,18 @@ void SellState::init()
 void SellState::think()
 {
 	State::think();
+
+	// PRD-J10: same pop-and-rebuild the _reset path above already uses (this screen
+	// treats "construct again" as its refresh).
+	if (_jointRefresh.consume())
+	{
+		_game->popState();
+		if (JointEcon::baseIndex(_game, _base) >= 0)
+		{
+			_game->pushState(new SellState(_base, _debriefingState, _origin));
+		}
+		return; // `this` is now queued for deletion - touch nothing else
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);

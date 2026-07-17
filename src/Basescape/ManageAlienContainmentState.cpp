@@ -184,6 +184,7 @@ ManageAlienContainmentState::ManageAlienContainmentState(Base *base, int prisonT
  */
 ManageAlienContainmentState::~ManageAlienContainmentState()
 {
+	_jointRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -205,6 +206,11 @@ void ManageAlienContainmentState::init()
 	resetListAndTotals();
 
 	touchComponentsRefresh();
+
+	// PRD-J10: live refresh on a peer's joint_apply. This screen already owns an
+	// in-place rebuild (resetListAndTotals, used by init above), so it needs no
+	// pop-and-push - see think().
+	_jointRefresh.bind(_game, this, _base);
 }
 
 /**
@@ -314,6 +320,14 @@ void ManageAlienContainmentState::resetListAndTotals()
 void ManageAlienContainmentState::think()
 {
 	State::think();
+
+	// PRD-J10: a peer's joint_apply moved this base's prisoners/funds. This screen
+	// rebuilds in place (no pop-and-push) - the pending selection is cleared, which
+	// is correct: it was quantities against a prison that no longer looks like that.
+	if (_jointRefresh.consume())
+	{
+		resetListAndTotals();
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);

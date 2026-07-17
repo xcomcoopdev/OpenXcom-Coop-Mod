@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -44,6 +45,11 @@ private:
 	TextButton *_btnNewBase, *_btnBaseInfo, *_btnSoldiers, *_btnCrafts, *_btnFacilities, *_btnResearch, *_btnManufacture, *_btnTransfer, *_btnPurchase, *_btnSell, *_btnGeoscape;
 	Base *_base;
 	Globe *_globe;
+	/// PRD-J10: live refresh. This screen is the funds header + the facility grid,
+	/// and both move under a peer's joint_apply.
+	JointEcon::ScreenRefresh _jointRefresh;
+	/// Re-reads the shared world into the funds label / base view (PRD-J10).
+	void jointRefresh();
 public:
 	/// Creates the Basescape state.
 	BasescapeState(Base *base, Globe *globe);

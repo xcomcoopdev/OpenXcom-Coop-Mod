@@ -2784,7 +2784,10 @@ void GeoscapeState::time5Seconds()
 								_globe->getPolygonTextureAndShade(u->getLongitude(), u->getLatitude(), &texture, &shade);
 								timerReset();
 								Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
+								// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+								// SEAT instead of popping the dialog here. Battle authority does not move.
+								if (!brokerJointLanding(xcraft, globeTexture, globeTexture, shade))
+									popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 							}
 						}
 						else if (u->getStatus() != Ufo::LANDED)
@@ -2825,7 +2828,10 @@ void GeoscapeState::time5Seconds()
 						{
 							missionTexture = globeTexture;
 						}
-						popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
+						// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+						// SEAT instead of popping the dialog here. Battle authority does not move.
+						if (!brokerJointLanding(xcraft, missionTexture, globeTexture, shade))
+							popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
 					}
 					else
 					{
@@ -2842,7 +2848,10 @@ void GeoscapeState::time5Seconds()
 							_globe->getPolygonTextureAndShade(b->getLongitude(), b->getLatitude(), &texture, &shade);
 							timerReset();
 							Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-							popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
+							// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+							// SEAT instead of popping the dialog here. Battle authority does not move.
+							if (!brokerJointLanding(xcraft, globeTexture, globeTexture, shade))
+								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 						}
 						else
 						{
@@ -5223,6 +5232,80 @@ void GeoscapeState::startDogfight()
  * @param craft The engaging (replica) craft.
  * @param ufo The engaged (replica) UFO.
  */
+/**
+ * PRD-J10 landing broker (HOST only). A craft that ANOTHER seat commanded reached
+ * a landable target. The host runs the only geoscape sim, so it is the only
+ * machine that reaches this code - but it is the wrong machine to ask. Broadcast
+ * the prompt to the commanding seat and park the craft until it answers.
+ *
+ * Deliberately does NOT freeze the host's geoscape while the other player reads
+ * the dialog: in a shared world that would hand one seat a stop-the-world button.
+ * The craft simply loiters at its destination; the pending map is the "already
+ * asked" guard that stops reachedDestination() re-prompting every tick.
+ *
+ * @return true if the prompt was brokered (the caller must not pop its own).
+ */
+bool GeoscapeState::brokerJointLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade)
+{
+	if (!_game->getCoopMod()->isJointCampaign() || !_game->getCoopMod()->getServerOwner())
+		return false;
+	// seat 0 = the host's own order; -1 = never commanded through the protocol
+	// (campaign-start craft). Both are the host's to answer -> vanilla path.
+	int seat = JointEcon::lastCraftOrderSeat(craft);
+	if (seat <= 0)
+		return false;
+	if (_jointLandingPending.find(craft) != _jointLandingPending.end())
+		return true; // already asked; still waiting for the answer
+
+	_jointLandingPending[craft] = JointLandingPrompt{ missionTexture, globeTexture, shade };
+	JointEcon::hostLandingPrompt(_game, craft, seat, shade);
+	return true;
+}
+
+/**
+ * PRD-J10 landing broker (HOST only). The commanding seat answered.
+ */
+void GeoscapeState::jointLandingReply(Craft* craft, bool yes, bool patrol)
+{
+	auto it = _jointLandingPending.find(craft);
+	if (it == _jointLandingPending.end())
+		return; // not ours / already answered (a duplicate reply is a no-op)
+	JointLandingPrompt prompt = it->second;
+	_jointLandingPending.erase(it);
+
+	// The craft can be sold/destroyed/transferred while the other seat reads the
+	// dialog, and `craft` is only a key here - re-validate before dereferencing.
+	bool alive = false;
+	for (auto* base : *_game->getSavedGame()->getBases())
+	{
+		for (auto* c : *base->getCrafts())
+			if (c == craft) { alive = true; break; }
+		if (alive) break;
+	}
+	if (!alive)
+		return;
+
+	if (!yes)
+	{
+		// mirror ConfirmLandingState::btnNoClick, applied host-side
+		if (patrol)
+			craft->setDestination(0);
+		else
+			craft->returnToBase();
+		return;
+	}
+
+	// Yes: generate the battle exactly as the host's own dialog would. Drive the
+	// REAL state rather than duplicating its logic - its JOINT branch stamps the
+	// ownership split onto the geoscape soldiers, runs the generator and ships
+	// "battlehost" (PRD-J09), then pops itself. It must be ON the stack first:
+	// that self-pop is what removes it.
+	ConfirmLandingState* cls = new ConfirmLandingState(craft, prompt.missionTexture,
+		prompt.globeTexture, prompt.shade);
+	_game->pushState(cls);
+	cls->btnYesClick(nullptr);
+}
+
 void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo)
 {
 	if (!craft || !ufo || craft->isInDogfight())

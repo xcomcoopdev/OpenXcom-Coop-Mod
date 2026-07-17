@@ -48,6 +48,7 @@ enum CoopDialogCode {
 	COOP_DLG_FREEZE           = 64, // mid-session freeze: a player dropped
 	COOP_DLG_CLIENT_HOLD      = 65, // client placed base, holds until host resumes
 	COOP_DLG_CLIENT_RESUME_HOLD = 68, // rejoined client holds until host resumes
+	COOP_DLG_JOINT_FAIL       = 556, // PRD-J10: the host rejected a JOINT command
 };
 
 /**

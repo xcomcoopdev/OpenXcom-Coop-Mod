@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -41,11 +42,19 @@ private:
 	Window *_window;
 	Text *_txtTitle, *_txtItem, *_txtQuantity, *_txtArrivalTime;
 	TextList *_lstTransfers;
+	/// PRD-J10: live refresh. This screen builds its whole list in the constructor
+	/// and owns no in-place refill, so it rebuilds by pop-and-push. day_tick is
+	/// included: arrival hours tick down under it.
+	JointEcon::ScreenRefresh _jointRefresh;
 public:
 	/// Creates the Transfers state.
 	TransfersState(Base *base);
 	/// Cleans up the Transfers state.
 	~TransfersState();
+	/// Registers for PRD-J10 live refresh.
+	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Handler for clicking the OK button.
 	void btnOkClick(Action *action);
 };

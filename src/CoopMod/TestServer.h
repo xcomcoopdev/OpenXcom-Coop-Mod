@@ -24,6 +24,8 @@
 #include <string>
 #include <thread>
 
+#include <json/json.h>
+
 namespace OpenXcom
 {
 
@@ -54,6 +56,10 @@ private:
 	TestServer() = default;
 	void ioThread(int port);
 	std::string execute(const std::string& line);
+	/// PRD-J10 hooks. execute()'s command chain is at MSVC's 128-block nesting
+	/// limit (C1061), so newer commands get their own dispatcher; execute() tries
+	/// this one first. True = @a cmd was handled here.
+	bool executeJoint10(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

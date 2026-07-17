@@ -13,6 +13,11 @@ Completion stays host-driven (J04 research_done).
   RACE     both players res_alloc the SAME project "simultaneously" -> the final
            _assigned equals ONE of the two absolute values on BOTH machines
            (no compounding), scientist pools consistent.
+  RACE2    (PRD-J10 AC3) the same race, but with a DIFFERENT command screen open
+           and live-refreshing on each machine while the applies land: rapid
+           alternating commands must not crash either side, and the two worlds
+           must end identical. The screens are the point - each apply now pops
+           and rebuilds them mid-burst.
   CANCEL   client cancels a second project -> both sides free the scientists.
   DONE     host advances days -> the project completes -> both sides discovered +
            scientists freed (J04 research_done path).
@@ -157,6 +162,58 @@ def main():
             f"client asg={_assigned(client, T)} free={_free_sci(client)}")
         print(f"PASS race: both settled on _assigned={final} (one of {A}/{B}), "
               f"free scientists {_free_sci(host)} on both")
+
+        # ================================================================
+        # 3b) RACE WITH SCREENS OPEN (PRD-J10 AC3). Same race, but each machine
+        #     sits in a DIFFERENT live-refreshing screen while the applies land,
+        #     so every apply drives a real pop-and-rebuild underneath a burst of
+        #     alternating commands. Asserts: no crash, both screens survive, and
+        #     the two worlds converge identically.
+        # ================================================================
+        host.ok({"cmd": "joint_reset_stats"})
+        client.ok({"cmd": "joint_reset_stats"})
+        r = host.ok({"cmd": "open_screen", "screen": "purchase"})
+        assert r.get("ok"), f"host could not open PurchaseState: {r}"
+        r = client.ok({"cmd": "open_screen", "screen": "research"})
+        assert r.get("ok"), f"client could not open ResearchState: {r}"
+        assert host.ok({"cmd": "screen_state"})["top"] == "purchase"
+        assert client.ok({"cmd": "screen_state"})["top"] == "research"
+
+        # Rapid alternating res_alloc on the SAME project from BOTH machines.
+        # Absolute targets, so the final value must be one of them everywhere.
+        burst = [6, 2, 5, 3, 4, 8, 1, 7]
+        for i, n in enumerate(burst):
+            (host if i % 2 == 0 else client).ok(
+                {"cmd": "joint_cmd", "jcmd": "res_alloc", "baseId": 0,
+                 "payload": {"project": T, "assigned": n}})
+        last = burst[-1]
+
+        def _burst_settled():
+            ah, ac = _assigned(host, T), _assigned(client, T)
+            if ah is None or ac is None or ah != ac:
+                return None
+            if ah != last:            # FIFO at the host -> the last order wins
+                return None
+            if _free_sci(host) != _free_sci(client) or _free_sci(host) != sci0 - ah:
+                return None
+            return True
+
+        host.wait_for("race-with-screens converged", _burst_settled, timeout=45, interval=0.5)
+        assert _burst_settled(), (
+            f"burst did not converge: host asg={_assigned(host, T)} free={_free_sci(host)}; "
+            f"client asg={_assigned(client, T)} free={_free_sci(client)}")
+        # neither instance crashed, and both screens survived their rebuilds.
+        assert host.cmd({"cmd": "ping"}).get("pong"), "host unresponsive after the burst"
+        assert client.cmd({"cmd": "ping"}).get("pong"), "client unresponsive after the burst"
+        assert host.ok({"cmd": "screen_state"})["top"] == "purchase",             "host PurchaseState did not survive the refresh burst"
+        assert client.ok({"cmd": "screen_state"})["top"] == "research",             "client ResearchState did not survive the refresh burst"
+        print(f"PASS race-with-screens: {len(burst)} alternating res_allocs under an open "
+              f"PurchaseState (host) + ResearchState (client) -> both _assigned={last}, "
+              f"free {_free_sci(host)}, no crash, screens intact")
+        # back to the geoscape for the rest of the test.
+        for gc in (host, client):
+            gc.ok({"cmd": "close_screens"})
+            assert gc.ok({"cmd": "screen_state"})["top"] == "geoscape",                 f"{gc.name} did not return to the geoscape"
 
         # ================================================================
         # 4) CANCEL: start a second project, then client cancels it -> both

@@ -381,6 +381,7 @@ PurchaseState::PurchaseState(Base *base, CannotReequipState *parent) : _base(bas
  */
 PurchaseState::~PurchaseState()
 {
+	_jointRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -393,6 +394,17 @@ void PurchaseState::init()
 	State::init();
 
 	touchComponentsRefresh();
+
+	// PRD-J10: this screen snapshots funds, prices and stock in its constructor, so
+	// another player's joint_apply silently staled it. Rebuild on the next think()
+	// instead of leaving an order the host is guaranteed to re-price.
+	// The CannotReequip variant is excluded: it auto-fills a missing-items order in
+	// its constructor, and re-running that on every apply would re-add the order the
+	// player just edited.
+	if (!_parent)
+	{
+		_jointRefresh.bind(_game, this, _base);
+	}
 }
 
 /**
@@ -401,6 +413,24 @@ void PurchaseState::init()
 void PurchaseState::think()
 {
 	State::think();
+
+	// PRD-J10: pop-and-rebuild is the cheap default for a JOINT command screen -
+	// the constructor IS the refresh (rows, prices, funds, space). Nothing is
+	// mutated, so an in-progress order is the only casualty, and it was about to be
+	// priced against a world that no longer exists.
+	if (_jointRefresh.consume())
+	{
+		if (JointEcon::baseIndex(_game, _base) >= 0)
+		{
+			_game->popState();
+			_game->pushState(new PurchaseState(_base));
+			return; // `this` is now queued for deletion - touch nothing else
+		}
+		// the base itself is gone (dismantled lift / retaliation): this screen has
+		// no subject left, so just leave.
+		_game->popState();
+		return;
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -1025,6 +1055,29 @@ bool PurchaseState::harnessBuySoldier(const std::string& soldierType, int count)
 		}
 	}
 	return false;
+}
+
+/**
+ * Test-harness hooks (PRD-J10): the two constructor-time caches the live-refresh
+ * test reads. Both are frozen at construction, so a change in either proves the
+ * screen was actually rebuilt rather than merely still showing the right world.
+ */
+std::string PurchaseState::harnessFundsText() const
+{
+	return _txtFunds->getText();
+}
+
+int PurchaseState::harnessRowStock(const std::string& itemType) const
+{
+	for (const auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			return row.qtySrc;
+		}
+	}
+	return -1;
 }
 
 /**

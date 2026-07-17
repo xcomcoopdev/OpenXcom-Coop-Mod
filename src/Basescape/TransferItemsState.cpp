@@ -294,6 +294,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
  */
 TransferItemsState::~TransferItemsState()
 {
+	_jointRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -306,6 +307,15 @@ void TransferItemsState::init()
 	State::init();
 
 	touchComponentsRefresh();
+
+	// PRD-J10: rows, quantities and the destination column are constructor
+	// snapshots of BOTH bases, so this screen binds base-agnostically (null base =
+	// every apply is relevant) rather than filtering to one index. The post-battle
+	// (debriefing) variant keeps its own lifecycle.
+	if (!_debriefingState)
+	{
+		_jointRefresh.bind(_game, this, nullptr);
+	}
 }
 
 /**
@@ -314,6 +324,20 @@ void TransferItemsState::init()
 void TransferItemsState::think()
 {
 	State::think();
+
+	// PRD-J10: pop-and-rebuild - the constructor is this screen's refresh. Both
+	// bases must still exist; if either went away there is nothing to transfer
+	// between, so just leave.
+	if (_jointRefresh.consume())
+	{
+		_game->popState();
+		if (JointEcon::baseIndex(_game, _baseFrom) >= 0
+			&& JointEcon::baseIndex(_game, _baseTo) >= 0)
+		{
+			_game->pushState(new TransferItemsState(_baseFrom, _baseTo, _debriefingState));
+		}
+		return; // `this` is now queued for deletion - touch nothing else
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);

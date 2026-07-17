@@ -115,7 +115,9 @@
 #include "../Basescape/PurchaseState.h"
 #include "../Basescape/SellState.h"
 #include "../Basescape/ManageAlienContainmentState.h"
+#include "../Basescape/ResearchState.h"
 #include "../Basescape/ResearchInfoState.h"
+#include "../Basescape/StoresState.h"
 #include "../Basescape/ManufactureState.h"
 #include "../Basescape/ManufactureInfoState.h"
 #include "../Basescape/PlaceFacilityState.h"
@@ -366,6 +368,208 @@ static Json::Value soldierToJson(Soldier* s)
 	return j;
 }
 
+/**
+ * PRD-J10 test hooks, in their own dispatcher. The execute() command chain below
+ * sits on MSVC's 128-block nesting limit (C1061: "blocks nested too deeply"), so
+ * new commands go here rather than deepening it. Returns true if @a cmd was one of
+ * ours (and @a resp was filled).
+ */
+bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	connectionTCP* coop = _game->getCoopMod();
+
+	if (cmd == "joint_resync_stats")
+	{
+		// PRD-J10: auto-resync bookkeeping (replica: mismatches seen + repairs
+		// asked for; host: repairs served).
+		JointEcon::ResyncStats rs = JointEcon::resyncStats();
+		resp["mismatches"] = Json::Value::UInt64(rs.mismatches);
+		resp["requests"] = Json::Value::UInt64(rs.requests);
+		resp["pending"] = rs.pending;
+		resp["gaveUp"] = rs.gaveUp;
+		resp["lastGameMin"] = Json::Value::Int64(rs.lastGameMin);
+		resp["ok"] = true;
+	}
+	else if (cmd == "joint_reset_resync_stats")
+	{
+		JointEcon::resetResyncStats();
+		resp["ok"] = true;
+	}
+	else if (cmd == "force_resync")
+	{
+		// PRD-J10 debug hook: force the desync repair without waiting for a
+		// checksum mismatch. On a REPLICA it sends joint_resync_request past the
+		// throttle; on the HOST it pushes the authoritative world down the same
+		// lane the request would have triggered.
+		if (!coop->isJointCampaign())
+			resp["error"] = "not a JOINT campaign";
+		else if (connectionTCP::getServerOwner())
+		{
+			coop->jointResyncStream();
+			resp["role"] = "host";
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["role"] = "replica";
+			resp["sent"] = JointEcon::requestResync(_game, "harness force_resync", true);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "open_screen")
+	{
+		// PRD-J10: push a base screen and LEAVE IT OPEN (unlike buy/sell, which
+		// drive the OK handler and pop). This is how the refresh tests put a real
+		// screen in front of an incoming joint_apply. <base> optional (default:
+		// first real base); <craft_id> for craft_soldiers.
+		std::string screen = req.get("screen", "").asString();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+
+		if (!target)
+			resp["error"] = "base not found";
+		else if (screen == "purchase")
+		{
+			_game->pushState(new PurchaseState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "sell")
+		{
+			SellState* ss = new SellState(target, nullptr, OPT_GEOSCAPE);
+			_game->pushState(ss);
+			ss->delayedInit(); // SellState builds its rows lazily, not in the ctor
+			resp["ok"] = true;
+		}
+		else if (screen == "research")
+		{
+			_game->pushState(new ResearchState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "manufacture")
+		{
+			_game->pushState(new ManufactureState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "stores")
+		{
+			_game->pushState(new StoresState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "soldiers")
+		{
+			_game->pushState(new SoldiersState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "craft_soldiers")
+		{
+			int craftId = req.get("craft_id", -1).asInt();
+			size_t idx = target->getCrafts()->size();
+			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
+				if (target->getCrafts()->at(i)->getId() == craftId) { idx = i; break; }
+			if (idx >= target->getCrafts()->size())
+				resp["error"] = "craft id not at base";
+			else
+			{
+				_game->pushState(new CraftSoldiersState(target, idx));
+				resp["ok"] = true;
+			}
+		}
+		else
+		{
+			resp["error"] = "unknown screen: " + screen;
+		}
+	}
+	else if (cmd == "joint_landing_state")
+	{
+		// PRD-J10 landing broker introspection (HOST): is a landing decision
+		// outstanding with another seat? Non-zero means the host brokered the
+		// prompt instead of popping its own dialog.
+		GeoscapeState* gs = findState<GeoscapeState>(_game);
+		if (!gs)
+			resp["error"] = "no GeoscapeState";
+		else
+		{
+			resp["pending"] = gs->hasJointLandingPending();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "decline_landing")
+	{
+		// PRD-J10: the NO button of a ConfirmLandingState (brokered or not).
+		ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
+		if (!cl)
+			resp["error"] = "no ConfirmLandingState on stack";
+		else
+		{
+			cl->btnNoClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "close_screens")
+	{
+		// PRD-J10: pop everything open_screen pushed, back down to the GeoscapeState,
+		// so a test can leave the screens and drive time again. Bounded, so a
+		// self-repushing dialog cannot spin the pump forever.
+		int popped = 0;
+		while (popped < 16 && _game->getStates().size() > 1
+			&& !dynamic_cast<GeoscapeState*>(_game->getStates().back()))
+		{
+			_game->popState();
+			++popped;
+		}
+		resp["popped"] = popped;
+		resp["ok"] = true;
+	}
+	else if (cmd == "screen_state")
+	{
+		// PRD-J10: introspect the TOP state's constructor-time caches. Those only
+		// change when the screen is rebuilt, so they are what proves live refresh
+		// happened (rather than the world merely being correct underneath).
+		State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		resp["top"] = "other";
+		if (!top)
+		{
+			resp["top"] = "none";
+		}
+		else if (auto* ps = dynamic_cast<PurchaseState*>(top))
+		{
+			resp["top"] = "purchase";
+			resp["funds"] = ps->harnessFundsText();
+			std::string item = req.get("item", "").asString();
+			if (!item.empty()) resp["stock"] = ps->harnessRowStock(item);
+		}
+		else if (dynamic_cast<SellState*>(top))        resp["top"] = "sell";
+		else if (auto* cs = dynamic_cast<CraftSoldiersState*>(top))
+		{
+			resp["top"] = "craft_soldiers";
+			resp["used"] = cs->harnessUsedText();
+		}
+		else if (dynamic_cast<ResearchState*>(top))    resp["top"] = "research";
+		else if (dynamic_cast<ManufactureState*>(top)) resp["top"] = "manufacture";
+		else if (dynamic_cast<StoresState*>(top))      resp["top"] = "stores";
+		else if (dynamic_cast<SoldiersState*>(top))    resp["top"] = "soldiers";
+		else if (dynamic_cast<BasescapeState*>(top))   resp["top"] = "basescape";
+		else if (dynamic_cast<GeoscapeState*>(top))    resp["top"] = "geoscape";
+		else if (auto* cd = dynamic_cast<CoopState*>(top))
+		{
+			resp["top"] = "coop";
+			resp["dialog"] = cd->getStateCode();
+			resp["title"] = cd->getTitleText();
+		}
+		resp["ok"] = true;
+	}
+	else
+	{
+		return false;
+	}
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -384,7 +588,11 @@ std::string TestServer::execute(const std::string& line)
 		std::string cmd = req.get("cmd", "").asString();
 		connectionTCP* coop = _game->getCoopMod();
 
-		if (cmd == "ping")
+		if (executeJoint10(cmd, req, resp))
+		{
+			// handled by the PRD-J10 dispatcher above
+		}
+		else if (cmd == "ping")
 		{
 			resp["ok"] = true;
 			resp["pong"] = true;

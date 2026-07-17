@@ -38,6 +38,7 @@
 #include "StatisticsState.h"
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -230,6 +231,12 @@ void LoadGameState::think()
 				&& _game->getCoopMod()->getServerOwner() == false)
 			{
 				connectionTCP::coop_save_owner_player_id = 1;
+
+				// PRD-J10: a fresh authoritative world landed - this is also how a
+				// desync repair completes. Clear the resync in-flight guard so a
+				// later drift can be repaired again (and so the "give up" latch is
+				// re-armed for the next window).
+				JointEcon::notifyWorldAdopted();
 			}
 			if (_game->getSavedGame()->getEnding() != END_NONE)
 			{

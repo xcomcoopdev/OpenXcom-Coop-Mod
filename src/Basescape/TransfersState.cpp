@@ -99,7 +99,38 @@ TransfersState::TransfersState(Base *base) : _base(base)
  */
 TransfersState::~TransfersState()
 {
+	_jointRefresh.unbind(this);
+}
 
+/**
+ * Registers for PRD-J10 live refresh (the whole list is built in the constructor).
+ */
+void TransfersState::init()
+{
+	State::init();
+
+	// A peer's buy/transfer adds rows here and the host's transfer_arrived removes
+	// them; day_tick included, because the arrival-hours column moves with it.
+	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh by rebuilding the screen: this state has
+ * no in-place refill, its constructor IS the list.
+ */
+void TransfersState::think()
+{
+	State::think();
+
+	if (_jointRefresh.consume())
+	{
+		_game->popState();
+		if (JointEcon::baseIndex(_game, _base) >= 0)
+		{
+			_game->pushState(new TransfersState(_base));
+		}
+		return; // `this` is now queued for deletion - touch nothing else
+	}
 }
 
 /**

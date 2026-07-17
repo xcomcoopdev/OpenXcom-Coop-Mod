@@ -381,6 +381,16 @@ class connectionTCP
 	// After a battle there is no such click, so the resume_ack handler releases
 	// the hold automatically when this flag is set.
 	bool jointPostBattleRestream = false;
+	// PRD-J10: same shape, different trigger - set while a DESYNC-REPAIR world
+	// restream is in flight (the replica's world checksum diverged and it asked for
+	// a fresh one). Mid-session nobody clicks BEGIN either, so the resume_ack
+	// handler must release the client's hold for this restream too, or the client
+	// parks in COOP_DLG_CLIENT_RESUME_HOLD forever with a perfectly good world.
+	bool jointResyncRestream = false;
+	// PRD-J10: serve a replica's joint_resync_request - mark the restream
+	// auto-releasing and stream the authoritative world. No-op (the replica re-asks
+	// on its next mismatching checksum) if the single-slot streamer is busy.
+	void jointResyncStream();
 	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
 	static int localSeat();                 // this machine's seat
 	static int seatCount();                 // active roster size
@@ -658,6 +668,11 @@ class connectionTCP
 	// Reason string from the last lobby_join_refused, shown by the refusal
 	// dialog (CoopState 63).
 	static std::string joinRefusalReason;
+
+	// PRD-J10: already-translated text of the last rejected JOINT command, shown by
+	// the single failure dialog (CoopState COOP_DLG_JOINT_FAIL). Written only by
+	// JointEcon::showFail - same idiom as joinRefusalReason above.
+	static std::string jointFailReason;
 
 	// save
 	static bool saveError;

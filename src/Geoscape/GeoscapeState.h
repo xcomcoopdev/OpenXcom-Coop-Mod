@@ -19,6 +19,7 @@
  */
 #include "../Engine/State.h"
 #include <list>
+#include <map>
 
 namespace OpenXcom
 {
@@ -38,6 +39,7 @@ class Base;
 class RuleMissionScript;
 class RuleEvent;
 class AlienBase;
+class Texture;
 
 /**
  * Geoscape screen which shows an overview of
@@ -71,6 +73,17 @@ private:
 	std::vector<Craft*> _activeCrafts;
 	size_t _minimizedDogfights;
 	int _slowdownCounter;
+
+	// PRD-J10 landing broker (HOST only). A craft another seat commanded reached a
+	// landable target: instead of popping ConfirmLandingState here, we ask THAT
+	// seat and park the craft until it answers. This map is both the "already
+	// asked, do not ask again every tick" guard and the stash of the world data the
+	// dialog needs, which only the host's globe can compute.
+	struct JointLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
+	std::map<Craft*, JointLandingPrompt> _jointLandingPending;
+	/// PRD-J10: broker this landing to the commanding seat instead of asking here.
+	/// True = brokered (the caller must NOT pop its own dialog).
+	bool brokerJointLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
 	/// Update list of active crafts.
 	const std::vector<Craft*>* updateActiveCrafts();
@@ -193,6 +206,12 @@ public:
 	/// PRD-J08 JOINT: open the dogfight UI for a craft/UFO pair on THIS machine
 	/// (the initiating player's replica) - mirrors the vanilla start block.
 	void startJointDogfight(Craft* craft, Ufo* ufo);
+	/// PRD-J10 JOINT (HOST): the commanding seat answered a brokered landing
+	/// prompt. @a yes -> generate the battle exactly as the host's own
+	/// ConfirmLandingState would; otherwise patrol here / return to base.
+	void jointLandingReply(Craft* craft, bool yes, bool patrol);
+	/// Test-harness: is a brokered landing decision outstanding on this host?
+	bool hasJointLandingPending() const { return !_jointLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
 	/// Test-harness: dogfights queued but not yet started.

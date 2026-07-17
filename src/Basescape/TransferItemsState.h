@@ -19,6 +19,7 @@
  */
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
 #include <string>
 
@@ -58,6 +59,8 @@ private:
 	size_t _vanillaCategories;
 	size_t _sel;
 	int _total, _pQty, _cQty, _aQty;
+	/// PRD-J10: live refresh when a peer's joint_apply moves either base.
+	JointEcon::ScreenRefresh _jointRefresh;
 	double _iQty;
 	double _distance;
 	Uint8 _ammoColor;

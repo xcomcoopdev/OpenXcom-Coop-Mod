@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -51,6 +52,7 @@
 #include "../Mod/RuleRegion.h"
 #include "../Mod/RuleInterface.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/GameTime.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
 #include "../Savegame/Region.h"
@@ -78,6 +80,7 @@
 #include <cmath>
 #include "../Basescape/BaseView.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/ProductionCompleteState.h"
@@ -116,10 +119,11 @@ struct PendingCmd
 	bool remote = false;
 };
 
-std::mutex g_mx;                     // guards the three queues below
+std::mutex g_mx;                     // guards the four queues below
 std::deque<PendingCmd>  g_cmdQ;      // host:      to validate+apply+broadcast
 std::deque<Json::Value> g_applyQ;    // replica:   joint_apply to apply
 std::deque<std::string> g_failQ;     // initiator: joint_fail reasons to surface
+int g_resyncServeQ = 0;              // host:      pending joint_resync_requests
 
 // Per-machine monotonic command sequence stamp (protocol `seq`).
 std::atomic<int> g_seqCounter{0};
@@ -132,6 +136,23 @@ std::atomic<uint64_t> g_applyN{0};   // joint_apply applied by this machine
 std::atomic<uint64_t> g_unknownN{0}; // joint_cmd naming an unregistered cmd
 std::mutex g_failMx;
 std::string g_lastFail;
+
+// ---- PRD-J10: desync repair bookkeeping --------------------------------------
+std::atomic<uint64_t> g_mismatchN{0};  // checksum mismatches seen (replica)
+std::atomic<uint64_t> g_resyncReqN{0}; // resyncs asked for (replica) / served (host)
+bool g_resyncPending = false;          // replica: a world restream is in flight
+bool g_resyncGaveUp = false;           // replica: throttled out, popup already shown
+int64_t g_lastResyncGameMin = -1;      // replica: game-minute stamp of the last resync
+// The checksum rides the geoscape `time` heartbeat, which the host emits at LINK
+// RATE (~2000/s). Log a mismatch ONCE per episode, not once per heartbeat: a
+// per-heartbeat log is thousands of fopen/fwrite/fclose per second on the
+// replica's main thread, which starves the very world-restream that repairs it -
+// the repair then never lands and the desync looks unfixable. (Measured: the
+// restream degrades from <1s to >4s per 3KB chunk, then stalls.)
+bool g_mismatchLogged = false;
+// Wall-clock ms at which the CURRENT mismatch streak started, -1 = in agreement.
+// See the debounce in verifyWorldChecksum.
+int64_t g_mismatchSinceMs = -1;
 
 bool isHost() { return connectionTCP::getHost(); }
 
@@ -155,12 +176,20 @@ void setLastFail(const std::string& reason)
 	g_lastFail = reason;
 }
 
-// Visible failure dialog on the initiator. Reuse the existing purchase-failed
-// popup (CoopState 551); the machine-readable reason is exposed via
-// lastFailReason() for the harness. (J05 refines the wording per-command.)
-void surfaceFail(Game* game)
+// ---- PRD-J10: apply notification (live screen refresh) -----------------------
+// ONE listener, last-registered-wins. `g_listenerOwner` is the identity token that
+// makes the "last-registered-wins" rule safe: OXCE defers deleting a popped state
+// to the top of the NEXT frame, i.e. AFTER the replacement screen's init() has
+// already registered. Without the token the old screen's destructor would clear
+// the new screen's listener and refresh would silently die after one rebuild.
+const void* g_listenerOwner = nullptr;
+ApplyListener g_listener;
+std::atomic<int> g_lastApplySeat{-1};
+
+void fireApplyListener(const std::string& cmd, int baseId, int seat)
 {
-	if (game) game->pushState(new CoopState(551));
+	g_lastApplySeat = seat;
+	if (g_listener) g_listener(cmd, baseId);
 }
 
 // ---- Shared J05 helpers ------------------------------------------------------
@@ -1769,6 +1798,52 @@ void dogfightStartApply(Game* game, Json::Value& payload, Base* base, int /*seat
 	gs->startJointDogfight(craft, ufo);
 }
 
+// ---- PRD-J10: the landing broker ---------------------------------------------
+// land_prompt payload: { craftId, craftType, initiatorSeat, shade }. Host-origin
+// (simAccept; applier replica-only + seat-gated), exactly like dogfight_start:
+// only the seat that ORDERED the craft is asked whether to land. Battle authority
+// is untouched - if the seat says yes, the HOST still generates the battle.
+void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host is the one asking
+	if (payload.get("initiatorSeat", -1).asInt() != connectionTCP::localSeat()) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	GeoscapeState* gs = findGeoState(game);
+	// The dialog renders the destination's name, so a replica that has not yet
+	// replicated the target (or is not on the geoscape) cannot ask the question.
+	// Decline immediately rather than leave the host's craft waiting forever -
+	// the dogfightStartApply abort pattern.
+	if (!craft || !craft->getDestination() || !gs)
+	{
+		Json::Value p;
+		p["craftId"] = payload["craftId"];
+		p["craftType"] = payload["craftType"];
+		p["yes"] = false;
+		p["patrol"] = false;
+		submitLocalCmd(game, "land_reply", -1, p);
+		return;
+	}
+	// Textures are null on purpose: this dialog only ASKS. It never runs
+	// checkStartingCondition or the battle generator (its broker branch submits
+	// land_reply instead), and the only thing it draws from the host's world is
+	// the day/night shade, which rides the payload.
+	gs->popup(new ConfirmLandingState(craft, nullptr, nullptr,
+		payload.get("shade", 0).asInt(), true /*jointBroker*/));
+}
+
+// land_reply payload: { craftId, craftType, yes, patrol }. Client -> host; the
+// applier is HOST-ONLY (the host owns the consequence, and it is the only machine
+// that can generate the authoritative battle).
+void landReplyApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!connectionTCP::getHost()) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	GeoscapeState* gs = findGeoState(game);
+	if (!craft || !gs) return;
+	gs->jointLandingReply(craft, payload.get("yes", false).asBool(),
+		payload.get("patrol", false).asBool());
+}
+
 // Host-side consequences of a downed UFO that vanilla runs INSIDE the
 // initiator's DogfightState (fenced on a JOINT replica): mission bookkeeping +
 // the retaliation roll. Byte-mirrors DogfightState::update's crash block.
@@ -2157,8 +2232,9 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 	else
 	{
 		// The host's own command failed: surface it locally, exactly as a replica
-		// surfaces a joint_fail received from the host.
-		surfaceFail(game);
+		// surfaces a joint_fail received from the host (PRD-J10: one helper, one
+		// dialog, both roles).
+		showFail(game, reason);
 	}
 }
 
@@ -2212,6 +2288,10 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		game->getCoopMod()->sendTCPPacketData(ok.toStyledString());
 		++g_okN;
 	}
+
+	// PRD-J10: the host's own open screens are as stale as a replica's after an
+	// apply (a client's buy moves the host's funds too), so both roles notify.
+	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
@@ -2235,8 +2315,12 @@ void processApply(Game* game, const Json::Value& ap)
 	// Mutable copy for the applier signature; the replica only READS the resolved
 	// payload (host already resolved any RNG before broadcasting).
 	Json::Value payload = ap["payload"];
-	hit->second.apply(game, payload, base, ap.get("seat", 0).asInt());
+	int seat = ap.get("seat", 0).asInt();
+	hit->second.apply(game, payload, base, seat);
 	++g_applyN;
+
+	// PRD-J10: tell the open screen its world just moved under it.
+	fireApplyListener(cmd, ap.get("baseId", -1).asInt(), seat);
 }
 
 } // anonymous namespace
@@ -2245,6 +2329,90 @@ void processApply(Game* game, const Json::Value& ap)
 void registerCmd(const std::string& cmd, CmdValidator validate, CmdApplier apply)
 {
 	registry()[cmd] = Handler{ std::move(validate), std::move(apply) };
+}
+
+// ---- PRD-J10: apply notification ---------------------------------------------
+void setApplyListener(const void* owner, ApplyListener listener)
+{
+	g_listenerOwner = owner;
+	g_listener = std::move(listener);
+}
+
+void clearApplyListener(const void* owner)
+{
+	// Only the CURRENT owner may clear. A popped screen's destructor runs one
+	// frame late - by then its replacement already registered, and an
+	// unconditional clear here would kill live refresh for good.
+	if (g_listenerOwner != owner) return;
+	g_listenerOwner = nullptr;
+	g_listener = nullptr;
+}
+
+int lastApplySeat()
+{
+	return g_lastApplySeat.load();
+}
+
+int baseIndex(Game* game, const Base* base)
+{
+	if (!game || !game->getSavedGame() || !base) return -1;
+	auto* bases = game->getSavedGame()->getBases();
+	for (size_t i = 0; i < bases->size(); ++i)
+		if ((*bases)[i] == base) return (int)i;
+	return -1;
+}
+
+void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantProgress)
+{
+	if (!game || !game->getCoopMod() || !game->getCoopMod()->isJointCampaign()) return;
+	_game = game;
+	_base = base;
+	_wantProgress = wantProgress;
+	_bound = true;
+	setApplyListener(owner, [this](const std::string& cmd, int applyBaseId)
+	{
+		// day_tick is pure progress bookkeeping (wound recovery, research/production
+		// "days left"). List views want it; a command screen must NOT throw away the
+		// player's half-entered order once per game-day because of it.
+		if (!_wantProgress && cmd == "day_tick") return;
+		// applyBaseId < 0 = world-scoped (funds-only, base creation, dogfights):
+		// always relevant. Otherwise only this screen's own base matters.
+		if (applyBaseId >= 0 && _base)
+		{
+			int mine = baseIndex(_game, _base);
+			if (mine >= 0 && mine != applyBaseId) return;
+		}
+		_dirty = true;
+	});
+}
+
+void ScreenRefresh::unbind(const void* owner)
+{
+	clearApplyListener(owner);
+	_bound = false;
+}
+
+bool ScreenRefresh::consume()
+{
+	if (!_dirty) return false;
+	_dirty = false;
+	return true;
+}
+
+void showFail(Game* game, const std::string& reason)
+{
+	if (!game) return;
+	// The reason is the host validator's own string: an STR_ id where the vanilla
+	// rule already had one (STR_NOT_ENOUGH_MONEY, STR_NOT_ENOUGH_CRAFT_SPACE, ...),
+	// a plain sentence otherwise. Language::getString returns the id unchanged when
+	// it is not a known key, so one lookup covers both.
+	std::string text = "The host rejected your command.";
+	if (!reason.empty() && game->getLanguage())
+	{
+		text = game->getLanguage()->getString(reason);
+	}
+	connectionTCP::jointFailReason = text;
+	game->pushState(new CoopState(COOP_DLG_JOINT_FAIL));
 }
 
 void init()
@@ -2283,6 +2451,10 @@ void init()
 	// the UI); initiator-reported result (host applies + rebroadcasts).
 	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
 	registerCmd("dogfight_result", &simAccept, &dogfightResultApply);
+	// PRD-J10 landing broker: host-origin prompt (seat-gated replica applier);
+	// initiator-reported answer (host-only applier).
+	registerCmd("land_prompt", &simAccept, &landPromptApply);
+	registerCmd("land_reply",  &simAccept, &landReplyApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -2344,6 +2516,18 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		g_failQ.push_back(reason);
 		return true;
 	}
+	if (state == "joint_resync_request")
+	{
+		// PRD-J10: a replica's world checksum diverged from ours. Only the host
+		// can answer; queue it for the main-thread pump (the restream serializes
+		// the whole SavedGame, which must not race the apply drain).
+		if (isHost())
+		{
+			std::lock_guard<std::mutex> lk(g_mx);
+			++g_resyncServeQ;
+		}
+		return true;
+	}
 	return false;
 }
 
@@ -2380,13 +2564,33 @@ void update(Game* game)
 	// 3) Initiator: surface queued failures (one dialog per fail).
 	for (;;)
 	{
+		std::string reason;
 		bool have = false;
 		{
 			std::lock_guard<std::mutex> lk(g_mx);
-			if (!g_failQ.empty()) { g_failQ.pop_front(); have = true; }
+			if (!g_failQ.empty()) { reason = g_failQ.front(); g_failQ.pop_front(); have = true; }
 		}
 		if (!have) break;
-		surfaceFail(game);
+		showFail(game, reason);
+	}
+
+	// 4) Host: serve queued resync requests (PRD-J10). Re-stream the authoritative
+	// world down the J02 bootstrap lane; the streamer is single-slot, so if it is
+	// busy we drop the request - the replica's next mismatching checksum re-asks.
+	for (;;)
+	{
+		bool have = false;
+		{
+			std::lock_guard<std::mutex> lk(g_mx);
+			if (g_resyncServeQ > 0) { --g_resyncServeQ; have = true; }
+		}
+		if (!have) break;
+		connectionTCP* coop = game->getCoopMod();
+		if (!coop || !coop->getServerOwner() || !coop->isJointCampaign()) continue;
+		++g_resyncReqN;
+		Log(LOG_WARNING) << "[JOINT] resync requested by the replica; re-streaming"
+			<< " the authoritative world";
+		coop->jointResyncStream();
 	}
 }
 
@@ -2651,6 +2855,30 @@ void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)
 	submitLocalCmd(game, "dogfight_start", craftBaseIndex(game, craft), p);
 }
 
+void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
+{
+	if (!jointHost(game) || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["initiatorSeat"] = seat;
+	p["shade"] = shade;
+	Log(LOG_INFO) << "[JOINT] landing prompt brokered to seat " << seat
+		<< " for " << craftKey(craft);
+	submitLocalCmd(game, "land_prompt", craftBaseIndex(game, craft), p);
+}
+
+void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["yes"] = yes;
+	p["patrol"] = patrol;
+	submitLocalCmd(game, "land_reply", craftBaseIndex(game, craft), p);
+}
+
 bool isUfoRemotelyEngaged(int ufoId)
 {
 	return g_remoteEngagedUfo.count(ufoId) != 0;
@@ -2754,7 +2982,32 @@ void hostDayTick(Game* game)
 	}
 }
 
-// ---- PRD-J04 world checksum (log-only) ---------------------------------------
+// ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
+const int RESYNC_COOLDOWN_MINUTES = 60; // one game hour between auto-resyncs
+const int RESYNC_DEBOUNCE_MS = 3000;    // a mismatch must survive this to count
+
+namespace {
+// Wall-clock (not game-time) milliseconds: the debounce below measures how long a
+// mismatch has SURVIVED, and a paused/slow geoscape must not stretch it.
+int64_t steadyMs()
+{
+	using namespace std::chrono;
+	return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// A monotone game-minute stamp for the throttle. GameTime has no epoch accessor,
+// so compose one from its fields; months are 1-12 and days 1-31, so the ladder is
+// strictly increasing even though it skips (nonexistent) day 30/31 of February.
+// Only DIFFERENCES matter here, and only against a 60-minute window.
+int64_t gameMinutes(SavedGame* save)
+{
+	if (!save || !save->getTime()) return -1;
+	GameTime* t = save->getTime();
+	int64_t days = ((int64_t)t->getYear() * 12 + t->getMonth()) * 31 + t->getDay();
+	return days * 24 * 60 + t->getHour() * 60 + t->getMinute();
+}
+} // namespace
+
 void attachWorldChecksum(Game* game, Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
@@ -2762,6 +3015,32 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	msg["chkFunds"] = Json::Value::Int64(save->getFunds());
 	msg["chkBases"] = (int)save->getBases()->size();
 	msg["chkResearch"] = (int)save->getDiscoveredResearch().size();
+}
+
+bool requestResync(Game* game, const std::string& why, bool force)
+{
+	if (!game || !game->getCoopMod() || !game->getCoopMod()->isJointReplica()) return false;
+	if (!force && g_resyncPending) return false;
+
+	g_resyncPending = true;
+	g_lastResyncGameMin = gameMinutes(game->getSavedGame());
+	++g_resyncReqN;
+	Log(LOG_WARNING) << "[JOINT] requesting a world resync from the host (" << why
+		<< (force ? ", forced)" : ")");
+
+	Json::Value req;
+	req["state"] = "joint_resync_request";
+	game->getCoopMod()->sendTCPPacketData(req.toStyledString());
+	return true;
+}
+
+void notifyWorldAdopted()
+{
+	// A fresh authoritative world just landed: the repair took, so re-arm both the
+	// in-flight guard and the "give up" latch. The cooldown stamp stays, so a
+	// mismatch that reappears within the window is still treated as unrepairable.
+	g_resyncPending = false;
+	g_resyncGaveUp = false;
 }
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
@@ -2775,13 +3054,99 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	int64_t myFunds = save->getFunds();
 	int myBases = (int)save->getBases()->size();
 	int myResearch = (int)save->getDiscoveredResearch().size();
-	if (hostFunds != myFunds || hostBases != myBases || hostResearch != myResearch)
+	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch)
 	{
-		Log(LOG_WARNING) << "[JOINT] world checksum mismatch (repair is J10): "
+		// Back in agreement: whatever drifted is gone. Re-arm the repair so a later,
+		// unrelated drift gets its own auto-resync instead of the give-up popup.
+		if (g_mismatchLogged)
+		{
+			Log(LOG_INFO) << "[JOINT] world checksum back in agreement with the host";
+			g_mismatchLogged = false;
+		}
+		g_mismatchSinceMs = -1;
+		g_resyncGaveUp = false;
+		g_lastResyncGameMin = -1;
+		return;
+	}
+
+	++g_mismatchN;
+
+	// DEBOUNCE. A single mismatching heartbeat does NOT mean the world diverged:
+	// the checksum and the joint_apply that moves it are separate packets, so any
+	// in-flight mutation shows up here as a brief skew that closes by itself a
+	// frame or two later. Only a mismatch that SURVIVES is worth a multi-megabyte
+	// world restream (which also replaces the replica's whole state stack). At the
+	// heartbeat's ~2 kHz this still detects a real desync in a couple of seconds.
+	const int64_t nowMs = steadyMs();
+	if (g_mismatchSinceMs < 0) g_mismatchSinceMs = nowMs;
+	if (nowMs - g_mismatchSinceMs < RESYNC_DEBOUNCE_MS) return;
+
+	if (!g_mismatchLogged)
+	{
+		// once per episode - see g_mismatchLogged
+		g_mismatchLogged = true;
+		Log(LOG_WARNING) << "[JOINT] world checksum mismatch (persisted "
+			<< RESYNC_DEBOUNCE_MS << "ms): "
 			<< "funds host=" << hostFunds << " replica=" << myFunds
 			<< ", bases host=" << hostBases << " replica=" << myBases
 			<< ", research host=" << hostResearch << " replica=" << myResearch;
 	}
+
+	const int64_t now = gameMinutes(save);
+	const bool cooling = (g_lastResyncGameMin >= 0 && now >= 0
+		&& now - g_lastResyncGameMin < RESYNC_COOLDOWN_MINUTES);
+
+	if (g_resyncPending)
+	{
+		// A restream is already on the wire: every heartbeat until it lands still
+		// mismatches, and re-asking would queue a second serialization of the whole
+		// world on the host. Wait for it - but not forever: if the host dropped the
+		// request (its single-slot streamer was busy) the guard expires with the
+		// cooldown and the next mismatch re-asks.
+		if (cooling) return;
+		g_resyncPending = false;
+	}
+
+	if (cooling)
+	{
+		// A resync DID land and we are diverging again inside the cooldown: the
+		// auto-repair does not stick, so something is drifting faster than a
+		// restream can heal it. Stop looping on multi-megabyte world streams and
+		// hand it to the player.
+		if (!g_resyncGaveUp)
+		{
+			g_resyncGaveUp = true;
+			Log(LOG_ERROR) << "[JOINT] world desync persisted through an auto-resync"
+				<< " (within " << RESYNC_COOLDOWN_MINUTES << " game minutes);"
+				<< " automatic repair disabled - advise the host to save and reload";
+			showFail(game, "Desync repair failed. Ask the host to save and reload the campaign.");
+		}
+		return;
+	}
+
+	requestResync(game, "world checksum mismatch");
+}
+
+ResyncStats resyncStats()
+{
+	ResyncStats s;
+	s.mismatches = g_mismatchN.load();
+	s.requests = g_resyncReqN.load();
+	s.pending = g_resyncPending;
+	s.gaveUp = g_resyncGaveUp;
+	s.lastGameMin = g_lastResyncGameMin;
+	return s;
+}
+
+void resetResyncStats()
+{
+	g_mismatchN = 0;
+	g_resyncReqN = 0;
+	g_resyncPending = false;
+	g_resyncGaveUp = false;
+	g_mismatchLogged = false;
+	g_mismatchSinceMs = -1;
+	g_lastResyncGameMin = -1;
 }
 
 } // namespace JointEcon

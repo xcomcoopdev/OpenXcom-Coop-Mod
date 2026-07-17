@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
 
 namespace OpenXcom
@@ -78,6 +79,10 @@ private:
 	ArrowButton *_sortName, *_sortQuantity, *_sortSize, *_sortSpaceUsed;
 
 	std::vector<StoredItem> _itemList;
+	/// PRD-J10: live refresh. A list view holds no pending user input, so it
+	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick
+	/// too - the progress columns it draws are exactly what day_tick carries.
+	JointEcon::ScreenRefresh _jointRefresh;
 	void initList();
 	ItemSort _itemOrder;
 	void updateArrows();
@@ -95,6 +100,8 @@ public:
 	void btnGrandTotalClick(Action *action);
 	/// Sets up the item list.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Sorts the item list.
 	void sortList();
 	/// Updates the item list.

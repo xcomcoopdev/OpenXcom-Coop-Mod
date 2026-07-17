@@ -239,6 +239,7 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
  */
 CraftSoldiersState::~CraftSoldiersState()
 {
+	_jointRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -473,6 +474,42 @@ void CraftSoldiersState::init()
 		_btnPreview->setText(tr("STR_CRAFT_DEPLOYMENT_PREVIEW"));
 
 	touchComponentsRefresh();
+
+	// PRD-J10: in JOINT the craft, the roster and this screen are ONE shared thing -
+	// the peer's craft_assign lands here, not in a mirror. Refresh live instead of
+	// only on re-entry (J09 shipped the command; this closes its UX gap).
+	_jointRefresh.bind(_game, this, _base);
+}
+
+/**
+ * Harness (PRD-J10): the crew-count header, written only by initList.
+ */
+std::string CraftSoldiersState::harnessUsedText() const
+{
+	return _txtUsed->getText();
+}
+
+/**
+ * Applies a pending live refresh (PRD-J10).
+ */
+void CraftSoldiersState::think()
+{
+	State::think();
+
+	if (_jointRefresh.consume())
+	{
+		// In-place rebuild, keeping the scroll position: the list holds no pending
+		// user input (every click is submitted immediately as a craft_assign), so
+		// there is nothing to lose and no reason to pop-and-push.
+		if (JointEcon::baseIndex(_game, _base) < 0 || _craft >= _base->getCrafts()->size())
+		{
+			// the base or the craft was removed out from under this screen
+			_game->popState();
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
+	}
 }
 
 /**

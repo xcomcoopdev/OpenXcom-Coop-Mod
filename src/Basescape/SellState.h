@@ -20,6 +20,7 @@
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
 #include "../Menu/OptionsBaseState.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
 #include <string>
 
@@ -66,6 +67,8 @@ private:
 	bool _sellAllButOne;
 	bool _delayedInitDone;
 	TransferSortDirection _previousSort, _currentSort;
+	/// PRD-J10: live refresh when another player's joint_apply moves this base.
+	JointEcon::ScreenRefresh _jointRefresh;
 
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;

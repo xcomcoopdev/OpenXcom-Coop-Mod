@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
 #include "SoldierSortUtil.h"
 
@@ -53,6 +54,9 @@ private:
 	std::vector<Soldier *> _origSoldierOrder;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
+	/// PRD-J10: live refresh - two players plausibly edit ONE shared squad at once,
+	/// so this is the screen where a stale list is most visible.
+	JointEcon::ScreenRefresh _jointRefresh;
 	/// initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
 public:
@@ -68,6 +72,8 @@ public:
 	void btnPreviewClick(Action *action);
 	/// Updates the soldiers list.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
 	/// Moves a soldier up.
@@ -88,6 +94,9 @@ public:
 	/// Harness (PRD-J09): toggle a soldier's assignment by id, driving the same
 	/// path as a left-click (JOINT -> craft_assign command; SEPARATE -> local).
 	void harnessToggle(int soldierId);
+	/// Harness (PRD-J10): the "SPACE USED" header this screen is showing. It is
+	/// written only by initList, so a change proves the live refresh actually ran.
+	std::string harnessUsedText() const;
 };
 
 }

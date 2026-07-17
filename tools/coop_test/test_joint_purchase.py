@@ -98,9 +98,15 @@ def main():
         print(f"PASS protocol counters: host apply={sh['applyCount']} client apply={sc['applyCount']}")
 
         # ---- AC1c: insufficient funds (client-originated) ------------------
-        # Drop the host-authoritative funds below the cost of 5 rifles WITHOUT
-        # tripping storage limits, then have the client try to buy.
-        host.ok({"cmd": "set_funds", "value": 1000})
+        # Drop the funds below the cost of 5 rifles WITHOUT tripping storage
+        # limits, then have the client try to buy.
+        # set_funds is per-machine scaffolding, so it must be applied to BOTH (the
+        # give_items idiom): funds are part of the PRD-J04 world checksum, and
+        # since PRD-J10 a host-only set_funds is a genuine desync that the replica
+        # now auto-repairs by re-adopting the host's world - which would overwrite
+        # the very "replica funds unchanged" invariant this step asserts.
+        for gc in (host, client):
+            gc.ok({"cmd": "set_funds", "value": 1000})
         host.ok({"cmd": "joint_reset_stats"})
         client.ok({"cmd": "joint_reset_stats"})
         host_funds_pre = _funds(host)          # 1000

@@ -106,6 +106,63 @@ using CmdApplier = std::function<void(Game* game, Json::Value& payload,
 /// Register (or overwrite) a command's validate + apply callbacks.
 void registerCmd(const std::string& cmd, CmdValidator validate, CmdApplier apply);
 
+// ---- PRD-J10: apply notification (live screen refresh) -----------------------
+// OXCE Basescape/Geoscape states snapshot the world in their constructors, so a
+// joint_apply landing while such a screen is open leaves it stale. There is ONE
+// listener (last-registered-wins, matching the "only the top State cares" rule);
+// it fires on the MAIN thread right after an apply mutated the world, on the host
+// (post-validate) AND on every replica (from joint_apply).
+//
+// @a baseId is the apply's target base INDEX, or < 0 for a world-scoped mutation
+// (funds-only, base creation, dogfights, ...). @a cmd is the protocol command name.
+using ApplyListener = std::function<void(const std::string& cmd, int baseId)>;
+
+/// Register the single apply listener. @a owner is an opaque identity token (pass
+/// `this`) so a LATE destructor cannot clear a listener the next screen already
+/// installed - OXCE deletes popped states one frame after the push that replaced
+/// them, so the dtor of the old screen runs AFTER the new screen registered.
+void setApplyListener(const void* owner, ApplyListener listener);
+/// Drop the apply listener, but ONLY if @a owner still owns it (no-op otherwise).
+void clearApplyListener(const void* owner);
+/// Seat that originated the most recent apply (for "updated by <seatName>" text).
+int lastApplySeat();
+
+/// Index of @a base in SavedGame::getBases() - the JOINT shared base key - or -1.
+int baseIndex(Game* game, const Base* base);
+
+/**
+ * PRD-J10 screen-refresh binding. A JOINT screen owns one of these, binds it in
+ * init() and polls consume() from think(): the listener only raises a flag, so the
+ * screen rebuilds itself at a safe point in its own lifecycle rather than from
+ * inside the protocol drain (where a pop+push would fight the deferred deletion of
+ * popped states, and a second apply in the same drain would pop the replacement).
+ *
+ * A screen that is not on top never gets think(), so a screen covered by a dialog
+ * simply defers its rebuild until the dialog closes and init() runs again - that is
+ * the PRD's "dialogs mid-command are exempt" rule, for free.
+ */
+class ScreenRefresh
+{
+public:
+	/// Bind to the apply stream. No-op unless this is a JOINT campaign, so callers
+	/// need no gate. @a base = the screen's base (null = interested in every base).
+	/// @a wantProgress = also refresh on day_tick (progress columns); command
+	/// screens leave it false so a daily tick cannot wipe an in-progress order.
+	void bind(Game* game, const void* owner, Base* base, bool wantProgress = false);
+	/// Release the listener (call from the screen's destructor).
+	void unbind(const void* owner);
+	/// True at most once per apply burst: "an apply for my base landed; rebuild".
+	bool consume();
+	/// Is this screen bound (i.e. a live JOINT refresh)?
+	bool bound() const { return _bound; }
+private:
+	Game* _game = nullptr;
+	Base* _base = nullptr;
+	bool _dirty = false;
+	bool _bound = false;
+	bool _wantProgress = false;
+};
+
 /// One-time registration of the built-in commands (currently "buy"). Idempotent;
 /// safe to call from every connectionTCP ctor.
 void init();
@@ -124,6 +181,13 @@ void update(Game* game);
 /// mutates nothing locally.
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
+
+/// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
+/// failure path funnels here (the screens never pop their own): the host's
+/// machine-readable @a reason - an STR_ id where the vanilla rule had one, a bare
+/// sentence otherwise - is shown to the initiator, translated when the language
+/// knows the key and verbatim when it does not. Main thread.
+void showFail(Game* game, const std::string& reason);
 
 /// Send a built protocol message to every connected peer. Transport is 1:1 today
 /// (PRD-J01 audit) so this degenerates to the single-peer send; N-player only
@@ -204,6 +268,25 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// joint_apply{dogfight_start} so the initiating seat opens the dogfight UI.
 void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat);
 
+// ---- PRD-J10: the landing broker (deferred from PRD-J09) --------------------
+// The host runs the only geoscape simulation, so ConfirmLandingState pops on the
+// HOST even for a craft the CLIENT commanded - J09 shipped it that way and
+// flagged it. This is pure UX routing: battle authority does NOT move (the coop
+// battle is a lockstep parallel sim - both machines load the same "battlehost"
+// blob), only the question "do you want to land?" is re-addressed to the seat
+// that gave the order. Same shape as dogfight_start: host-origin broadcast, a
+// seat-gated replica applier, and a reply command the host acts on.
+
+/// HOST: a craft commanded by @a seat (> 0) reached a landable target. Broadcast
+/// joint_apply{land_prompt} so THAT seat gets the confirm dialog. @a shade is the
+/// host's day/night value (the replica's clock may differ by a tick).
+void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
+
+/// REPLICA: the commanding seat answered its brokered landing dialog. Reports the
+/// decision to the host (joint_cmd{land_reply}); the host owns the consequence.
+/// @a yes = land; otherwise @a patrol picks "patrol here" over "return to base".
+void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
+
 /// HOST: true while a remote (client-simulated) engagement is active on @a ufo.
 /// Used to SERIALIZE engagements: a second craft reaching the same UFO waits.
 bool isUfoRemotelyEngaged(int ufoId);
@@ -219,11 +302,47 @@ bool clientDogfightActive(const Craft* craft, const Ufo* ufo);
 /// host's rebroadcast confirms the result, so the snapshot can't flap the state.
 void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo);
 
-// ---- PRD-J04: lightweight world checksum (log-only desync detect) ------------
-// Repair is PRD-J10; here the host stamps funds + base count + discovered-tech
-// count onto an outgoing snapshot and the replica logs a warning on mismatch.
+// ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
+// The host stamps funds + base count + discovered-tech count onto the periodic
+// geoscape `time` heartbeat; the replica compares it against its own world.
+// J04 shipped log-only detection; J10 upgrades a mismatch to an AUTOMATIC repair:
+// the replica asks for a fresh world (joint_resync_request), the host re-streams
+// the authoritative world down the J02 bootstrap lane AND releases the client's
+// resume hold, and the replica adopts it whole behind the existing wait dialog.
+//
+// Throttled: at most one auto-resync per RESYNC_COOLDOWN_MINUTES of GAME time. A
+// second mismatch inside that window means the repair did not take, so the replica
+// stops trying, logs everything and tells the player to save/reload.
 void attachWorldChecksum(Game* game, Json::Value& msg);
 void verifyWorldChecksum(Game* game, const Json::Value& msg);
+
+/// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
+extern const int RESYNC_COOLDOWN_MINUTES;
+/// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.
+/// The checksum and the joint_apply that moves it are separate packets, so an
+/// in-flight mutation is briefly visible here as a skew that heals itself.
+extern const int RESYNC_DEBOUNCE_MS;
+
+/// REPLICA: ask the host for a fresh authoritative world. @a why is logged.
+/// @a force bypasses the throttle + the in-flight guard (the harness/debug hook).
+/// Returns false if the request was throttled or this machine is not a replica.
+bool requestResync(Game* game, const std::string& why, bool force = false);
+
+/// A streamed JOINT world was adopted (LoadGameState): clear the in-flight resync
+/// guard so a later drift can be repaired again.
+void notifyWorldAdopted();
+
+/// Harness/diagnostics: auto-resync bookkeeping on this machine.
+struct ResyncStats
+{
+	uint64_t mismatches;  // checksum mismatches observed (replica)
+	uint64_t requests;    // joint_resync_request sent (replica) / served (host)
+	bool pending;         // a resync is in flight (replica)
+	bool gaveUp;          // throttled out: the "save and reload" popup was shown
+	int64_t lastGameMin;  // game-minute stamp of the last auto-resync, -1 = never
+};
+ResyncStats resyncStats();
+void resetResyncStats();
 
 /// Harness / diagnostics: monotonic counters for the protocol traffic this
 /// process has processed, plus the most recent joint_fail reason surfaced here.

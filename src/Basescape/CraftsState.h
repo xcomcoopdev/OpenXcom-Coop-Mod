@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -41,6 +42,10 @@ private:
 	TextList *_lstCrafts;
 	Base *_base;
 
+	/// PRD-J10: live refresh. A list view holds no pending user input, so it
+	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick
+	/// too - the progress columns it draws are exactly what day_tick carries.
+	JointEcon::ScreenRefresh _jointRefresh;
 	void initList(size_t scrl);
 public:
 	/// Creates the Crafts state.
@@ -49,6 +54,8 @@ public:
 	~CraftsState();
 	/// Updates the craft info.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Handler for clicking the OK button.
 	void btnOkClick(Action *action);
 	/// Handler for clicking the Crafts list.

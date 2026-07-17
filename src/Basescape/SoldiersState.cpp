@@ -279,6 +279,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
  */
 SoldiersState::~SoldiersState()
 {
+	_jointRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -390,6 +391,29 @@ void SoldiersState::init()
 
 	_base->prepareSoldierStatsWithBonuses(); // refresh stats for sorting
 	initList(0);
+
+	// PRD-J10: silent live refresh. In JOINT this roster is shared, so the peer's
+	// sack / craft_assign / arriving hire belongs on THIS list, live.
+	_jointRefresh.bind(_game, this, _base, true /*wantProgress: wound recovery*/);
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh: refill in place, keep the scroll.
+ */
+void SoldiersState::think()
+{
+	State::think();
+
+	if (_jointRefresh.consume())
+	{
+		if (JointEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
+	}
 }
 
 /**
