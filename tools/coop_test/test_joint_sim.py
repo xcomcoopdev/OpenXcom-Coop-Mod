@@ -24,7 +24,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -60,19 +60,9 @@ def _craft_pos(gc, cid):
 
 
 def main():
-    host_dir = make_user_dir("jsim_host")
-    client_dir = make_user_dir("jsim_client")
-    host = GameClient("host", 48690, host_dir)
-    client = GameClient("client", 48691, client_dir)
+    js = joint_fixture.bring_up("jsim", (48690, 48691, 47990))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="47990", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         # ---- AC1a: research completion mirrors to the replica --------------
         # bootstrap makes the worlds byte-identical, so free-scientist counts match.
         c_free0 = _base0(_geo(client))["freeScientists"]
@@ -173,14 +163,13 @@ def main():
         assert moved or synced, f"replica craft not tracking host: c1={p1} c2={p2} host={hp}"
         print(f"PASS AC3 positions: replica craft {p1[:2]} -> {p2[:2]} tracks host {hp[:2] if hp else None}")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT SIM TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

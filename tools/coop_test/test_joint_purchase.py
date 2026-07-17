@@ -21,7 +21,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 
 RIFLE = "STR_RIFLE"
@@ -41,19 +41,9 @@ def _stats(gc):
 
 
 def main():
-    host_dir = make_user_dir("jbuy_host")
-    client_dir = make_user_dir("jbuy_client")
-    host = GameClient("host", 48670, host_dir)
-    client = GameClient("client", 48671, client_dir)
+    js = joint_fixture.bring_up("jbuy", (48670, 48671, 47970))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        # host: New Game -> Co-op (JOINT); client adopts the streamed replica.
-        session.new_campaign(host, client, port="47970", campaign_mode="joint")
-
         host.ok({"cmd": "joint_reset_stats"})
         client.ok({"cmd": "joint_reset_stats"})
 
@@ -150,14 +140,13 @@ def main():
         except Exception:
             pass
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT PURCHASE TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

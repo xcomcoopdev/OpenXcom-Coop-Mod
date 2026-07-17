@@ -25,7 +25,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -58,19 +58,9 @@ def _assert_released(gc, tag):
 
 
 def main():
-    host_dir = make_user_dir("jrsy_host")
-    client_dir = make_user_dir("jrsy_client")
-    host = GameClient("host", 48740, host_dir)
-    client = GameClient("client", 48741, client_dir)
+    js = joint_fixture.bring_up("jrsy", (48740, 48741, 48040))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48040", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         f0 = _funds(host)
         assert f0 == _funds(client), f"bootstrap funds differ: {f0} vs {_funds(client)}"
         _assert_released(client, "bootstrap")
@@ -165,15 +155,13 @@ def main():
         print("PASS force: force_resync re-streamed on demand, client released, "
               "worlds equal, both alive")
 
-        # standing invariant: the JOINT replica never wrote save data to disk -
-        # a resync adopts a STREAMED world, it does not load one from disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT RESYNC TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

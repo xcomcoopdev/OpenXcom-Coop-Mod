@@ -18,7 +18,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 
 SEPARATE, JOINT = 0, 1
@@ -41,18 +41,10 @@ def _read_save_text(user_dir, filename):
 
 
 def main():
-    host_dir = make_user_dir("joint_host")
-    client_dir = make_user_dir("joint_client")
-    host = GameClient("host", 48640, host_dir)
-    client = GameClient("client", 48641, client_dir)
+    js = joint_fixture.bring_up("joint", (48640, 48641, 47941))
+    host, client = js.host, js.client
+    host_dir, client_dir = js.host_dir, js.client_dir
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        # host: New Game -> Co-op (JOINT) -> ... -> session up; client joins
-        session.new_campaign(host, client, port="47941", campaign_mode="joint")
 
         # AC4: both live saves report campaignType Joint
         hm = host.ok({"cmd": "save_markers"})
@@ -70,14 +62,13 @@ def main():
             "host save YAML missing 'coopCampaignType: 1'"
         print("PASS host save YAML carries coopCampaignType: 1")
 
-        # standing invariant: a co-op client never writes save data to disk
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT FLAG TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

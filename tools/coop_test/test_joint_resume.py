@@ -16,6 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 
 SAVE = "joint_resume_e2e.sav"
@@ -35,17 +36,15 @@ def _world_signature(geo):
 
 
 def main():
-    host_dir = make_user_dir("jres_host")
-    client_dir = make_user_dir("jres_client")
-    host = GameClient("host", 48670, host_dir)
-    client = GameClient("client", 48671, client_dir)
+    # NOTE: this test outlives its fixture - it tears the pair down and brings a
+    # DIFFERENT pair up (host reloads from disk, client rejoins with a clean dir),
+    # so it owns the second pair by hand and only the first comes from bring_up.
+    js = joint_fixture.bring_up("jres", (48670, 48671, 47970))
+    host, client = js.host, js.client
+    host_dir, client_dir = js.host_dir, js.client_dir
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="47970", campaign_mode="joint")
+        # the pre-save world is already one shared world
+        joint_fixture.assert_world_equal(host, client, "before save")
 
         # the authoritative world at save time
         before = _world_signature(host.ok({"cmd": "geo_state"}))
@@ -56,8 +55,7 @@ def main():
         session.assert_client_zero_disk(client_dir)
 
         # both sessions down
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
         # host reloads the JOINT save (fresh process, same dir); client rejoins
         # with a clean dir. resume_campaign drives the standard resume handshake;
@@ -94,6 +92,11 @@ def main():
         assert all(not b.get("coopBase") and not b.get("coopIcon") for b in cgeo["bases"]), \
             f"client has mirror bases after resume: {cgeo['bases']}"
         print("PASS replica reports JOINT, intact roster, no mirror bases")
+
+        # PRD-J11: the resumed pair is one shared world, whole - not just the
+        # funds/base signature above (stores, roster + ownership, facilities,
+        # transfers, research and craft identity all survived the round trip).
+        joint_fixture.assert_world_equal(host, client, "after resume")
 
         session.assert_client_zero_disk(client.user_dir)
         print("PASS zero-disk: resumed client (replica) user dir clean")

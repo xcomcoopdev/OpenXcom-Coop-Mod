@@ -27,7 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -97,19 +97,9 @@ def _dismiss(gc):
 
 
 def main():
-    host_dir = make_user_dir("jfac_host")
-    client_dir = make_user_dir("jfac_client")
-    host = GameClient("host", 48750, host_dir)
-    client = GameClient("client", 48751, client_dir)
+    js = joint_fixture.bring_up("jfac", (48750, 48751, 48050))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48050", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         b0h, b0c = _base0(host), _base0(client)
         assert b0h["name"] == b0c["name"], "starting base differs"
         (ax, ay), (bx, by) = _free_tiles_next_to_built(b0h, 2)
@@ -231,14 +221,13 @@ def main():
         client.wait_for("client sacked", lambda: _sacked(client), timeout=30, interval=0.5)
         print(f"PASS sack: soldier {victim} removed on both ({n0} -> {n0 - 1})")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT FACILITIES TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

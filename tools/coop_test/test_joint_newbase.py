@@ -21,7 +21,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+import joint_fixture
+from harness import LAND_LON, LAND_LAT
 import session
 import geo
 
@@ -50,19 +51,9 @@ def _base_named(gc, name):
 
 
 def main():
-    host_dir = make_user_dir("jnb_host")
-    client_dir = make_user_dir("jnb_client")
-    host = GameClient("host", 48760, host_dir)
-    client = GameClient("client", 48761, client_dir)
+    js = joint_fixture.bring_up("jnb", (48760, 48761, 48060))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48060", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         assert len(_bases(host)) == 1 and len(_bases(client)) == 1, \
             "expected exactly one starting base on both"
         funds0 = _funds(host)
@@ -141,14 +132,13 @@ def main():
             f"rename leaked to the wrong base: first base host={first_h} client={first_c}"
         print("PASS lockstep: rename routed at index 1 landed on the new base on both")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT NEWBASE TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

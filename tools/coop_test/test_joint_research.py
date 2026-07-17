@@ -29,7 +29,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -64,19 +64,9 @@ def _stats(gc):
 
 
 def main():
-    host_dir = make_user_dir("jres_host")
-    client_dir = make_user_dir("jres_client")
-    host = GameClient("host", 48720, host_dir)
-    client = GameClient("client", 48721, client_dir)
+    js = joint_fixture.bring_up("jres", (48720, 48721, 48020))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48020", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         # available research is a property of the shared world -> identical on both.
         topics_h = host.ok({"cmd": "available_research"})["topics"]
         topics_c = client.ok({"cmd": "available_research"})["topics"]
@@ -261,14 +251,13 @@ def main():
             f"scientists not freed on completion: host={_free_sci(host)} client={_free_sci(client)} (want {sci0})"
         print(f"PASS completion: {T} discovered on both; scientists freed back to {sci0}")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT RESEARCH TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

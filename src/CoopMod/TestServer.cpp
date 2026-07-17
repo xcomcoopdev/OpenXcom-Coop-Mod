@@ -19,6 +19,7 @@
  */
 #include "TestServer.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <set>
@@ -354,6 +355,23 @@ void TestServer::pump()
 	}
 }
 
+/**
+ * PRD-J11: the rule name a pending Transfer carries, for the geo_state dump. Items
+ * and crafts name their rule; a soldier transfer names its RuleSoldier type (the
+ * key JointEcon's transferArrivedApply matches on); scientists/engineers are
+ * anonymous headcount and have none.
+ */
+static std::string transferRuleName(Transfer* t)
+{
+	switch (t->getType())
+	{
+	case TRANSFER_ITEM:    return t->getItems() ? t->getItems()->getType() : "";
+	case TRANSFER_CRAFT:   return t->getCraft() ? t->getCraft()->getRules()->getType() : "";
+	case TRANSFER_SOLDIER: return t->getSoldier() ? t->getSoldier()->getRules()->getType() : "";
+	default:               return "";
+	}
+}
+
 static Json::Value soldierToJson(Soldier* s)
 {
 	Json::Value j;
@@ -393,6 +411,16 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "joint_reset_resync_stats")
 	{
 		JointEcon::resetResyncStats();
+		resp["ok"] = true;
+	}
+	else if (cmd == "joint_checksum")
+	{
+		// PRD-J11: this machine's world checksum, exactly as the host stamps it onto
+		// the geoscape `time` heartbeat (chkFunds / chkBases / chkResearch). Lets a
+		// test read what the desync detector compares WITHOUT waiting for a
+		// heartbeat, and makes the checksum's narrow coverage (funds + base count +
+		// discovered-tech count - no stores, no roster) visible to the suite.
+		JointEcon::attachWorldChecksum(_game, resp);
 		resp["ok"] = true;
 	}
 	else if (cmd == "force_resync")
@@ -722,6 +750,20 @@ std::string TestServer::execute(const std::string& line)
 				resp["time"] = time;
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
 				resp["monthsPassed"] = sg->getMonthsPassed();
+				// PRD-J11: campaign model + discovered tech, so ONE geo_state call is a
+				// self-contained world dump for the joint_fixture equality helper (both
+				// are world-checksum fields; the helper must not need a second command).
+				resp["campaignType"] = static_cast<int>(sg->getCampaignType());
+				{
+					std::vector<std::string> techs;
+					for (auto* r : sg->getDiscoveredResearch())
+						techs.push_back(r->getName());
+					std::sort(techs.begin(), techs.end());
+					Json::Value jt(Json::arrayValue);
+					for (const auto& t : techs)
+						jt.append(t);
+					resp["discoveredResearch"] = jt;
+				}
 				// PRD-J04: monthly settlement tails, so a JOINT month-end sync test
 				// can assert the replica's funds/maintenance equal the host's. The
 				// just-ended month's maintenance lives at [size-2] after the roll.
@@ -746,6 +788,10 @@ std::string TestServer::execute(const std::string& line)
 					jb["lat"] = b->getLatitude();
 					jb["coopBase"] = b->_coopBase;
 					jb["coopIcon"] = b->_coopIcon;
+					// PRD-J11: the base's coop id. In JOINT, base_new mints it host-side
+					// and it rides the payload, so it must be EQUAL on every machine -
+					// unlike SEPARATE, where each side rolls its own.
+					jb["coopBaseId"] = b->_coop_base_id;
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{
@@ -825,6 +871,27 @@ std::string TestServer::execute(const std::string& line)
 						facilities.append(jf);
 					}
 					jb["facilities"] = facilities;
+					// PRD-J11: base stores + the full pending-transfer list. Neither is a
+					// world-checksum field (the checksum is funds + base count + tech
+					// count), so drift here is invisible to the J10 auto-repair - which is
+					// exactly why the fixture's equality helper has to read them.
+					// `incoming_transfers` only aggregates items by type for one base; the
+					// helper needs every base, every transfer kind, with hours left.
+					Json::Value items(Json::objectValue);
+					for (const auto& pair : *b->getStorageItems()->getContents())
+						items[pair.first->getType()] = pair.second;
+					jb["items"] = items;
+					Json::Value transfers(Json::arrayValue);
+					for (auto* t : *b->getTransfers())
+					{
+						Json::Value jt;
+						jt["type"] = (int)t->getType();
+						jt["qty"] = t->getQuantity();
+						jt["hours"] = t->getHours();
+						jt["rule"] = transferRuleName(t);
+						transfers.append(jt);
+					}
+					jb["transfers"] = transfers;
 					jb["freeScientists"] = b->getScientists();
 					jb["freeEngineers"] = b->getEngineers();     // PRD-J06
 					jb["freeLab"] = b->getFreeLaboratories();     // PRD-J06
@@ -2202,10 +2269,19 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "add_base")
 		{
 			// PRD-J05 test helper: append a minimal empty base (name + coords only,
-			// no facilities) to THIS machine's world. Deterministic; call on host
-			// AND client identically so both hold the same base list in the same
-			// order (baseId = index resolves equally). Stands in for J07's proper
-			// joint_apply base creation - test scaffolding only.
+			// no facilities) to THIS machine's world. Call on host AND client
+			// identically so both hold the same base list in the same order
+			// (baseId = index resolves equally). Stands in for J07's proper
+			// joint_apply base creation - test scaffolding only; a JOINT test that
+			// wants a REAL shared base must use `build_new_base` (base_new).
+			//
+			// PRD-J11: <coopbaseid> is forced to a fixed default because Base's ctor
+			// ROLLS A RANDOM _coop_base_id when it is 0 (Base.cpp ~:71-80). Calling
+			// this on two machines therefore produced two DIFFERENT coop ids - the
+			// one thing about this helper that was never deterministic, despite the
+			// comment that used to claim it was. Harmless until the J11 world-equality
+			// helper started comparing coopBaseId, which it must: base_new's whole
+			// point is that the host MINTS the id and it rides the payload.
 			SavedGame* sg = _game->getSavedGame();
 			if (!sg)
 				resp["error"] = "no save";
@@ -2215,7 +2291,9 @@ std::string TestServer::execute(const std::string& line)
 				b->setName(req.get("name", "Base B").asString());
 				b->setLongitude(req.get("lon", 1.0).asDouble());
 				b->setLatitude(req.get("lat", 0.3).asDouble());
+				b->_coop_base_id = req.get("coopbaseid", 424242).asInt();
 				sg->getBases()->push_back(b);
+				resp["coopBaseId"] = b->_coop_base_id;
 				resp["baseCount"] = (int)sg->getBases()->size();
 				resp["ok"] = true;
 			}

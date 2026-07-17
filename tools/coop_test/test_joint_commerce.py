@@ -27,7 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -83,19 +83,9 @@ def _give_both(host, client, item, count, base=None):
 
 
 def main():
-    host_dir = make_user_dir("jcom_host")
-    client_dir = make_user_dir("jcom_client")
-    host = GameClient("host", 48700, host_dir)
-    client = GameClient("client", 48701, client_dir)
+    js = joint_fixture.bring_up("jcom", (48700, 48701, 48000))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48000", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         # bootstrap invariant: identical funds.
         assert _funds(host) == _funds(client), "bootstrap funds differ"
         print(f"PASS bootstrap: identical funds {_funds(host)}")
@@ -272,14 +262,13 @@ def main():
         assert cfh > cf0_h, "containment sell did not credit funds"
         print(f"PASS containment: both {sh2} sectoids left, both funds {cfh} (+{cfh - cf0_h})")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT COMMERCE TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -81,19 +81,9 @@ def _fly_to_site(host, cid, site_id, blon, blat):
 
 
 def main():
-    host_dir = make_user_dir("jland_host")
-    client_dir = make_user_dir("jland_client")
-    host = GameClient("host", 48770, host_dir)
-    client = GameClient("client", 48771, client_dir)
+    js = joint_fixture.bring_up("jland", (48770, 48771, 48070))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48070", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         b0 = _base0(host)
         blon, blat = b0["lon"], b0["lat"]
         cid = _skyranger(host)["id"]
@@ -223,14 +213,13 @@ def main():
         print("PASS confirm: the client's YES reached the host, which generated the "
               "authoritative battle - BOTH machines entered it")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT LANDING TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

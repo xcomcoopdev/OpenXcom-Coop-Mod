@@ -22,7 +22,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -58,14 +58,10 @@ def _on_craft(gc, sid, cid):
 
 
 def main():
-    host = GameClient("host", 48760, make_user_dir("jdep_host"))
-    client = GameClient("client", 48761, make_user_dir("jdep_client"))
+    js = joint_fixture.bring_up("jdep", (48760, 48761, 48060))
+    host, client = js.host, js.client
     fail = []
     try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client, port="48060", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
 
         # ---- 1) full roster visible to both players ----------------------
         rh = sorted(s["id"] for s in _roster(host))
@@ -123,6 +119,10 @@ def main():
             "client-owned B should remain aboard after removing A"
         print(f"PASS unassign: host-owned {a} removed on both; client-owned {b} still aboard")
 
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
+
         print("TEST PASSED")
     except Exception as e:
         print(f"[FAIL] {e}")
@@ -135,7 +135,7 @@ def main():
         except Exception as e2:
             print(f"  DBG dump failed: {e2}")
     finally:
-        host.shutdown(); client.shutdown()
+        js.shutdown()
     sys.exit(2 if fail else 0)
 
 

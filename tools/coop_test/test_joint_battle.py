@@ -36,7 +36,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -109,13 +109,9 @@ def run_scenario(label, owners, want_coop, ports, fail):
     """owners: {slot: seat} for the two squad soldiers (slot 0/1 of the roster).
        want_coop: {slot: expected BattleUnit _coop}."""
     print(f"\n===== scenario '{label}' =====")
-    host = GameClient("host", ports[0], make_user_dir(f"jbat_{label}_host"))
-    client = GameClient("client", ports[1], make_user_dir(f"jbat_{label}_client"))
+    js = joint_fixture.bring_up(f"jbat_{label}", ports)
+    host, client = js.host, js.client
     try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client, port=str(ports[2]), campaign_mode="joint")
-        geo.wait_both_ready(host, client)
 
         b0 = _base0(host)
         blon, blat = b0["lon"], b0["lat"]
@@ -230,13 +226,19 @@ def run_scenario(label, owners, want_coop, ports, fail):
                 f"squad soldier {sid} (seat {owners[i]}) was deleted post-battle (guest cleanup ran!)"
         print(f"PASS merge: post-battle worlds IDENTICAL on both machines "
               f"(funds={fh['funds']}, roster={ids}); every squad soldier survived")
+
+        # PRD-J11: the shared final-state assertions. Strictly stronger than the
+        # local fingerprint above (facilities/stores/transfers/research/craft
+        # identity too), so the post-battle restream is checked whole.
+        js.finish()
+
         print(f"scenario '{label}': PASSED")
     except Exception as e:
         print(f"[FAIL] {label}: {e}")
         fail.append(f"{label}: {e}")
         _dbg(host, client)
     finally:
-        host.shutdown(); client.shutdown()
+        js.shutdown()
 
 
 def main():

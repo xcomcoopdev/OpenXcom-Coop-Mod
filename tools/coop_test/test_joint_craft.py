@@ -38,7 +38,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -98,19 +98,9 @@ def _poll_both(host, client, label, pred, timeout=60, speed_idx=1):
 
 
 def main():
-    host_dir = make_user_dir("jcraft_host")
-    client_dir = make_user_dir("jcraft_client")
-    host = GameClient("host", 48760, host_dir)
-    client = GameClient("client", 48761, client_dir)
+    js = joint_fixture.bring_up("jcraft", (48760, 48761, 48060))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48060", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         b0 = _base0(host)
         blon, blat = b0["lon"], b0["lat"]
         interceptors = [c for c in b0["crafts"] if c["type"] == "STR_INTERCEPTOR"]
@@ -342,14 +332,13 @@ def main():
         print(f"PASS dogfight: UFO crashed (crashId {uh['crashId']}) identically "
               f"on both; craft damage synced ({ch['damage']})")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT CRAFT TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 
 JOINT = 1
@@ -48,19 +48,10 @@ def _real_bases(geo):
 
 
 def main():
-    host_dir = make_user_dir("jboot_host")
-    client_dir = make_user_dir("jboot_client")
-    host = GameClient("host", 48660, host_dir)
-    client = GameClient("client", 48661, client_dir)
+    js = joint_fixture.bring_up("jboot", (48660, 48661, 47960))
+    host, client = js.host, js.client
+    host_dir, client_dir = js.host_dir, js.client_dir
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        # host: New Game -> Co-op (JOINT) -> place base -> stream world; client
-        # waits and adopts the streamed replica. session up on both.
-        session.new_campaign(host, client, port="47960", campaign_mode="joint")
 
         # both live saves must report JOINT
         hm = host.ok({"cmd": "save_markers"})
@@ -121,14 +112,13 @@ def main():
             "host JOINT save must NOT embed a coopClientSaves sequence"
         print("PASS host JOINT save: coopCampaignType 1, no coopClientSaves embed")
 
-        # standing invariant: the JOINT replica wrote nothing to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT BOOTSTRAP TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -84,19 +84,9 @@ def _first_craft(gc):
 
 
 def main():
-    host_dir = make_user_dir("jref_host")
-    client_dir = make_user_dir("jref_client")
-    host = GameClient("host", 48740, host_dir)
-    client = GameClient("client", 48741, client_dir)
+    js = joint_fixture.bring_up("jref", (48740, 48741, 48040))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48040", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
-
         # Seed an equal shared world: give_items mutates each machine directly
         # (deterministic, no protocol), the established J05 scaffolding idiom.
         # The starting base already ships a couple of rifles, so work relative to
@@ -249,14 +239,13 @@ def main():
         print(f"PASS host-side refresh: '{host_funds_text0}' -> '{h1['funds']}' "
               f"after the client's buy")
 
-        # standing invariant: the JOINT replica never wrote save data to disk.
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT REFRESH TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

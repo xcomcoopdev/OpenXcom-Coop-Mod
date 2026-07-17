@@ -27,7 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+import joint_fixture
 import session
 import geo
 
@@ -77,18 +77,9 @@ def _give_both(host, client, item, count):
 
 
 def main():
-    host_dir = make_user_dir("jman_host")
-    client_dir = make_user_dir("jman_client")
-    host = GameClient("host", 48730, host_dir)
-    client = GameClient("client", 48731, client_dir)
+    js = joint_fixture.bring_up("jman", (48730, 48731, 48030))
+    host, client = js.host, js.client
     try:
-        host.spawn()
-        client.spawn()
-        host.connect()
-        client.connect()
-
-        session.new_campaign(host, client, port="48030", campaign_mode="joint")
-        geo.wait_both_ready(host, client)
 
         # Unlock the two manufactures on BOTH machines (deterministic; keeps the
         # shared world equal), and stock alloys for the material-debit test.
@@ -233,13 +224,13 @@ def main():
             f"engineers not freed on completion: host={_free_eng(host)} client={_free_eng(client)} (want {eng0})"
         print(f"PASS completion: 1 {LASER} delivered on both; engineers freed back to {eng0}")
 
-        session.assert_client_zero_disk(client_dir)
-        print("PASS zero-disk: client (replica) user dir clean")
+        # PRD-J11: the shared final-state assertions (world equality +
+        # the replica's zero-disk invariant).
+        js.finish()
 
         print("ALL JOINT MANUFACTURE TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

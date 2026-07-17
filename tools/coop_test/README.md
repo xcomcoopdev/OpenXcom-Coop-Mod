@@ -94,8 +94,73 @@ campaign each run.
   stored count rises by the same amount, world total conserved. OFF moves
   nothing.
 
+### JOINT campaign tests (PRD-J01..J11)
+
+A JOINT campaign is ONE host-authoritative world shared by both players (bases,
+funds, research, manufacture, crafts), each player keeping control of their own
+soldiers in battle. SEPARATE (the classic two-mirrored-economies mode) is
+unchanged and is what every test above still exercises.
+
+**Use `joint_fixture.py`** - do not hand-roll the bring-up:
+
+```python
+js = joint_fixture.bring_up("jbuy", (48670, 48671, 47970))  # host/client/coop ports
+host, client = js.host, js.client
+try:
+    ...
+    js.finish()          # world equality + the replica's zero-disk invariant
+finally:
+    js.shutdown()
+```
+
+- `bring_up(tag, ports)` - host creates a JOINT campaign, client joins, the host
+  streams the authoritative world, both settle on the geoscape. Cleans up its own
+  processes if bring-up throws.
+- `assert_world_equal(host, client, tag)` - **the JOINT promise, asserted**: a
+  deep compare of both machines' introspection dumps (funds, tech, and per base
+  in INDEX order: coords/coopBaseId/facilities/stores/transfers/research/
+  productions/craft identity+status/free personnel/roster with `ownerPlayerId`).
+  Wired into every JOINT test's final state. Polls, because an in-flight
+  `joint_apply` is a legitimate transient skew. Known-volatile fields are excluded
+  **with reasons** - see the module docstring before adding to it.
+
+| test | proves |
+|---|---|
+| `test_joint_flag.py` | campaignType JOINT end-to-end + save YAML round-trip |
+| `test_joint_bootstrap.py` | the client adopts the streamed replica; no mirror bases; replica saves refused |
+| `test_joint_resume.py` | save -> reload -> rejoin re-streams the world |
+| `test_joint_purchase.py` | the `joint_cmd`/`joint_apply` protocol + funds authority |
+| `test_joint_sim.py` | host-only simulation; the replica's sim is frozen; month-end sync |
+| `test_joint_commerce.py` | sell / hire / cross-base transfer / containment |
+| `test_joint_research.py`, `test_joint_manufacture.py` | research + manufacture start/allocate/cancel, incl. the two-players-one-project race |
+| `test_joint_facilities.py`, `test_joint_newbase.py` | facilities, dismantle, sack; atomic new-base creation + base-index lock-step |
+| `test_joint_craft.py` | shared craft command + a client-simulated dogfight applied host-side |
+| `test_joint_deploy.py`, `test_joint_battle.py` | mixed-owner squads: control split follows soldier ownership; post-battle worlds identical |
+| `test_joint_landing.py` | the landing broker asks the seat that gave the order |
+| `test_joint_refresh.py`, `test_joint_resync.py` | live screen refresh on apply; desync detect -> auto-repair |
+| `test_joint_world_equal.py` | the equality helper itself, **including a negative control** |
+| `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
+| `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+
+Traps worth knowing before you write a JOINT test:
+
+- Per-machine scaffolding (`give_items`, `add_base`, `spawn_craft`,
+  `set_soldier_owner`, `discover_research`, `set_funds`) must be called on **both**
+  machines or you manufacture a desync. `set_funds` on one machine is a *real*
+  desync - funds are a checksum field, so it auto-repairs ~3 s later by
+  restreaming the world, wiping any open screen.
+- A popup on **either** machine stalls the shared clock (co-op only advances while
+  both players are on the geoscape at the same speed). Drain both sides - but
+  never dismiss `ConfirmLandingState`: `dismiss_popup`/`geo_run` auto-decline it.
+- New TestServer hooks go in `TestServer::executeJoint10`; the old `execute`
+  if/else chain is at MSVC's 128-block nesting limit (C1061).
+
+Full suite (43 tests, serial) is ~14 min; no test exceeds ~2 min. Known flakes,
+retry once: `test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`.
+
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
-/ `assert_client_zero_disk`) used by every test.
+/ `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
+JOINT bring-up + world equality on top of it.
 
 `harness.py` is the shared library (not a test).
 
