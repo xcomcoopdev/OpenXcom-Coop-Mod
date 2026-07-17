@@ -50,6 +50,7 @@
 #include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
+#include "../CoopMod/JointEcon.h" // coop (PRD-J09)
 #include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
@@ -207,7 +208,11 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	_lstSoldiers->onKeyboardPress((ActionHandler)&CraftSoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// PRD-J09: the guest-filter is SEPARATE-only. In JOINT there is one shared
+	// base/roster and every player must see ALL soldiers (mixed-owner squads),
+	// so this filter is fenced off (it is a no-op in JOINT anyway - every JOINT
+	// soldier has coopBase == -1 - but fencing avoids the base_oldsoldiers2 swap).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isJointCampaign())
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -339,7 +344,9 @@ void CraftSoldiersState::btnOkClick(Action *)
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// PRD-J09: paired with the fenced ctor guest-filter (JOINT never swapped the
+	// list, so there is nothing to restore).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isJointCampaign())
 	{
 		// coop
 		*_base->getSoldiers() = _base->base_oldsoldiers2;
@@ -590,6 +597,20 @@ void CraftSoldiersState::lstSoldiersClick(Action *action)
 		Craft *c = _base->getCrafts()->at(_craft);
 		Soldier *s = _base->getSoldiers()->at(_lstSoldiers->getSelectedRow());
 
+		// PRD-J09: in JOINT the craft/roster are shared, so assigning a soldier
+		// (host's OR client's) is a shared-world mutation - route it through the
+		// protocol (host validates capacity, broadcasts) instead of mutating this
+		// replica locally. The list refreshes on re-entry (J10 adds live refresh).
+		if (_game->getCoopMod()->isJointCampaign())
+		{
+			// a craft OUT on a mission is locked (matches the vanilla no-op below)
+			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
+			{
+				JointEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+			}
+			return;
+		}
+
 		if (s->getCraft() == c)
 		{
 			s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
@@ -680,6 +701,14 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
 	{
 		return;
 	}
+	// PRD-J09: gifting from the squad screen is a SEPARATE co-deployment helper
+	// (move a soldier to the peer's base so both can deploy). In JOINT the base is
+	// shared, so it is unnecessary; ownership reassignment still lives on the
+	// SoldierInfo gift path. Fence it here.
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		return;
+	}
 	unsigned int row = _lstSoldiers->getSelectedRow();
 	if (row >= _base->getSoldiers()->size())
 	{
@@ -733,6 +762,36 @@ void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 
 	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
 	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+}
+
+/**
+ * Harness (PRD-J09): toggle a soldier's craft assignment by stable id, driving
+ * the same shared-world path a left-click would (JOINT -> craft_assign command;
+ * SEPARATE/solo -> local mutate). Lets the coop test exercise mixed-owner squad
+ * assembly without synthesising mouse rows.
+ */
+void CraftSoldiersState::harnessToggle(int soldierId)
+{
+	Craft *c = _base->getCrafts()->at(_craft);
+	for (auto* s : *_base->getSoldiers())
+	{
+		if (s->getId() != soldierId)
+			continue;
+		if (_game->getCoopMod()->isJointCampaign())
+		{
+			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
+				JointEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		}
+		else if (s->getCraft() == c)
+		{
+			s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+		}
+		else if (s->hasFullHealth() && c->validateAddingSoldier(c->getSpaceAvailable(), s) == CPE_None)
+		{
+			s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
+		}
+		return;
+	}
 }
 
 }

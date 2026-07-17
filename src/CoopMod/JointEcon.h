@@ -33,6 +33,7 @@ class Base;
 class Craft;
 class Ufo;
 class Target;
+class Soldier;
 
 /**
  * PRD-J03: the generic JOINT economy command protocol.
@@ -192,6 +193,11 @@ void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
 /// Seat of the last order applied for @a craft, or -1 if it was never commanded
 /// through the protocol (treat as host-owned -> vanilla local dogfight).
 int lastCraftOrderSeat(const Craft* craft);
+
+/// PRD-J09: assign/remove @a soldier to/from @a craft in the shared world (JOINT
+/// only - caller gates). @a onOff = desired final state (true = aboard). Submits
+/// craft_assign; mutates nothing locally (replica applies from joint_apply).
+void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 
 /// HOST: a craft commanded by a non-host seat reached a flying UFO. Marks the
 /// craft in-dogfight + the UFO remotely engaged, and broadcasts

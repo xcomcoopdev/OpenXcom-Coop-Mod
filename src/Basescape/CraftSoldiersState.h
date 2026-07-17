@@ -85,6 +85,9 @@ public:
 	/// Handler for clicking the De-assign All Soldiers button.
 	void btnDeassignAllSoldiersClick(Action *action);
 	void btnDeassignCraftSoldiersClick(Action *action);
+	/// Harness (PRD-J09): toggle a soldier's assignment by id, driving the same
+	/// path as a left-click (JOINT -> craft_assign command; SEPARATE -> local).
+	void harnessToggle(int soldierId);
 };
 
 }

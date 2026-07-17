@@ -374,6 +374,13 @@ class connectionTCP
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at JOINT campaign start and resume.
 	void streamJointWorldToClient();
+	// PRD-J09: set while a POST-BATTLE world restream is in flight. The client
+	// adopting a streamed world always sends resume_ack and then HOLDS in
+	// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) waiting for the host to
+	// "resume" - at bootstrap/resume the operator's BEGIN sends campaign_begun.
+	// After a battle there is no such click, so the resume_ack handler releases
+	// the hold automatically when this flag is set.
+	bool jointPostBattleRestream = false;
 	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
 	static int localSeat();                 // this machine's seat
 	static int seatCount();                 // active roster size

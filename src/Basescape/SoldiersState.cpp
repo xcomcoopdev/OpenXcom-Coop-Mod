@@ -253,7 +253,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isJointCampaign())
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -752,7 +752,7 @@ void SoldiersState::btnOkClick(Action *)
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isJointCampaign())
 	{
 		// coop
 		_filteredListOfSoldiers = _base->base_oldsoldiers;

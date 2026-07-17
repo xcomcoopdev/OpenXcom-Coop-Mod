@@ -2973,6 +2973,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		else
 		{
 			connectionTCP::session.resumeAck = true;
+
+			// PRD-J09: a POST-BATTLE JOINT world restream just landed on the
+			// client. Adopting a streamed world always parks it in
+			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) until the host
+			// "resumes" - at bootstrap/resume that release is the operator's
+			// BEGIN click (campaign_begun). After a battle nobody clicks, so
+			// release the hold here: the mission already ended and the replica
+			// now holds the authoritative post-battle world.
+			if (jointPostBattleRestream && isJointCampaign() && getServerOwner())
+			{
+				jointPostBattleRestream = false;
+				connectionTCP::session.sessionLive();
+
+				Json::Value begun;
+				begun["state"] = "campaign_begun";
+				sendTCPPacketData(begun.toStyledString());
+
+				Log(LOG_INFO) << "[coop-joint] post-battle restream adopted; released the client hold";
+			}
 		}
 
 	}

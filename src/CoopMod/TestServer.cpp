@@ -110,6 +110,7 @@
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/SoldiersState.h"
+#include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/PurchaseState.h"
 #include "../Basescape/SellState.h"
@@ -360,6 +361,7 @@ static Json::Value soldierToJson(Soldier* s)
 	j["coop"] = s->getCoop();
 	j["coopBase"] = s->getCoopBase();
 	j["craft"] = s->getCraft() ? s->getCraft()->getType() : "";
+	j["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1; // PRD-J09
 	j["dead"] = s->getDeath() != nullptr;
 	return j;
 }
@@ -754,6 +756,67 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "set_soldier_owner")
+		{
+			// PRD-J09 scaffolding: stamp a soldier's ownerPlayerId (seat) by id.
+			// Call on BOTH machines to build a deterministic mixed-owner squad
+			// (the shared world stays byte-identical), standing in for a real hire
+			// until a JOINT battle exercises ownership end to end.
+			int sid = req.get("soldier_id", -1).asInt();
+			int owner = req.get("owner", 999).asInt();
+			bool found = false;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+					for (auto* s : *b->getSoldiers())
+						if (s->getId() == sid) { s->setOwnerPlayerId(owner); found = true; }
+			resp["ok"] = found;
+			if (!found) resp["error"] = "soldier id not found";
+		}
+		else if (cmd == "craft_assign")
+		{
+			// PRD-J09: mixed-owner squad assembly. Toggle a soldier (host's OR
+			// client's, by stable id) on/off a base craft via the REAL
+			// CraftSoldiersState path. In JOINT this submits craft_assign (shared
+			// world); the caller then verifies both machines agree after apply.
+			int soldierId = req.get("soldier_id", -1).asInt();
+			int craftId = req.get("craft_id", -1).asInt();
+			SavedGame* sg = _game->getSavedGame();
+			Base* base = nullptr;
+			size_t craftIdx = 0;
+			bool found = false;
+			if (sg)
+			{
+				for (auto* b : *sg->getBases())
+				{
+					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+						if (b->getCrafts()->at(i)->getId() == craftId) { base = b; craftIdx = i; found = true; break; }
+					if (found) break;
+				}
+			}
+			Soldier* sol = nullptr;
+			if (base)
+				for (auto* s : *base->getSoldiers())
+					if (s->getId() == soldierId) { sol = s; break; }
+			if (!found)
+				resp["error"] = "craft id not found";
+			else if (!sol)
+				resp["error"] = "soldier id not on craft's base";
+			else
+			{
+				// Idempotent: only drive the (toggle) UI path if the current
+				// assignment differs from the desired "on" state, so the test is
+				// deterministic regardless of the soldier's starting assignment.
+				bool want = req.get("on", true).asBool();
+				bool cur = (sol->getCraft() == base->getCrafts()->at(craftIdx));
+				if (cur != want)
+				{
+					CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
+					st->harnessToggle(soldierId);
+					delete st;
+				}
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "confirm_landing")
 		{
 			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
@@ -839,6 +902,12 @@ std::string TestServer::execute(const std::string& line)
 					ju["stun"] = u->getStunlevel();
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
+					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
+					// 1 = client-controlled; in JOINT it is derived from the owning
+					// soldier's ownerPlayerId (seat) at mission start.
+					ju["coop"] = u->getCoop();
+					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
+					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
 					ju["weapon"] = w ? w->getRules()->getType() : "";
 					// kill attribution (for coop outcome cross-validation)
@@ -1074,6 +1143,15 @@ std::string TestServer::execute(const std::string& line)
 			resp["insideCoopBase"] = coop->playerInsideCoopBase;
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
+			// PRD-J09: post-battle / mission-lifecycle introspection.
+			resp["coopMissionEnd"] = coop->coopMissionEnd;
+			resp["readyCoopBattle"] = coop->ready_coop_battle;
+			resp["isLoadProgress"] = coop->_isLoadProgress;
+			resp["joint"] = coop->isJointCampaign();
+			{
+				CoopState* top = findState<CoopState>(_game);
+				resp["coopDialog"] = top ? top->getStateCode() : -1;
+			}
 			resp["ok"] = true;
 		}
 		else if (cmd == "load_save")

@@ -915,6 +915,11 @@ void GeoscapeState::init()
 	if ((_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false) && _game->getCoopMod()->coopMissionEnd == true)
 	{
 
+		// PRD-J09: SEPARATE two-world soldier split. In JOINT the roster is shared
+		// (client-owned soldiers carry _coop=1 but are legitimate members of the
+		// single world), so this "delete the other player's battle copies" loop
+		// must NOT run - it would erase them. The bare if guards the whole for.
+		if (!_game->getCoopMod()->isJointCampaign())
 		for (auto &base : *_game->getSavedGame()->getBases())
 		{
 
@@ -952,11 +957,27 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->coopMissionEnd = false;
 
-		if (_game->getCoopMod()->getCoopStatic() == true)
+		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign())
 		{
 
 			_game->getCoopMod()->updateAllCoopBases();
 
+		}
+
+		// PRD-J09: JOINT single-world post-battle merge (the sledgehammer). Both
+		// machines ran the lockstep battle + debriefing on the shared world, so the
+		// HOST now holds the authoritative post-battle world (funds, recovered items,
+		// casualties gone from the roster, wounds set). Restream it whole so the
+		// replica is byte-identical and the frozen-replica relationship resumes -
+		// same bootstrap channel as J02 (streamJointWorldToClient -> resume-blob
+		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
+		if (_game->getCoopMod()->isJointCampaign() && _game->getCoopMod()->getServerOwner() == true)
+		{
+			// Mark it POST-BATTLE so the client's automatic resume-hold (pushed by
+			// LoadGameState whenever a streamed world is adopted) is released by the
+			// resume_ack handler - after a battle there is no BEGIN click to do it.
+			_game->getCoopMod()->jointPostBattleRestream = true;
+			_game->getCoopMod()->streamJointWorldToClient();
 		}
 
 		// COOP FIX
@@ -967,9 +988,19 @@ void GeoscapeState::init()
 
 	}
 
+	// PRD-J09: JOINT client post-battle. It does NOT run the SEPARATE two-world
+	// blob dance (reload its own geoscape snapshot + merge soldier deltas); it
+	// keeps its lockstep post-battle world and waits for the host's authoritative
+	// world restream (dispatched from the host block above) to reload it whole.
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && _game->getCoopMod()->isJointCampaign())
+	{
+		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->_coopEnd = 1;
+	}
+
 	// coop
 	// The client should be able to retrieve the save.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true)
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !_game->getCoopMod()->isJointCampaign())
 	{
 
 		_game->getCoopMod()->coopMissionEnd = false;

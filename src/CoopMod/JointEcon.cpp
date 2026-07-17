@@ -1676,6 +1676,62 @@ void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
 	}
 }
 
+// ---- PRD-J09: shared-world squad assembly -----------------------------------
+// In JOINT there is ONE base/craft/roster shared by both players, so assigning
+// or removing a soldier to/from a craft is a shared-world mutation and rides the
+// protocol (never mutated locally on a replica). payload:
+//   { craftId, craftType, soldierId, onOff }   baseId = the craft's home-base
+// index (the soldier lives at the same base). onOff = the DESIRED final state
+// (true = aboard this craft, false = off it) so host and replica converge
+// regardless of arrival order (last-write-wins, like the craft orders). Vehicles
+// are covered by the same craft space accounting (getSpaceAvailable counts unit
+// size); a dedicated vehicle assign command was not needed for the AC.
+Soldier* findSoldierAtBase(Base* base, int id)
+{
+	if (!base) return nullptr;
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) return s;
+	return nullptr;
+}
+
+bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                         int64_t& cost, std::string& failReason)
+{
+	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
+	if (!base) { failReason = "base not found"; return false; }
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) { failReason = "craft not found"; return false; }
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	const bool onOff = payload.get("onOff", false).asBool();
+	// A craft already OUT on a mission is locked (vanilla lstSoldiersClick).
+	if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+		{ failReason = "craft out on mission"; return false; }
+	if (onOff && s->getCraft() != craft)
+	{
+		// vanilla CraftSoldiersState::lstSoldiersClick add gates.
+		if (!s->hasFullHealth()) { failReason = "STR_SOLDIER_NOT_APPROVED"; return false; }
+		int space = craft->getSpaceAvailable();
+		CraftPlacementErrors err = craft->validateAddingSoldier(space, s);
+		if (err != CPE_None) { failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
+	}
+	return true;
+}
+
+void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	if (!craft || !s) return;
+	const bool onOff = payload.get("onOff", false).asBool();
+	const bool newBattle = game->getSavedGame()->getMonthsPassed() == -1;
+	if (onOff)
+		s->setCraftAndMoveEquipment(craft, base, newBattle, true);
+	else if (s->getCraft() == craft)
+		s->setCraftAndMoveEquipment(0, base, newBattle);
+}
+
 // dogfight_start payload: { craftId, craftType, ufoId, initiatorSeat }.
 // Host-originated when a craft commanded by a NON-host seat reaches a flying
 // UFO: the initiator (and only the initiator) opens the interactive
@@ -2220,6 +2276,9 @@ void init()
 	registerCmd("craft_retarget", &craftOrderValidate,  &craftOrderApply);
 	registerCmd("craft_return",   &craftExistsValidate, &craftReturnApply);
 	registerCmd("craft_patrol",   &craftExistsValidate, &craftPatrolApply);
+
+	// PRD-J09: shared-world squad assembly (mixed-owner deployment).
+	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
 	// PRD-J08 dogfights: host-originated start (only the initiating seat opens
 	// the UI); initiator-reported result (host applies + rebroadcasts).
 	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
@@ -2563,6 +2622,17 @@ int lastCraftOrderSeat(const Craft* craft)
 	if (!craft) return -1;
 	auto it = g_craftOrderSeat.find(craftKey(craft));
 	return it == g_craftOrderSeat.end() ? -1 : it->second;
+}
+
+void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)
+{
+	if (!game || !craft || !soldier) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["soldierId"] = soldier->getId();
+	p["onOff"] = onOff;
+	submitLocalCmd(game, "craft_assign", craftBaseIndex(game, craft), p);
 }
 
 void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)

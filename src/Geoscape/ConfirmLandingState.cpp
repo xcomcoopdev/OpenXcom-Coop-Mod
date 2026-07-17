@@ -31,6 +31,8 @@
 #include "../Savegame/Target.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
+#include "../Savegame/Vehicle.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/AlienBase.h"
 #include "../Battlescape/BriefingState.h"
@@ -248,6 +250,37 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 	if (connectionTCP::getCoopStatic() == true)
 	{
+
+		// PRD-J09: JOINT battle entry. The world is shared - the craft already
+		// carries the full mixed-owner squad - and the HOST (which ran the
+		// geoscape sim that popped this dialog) is the battle authority. Stamp the
+		// in-battle control split from soldier ownership (seat 0/unknown -> host
+		// control, any other seat -> client), then generate the battle host-side
+		// and ship "battlehost" to the client via the existing coop path. This
+		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
+		// JOINT would duplicate the already-shared soldiers.
+		if (_game->getCoopMod()->isJointCampaign())
+		{
+			_game->getCoopMod()->setSelectedCraft(_craft);
+			_game->getCoopMod()->setConfirmLandingState(this);
+			_game->getCoopMod()->setHost(true);
+			for (auto* s : *_craft->getBase()->getSoldiers())
+			{
+				if (s->getCraft() != _craft)
+					continue;
+				int owner = s->getOwnerPlayerId();
+				s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+				s->setCoopBase(-1);
+			}
+			for (auto* v : *_craft->getVehicles())
+			{
+				v->setCoop(0);
+				v->setCoopBase(-1);
+			}
+			startCoopMission();
+			_game->popState();
+			return;
+		}
 
 		if (_game->getCoopMod()->getHost() == true)
 		{
