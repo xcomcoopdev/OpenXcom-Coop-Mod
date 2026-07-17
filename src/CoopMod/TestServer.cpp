@@ -591,6 +591,43 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		}
 		resp["ok"] = true;
 	}
+	else if (cmd == "trigger_base_defense")
+	{
+		// PRD-J09 GAP-1 repro: drive the coop base-defense entry headlessly.
+		// Base defense is a SEPARATE geoscape entry point from the craft-landing
+		// flow (GeoscapeState::handleBaseDefense, NOT ConfirmLandingState), so it
+		// needs its own hook. Seeds the given UFO (from a prior spawn_ufo) over the
+		// first real base and calls the REAL handler, which in JOINT stamps the
+		// ownership control split and ships "battlehost" exactly as a live alien
+		// retaliation strike would. Host-only (the replica's sim never reaches it).
+		GeoscapeState* gs = findState<GeoscapeState>(_game);
+		SavedGame* sg = _game->getSavedGame();
+		int ufoId = req.get("ufo_id", -1).asInt();
+		Base* base = nullptr;
+		Ufo* ufo = nullptr;
+		if (sg)
+		{
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+			for (auto* u : *sg->getUfos())
+				if (u->getId() == ufoId) { ufo = u; break; }
+		}
+		if (!gs) resp["error"] = "no GeoscapeState";
+		else if (!base) resp["error"] = "no own base";
+		else if (!ufo) resp["error"] = "ufo id not found";
+		else
+		{
+			// Put the UFO over the base and mark it a non-coop (host-side) strike so
+			// handleBaseDefense's coop guard (ufo->getCoop() == false) passes.
+			ufo->setLongitude(base->getLongitude());
+			ufo->setLatitude(base->getLatitude());
+			ufo->setCoop(false);
+			ufo->setDetected(true);
+			gs->handleBaseDefense(base, ufo);
+			resp["base"] = base->getName();
+			resp["ok"] = true;
+		}
+	}
 	else
 	{
 		return false;

@@ -56,6 +56,7 @@
 #include "../Savegame/Waypoint.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Vehicle.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDiary.h"
 #include "../Menu/PauseState.h"
@@ -5408,6 +5409,35 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 				_game->getCoopMod()->_isMainCampaignBaseDefense = true;
 
 				temp_ufo = ufo;
+
+				// PRD-J09 GAP-1: JOINT base defense. The garrison is the single shared
+				// world's roster, and the HOST (the only machine whose sim reaches this
+				// handler in JOINT - the replica's time sim is frozen, PRD-J04) is the
+				// battle authority. Stamp the in-battle control split from soldier
+				// ownership (seat 0/unknown -> host control, any other seat -> client),
+				// then generate the battle host-side and ship "battlehost" via the
+				// existing startCoopMission()/setupCoop() path. This SKIPS the SEPARATE
+				// two-world merge (CoopState(77)/sendCraft/loadWorld(111)), which in
+				// JOINT would force every shared soldier to host control (its coopBase
+				// match never fires) and could duplicate the roster. Mirrors the JOINT
+				// branch of ConfirmLandingState::btnYesClick for normal craft landings.
+				if (_game->getCoopMod()->isJointCampaign())
+				{
+					_game->getCoopMod()->setHost(true);
+					for (auto* s : *base->getSoldiers())
+					{
+						int owner = s->getOwnerPlayerId();
+						s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+						s->setCoopBase(-1);
+					}
+					for (auto* v : *base->getVehicles())
+					{
+						v->setCoop(0);
+						v->setCoopBase(-1);
+					}
+					startCoopMission();
+					return;
+				}
 
 				if (_game->getCoopMod()->getHost() == true)
 				{
