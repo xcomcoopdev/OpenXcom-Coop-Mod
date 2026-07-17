@@ -41,6 +41,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
+#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -539,7 +540,15 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 			{
 				if (save->getMonthsPassed() != -1)
 				{
-					if (a->getStoreItem() == nullptr ||
+					// JOINT (PRD-J09 GAP-5b): the base stores are shared +
+					// host-authoritative - route the armor change as an absolute
+					// end-state via soldier_armor instead of moving the store items
+					// on this replica (which drifts chkItems from the host).
+					if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+					{
+						JointEcon::submitSoldierArmor(_game, _base, s, a->getType());
+					}
+					else if (a->getStoreItem() == nullptr ||
 						a->getStoreItem() == s->getArmor()->getStoreItem() ||
 						_base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 					{
@@ -622,7 +631,15 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 				row++;
 				continue;
 			}
-			if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
+			// JOINT (PRD-J09 GAP-5b): route each soldier's armor reset through the
+			// shared host-authoritative path; the replica mutates nothing. Each
+			// soldier is an INDEPENDENT absolute end-state (its own default armor),
+			// so a per-soldier command has no ordering dependency - no local batch.
+			if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+			{
+				JointEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+			}
+			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
 				if (soldier->getArmor()->getStoreItem())
 				{
@@ -662,7 +679,13 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 				row++;
 				continue;
 			}
-			if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
+			// JOINT (PRD-J09 GAP-5b): route through the shared host-authoritative
+			// path (see btnDeequipAllArmorClick); the replica mutates nothing.
+			if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+			{
+				JointEcon::submitSoldierArmor(_game, _base, s, a->getType());
+			}
+			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
 				if (s->getArmor()->getStoreItem())
 				{

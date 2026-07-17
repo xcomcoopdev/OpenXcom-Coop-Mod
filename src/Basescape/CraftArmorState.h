@@ -79,6 +79,11 @@ public:
 	/// Handler for clicking the De-equip All Armor button.
 	void btnDeequipAllArmorClick(Action *action);
 	void btnDeequipCraftArmorClick(Action *action);
+	/// Harness (PRD-J09 GAP-5b): drive the real "de-equip all base soldiers to
+	/// their default armor" store path (the btnDeequipAllArmorClick action). Builds
+	/// the soldier list first (normally deferred to init()), as the action writes
+	/// back into it (setCellText) on the local-mutation path.
+	void harnessDeequipAll() { initList(0); btnDeequipAllArmorClick(0); }
 };
 
 }

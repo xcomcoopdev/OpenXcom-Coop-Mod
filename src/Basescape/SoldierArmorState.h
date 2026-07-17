@@ -76,6 +76,9 @@ private:
 	std::vector<int> _indices;
 	ArmorSort _armorOrder;
 	void updateArrows();
+	/// JOINT (PRD-J09 GAP-5b): set the soldier's armor to @a next - routes
+	/// soldier_armor in JOINT, mutates the shared stores locally in SEPARATE.
+	void applyArmorSelection(Armor* next);
 public:
 	/// Creates the Soldier Armor state.
 	SoldierArmorState(Base *base, size_t soldier, SoldierArmorOrigin origin);
@@ -96,6 +99,8 @@ public:
 	void lstArmorClickMiddle(Action *action);
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action *action);
+	/// Harness (PRD-J09 GAP-5b): drive the real armor-change store path for one type.
+	bool harnessSetArmor(const std::string& armorType);
 };
 
 }

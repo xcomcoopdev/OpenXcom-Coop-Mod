@@ -37,6 +37,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/SavedGame.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -274,6 +275,31 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
 		}
 	}
 
+	equipSelectedWeapon(_weapons[_lstWeapons->getSelectedRow()]);
+	_game->popState();
+}
+
+/**
+ * Mounts @a selRule (0 = dismount) in this screen's weapon slot, moving the
+ * launcher + loaded clips against the base stores.
+ *
+ * JOINT (PRD-J09 GAP-5b): the base stores are shared + host-authoritative (they
+ * are exactly what the GAP-4 chkItems sums), so a replica must NOT add/remove the
+ * launcher + clips locally - that silently drifts chkItems from the host. Route
+ * the mount as an absolute end-state (which weapon type in this slot) through
+ * craft_rearm; the host validates + applies + broadcasts, both worlds converge.
+ * SEPARATE is byte-identical (the vanilla body below).
+ */
+void CraftWeaponsState::equipSelectedWeapon(RuleCraftWeapon* selRule)
+{
+	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		JointEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
+		return;
+	}
+
+	CraftWeapon *current = _craft->getWeapons()->at(_weapon);
+
 	// Remove current weapon
 	if (current != 0)
 	{
@@ -287,16 +313,34 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
 	}
 
 	// Equip new weapon
-	if (_weapons[_lstWeapons->getSelectedRow()] != 0)
+	if (selRule != 0)
 	{
-		CraftWeapon *sel = new CraftWeapon(_weapons[_lstWeapons->getSelectedRow()], 0);
+		CraftWeapon *sel = new CraftWeapon(selRule, 0);
 		_craft->addCraftStats(sel->getRules()->getBonusStats());
 		_base->getStorageItems()->removeItem(sel->getRules()->getLauncherItem());
 		_craft->getWeapons()->at(_weapon) = sel;
 	}
 
 	_craft->checkup();
-	_game->popState();
+}
+
+/**
+ * Harness (PRD-J09 GAP-5b): mount weapon type @a weaponType (empty string = the
+ * "None"/dismount row) via the SAME store path a list click drives. Returns false
+ * if that weapon is not on this screen's list. Does not pop the state.
+ */
+bool CraftWeaponsState::harnessEquip(const std::string& weaponType)
+{
+	for (size_t i = 0; i < _weapons.size(); ++i)
+	{
+		std::string t = _weapons[i] ? _weapons[i]->getType() : "";
+		if (t == weaponType)
+		{
+			equipSelectedWeapon(_weapons[i]);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

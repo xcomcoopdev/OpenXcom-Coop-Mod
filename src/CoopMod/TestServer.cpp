@@ -126,6 +126,10 @@
 #include "../Basescape/SackSoldierState.h"
 #include "../Basescape/PlaceLiftState.h"
 #include "../Basescape/CraftEquipmentState.h"
+#include "../Basescape/CraftWeaponsState.h"
+#include "../Basescape/SoldierArmorState.h"
+#include "../Basescape/CraftArmorState.h"
+#include "../Mod/Armor.h"
 #include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
@@ -383,6 +387,7 @@ static Json::Value soldierToJson(Soldier* s)
 	j["coopBase"] = s->getCoopBase();
 	j["craft"] = s->getCraft() ? s->getCraft()->getType() : "";
 	j["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1; // PRD-J09
+	j["armor"] = s->getArmor()->getType(); // PRD-J09 GAP-5b
 	j["dead"] = s->getDeath() != nullptr;
 	return j;
 }
@@ -708,6 +713,132 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			if (!moved) resp["error"] = "item not on craft equipment list: " + item;
 		}
 	}
+	else if (cmd == "craft_rearm")
+	{
+		// PRD-J09 GAP-5b repro/driver: mount craft-weapon <weapon> ("" = None) in
+		// weapon <slot> of the base's craft, through the REAL CraftWeaponsState
+		// store path a player uses (arm/rearm moves the launcher + clips against
+		// the shared base stores). In JOINT (after the fix) this routes a
+		// craft_rearm joint_cmd host-side; before it, it mutates THIS machine's
+		// base stores locally - the pre-battle store drift GAP-5b closes.
+		// Params: weapon, slot (default 0), optional base + craft_id.
+		std::string weapon = req.get("weapon", "").asString();
+		int slot = req.get("slot", 0).asInt();
+		std::string baseName = req.get("base", "").asString();
+		int craftId = req.get("craft_id", -1).asInt();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				                     : b->getName() == baseName)
+				{ target = b; break; }
+		size_t idx = target ? target->getCrafts()->size() : 0;
+		if (target)
+			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
+				if (craftId < 0 || target->getCrafts()->at(i)->getId() == craftId)
+				{ idx = i; break; }
+		if (!target)
+			resp["error"] = "base not found";
+		else if (idx >= target->getCrafts()->size())
+			resp["error"] = "craft not found";
+		else
+		{
+			CraftWeaponsState* cws = new CraftWeaponsState(target, idx, (size_t)slot);
+			bool moved = cws->harnessEquip(weapon);
+			delete cws;
+			resp["moved"] = moved;
+			resp["ok"] = moved;
+			if (!moved) resp["error"] = "weapon not on craft armament list: " + weapon;
+		}
+	}
+	else if (cmd == "soldier_armor")
+	{
+		// PRD-J09 GAP-5b repro/driver: set soldier <soldier_id>'s armor to <armor>
+		// through the REAL SoldierArmorState store path (returns the old armor's
+		// store item, consumes the new one). In JOINT (after the fix) this routes a
+		// soldier_armor joint_cmd; before it, it mutates THIS machine's base stores.
+		// Params: soldier_id, armor, optional base.
+		std::string armor = req.get("armor", "").asString();
+		int soldierId = req.get("soldier_id", -1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				                     : b->getName() == baseName)
+				{ target = b; break; }
+		size_t sidx = target ? target->getSoldiers()->size() : 0;
+		if (target)
+			for (size_t i = 0; i < target->getSoldiers()->size(); ++i)
+				if (soldierId < 0 || target->getSoldiers()->at(i)->getId() == soldierId)
+				{ sidx = i; break; }
+		if (!target)
+			resp["error"] = "base not found";
+		else if (sidx >= target->getSoldiers()->size())
+			resp["error"] = "soldier not found";
+		else
+		{
+			SoldierArmorState* sas = new SoldierArmorState(target, sidx, SA_GEOSCAPE);
+			bool moved = sas->harnessSetArmor(armor);
+			delete sas;
+			resp["moved"] = moved;
+			resp["ok"] = moved;
+			if (!moved) resp["error"] = "armor not on soldier list: " + armor;
+		}
+	}
+	else if (cmd == "craft_deequip_armor")
+	{
+		// PRD-J09 GAP-5b repro/driver: de-equip ALL base soldiers to their default
+		// armor through the REAL CraftArmorState path (btnDeequipAllArmorClick),
+		// which returns each replaced armor's store item to the shared base stores.
+		// In JOINT (after the fix) this routes one soldier_armor joint_cmd per
+		// soldier; before it, it mutates THIS machine's base stores locally.
+		// Params: optional base (any craft on the base is used as the screen anchor).
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				                     : b->getName() == baseName)
+				{ target = b; break; }
+		if (!target)
+			resp["error"] = "base not found";
+		else if (target->getCrafts()->empty())
+			resp["error"] = "base has no craft";
+		else
+		{
+			CraftArmorState* cas = new CraftArmorState(target, 0);
+			cas->harnessDeequipAll();
+			delete cas;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "seed_soldier_armor")
+	{
+		// PRD-J09 GAP-5b test scaffolding (NOT a drift source): set soldier
+		// <soldier_id>'s armor DIRECTLY on THIS machine, no store change, no route.
+		// Deterministic - call on host AND client identically to seed an equal
+		// shared world (a soldier wearing a store-item armor) before a de-equip
+		// drift test. Mirrors give_items' seed-on-both idiom.
+		std::string armor = req.get("armor", "").asString();
+		int soldierId = req.get("soldier_id", -1).asInt();
+		Armor* rule = _game->getMod()->getArmor(armor, false);
+		Soldier* found = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				for (auto* s : *b->getSoldiers())
+					if (s->getId() == soldierId) { found = s; break; }
+		if (!rule)
+			resp["error"] = "unknown armor: " + armor;
+		else if (!found)
+			resp["error"] = "soldier not found";
+		else
+		{
+			found->setArmor(rule, true);
+			resp["armor"] = found->getArmor()->getType();
+			resp["ok"] = true;
+		}
+	}
 	else
 	{
 		return false;
@@ -921,6 +1052,14 @@ std::string TestServer::execute(const std::string& line)
 						jc["lon"] = c->getLongitude();
 						jc["lat"] = c->getLatitude();
 						jc["weapons"] = (int)c->getWeapons()->size();
+						// PRD-J09 GAP-5b: the actual mounted craft-weapon types ("" for
+						// an empty slot), so a base-screen arm/rearm converges visibly.
+						{
+							Json::Value wl(Json::arrayValue);
+							for (auto* cw : *c->getWeapons())
+								wl.append(cw ? cw->getRules()->getType() : std::string(""));
+							jc["weaponLoadout"] = wl;
+						}
 						jc["fuel"] = c->getFuel();       // PRD-J08
 						jc["damage"] = c->getDamage();   // PRD-J08
 						jc["lowFuel"] = c->getLowFuel();

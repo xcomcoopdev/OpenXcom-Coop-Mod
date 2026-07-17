@@ -40,6 +40,7 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -303,6 +304,30 @@ void SoldierArmorState::lstArmorClick(Action *)
 			return;
 		}
 	}
+	applyArmorSelection(next);
+
+	_game->popState();
+}
+
+/**
+ * Applies @a next armor to this screen's soldier, moving the old/new armor store
+ * items against the base stores.
+ *
+ * JOINT (PRD-J09 GAP-5b): the base stores are shared + host-authoritative, so a
+ * replica must NOT return the old armor's store item / consume the new one locally
+ * (that drifts chkItems from the host). Route the change as an absolute end-state
+ * (which armor this soldier wears) through soldier_armor; the host validates +
+ * applies + broadcasts, both worlds converge. SEPARATE is byte-identical below.
+ */
+void SoldierArmorState::applyArmorSelection(Armor* next)
+{
+	Soldier *soldier = _base->getSoldiers()->at(_soldier);
+	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		JointEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
+		return;
+	}
+	Armor *prev = soldier->getArmor();
 	if (_game->getSavedGame()->getMonthsPassed() != -1)
 	{
 		if (prev->getStoreItem())
@@ -316,8 +341,26 @@ void SoldierArmorState::lstArmorClick(Action *)
 	}
 	soldier->setArmor(next, true);
 	_game->getSavedGame()->setLastSelectedArmor(next->getType());
+}
 
-	_game->popState();
+/**
+ * Harness (PRD-J09 GAP-5b): set the soldier's armor to @a armorType via the SAME
+ * store path a list click drives. Returns false if that armor is not on the list.
+ * Does not pop the state.
+ */
+bool SoldierArmorState::harnessSetArmor(const std::string& armorType)
+{
+	for (const auto& armorItem : _armors)
+	{
+		if (armorItem.type == armorType)
+		{
+			Armor* next = _game->getMod()->getArmor(armorType, false);
+			if (!next) return false;
+			applyArmorSelection(next);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

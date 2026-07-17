@@ -269,6 +269,20 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// only - vehicles are deferred (caller must not route a vehicle item).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
+/// PRD-J09 GAP-5b: mount @a weaponType (empty = dismount) in weapon @a slot of
+/// @a craft in the shared world (JOINT only - caller gates). The launcher + loaded
+/// clips move against the host-authoritative base stores, so a replica must route
+/// this instead of doing it locally. Absolute end-state (which weapon in the slot),
+/// last-write-wins. Submits craft_rearm; mutates nothing locally.
+void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& weaponType);
+
+/// PRD-J09 GAP-5b: set @a soldier's armor to @a armorType in the shared world
+/// (JOINT only - caller gates). The old armor's store item is returned + the new
+/// one consumed against the host-authoritative base stores, so a replica must
+/// route this instead of doing it locally. Absolute end-state (which armor the
+/// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
+void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
+
 /// HOST: a craft commanded by a non-host seat reached a flying UFO. Marks the
 /// craft in-dogfight + the UFO remotely engaged, and broadcasts
 /// joint_apply{dogfight_start} so the initiating seat opens the dogfight UI.

@@ -248,6 +248,16 @@ Craft* findCraft(Base* base, int id, const std::string& type)
 	return nullptr;
 }
 
+// Find a soldier at @a base by its vanilla unique id (Soldier::getId(), stable
+// across the shared world lineage - the same identity sack/sell match on).
+Soldier* findSoldier(Base* base, int id)
+{
+	if (!base) return nullptr;
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) return s;
+	return nullptr;
+}
+
 // PRD-J06: a research project / a production is keyed by its ruleset NAME, which
 // is UNIQUE per base: SavedGame::getAvailableResearchProjects /
 // getAvailableProductions both exclude a rule already running at the base, and
@@ -1821,6 +1831,116 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	else if (delta < 0) { craftItems->removeItem(item, -delta); store->addItem(item, -delta); }
 }
 
+// ---- PRD-J09 GAP-5b: shared-world base-screen store mutators ------------------
+// Same class as GAP-5 (CraftEquipmentState): a base-screen action moves items in
+// and out of the host-authoritative base stores (the exact quantity the GAP-4
+// chkItems sums). On a replica those mutations ran ungated and drifted chkItems
+// from the host; each now routes an ABSOLUTE end-state command instead. The host
+// validates + applies + broadcasts; the applier is pure world-state math run on
+// the one replicated world, so host and replica converge with no drift.
+
+// craft_rearm payload: { craftId, craftType, slot, weapon }. weapon="" dismounts
+// the slot. baseId = the craft's home-base index. End-state = which craft-weapon
+// type is mounted in `slot` (last-write-wins). Mirrors CraftWeaponsState::
+// lstWeaponsClick's launcher/clip store moves; clip rearm-over-time stays host-sim
+// (J04), as does the deferred re-equip-with-loaded-clips case (checksum backstop).
+bool craftRearmValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                        int64_t& cost, std::string& failReason)
+{
+	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
+	if (!base) { failReason = "base not found"; return false; }
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) { failReason = "craft not found"; return false; }
+	int slot = payload.get("slot", -1).asInt();
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size()) { failReason = "bad weapon slot"; return false; }
+	std::string wtype = payload.get("weapon", "").asString();
+	if (!wtype.empty())
+	{
+		const RuleCraftWeapon* w = game->getMod()->getCraftWeapon(wtype, false);
+		if (!w) { failReason = "unknown craft weapon"; return false; }
+		if (!craft->getRules()->isValidWeaponSlot((size_t)slot, w->getWeaponType()))
+		{ failReason = "weapon not valid for slot"; return false; }
+	}
+	return true;
+}
+
+void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	int slot = payload.get("slot", -1).asInt();
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size()) return;
+	std::string wtype = payload.get("weapon", "").asString();
+	const RuleCraftWeapon* selRule = wtype.empty() ? nullptr
+		: game->getMod()->getCraftWeapon(wtype, false);
+	if (!wtype.empty() && !selRule) return;
+
+	ItemContainer* store = base->getStorageItems();
+	CraftWeapon* current = craft->getWeapons()->at(slot);
+	const RuleCraftWeapon* curRule = current ? current->getRules() : nullptr;
+	if (curRule == selRule) return; // idempotent: a late/duplicate apply can't double-charge
+
+	// Dismount the current weapon: return the launcher + any loaded clips to the
+	// shared stores (mirrors lstWeaponsClick "Remove current weapon").
+	if (current)
+	{
+		store->addItem(current->getRules()->getLauncherItem());
+		store->addItem(current->getRules()->getClipItem(), current->getClipsLoaded());
+		craft->addCraftStats(-current->getRules()->getBonusStats());
+		craft->setShield(craft->getShield()); // exploit protection (as vanilla)
+		delete current;
+		craft->getWeapons()->at(slot) = 0;
+	}
+
+	// Mount the new weapon: consume one launcher from the shared stores. Only if
+	// available, so a race can never drive stores negative; deterministic on host
+	// + replica -> they converge. Clips load over time via the host sim (vanilla).
+	if (selRule && store->getItem(selRule->getLauncherItem()) > 0)
+	{
+		CraftWeapon* cw = new CraftWeapon(const_cast<RuleCraftWeapon*>(selRule), 0);
+		craft->addCraftStats(selRule->getBonusStats());
+		store->removeItem(selRule->getLauncherItem());
+		craft->getWeapons()->at(slot) = cw;
+	}
+	craft->checkup();
+}
+
+// soldier_armor payload: { soldierId, armor }. baseId = the soldier's base index.
+// End-state = which armor the soldier wears (identity swap, last-write-wins - the
+// J09 "model the payload to the state, not literally a count" adaptation). Mirrors
+// SoldierArmorState / CraftArmorState: return the old armor's store item + consume
+// the new one against the shared stores.
+bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
+	if (!game->getMod()->getArmor(payload.get("armor", "").asString(), false)) { failReason = "unknown armor"; return false; }
+	return true;
+}
+
+void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	Armor* next = game->getMod()->getArmor(payload.get("armor", "").asString(), false);
+	if (!s || !next) return;
+	Armor* prev = s->getArmor();
+	if (prev == next) return; // idempotent
+	// Store bookkeeping only in a live campaign (monthsPassed != -1), matching the
+	// UI screens; pre-game (new battle) never touches stores.
+	SavedGame* save = game->getSavedGame();
+	if (save && save->getMonthsPassed() != -1)
+	{
+		if (prev->getStoreItem()) base->getStorageItems()->addItem(prev->getStoreItem());
+		if (next->getStoreItem()) base->getStorageItems()->removeItem(next->getStoreItem());
+	}
+	s->setArmor(next, true);
+	if (save) save->setLastSelectedArmor(next->getType());
+}
+
 // dogfight_start payload: { craftId, craftType, ufoId, initiatorSeat }.
 // Host-originated when a craft commanded by a NON-host seat reaches a flying
 // UFO: the initiator (and only the initiator) opens the interactive
@@ -2509,6 +2629,10 @@ void init()
 	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
 	// PRD-J09 GAP-5: shared-world craft equipment loadout (base-screen equip).
 	registerCmd("craft_equip",    &craftEquipValidate,  &craftEquipApply);
+	// PRD-J09 GAP-5b: the sibling base-screen store mutators (arm/rearm a craft
+	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
+	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
+	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
 	// PRD-J08 dogfights: host-originated start (only the initiating seat opens
 	// the UI); initiator-reported result (host applies + rebroadcasts).
 	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
@@ -2910,6 +3034,26 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	p["item"] = itemType;
 	p["count"] = desiredOnCraft;
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
+}
+
+void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& weaponType)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["slot"] = slot;
+	p["weapon"] = weaponType;
+	submitLocalCmd(game, "craft_rearm", craftBaseIndex(game, craft), p);
+}
+
+void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType)
+{
+	if (!game || !base || !soldier) return;
+	Json::Value p;
+	p["soldierId"] = soldier->getId();
+	p["armor"] = armorType;
+	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
 }
 
 void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)

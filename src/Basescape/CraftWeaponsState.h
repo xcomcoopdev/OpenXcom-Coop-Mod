@@ -47,6 +47,9 @@ private:
 	Text *_txtTitle, *_txtArmament, *_txtQuantity, *_txtAmmunition, *_txtCurrentWeapon;
 	TextList *_lstWeapons;
 	std::vector<RuleCraftWeapon*> _weapons;
+	/// JOINT (PRD-J09 GAP-5b): mount @a selRule (0 = dismount) in this slot -
+	/// routes craft_rearm in JOINT, mutates the shared stores locally in SEPARATE.
+	void equipSelectedWeapon(RuleCraftWeapon* selRule);
 public:
 	/// Creates the Craft Weapons state.
 	CraftWeaponsState(Base *base, size_t craft, size_t weapon);
@@ -58,6 +61,8 @@ public:
 	void lstWeaponsClick(Action *action);
 	/// Handler for middle clicking the Weapons list.
 	void lstWeaponsMiddleClick(Action *action);
+	/// Harness (PRD-J09 GAP-5b): drive the real weapon-mount store path for one type.
+	bool harnessEquip(const std::string& weaponType);
 };
 
 }
