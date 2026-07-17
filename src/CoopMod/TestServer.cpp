@@ -125,6 +125,7 @@
 #include "../Basescape/DismantleFacilityState.h"
 #include "../Basescape/SackSoldierState.h"
 #include "../Basescape/PlaceLiftState.h"
+#include "../Basescape/CraftEquipmentState.h"
 #include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
@@ -666,6 +667,45 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			resp["isHunterKiller"] = ufo->isHunterKiller();
 			resp["isHunting"] = ufo->isHunting();
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_equip")
+	{
+		// PRD-J09 GAP-5 repro/driver: move <count> of item <item> onto (count>0)
+		// or off (count<0) the base's craft, through the REAL CraftEquipmentState
+		// store path a player uses. In JOINT (after the fix) this routes a
+		// craft_equip joint_cmd host-side; before it, it mutates THIS machine's
+		// base stores locally - the pre-battle store drift GAP-5 closes. Lives in
+		// this (shallow) dispatcher, not the main if-chain at the C1061 limit.
+		// Params: item, count, optional base + craft_id (default: first craft).
+		std::string item = req.get("item", "").asString();
+		int count = req.get("count", 0).asInt();
+		std::string baseName = req.get("base", "").asString();
+		int craftId = req.get("craft_id", -1).asInt();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				                     : b->getName() == baseName)
+				{ target = b; break; }
+		size_t idx = target ? target->getCrafts()->size() : 0;
+		if (target)
+			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
+				if (craftId < 0 || target->getCrafts()->at(i)->getId() == craftId)
+				{ idx = i; break; }
+		if (!target)
+			resp["error"] = "base not found";
+		else if (idx >= target->getCrafts()->size())
+			resp["error"] = "craft not found";
+		else
+		{
+			CraftEquipmentState* ces = new CraftEquipmentState(target, idx);
+			_game->pushState(ces);
+			bool moved = ces->harnessMove(item, count);
+			_game->popState();
+			resp["moved"] = moved;
+			resp["ok"] = moved;
+			if (!moved) resp["error"] = "item not on craft equipment list: " + item;
 		}
 	}
 	else

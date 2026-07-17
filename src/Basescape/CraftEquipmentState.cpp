@@ -55,6 +55,7 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5)
 
 namespace OpenXcom
 {
@@ -67,7 +68,8 @@ namespace OpenXcom
  */
 CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 	_lstScroll(0), _sel(0), _craft(craft), _base(base), _totalItems(0), _totalItemStorageSize(0.0), _ammoColor(0),
-	_reload(true), _returningFromGlobalTemplates(false), _returningFromInventory(false), _firstInit(true), _isNewBattle(false)
+	_reload(true), _returningFromGlobalTemplates(false), _returningFromInventory(false), _firstInit(true), _isNewBattle(false),
+	_localBatch(false)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	bool craftHasACrew = c->getNumTotalSoldiers() > 0;
@@ -274,11 +276,15 @@ void CraftEquipmentState::init()
 			if (_returningFromInventory)
 			{
 				// now that we're back from the inventory screen, we need to remove all the excess base gear
+				// JOINT (GAP-5): multi-step local reconciliation - keep it local
+				// (deferred sub-case; the checksum auto-repair remains the backstop).
+				_localBatch = true;
 				for (_sel = 0; _sel != _items.size(); ++_sel)
 				{
 					int excessQty = c->getItems()->getItem(_items[_sel]) - (c->getExtraItems()->getItem(_items[_sel]) + c->getSoldierItems()->getItem(_items[_sel]));
 					moveLeftByValue(excessQty);
 				}
+				_localBatch = false;
 			}
 		}
 		initList();
@@ -724,6 +730,29 @@ void CraftEquipmentState::moveLeft()
 }
 
 /**
+ * JOINT (PRD-J09 GAP-5): route a base<->craft item move through the
+ * host-authoritative craft_equip command instead of mutating this replica's
+ * shared base stores locally (which would drift from the host - GAP-5). Carries
+ * the ABSOLUTE desired quantity on the craft, so host + replica converge
+ * regardless of arrival order (the J08/J09 last-write-wins idiom). @a signedChange
+ * is the pending move: +N onto the craft, -N back to the base, +/-INT_MAX = "all".
+ */
+void CraftEquipmentState::submitJointCraftEquip(const RuleItem* item, int signedChange)
+{
+	Craft* c = _base->getCrafts()->at(_craft);
+	int current = c->getItems()->getItem(item);
+	int target;
+	if (signedChange >= INT_MAX)        // move everything the base holds onto the craft
+		target = current + _base->getStorageItems()->getItem(item);
+	else if (signedChange <= -INT_MAX)  // clear the item off the craft
+		target = 0;
+	else
+		target = current + signedChange;
+	if (target < 0) target = 0;
+	JointEcon::submitCraftEquip(_game, c, item->getType(), target);
+}
+
+/**
  * Moves the given number of items (selected) to the base.
  * @param change Item difference.
  */
@@ -731,6 +760,15 @@ void CraftEquipmentState::moveLeftByValue(int change)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
+	// JOINT: base stores are shared + host-authoritative - route the move (never
+	// mutate locally on a replica). Vehicles are deferred; the local-batch loops
+	// (templates / alt-management inventory) keep their existing local behavior.
+	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
+		&& _game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		submitJointCraftEquip(item, change <= 0 ? change : -change);
+		return;
+	}
 	int cQty = 0;
 	if (item->getVehicleUnit()) cQty = c->getVehicleCount(_items[_sel]);
 	else cQty = c->getItems()->getItem(item);
@@ -821,6 +859,14 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
+	// JOINT (PRD-J09 GAP-5): host-authoritative shared stores - route the move
+	// instead of mutating this replica locally (see moveLeftByValue).
+	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
+		&& _game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		submitJointCraftEquip(item, change);
+		return;
+	}
 	int bqty = _base->getStorageItems()->getItem(item);
 	if (_isNewBattle)
 	{
@@ -955,6 +1001,28 @@ void CraftEquipmentState::btnClearClick(Action *)
 }
 
 /**
+ * Harness (PRD-J09 GAP-5): move @a change of item @a itemType onto the craft
+ * (change > 0) or back to the base (change < 0), driving the SAME
+ * moveRightByValue/moveLeftByValue store mutation a Right/Left arrow click does.
+ * Returns false if the item is not on this screen's equipment list.
+ */
+bool CraftEquipmentState::harnessMove(const std::string& itemType, int change)
+{
+	initList(); // build _items now (normally deferred to init())
+	for (size_t i = 0; i < _items.size(); ++i)
+	{
+		if (_items[i] == itemType)
+		{
+			_sel = i;
+			if (change >= 0) moveRightByValue(change, true);
+			else moveLeftByValue(-change);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Displays the inventory screen for the soldiers
  * inside the craft.
  * @param action Pointer to an action.
@@ -985,6 +1053,10 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 			craft->setMaxItemsRaw(999999);
 			craft->setMaxStorageSpaceRaw(99999.0);
 
+			// JOINT (GAP-5): temporary "load everything for the inventory screen"
+			// staging - keep it local; the base-store delta is reconciled at battle
+			// end (or by the checksum auto-repair). Deferred sub-case.
+			_localBatch = true;
 			for (_sel = 0; _sel != _items.size(); ++_sel)
 			{
 				RuleItem* rule = _game->getMod()->getItem(_items[_sel], true);
@@ -997,6 +1069,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 					moveRightByValue(INT_MAX, true);
 				}
 			}
+			_localBatch = false;
 			// restore limits
 			craft->setMaxItemsRaw(maxItemsBackup);
 			craft->setMaxStorageSpaceRaw(maxStorageSpaceBackup);
@@ -1050,6 +1123,10 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;
+
+	// JOINT (GAP-5): a template load is a clear-then-reload whose second pass reads
+	// the local state the first pass produced - keep it local (deferred sub-case).
+	_localBatch = true;
 
 	// reset filters and reload the full equipment list
 	_btnQuickSearch->setText("");
@@ -1142,6 +1219,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 
 	// turn back the original setting
 	Options::oxceAlternateCraftEquipmentManagement = backup;
+	_localBatch = false;
 }
 
 /**

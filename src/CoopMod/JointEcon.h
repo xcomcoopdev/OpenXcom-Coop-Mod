@@ -263,6 +263,12 @@ int lastCraftOrderSeat(const Craft* craft);
 /// craft_assign; mutates nothing locally (replica applies from joint_apply).
 void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 
+/// PRD-J09 GAP-5: set the ABSOLUTE quantity of @a itemType loaded on @a craft in
+/// the shared world (JOINT only - caller gates). Submits craft_equip; mutates
+/// nothing locally (host validates/clamps + broadcasts, replica applies). Items
+/// only - vehicles are deferred (caller must not route a vehicle item).
+void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
+
 /// HOST: a craft commanded by a non-host seat reached a flying UFO. Marks the
 /// craft in-dogfight + the UFO remotely engaged, and broadcasts
 /// joint_apply{dogfight_start} so the initiating seat opens the dogfight UI.

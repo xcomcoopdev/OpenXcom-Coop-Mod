@@ -1761,6 +1761,66 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 		s->setCraftAndMoveEquipment(0, base, newBattle);
 }
 
+// ---- PRD-J09 GAP-5: shared-world craft equipment loadout ---------------------
+// Equipping a craft at the BASE screen (CraftEquipmentState) moves items between
+// the shared base stores and the craft. Those base stores are host-authoritative
+// (they are exactly what the GAP-4 checksum sums), so a replica must never mutate
+// them locally - it routes the move through this command instead. payload:
+//   { craftId, craftType, item, count }   baseId = the craft's home-base index.
+// count = the ABSOLUTE desired quantity of `item` loaded on the craft, so host
+// and replica converge regardless of arrival order (the J08/J09 last-write-wins
+// idiom). Items only; vehicles/ammo are deferred (like craft_assign's vehicle
+// variant - CraftEquipmentState still routes non-vehicle items only).
+bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                        int64_t& cost, std::string& failReason)
+{
+	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
+	if (!base) { failReason = "base not found"; return false; }
+	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
+	if (!item) { failReason = "unknown item"; return false; }
+	if (item->getVehicleUnit()) { failReason = "vehicles not routed"; return false; }
+	return true;
+}
+
+void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
+	if (!craft || !item || item->getVehicleUnit()) return;
+
+	ItemContainer* craftItems = craft->getItems();
+	ItemContainer* store = base->getStorageItems();
+	int current = craftItems->getItem(item);
+	int target = payload.get("count", 0).asInt();
+	if (target < 0) target = 0;
+
+	// Clamp UP by base availability (never move more than the base holds) and by
+	// the craft's capacity, mirroring CraftEquipmentState::moveRightByValue's
+	// vanilla gates. Host and replica run this on the one replicated world, so
+	// the clamp is identical on both -> they converge with no drift.
+	if (target > current + store->getItem(item))
+		target = current + store->getItem(item);
+	if (target > current)
+	{
+		int addByCount = craft->getMaxItemsClamped() - craftItems->getTotalQuantity();
+		if (addByCount < 0) addByCount = 0;
+		if (target - current > addByCount) target = current + addByCount;
+		if (item->getSize() > 0.0)
+		{
+			double freeSpace = craft->getMaxStorageSpaceClamped() + 0.05 - craft->getTotalItemStorageSize();
+			int addBySize = (int)std::floor(freeSpace / item->getSize());
+			if (addBySize < 0) addBySize = 0;
+			if (target - current > addBySize) target = current + addBySize;
+		}
+	}
+
+	int delta = target - current;
+	if (delta > 0)      { craftItems->addItem(item, delta);   store->removeItem(item, delta); }
+	else if (delta < 0) { craftItems->removeItem(item, -delta); store->addItem(item, -delta); }
+}
+
 // dogfight_start payload: { craftId, craftType, ufoId, initiatorSeat }.
 // Host-originated when a craft commanded by a NON-host seat reaches a flying
 // UFO: the initiator (and only the initiator) opens the interactive
@@ -2447,6 +2507,8 @@ void init()
 
 	// PRD-J09: shared-world squad assembly (mixed-owner deployment).
 	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
+	// PRD-J09 GAP-5: shared-world craft equipment loadout (base-screen equip).
+	registerCmd("craft_equip",    &craftEquipValidate,  &craftEquipApply);
 	// PRD-J08 dogfights: host-originated start (only the initiating seat opens
 	// the UI); initiator-reported result (host applies + rebroadcasts).
 	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
@@ -2837,6 +2899,17 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)
 	p["soldierId"] = soldier->getId();
 	p["onOff"] = onOff;
 	submitLocalCmd(game, "craft_assign", craftBaseIndex(game, craft), p);
+}
+
+void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["item"] = itemType;
+	p["count"] = desiredOnCraft;
+	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
 }
 
 void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)

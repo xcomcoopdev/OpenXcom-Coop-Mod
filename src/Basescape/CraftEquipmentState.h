@@ -33,6 +33,7 @@ class TextList;
 class ComboBox;
 class Timer;
 class Base;
+class RuleItem;
 
 /**
  * Equipment screen that lets the player
@@ -62,6 +63,13 @@ private:
 	bool _returningFromInventory;
 	bool _firstInit;
 	bool _isNewBattle;
+	/// JOINT (PRD-J09 GAP-5): suppress the host-authoritative equip routing during
+	/// multi-step LOCAL loops (template load, alt-management inventory prep) whose
+	/// intermediate steps assume the base/craft mutate locally between calls.
+	bool _localBatch;
+	/// JOINT (PRD-J09 GAP-5): route a base<->craft item move through craft_equip
+	/// (absolute desired-on-craft count) instead of mutating this replica's stores.
+	void submitJointCraftEquip(const RuleItem* item, int signedChange);
 	/// Updates quantities of item.
 	void updateQuantity();
 	/// initializes the displayed list
@@ -115,6 +123,8 @@ public:
 	void btnLoadClick(Action *action);
 	/// Handler for clicking the Save button.
 	void btnSaveClick(Action *action);
+	/// Harness (PRD-J09 GAP-5): drive the real store-move path for one item.
+	bool harnessMove(const std::string& itemType, int change);
 };
 
 }
