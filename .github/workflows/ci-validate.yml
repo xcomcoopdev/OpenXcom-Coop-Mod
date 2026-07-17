@@ -1,36 +1,51 @@
 name: CI validate (build + coop tests, no publish)
 
 # PR merge gate on FREE GitHub-hosted windows-latest. Every PR into main is proven
-# on a clean build (+ the coop test suite for trusted runs) before it can merge;
-# the `build-test` job is a required status check in main's branch protection.
+# on a clean build + the coop test suite before it can merge. Required status checks
+# in main's branch protection: build, coop-tests, test-gate.
 #
-# Proprietary UFO game data (licensed) is pulled from the private
-# OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY secret).
-# Secrets are NOT exposed to FORK pull requests, so fork PRs run build-only (no data,
-# no coop tests) while same-repo PRs / manual dispatch run the full gate. Keep "Require
-# approval for all external collaborators" on (Settings > Actions > Fork pull request workflows).
+# Runs on pull_request_target (NOT pull_request) so the UFO_DATA_DEPLOY_KEY secret
+# is available to fork PRs too - GitHub withholds all secrets from fork
+# `pull_request` runs, which used to force fork PRs to be build-only.
+# pull_request_target is safe here because:
+#   - the workflow definition always comes from the BASE repo, so a fork cannot
+#     edit this gate - only the code it exercises
+#   - GITHUB_TOKEN is contents:read everywhere (test-gate gets pull-requests:write
+#     only, to revoke labels)
+#   - the deploy key is used only in coop-tests, which runs only for PRs authored
+#     by repo owners/members/collaborators, or on the `labeled` event when a
+#     maintainer applies the `safe-to-test` label to an outside PR after reviewing
+#     its diff (review before labeling: PR test code runs while UFO data is on disk)
+#   - a new push to an outside PR revokes `safe-to-test` (test-gate job) and fails
+#     the gate, so every push must be re-reviewed + re-labeled before it can run
+#     with the secret - no test run ever uses a label granted to an older SHA
+#   - persist-credentials: false on the UFO_Data checkout, so PR-supplied test
+#     code cannot read the deploy key off disk after the fetch
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
-# Hosted runs are isolated VMs, so per-ref concurrency + cancel-in-progress is safe
+# Hosted runs are isolated VMs, so per-PR concurrency + cancel-in-progress is safe
 # and cheap (supersede stale gate runs when a PR gets new commits).
 concurrency:
-  group: ci-validate-${{ github.ref }}
+  group: ci-validate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions: { contents: read }
 
 jobs:
-  build-test:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 90
-    env:
-      # true for pushes/dispatch and SAME-REPO PRs (secrets available); false for fork PRs.
-      TRUSTED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          # pull_request_target defaults to the BASE branch; explicitly build the
+          # PR head. Pinned to the event's SHA so labeled runs test exactly the
+          # commit the maintainer reviewed. Falls back to github.sha for dispatch.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: microsoft/setup-msbuild@v2
 
@@ -45,57 +60,87 @@ jobs:
         working-directory: src
         run: msbuild OpenXcom.2010.sln /v:minimal /p:Configuration=Release /p:Platform=x64
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-exe
+          path: bin/x64/Release/OpenXcom.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  # Required check that makes the fork-PR policy ENFORCEABLE: outside PRs stay red
+  # until a maintainer reviews the diff and applies `safe-to-test` (which triggers
+  # the real coop-tests run). Without this job, a skipped coop-tests would satisfy
+  # branch protection and an unreviewed fork PR would be mergeable without tests.
+  test-gate:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write   # revoke stale safe-to-test labels
+      issues: write          # labels ride the issues API
+    steps:
+      - name: Enforce coop-test policy for outside PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSOC: ${{ github.event.pull_request.author_association }}
+          ACTION: ${{ github.event.action }}
+          LABELED_NAME: ${{ github.event.label.name }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'safe-to-test') }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          case "$ASSOC" in
+            OWNER|MEMBER|COLLABORATOR) echo "trusted author ($ASSOC); coop-tests run automatically"; exit 0;;
+          esac
+          if [ "$ACTION" = "labeled" ] && [ "$LABELED_NAME" = "safe-to-test" ]; then
+            echo "maintainer applied safe-to-test; coop-tests run for this SHA"; exit 0
+          fi
+          if [ "$ACTION" = "synchronize" ] && [ "$HAS_LABEL" = "true" ]; then
+            gh pr edit "$PR" --repo "$REPO" --remove-label safe-to-test
+            echo "new push revoked safe-to-test; the new diff needs re-review"
+          fi
+          echo "::error::Outside PR: a maintainer must review the diff and apply the 'safe-to-test' label to run the coop test gate."
+          exit 1
+
+  coop-tests:
+    needs: build
+    # Trusted authors always; outside PRs only on the explicit `labeled` event so a
+    # label granted to an earlier SHA never authorizes a newer, unreviewed push
+    # (test-gate revokes the label on synchronize, but this run's event payload
+    # would still show it - hence gating on the event, not the label's presence).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'safe-to-test')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: game-exe
+          path: bin/x64/Release
+
       - name: Fetch UFO data (private, licensed)
-        if: env.TRUSTED == 'true'
         uses: actions/checkout@v4
         with:
           repository: OpenXcom-Coop/UFO_Data
           ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
           path: .ufo_data
+          persist-credentials: false
 
       - name: Stage data next to exe
-        if: env.TRUSTED == 'true'
         shell: pwsh
-        run: |
-          $d = "bin\x64\Release"
-          robocopy deps\lib\x64 $d *.dll /NFL /NDL /NJH /NJS
-          robocopy bin\standard "$d\standard" /E /NFL /NDL /NJH /NJS
-          robocopy bin\common   "$d\common"   /E /NFL /NDL /NJH /NJS
-          robocopy .ufo_data "$d\UFO" /E /XD .git /NFL /NDL /NJH /NJS               # licensed UFO data from private repo
-          robocopy bin\UFO\multiplayer "$d\UFO\multiplayer" /E /NFL /NDL /NJH /NJS   # coop art, from the public repo
-          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
-          # Rendezvous config: the coop harness needs a parseable rendezvous.json next to
-          # the exe or ServerList's ctor errors into a CoopState and the UDP-public host
-          # path crashes. Ship the CI config (blackhole host + throwaway valid keys).
-          Copy-Item tools\coop_test\rendezvous.ci.json "$d\rendezvous.json" -Force
-          if (-not (Test-Path "$d\OpenXcom.exe"))             { throw "build produced no exe" }
-          if (-not (Test-Path "$d\UFO\GEODATA"))              { throw "UFO data not staged (UFO_DATA_TOKEN / private repo?)" }
-          if (-not (Test-Path "$d\UFO\multiplayer\base.png")) { throw "coop assets not staged" }
-          if (-not (Test-Path "$d\rendezvous.json"))          { throw "rendezvous.json not staged" }
+        run: ./tools/ci/stage_data.ps1
 
-      - name: Coop test suite (headless)   # the gate (trusted runs only)
-        if: env.TRUSTED == 'true'
+      - name: Coop test suite (headless)
         timeout-minutes: 40
         shell: pwsh
         env:
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
-        run: |
-          $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
-                   Select-Object -ExpandProperty BaseName | Sort-Object
-          $quarantine = @()
-          $fail = 0
-          foreach ($t in $tests) {
-            python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
-            if ($rc -ne 0) { python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE }   # retry once (flake tolerance)
-            if ($rc -eq 0)                    { Write-Host "PASS        $t" }
-            elseif ($quarantine -contains $t) { Write-Host "KNOWN-FAIL  $t (quarantined, rc=$rc)" }
-            else                              { Write-Host "FAIL        $t (rc=$rc)"; $fail++ }
-          }
-          if ($fail -gt 0) { throw "$fail non-quarantined test(s) failed" }
-
-      - name: Fork PR - build only (no private data / coop tests)
-        if: env.TRUSTED != 'true'
-        shell: pwsh
-        run: |
-          Write-Host "Fork PR built OK; coop tests skipped (private UFO data not available to fork runs). A maintainer runs the full gate from a same-repo branch."
+        run: ./tools/ci/run_coop_suite.ps1
