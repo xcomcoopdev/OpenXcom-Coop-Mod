@@ -48,13 +48,16 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 	_window = new Window(this, 320, 200, 0, 0, POPUP_BOTH);
 	_txtTitle = new Text(300, 17, 10, 7);
 	_txtInstructions = new Text(300, 25, 10, 25);
-	_lstSaves = new TextList(292, 57, 14, 52);
+	// Width 284 (not 292) keeps the scrollbar - drawn at x + width + 4, 13 wide -
+	// inside the 320px screen and off the window border, whose colors the track
+	// picks up (ScrollBar::drawTrack copies the background, offset -5 blocks).
+	_lstSaves = new TextList(284, 57, 14, 52);
 	_txtClientLbl = new Text(150, 9, 14, 112);
-	_edtClientName = new TextEdit(this, 132, 9, 166, 112);
+	_edtClientName = new TextEdit(this, 132, 9, 135, 112);
 	_txtClientWarn = new Text(300, 9, 10, 122);
 	_txtKeyEcho = new Text(300, 9, 10, 131);
 	_txtHostLbl = new Text(150, 9, 14, 141);
-	_edtHostName = new TextEdit(this, 132, 9, 166, 141);
+	_edtHostName = new TextEdit(this, 132, 9, 135, 141);
 	_txtHostHint = new Text(300, 9, 10, 151);
 	// Uneven widths so every caption fits on one line: "Skip - fresh start" needs
 	// far more room than "Refresh"/"Cancel" (74px each clipped/wrapped it). The row
@@ -93,7 +96,7 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 	_txtInstructions->setWordWrap(true);
 	_txtInstructions->setText(tr("STR_SAVE_UPGRADE_PICK_INSTRUCTIONS"));
 
-	_lstSaves->setColumns(1, 284);
+	_lstSaves->setColumns(1, 276);
 	_lstSaves->setSelectable(true);
 	_lstSaves->setBackground(_window);
 	_lstSaves->setMargin(4);
@@ -161,6 +164,19 @@ void SaveUpgradeClientState::init()
 	{
 		_game->popState();
 	}
+}
+
+/**
+ * Prefills the name fields. Only the debug/visual-QA hook calls this - an empty
+ * TextEdit draws nothing, so a screenshot needs the fields populated to show them.
+ * @param clientName Other player's name.
+ * @param hostName Host name (may be empty).
+ */
+void SaveUpgradeClientState::prefillNames(const std::string& clientName, const std::string& hostName)
+{
+	_edtClientName->setText(clientName);
+	_edtHostName->setText(hostName);
+	updateKeyEcho();
 }
 
 /**

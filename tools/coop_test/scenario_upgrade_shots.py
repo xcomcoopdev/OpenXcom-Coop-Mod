@@ -71,8 +71,11 @@ def main(outdir):
         shot("01b_ambiguous_gate.png")
         reset()
 
-        # 02 client input picker (dense: list + two name fields + 4 buttons)
-        gc.ok({"cmd": "upgrade_show", "state": "client", "host": "dual_host.sav"})
+        # 02 client input picker (dense: list + two name fields + 4 buttons).
+        # The names are prefilled: an empty TextEdit draws nothing, so without them
+        # the shot cannot show the fields' placement.
+        gc.ok({"cmd": "upgrade_show", "state": "client", "host": "dual_host.sav",
+               "clientName": "Player1", "hostName": "Player2"})
         gc.wait_for("client state", lambda: session.has_state(gc, "SaveUpgradeClientState"))
         shot("02_client_input.png")
         reset()

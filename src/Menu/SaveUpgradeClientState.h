@@ -66,6 +66,9 @@ public:
 	~SaveUpgradeClientState();
 	/// Self-heals: pops itself if the save no longer needs upgrading.
 	void init() override;
+	/// Debug/visual-QA hook: prefills the name fields (TextEdits render nothing
+	/// while empty, so a screenshot of this state cannot otherwise show them).
+	void prefillNames(const std::string& clientName, const std::string& hostName);
 	/// Selects a candidate save.
 	void lstSavesClick(Action* action);
 	/// Reacts to name edits (updates the echo).

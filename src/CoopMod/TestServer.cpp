@@ -5425,7 +5425,16 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (which == "client")
 			{
-				_game->pushState(new SaveUpgradeClientState(origin, host));
+				// clientName/hostName prefill the TextEdits: they draw nothing while
+				// empty, so a screenshot of this state needs them populated.
+				SaveUpgradeClientState* st = new SaveUpgradeClientState(origin, host);
+				std::string clientName = req.get("clientName", "").asString();
+				std::string hostName = req.get("hostName", "").asString();
+				if (!clientName.empty() || !hostName.empty())
+				{
+					st->prefillNames(clientName, hostName);
+				}
+				_game->pushState(st);
 				resp["ok"] = true;
 			}
 			else if (which == "info")
