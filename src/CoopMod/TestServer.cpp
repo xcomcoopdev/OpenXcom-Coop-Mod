@@ -416,10 +416,10 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "joint_checksum")
 	{
 		// PRD-J11: this machine's world checksum, exactly as the host stamps it onto
-		// the geoscape `time` heartbeat (chkFunds / chkBases / chkResearch). Lets a
+		// the geoscape `time` heartbeat (chkFunds / chkBases / chkResearch plus the
+		// GAP-4 chkItems / chkSoldiers / chkTransfers / chkProduction counts). Lets a
 		// test read what the desync detector compares WITHOUT waiting for a
-		// heartbeat, and makes the checksum's narrow coverage (funds + base count +
-		// discovered-tech count - no stores, no roster) visible to the suite.
+		// heartbeat, and makes the checksum's coverage visible to the suite.
 		JointEcon::attachWorldChecksum(_game, resp);
 		resp["ok"] = true;
 	}

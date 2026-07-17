@@ -29,9 +29,11 @@ roster (with ownership). All of that is compared exactly, base list IN INDEX
 ORDER - the base index is the protocol's routing key (PRD-J03), so an ordering
 difference is itself a desync.
 
-Note this is deliberately WIDER than the PRD-J04/J10 world checksum, which is
-only funds + base count + discovered-tech count. Stores/roster/transfer drift is
-invisible to the auto-repair; it is visible here. That is the point of the
+Note this is deliberately WIDER than the PRD-J04/J10/GAP-4 world checksum. The
+checksum sums funds + base / tech / item / soldier / transfer / production
+COUNTS, so count drift now trips the auto-repair; but it is only counts, so a
+CONTENT drift that preserves them (e.g. a rifle swapped for a pistol) is still
+invisible to the checksum and visible only here. That is the point of the
 helper.
 
 KNOWN-VOLATILE (excluded, with the reason - each is a real, documented property

@@ -1832,9 +1832,10 @@ void GeoscapeState::think()
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
 
-			// PRD-J04: piggyback a lightweight world checksum (funds + base count +
-			// discovered-tech count) on the periodic time heartbeat. The replica
-			// logs a warning on mismatch; full desync repair is PRD-J10.
+			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
+			// item / soldier / transfer / production counts - GAP-4) on the periodic
+			// time heartbeat. The replica logs a warning on mismatch; full desync
+			// repair is PRD-J10.
 			if (_game->getCoopMod()->isJointCampaign())
 				JointEcon::attachWorldChecksum(_game, root);
 

@@ -303,8 +303,12 @@ bool clientDogfightActive(const Craft* craft, const Ufo* ufo);
 void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo);
 
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
-// The host stamps funds + base count + discovered-tech count onto the periodic
-// geoscape `time` heartbeat; the replica compares it against its own world.
+// The host stamps a lightweight world checksum onto the periodic geoscape `time`
+// heartbeat; the replica compares it against its own world. Fields: funds (exact
+// value) + base / discovered-tech / total-item / soldier / transfer / production
+// counts (GAP-4 widened the original funds+bases+research triple so store, roster,
+// transfer and production drift can no longer hide). All are cheap O(bases)
+// aggregates, identical host/replica by construction.
 // J04 shipped log-only detection; J10 upgrades a mismatch to an AUTOMATIC repair:
 // the replica asks for a fresh world (joint_resync_request), the host re-streams
 // the authoritative world down the J02 bootstrap lane AND releases the client's

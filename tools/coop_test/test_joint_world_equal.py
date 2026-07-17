@@ -8,11 +8,14 @@ one. A helper that only ever passes proves nothing.
   EQUAL     a freshly bootstrapped JOINT world compares equal, and stays equal
             across a real mutation (a client buy) once the round-trip lands.
   SENSITIVE force a divergence the auto-repair CANNOT see and prove the helper
-            catches it. Base stores are deliberately NOT part of the J04/J10
-            world checksum (funds + base count + discovered-tech count), so
-            giving items to ONE machine is a permanent, silent divergence: no
-            mismatch, no auto-resync, nothing in the logs. Exactly the class of
-            drift this helper exists to catch.
+            catches it. The GAP-4 world checksum now sums total item COUNT (so a
+            plain give_items-to-one-machine WOULD trip it - that path is covered
+            by test_joint_checksum), but it is only COUNTS: swap 7 rifles on the
+            host for 7 pistols on the client and every checksum field - including
+            the widened item/soldier/transfer/production counts - stays identical,
+            so no mismatch, no auto-resync, nothing in the logs. The world-diff
+            helper compares exact CONTENTS, so it still catches it: this is the
+            honest negative control for the widened checksum.
   REPAIR    force_resync re-streams the authoritative world and equality returns
             - i.e. the repair primitive fixes drift BEYOND the checksum's reach,
             even though nothing would have triggered it automatically.
@@ -27,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import joint_fixture
 
 RIFLE = "STR_RIFLE"
+PISTOL = "STR_PISTOL"
 
 
 def _rifles(gc):
@@ -60,23 +64,31 @@ def main():
                       lambda: _rifles(host) == 4 or None, timeout=30, interval=0.5)
         js.assert_world_equal("after a client buy")
 
-        # ---- SENSITIVE: drift the checksum cannot see ---------------------
-        # give_items is per-machine scaffolding; giving to the HOST only diverges
-        # base stores, which are NOT a checksum field.
-        chk_before_h = host.ok({"cmd": "joint_checksum"})
+        # ---- SENSITIVE: drift the (widened) checksum cannot see ------------
+        # GAP-4 made total item COUNT a checksum field, so a plain give_items to
+        # one machine now trips it (test_joint_checksum covers that). To exercise
+        # the world-diff helper's blind spot we need a COUNT-preserving CONTENT
+        # drift: +7 rifles on the host, +7 pistols on the client. Every checksum
+        # count is identical (+7 items on both), so nothing auto-resyncs; only the
+        # exact contents differ, which only world_diff sees.
+        chk_before = host.ok({"cmd": "joint_checksum"})
         host.ok({"cmd": "give_items", "item": RIFLE, "count": 7})
-        chk_after_h = host.ok({"cmd": "joint_checksum"})
+        client.ok({"cmd": "give_items", "item": PISTOL, "count": 7})
+        chk_h = host.ok({"cmd": "joint_checksum"})
         chk_c = client.ok({"cmd": "joint_checksum"})
-        assert (chk_after_h["chkFunds"], chk_after_h["chkBases"], chk_after_h["chkResearch"]) == \
-               (chk_c["chkFunds"], chk_c["chkBases"], chk_c["chkResearch"]), \
-            (f"store drift moved the world checksum - this test's premise is stale: "
-             f"host={chk_after_h} client={chk_c}")
-        assert chk_before_h == chk_after_h, "giving items moved the host checksum"
-        print("PASS blind-spot: 7 rifles added to the HOST only; the world checksum "
-              f"is IDENTICAL on both (funds/bases/tech) -> no auto-resync will fire")
+        assert chk_h == chk_c, \
+            (f"count-preserving content drift moved the world checksum - this "
+             f"test's premise is stale: host={chk_h} client={chk_c}")
+        # ...and the GAP-4 fix really is live: the widened checksum DID track the
+        # added stock (item count went up by 7 on both), it just can't tell rifles
+        # from pistols.
+        assert chk_h["chkItems"] == chk_before["chkItems"] + 7, \
+            f"widened checksum did not track the added items: {chk_before} -> {chk_h}"
+        print("PASS blind-spot: 7 rifles on the host vs 7 pistols on the client; every "
+              "checksum count IDENTICAL (incl. chkItems) -> no auto-resync will fire")
 
         diff = joint_fixture.world_diff(host, client)
-        assert diff, ("the equality helper did NOT catch a 7-rifle store divergence - "
+        assert diff, ("the equality helper did NOT catch a content divergence - "
                       "it is not sensitive enough to be worth asserting")
         assert any("items" in d for d in diff), \
             f"caught a divergence, but not the stores one: {diff}"

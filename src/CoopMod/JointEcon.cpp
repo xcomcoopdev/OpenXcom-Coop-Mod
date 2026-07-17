@@ -3006,6 +3006,28 @@ int64_t gameMinutes(SavedGame* save)
 	int64_t days = ((int64_t)t->getYear() * 12 + t->getMonth()) * 31 + t->getDay();
 	return days * 24 * 60 + t->getHour() * 60 + t->getMinute();
 }
+
+// GAP-4: the widened checksum's cheap O(bases) integer aggregates. Computed the
+// SAME way on host (stamp) and replica (verify) so they are identical BY
+// CONSTRUCTION - both walk the one replicated world - and only real store /
+// roster / transfer / production drift moves them. Counts only: no per-item
+// hashing and no string building, because this rides the ~2 kHz `time` heartbeat
+// (session-notes-10 #1). Deliberately NOT the income/expenditure series, which
+// the replica legitimately drifts on (session-notes-11 #1) - hashing that would
+// make auto-resync fire constantly.
+void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
+	int64_t& transfers, int64_t& productions)
+{
+	items = soldiers = transfers = productions = 0;
+	if (!save) return;
+	for (Base* base : *save->getBases())
+	{
+		items += base->getStorageItems()->getTotalQuantity();
+		soldiers += (int64_t)base->getSoldiers()->size();
+		transfers += (int64_t)base->getTransfers()->size();
+		productions += (int64_t)base->getProductions().size();
+	}
+}
 } // namespace
 
 void attachWorldChecksum(Game* game, Json::Value& msg)
@@ -3015,6 +3037,17 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	msg["chkFunds"] = Json::Value::Int64(save->getFunds());
 	msg["chkBases"] = (int)save->getBases()->size();
 	msg["chkResearch"] = (int)save->getDiscoveredResearch().size();
+
+	// GAP-4: widen past funds/bases/research so store, roster, transfer and
+	// production drift can no longer hide from the auto-repair (funds is the only
+	// exact-VALUE field; the four below are counts). Stamp and compare MUST stay
+	// in lock-step - both go through worldAggregates().
+	int64_t items, soldiers, transfers, productions;
+	worldAggregates(save, items, soldiers, transfers, productions);
+	msg["chkItems"] = Json::Value::Int64(items);
+	msg["chkSoldiers"] = Json::Value::Int64(soldiers);
+	msg["chkTransfers"] = Json::Value::Int64(transfers);
+	msg["chkProduction"] = Json::Value::Int64(productions);
 }
 
 bool requestResync(Game* game, const std::string& why, bool force)
@@ -3051,10 +3084,24 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	int64_t hostFunds = msg["chkFunds"].asInt64();
 	int hostBases = msg.get("chkBases", -1).asInt();
 	int hostResearch = msg.get("chkResearch", -1).asInt();
+	// GAP-4 fields. -1 default => a host that predates this change did not stamp
+	// them; since every real aggregate is >= 0, a negative host value can ONLY
+	// mean "not sent" and must read as agreement, never a cross-version false
+	// positive. Absent-or-equal, folded into the condition below.
+	int64_t hostItems = msg.get("chkItems", -1).asInt64();
+	int64_t hostSoldiers = msg.get("chkSoldiers", -1).asInt64();
+	int64_t hostTransfers = msg.get("chkTransfers", -1).asInt64();
+	int64_t hostProductions = msg.get("chkProduction", -1).asInt64();
 	int64_t myFunds = save->getFunds();
 	int myBases = (int)save->getBases()->size();
 	int myResearch = (int)save->getDiscoveredResearch().size();
-	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch)
+	int64_t myItems, mySoldiers, myTransfers, myProductions;
+	worldAggregates(save, myItems, mySoldiers, myTransfers, myProductions);
+	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
+		&& (hostItems < 0 || hostItems == myItems)
+		&& (hostSoldiers < 0 || hostSoldiers == mySoldiers)
+		&& (hostTransfers < 0 || hostTransfers == myTransfers)
+		&& (hostProductions < 0 || hostProductions == myProductions))
 	{
 		// Back in agreement: whatever drifted is gone. Re-arm the repair so a later,
 		// unrelated drift gets its own auto-resync instead of the give-up popup.
@@ -3089,7 +3136,11 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< RESYNC_DEBOUNCE_MS << "ms): "
 			<< "funds host=" << hostFunds << " replica=" << myFunds
 			<< ", bases host=" << hostBases << " replica=" << myBases
-			<< ", research host=" << hostResearch << " replica=" << myResearch;
+			<< ", research host=" << hostResearch << " replica=" << myResearch
+			<< ", items host=" << hostItems << " replica=" << myItems
+			<< ", soldiers host=" << hostSoldiers << " replica=" << mySoldiers
+			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
+			<< ", production host=" << hostProductions << " replica=" << myProductions;
 	}
 
 	const int64_t now = gameMinutes(save);
