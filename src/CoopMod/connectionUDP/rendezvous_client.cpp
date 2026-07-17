@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -383,18 +384,44 @@ bool receiveSignedMessage(TcpCtx& ctx,
 	return true;
 }
 
+// SDL_net's global init counter (SDLNet_started) is a plain non-atomic int and
+// SDLNet_Quit() runs WSACleanup() on the 1->0 edge, tearing down every Winsock
+// handle process-wide. Multiple probe/list threads calling initCommon/quitCommon
+// concurrently would race that counter and could drive it to 0 while another
+// thread (e.g. the coop TestServer's socket loop) is mid-call -> forced RST /
+// crash. Guard our own paired init/quit with a mutex + refcount so this
+// subsystem performs exactly one real SDLNet_Init/SDLNet_Quit and never quits
+// below its own outstanding-use floor.
+std::mutex& sdlnetRefMutex()
+{
+	static std::mutex m;
+	return m;
+}
+int g_sdlnetRefs = 0; // guarded by sdlnetRefMutex()
+
 bool initCommon()
 {
+	std::lock_guard<std::mutex> lock(sdlnetRefMutex());
+	// sodium_init() is idempotent; keep it under the lock so the first-call
+	// initialization is never entered concurrently.
 	if (sodium_init() < 0)
 		return false;
-	if (SDLNet_Init() == -1)
-		return false;
+	if (g_sdlnetRefs == 0)
+	{
+		if (SDLNet_Init() == -1)
+			return false;
+	}
+	++g_sdlnetRefs;
 	return true;
 }
 
 void quitCommon()
 {
-	SDLNet_Quit();
+	std::lock_guard<std::mutex> lock(sdlnetRefMutex());
+	if (g_sdlnetRefs == 0)
+		return; // floor: never SDLNet_Quit() below our own init count
+	if (--g_sdlnetRefs == 0)
+		SDLNet_Quit();
 }
 
 bool validateCommon(const RendezvousClient::CommonConfig& cfg, std::string* error)
