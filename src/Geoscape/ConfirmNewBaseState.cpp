@@ -32,6 +32,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/Unicode.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -105,6 +106,26 @@ ConfirmNewBaseState::~ConfirmNewBaseState()
  */
 void ConfirmNewBaseState::btnOkClick(Action *)
 {
+	// PRD-J07 JOINT: the shared world is host-authoritative. Do NOT debit funds or
+	// push the base to getBases() here - both happen host-side in the base_new
+	// command that PlaceLiftState submits once the lift is placed. This screen only
+	// gates on cost (pre-check against the replica's authoritative funds) and, if
+	// affordable, proceeds to name + lift. The floating _base is a UI scratch object
+	// that carries lon/lat/name/lift into base_new; the authoritative base arrives
+	// via joint_apply.
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		if (_game->getSavedGame()->getFunds() >= _cost)
+		{
+			_game->pushState(new BaseNameState(_base, _globe, false, false));
+		}
+		else
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_MONEY"), _palette, _game->getMod()->getInterface("geoscape")->getElement("genericWindow")->color, "BACK01.SCR", _game->getMod()->getInterface("geoscape")->getElement("palette")->color));
+		}
+		return;
+	}
+
 	if (_game->getSavedGame()->getFunds() >= _cost)
 	{
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _cost);
@@ -115,6 +136,15 @@ void ConfirmNewBaseState::btnOkClick(Action *)
 	{
 		_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_MONEY"), _palette, _game->getMod()->getInterface("geoscape")->getElement("genericWindow")->color, "BACK01.SCR", _game->getMod()->getInterface("geoscape")->getElement("palette")->color));
 	}
+}
+
+/**
+ * Test automation: report whether the shared funds can afford this base
+ * (mirrors the JOINT btnOkClick cost gate; no side effects).
+ */
+bool ConfirmNewBaseState::harnessConfirm() const
+{
+	return _game->getSavedGame()->getFunds() >= _cost;
 }
 
 /**

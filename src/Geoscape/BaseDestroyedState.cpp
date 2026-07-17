@@ -35,6 +35,8 @@
 #include "../Basescape/SellState.h"
 #include "../Menu/ErrorMessageState.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -52,9 +54,11 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 			_game->popState();
 			return;
 		}
-		else
+		else if (!_game->getCoopMod()->isJointCampaign())
 		{
-
+			// SEPARATE mirror: broadcast the peer's base removal. JOINT instead
+			// broadcasts base_destroyed from btnOkClick (when the host actually
+			// removes the base) so host + replica erase the same index in lock-step.
 			Json::Value root;
 			root["state"] = "delete_base";
 			root["base_id"] = base->_coop_base_id;
@@ -188,14 +192,22 @@ void BaseDestroyedState::btnOkClick(Action *)
 		return;
 	}
 
-	for (auto xbaseIt = _game->getSavedGame()->getBases()->begin(); xbaseIt != _game->getSavedGame()->getBases()->end(); ++xbaseIt)
+	auto* bases = _game->getSavedGame()->getBases();
+	for (size_t i = 0; i < bases->size(); ++i)
 	{
-		Base* xbase = (*xbaseIt);
+		Base* xbase = bases->at(i);
 		if (xbase == _base)
 		{
+			// PRD-J07 JOINT: mirror the retaliation removal to replicas so every
+			// machine erases the same base index (keeps baseId routing in lock-step).
+			// Capture index + name BEFORE erasing; hostBaseDestroyed is a no-op
+			// unless this machine is the JOINT host.
+			std::string destroyedName = xbase->getName();
+			int baseId = (int)i;
 			_game->getSavedGame()->stopHuntingXcomCrafts(xbase); // destroyed together with the base
 			delete xbase;
-			_game->getSavedGame()->getBases()->erase(xbaseIt);
+			bases->erase(bases->begin() + i);
+			JointEcon::hostBaseDestroyed(_game, baseId, destroyedName);
 			break;
 		}
 	}

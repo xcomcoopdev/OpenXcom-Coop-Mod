@@ -95,6 +95,7 @@
 #include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Geoscape/BaseNameState.h"
+#include "../Geoscape/ConfirmNewBaseState.h"
 #include "../Geoscape/UfoDetectedState.h"
 #include "LobbyMenu.h"
 #include "HostMenu.h"
@@ -112,6 +113,10 @@
 #include "../Basescape/ResearchInfoState.h"
 #include "../Basescape/ManufactureState.h"
 #include "../Basescape/ManufactureInfoState.h"
+#include "../Basescape/PlaceFacilityState.h"
+#include "../Basescape/DismantleFacilityState.h"
+#include "../Basescape/SackSoldierState.h"
+#include "../Basescape/PlaceLiftState.h"
 #include "JointEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
@@ -598,6 +603,8 @@ std::string TestServer::execute(const std::string& line)
 						jf["type"] = f->getRules()->getType();
 						jf["x"] = f->getX();
 						jf["y"] = f->getY();
+						jf["sizeX"] = f->getRules()->getSizeX(); // PRD-J07
+						jf["sizeY"] = f->getRules()->getSizeY(); // PRD-J07
 						jf["buildTime"] = f->getBuildTime();
 						facilities.append(jf);
 					}
@@ -1917,6 +1924,182 @@ std::string TestServer::execute(const std::string& line)
 				sg->getBases()->push_back(b);
 				resp["baseCount"] = (int)sg->getBases()->size();
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "fac_build")
+		{
+			// PRD-J07: drive a facility build through the REAL PlaceFacilityState
+			// viewClick path at grid (<x>,<y>). In JOINT this emits a fac_build
+			// joint_cmd (nothing applied until joint_apply); solo/SEPARATE builds
+			// locally. <facility> = ruleset type, <base> = name (default first real).
+			std::string facType = req.get("facility", "").asString();
+			int x = req.get("x", -1).asInt();
+			int y = req.get("y", -1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			RuleBaseFacility* rule = _game->getMod()->getBaseFacility(facType, false);
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!rule)
+				resp["error"] = "unknown facility: " + facType;
+			else
+			{
+				PlaceFacilityState* pf = new PlaceFacilityState(target, rule);
+				_game->pushState(pf);
+				pf->harnessBuild(x, y); // real viewClick -> JOINT fac_build + popState
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "fac_dismantle")
+		{
+			// PRD-J07: drive a dismantle through the REAL DismantleFacilityState OK
+			// path for the facility at grid (<x>,<y>). JOINT-only harness lane: the
+			// JOINT branch emits fac_dismantle + pops before ever touching the view
+			// (passed null here; the SEPARATE/solo path needs a live BaseView).
+			int x = req.get("x", -1).asInt();
+			int y = req.get("y", -1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			BaseFacility* fac = nullptr;
+			if (target)
+				for (auto* f : *target->getFacilities())
+					if (f->getX() == x && f->getY() == y) { fac = f; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else if (!fac)
+				resp["error"] = "no facility at grid";
+			else if (!_game->getCoopMod()->isJointCampaign())
+				resp["error"] = "fac_dismantle hook is JOINT-only";
+			else
+			{
+				DismantleFacilityState* ds = new DismantleFacilityState(target, nullptr, fac);
+				_game->pushState(ds);
+				ds->harnessDismantle(); // real btnOkClick -> JOINT fac_dismantle + popState
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "sack")
+		{
+			// PRD-J07: drive a sack through the REAL SackSoldierState OK path.
+			// <soldierId> = the soldier's stable getId() (resolved to a roster index
+			// here). In JOINT this emits a sack joint_cmd (any player may sack any
+			// soldier); solo/SEPARATE runs the vanilla local path.
+			int soldierId = req.get("soldierId", -1).asInt();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			int idx = -1;
+			if (target)
+				for (size_t i = 0; i < target->getSoldiers()->size(); ++i)
+					if (target->getSoldiers()->at(i)->getId() == soldierId) { idx = (int)i; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else if (idx < 0)
+				resp["error"] = "soldier not found";
+			else
+			{
+				SackSoldierState* ss = new SackSoldierState(target, (size_t)idx);
+				_game->pushState(ss);
+				ss->harnessSack(); // real btnOkClick -> JOINT sack + popState
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "base_rename")
+		{
+			// PRD-J07: rename a base through the REAL BasescapeState edtBaseChange
+			// path (JOINT -> base_rename joint_cmd; SEPARATE -> changeBaseName).
+			// The state is constructed transiently (never pushed; the handler does
+			// not pop), matching the TransferItemsState harness idiom.
+			std::string baseName = req.get("base", "").asString();
+			std::string newName = req.get("name", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					                     : base->getName() == baseName)
+					{ target = base; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else if (newName.empty())
+				resp["error"] = "empty name";
+			else
+			{
+				BasescapeState* bs = new BasescapeState(target, nullptr);
+				bs->harnessRename(newName);
+				delete bs;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "build_new_base")
+		{
+			// PRD-J07: drive the FULL subsequent-base flow end-to-end through the
+			// real states: BuildNewBaseState (globe pick at <lon>,<lat>) ->
+			// ConfirmNewBaseState (cost gate; JOINT debits nothing locally) ->
+			// BaseNameState (<name>) -> PlaceLiftState (lift at <liftX>,<liftY>).
+			// In JOINT the lift click submits ONE base_new joint_cmd; the base
+			// materializes on both machines via joint_apply. Response carries the
+			// region base <cost> so the test can assert the exact single debit.
+			double lon = req.get("lon", 0.0).asDouble();
+			double lat = req.get("lat", 0.0).asDouble();
+			std::string name = req.get("name", "Joint Base").asString();
+			int liftX = req.get("liftX", 2).asInt();
+			int liftY = req.get("liftY", 2).asInt();
+			GeoscapeState* gs = findState<GeoscapeState>(_game);
+			if (!gs || !_game->getSavedGame())
+				resp["error"] = "no geoscape";
+			else
+			{
+				Base* b = new Base(_game->getMod());
+				BuildNewBaseState* build = new BuildNewBaseState(b, gs->getGlobe(), false);
+				_game->pushState(build);
+				if (!build->placeAt(lon, lat))
+				{
+					resp["error"] = "coordinates not on land";
+					_game->popState();
+					delete b;
+				}
+				else
+				{
+					ConfirmNewBaseState* conf = findState<ConfirmNewBaseState>(_game);
+					if (!conf)
+						resp["error"] = "no ConfirmNewBaseState";
+					else
+					{
+						resp["cost"] = conf->harnessCost();
+						resp["affordable"] = conf->harnessConfirm();
+						conf->btnOkClick(nullptr); // JOINT: no debit, pushes BaseNameState
+						BaseNameState* nameState = findState<BaseNameState>(_game);
+						if (!nameState)
+							resp["error"] = "no BaseNameState (not enough money?)";
+						else
+						{
+							nameState->setNameAndConfirm(name); // pops name+confirm+build, pushes PlaceLiftState
+							PlaceLiftState* lift = findState<PlaceLiftState>(_game);
+							if (!lift)
+								resp["error"] = "no PlaceLiftState";
+							else
+							{
+								bool ok = lift->harnessPlaceLift(liftX, liftY); // JOINT: base_new + pop
+								resp["ok"] = ok;
+								if (!ok) resp["error"] = "no access lift available";
+							}
+						}
+					}
+				}
 			}
 		}
 		else if (cmd == "joint_cmd")

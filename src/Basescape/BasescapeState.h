@@ -95,6 +95,8 @@ public:
 	void edtBaseChange(Action *action);
 	/// Handler for pressing a base selection hotkey.
 	void handleKeyPress(Action *action);
+	/// Test automation: rename the displayed base via the real edtBaseChange path.
+	void harnessRename(const std::string &name);
 };
 
 }

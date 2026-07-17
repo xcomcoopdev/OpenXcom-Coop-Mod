@@ -34,6 +34,8 @@
 #include "../Engine/Options.h"
 #include "../Engine/Unicode.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -155,6 +157,16 @@ PlaceFacilityState::~PlaceFacilityState()
 void PlaceFacilityState::btnCancelClick(Action *)
 {
 	_game->popState();
+}
+
+/**
+ * Test automation: drive a facility placement at grid (x,y) through the real
+ * viewClick path (JOINT -> fac_build joint_cmd; SEPARATE/solo -> local build).
+ */
+void PlaceFacilityState::harnessBuild(int x, int y)
+{
+	_view->setGridPosition(x, y);
+	viewClick(nullptr);
 }
 
 /**
@@ -303,6 +315,27 @@ void PlaceFacilityState::viewClick(Action *)
 					return;
 				}
 			}
+			// PRD-J07 JOINT: the shared world is host-authoritative. Placement +
+			// funds + items pass-checks above ran read-only for immediate UX; here
+			// we mutate NOTHING locally and emit a fac_build joint_cmd. The host
+			// re-validates (the vanilla validity re-check is the tile-conflict
+			// guard) then debits + adds the facility + broadcasts joint_apply.
+			if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+			{
+				int baseId = 0;
+				auto* bases = _game->getSavedGame()->getBases();
+				for (size_t i = 0; i < bases->size(); ++i)
+					if (bases->at(i) == _base) { baseId = (int)i; break; }
+				Json::Value payload;
+				payload["facilityType"] = _rule->getType();
+				payload["x"] = _view->getGridX();
+				payload["y"] = _view->getGridY();
+				JointEcon::submitLocalCmd(_game, "fac_build", baseId, payload);
+				if (!_game->isShiftPressed())
+					_game->popState();
+				return;
+			}
+
 			// Remove any facilities we're building over
 			double reducedBuildTime = 0.0;
 			bool buildingOver = false;
@@ -388,8 +421,8 @@ void PlaceFacilityState::viewClick(Action *)
 				_game->popState();
 			}
 
-			// COOP
-			if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+			// COOP (SEPARATE mirror only; JOINT rides the fac_build joint_cmd above)
+			if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
 			{
 
 				Json::Value root;

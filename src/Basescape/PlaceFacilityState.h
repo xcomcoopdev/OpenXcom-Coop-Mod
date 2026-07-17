@@ -54,6 +54,8 @@ public:
 	void btnCancelClick(Action *action);
 	/// Handler for clicking the base view.
 	void viewClick(Action *action);
+	/// Test automation: place the facility at grid (x,y) via the real viewClick path.
+	void harnessBuild(int x, int y);
 };
 
 }

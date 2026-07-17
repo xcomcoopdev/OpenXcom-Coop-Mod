@@ -3422,6 +3422,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// delete_base
 	if (stateString == "delete_base")
 	{
+		// PRD-J07: SEPARATE-only mirror machinery. In JOINT base removal rides the
+		// fac_dismantle / base_destroyed joint_apply (keeps base indices in
+		// lock-step); a stray delete_base would match a REAL base's random
+		// _coop_base_id and desync every index-routed command.
+		if (isJointCampaign())
+		{
+			return;
+		}
 
 		int base_id = obj["base_id"].asInt();
 
@@ -3802,6 +3810,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// CHANGE THE BASE NAME
 	if (stateString == "changeBaseName")
 	{
+		// PRD-J07: SEPARATE-only (renames a _coopIcon mirror + the basehost memory
+		// blob). JOINT renames ride the base_rename joint_apply.
+		if (isJointCampaign())
+		{
+			return;
+		}
 
 		std::string old_name = obj["oldName"].asString();
 		std::string new_name = obj["newName"].asString();
@@ -4589,8 +4603,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "place_facility")
 	{
-
-		if (playerInsideCoopBase == true)
+		// PRD-J07: SEPARATE-only mirror markers; JOINT builds ride fac_build.
+		if (playerInsideCoopBase == true && !isJointCampaign())
 		{
 
 			_coopFacility.append(obj);
@@ -4601,8 +4615,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "dismantle_facility")
 	{
-
-		if (playerInsideCoopBase == true)
+		// PRD-J07: SEPARATE-only mirror markers; JOINT rides fac_dismantle.
+		if (playerInsideCoopBase == true && !isJointCampaign())
 		{
 
 			_deleteCoopFacility.append(obj);
@@ -8336,6 +8350,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// new base icon
 	if (stateString == "new_base")
 	{
+		// PRD-J07 (extending the J02 fence list): SEPARATE-only mirror machinery -
+		// creates a _coopIcon marker base. JOINT base creation rides the base_new
+		// joint_apply, which appends the REAL base on every machine.
+		if (isJointCampaign())
+		{
+			return;
+		}
 
 		std::string s_lon = obj["markers"]["lon"].asString();
 		std::string s_lan = obj["markers"]["lan"].asString();

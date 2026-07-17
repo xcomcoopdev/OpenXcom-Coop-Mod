@@ -51,6 +51,10 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
+	/// Test automation: whether the shared funds can afford this base (JOINT gate).
+	bool harnessConfirm() const;
+	/// Test automation: the region base cost this screen would charge.
+	int harnessCost() const { return _cost; }
 };
 
 }

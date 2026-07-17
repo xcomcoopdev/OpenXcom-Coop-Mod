@@ -31,6 +31,9 @@
 
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Savegame/SavedGame.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -108,6 +111,23 @@ void SackSoldierState::btnOkClick(Action *)
 
 	Soldier* soldier = _base->getSoldiers()->at(_soldierId);
 
+	// PRD-J07 JOINT: any player may sack any soldier (shared roster). Emit a sack
+	// joint_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
+	// validates + removes + broadcasts joint_apply (replaces all the SEPARATE
+	// peer-base save juggling below).
+	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if (bases->at(i) == _base) { baseId = (int)i; break; }
+		Json::Value payload;
+		payload["soldierId"] = soldier->getId();
+		JointEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		_game->popState();
+		return;
+	}
+
 	// coop campaign
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
@@ -143,7 +163,7 @@ void SackSoldierState::btnOkClick(Action *)
 			}
 
 
-			// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
+			// Lisï¿½tï¿½ï¿½n uudet sotilaat ensimmï¿½isen tukikohdan sotilaslistaan
 			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
 
 			soldier->setCoopCraft(-1);

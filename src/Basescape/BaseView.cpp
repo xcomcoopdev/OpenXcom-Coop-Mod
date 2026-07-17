@@ -177,6 +177,20 @@ int BaseView::getGridY() const
 }
 
 /**
+ * Sets the grid square directly (JOINT co-op): the host validates/applies a
+ * client-originated facility placement (fac_build) without a mouse, on a
+ * transient BaseView, so getPlacementError()/isQueuedBuilding() work exactly as
+ * the interactive path. No rendering is involved.
+ * @param x X position on the grid.
+ * @param y Y position on the grid.
+ */
+void BaseView::setGridPosition(int x, int y)
+{
+	_gridX = x;
+	_gridY = y;
+}
+
+/**
  * If enabled, the base view will respond to player input,
  * highlighting the selected facility.
  * @param size Facility length (0 disables it).

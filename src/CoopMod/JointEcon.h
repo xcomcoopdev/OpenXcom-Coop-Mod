@@ -161,6 +161,11 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 /// per-soldier wound-recovery values for CHANGED soldiers only.
 void hostDayTick(Game* game);
 
+/// PRD-J07: a base was destroyed by retaliation on the host (it already removed
+/// the base in BaseDestroyedState). Mirror the removal to replicas (they erase the
+/// same base index + pop a popup). @a baseId = the destroyed base's index.
+void hostBaseDestroyed(Game* game, int baseId, const std::string& name);
+
 // ---- PRD-J04: lightweight world checksum (log-only desync detect) ------------
 // Repair is PRD-J10; here the host stamps funds + base count + discovered-tech
 // count onto an outgoing snapshot and the replica logs a warning on mismatch.

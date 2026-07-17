@@ -31,6 +31,8 @@
 #include "BaseView.h"
 #include "../Mod/RuleBaseFacility.h"
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -127,6 +129,26 @@ DismantleFacilityState::~DismantleFacilityState()
  */
 void DismantleFacilityState::btnOkClick(Action *)
 {
+	// PRD-J07 JOINT: shared world is host-authoritative. Emit a fac_dismantle
+	// joint_cmd (keyed by the facility's grid position) and mutate NOTHING locally;
+	// the host re-validates (facility exists, not in use per vanilla), applies the
+	// refund + removal (or removes the whole base if this is the access lift), and
+	// broadcasts joint_apply. Replaces the SEPARATE dismantle_facility/delete_base
+	// packets below.
+	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if (bases->at(i) == _base) { baseId = (int)i; break; }
+		Json::Value payload;
+		payload["x"] = _fac->getX();
+		payload["y"] = _fac->getY();
+		JointEcon::submitLocalCmd(_game, "fac_dismantle", baseId, payload);
+		_game->popState();
+		return;
+	}
+
 	if (!_fac->getRules()->isLift())
 	{
 		const std::map<std::string, std::pair<int, int> > &itemCost = _fac->getRules()->getBuildCostItems();
@@ -161,8 +183,8 @@ void DismantleFacilityState::btnOkClick(Action *)
 			if (*facIt == _fac)
 			{
 
-				// COOP
-				if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+				// COOP (SEPARATE mirror only; JOINT rides fac_dismantle above)
+				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
 				{
 
 					Json::Value root;
@@ -256,8 +278,8 @@ void DismantleFacilityState::btnOkClick(Action *)
 			if (*xbaseIt == _base)
 			{
 
-				// coop
-				if (_game->getCoopMod()->getCoopStatic() == true)
+				// coop (SEPARATE mirror only; JOINT rides fac_dismantle above)
+				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign())
 				{
 
 					Json::Value root;

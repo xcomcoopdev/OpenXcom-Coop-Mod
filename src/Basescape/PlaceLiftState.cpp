@@ -36,6 +36,8 @@
 #include "../Mod/RuleInterface.h"
 #include "../Geoscape/Globe.h"
 #include "../Mod/RuleGlobe.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -146,6 +148,19 @@ PlaceLiftState::~PlaceLiftState()
  */
 void PlaceLiftState::viewClick(Action *)
 {
+	// PRD-J07 JOINT: a SUBSEQUENT base is created host-authoritatively. Instead of
+	// mutating the floating _base + pushing markers, submit ONE base_new command
+	// carrying lon/lat/name/lift so the host builds the whole base atomically
+	// (same coopbaseid, name, lift position, funds debited once) and broadcasts it.
+	// The initial campaign base (_first) is J02's and stays the local/streamed path.
+	if (_game->getCoopMod()->isJointCampaign() && !_first)
+	{
+		submitJointNewBase(_view->getGridX(), _view->getGridY());
+		delete _base; // floating UI scratch base, never added to getBases()
+		_game->popState();
+		return;
+	}
+
 	BaseFacility *fac = new BaseFacility(_lift, _base);
 	fac->setX(_view->getGridX());
 	fac->setY(_view->getGridY());
@@ -163,8 +178,8 @@ void PlaceLiftState::viewClick(Action *)
 		_game->pushState(new SelectStartFacilityState(_base, bState, _globe));
 	}
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	// coop (SEPARATE mirror markers only; JOINT rides the base_new joint_cmd above)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign())
 	{
 
 		// BASE
@@ -224,6 +239,42 @@ void PlaceLiftState::lstAccessLiftsClick(Action *action)
 		_view->setSelectable(_lift->getSizeX(), _lift->getSizeY());
 		_view->onMouseClick((ActionHandler)&PlaceLiftState::viewClick);
 	}
+}
+
+/**
+ * PRD-J07 JOINT: emit the base_new joint_cmd for a subsequent base. baseId = -1
+ * (no existing base); the host validates funds + region, creates the base (minting
+ * a coopbaseid it serializes into the broadcast), places the access lift, debits
+ * the region cost once, and appends the base at the same index on every machine.
+ */
+void PlaceLiftState::submitJointNewBase(int x, int y)
+{
+	if (!_lift)
+		_lift = _accessLifts.empty() ? nullptr : _accessLifts.front();
+	if (!_lift) return;
+	Json::Value payload;
+	payload["lon"] = _base->getLongitude();
+	payload["lat"] = _base->getLatitude();
+	payload["name"] = _base->getName();
+	payload["fakeUnderwater"] = _base->isFakeUnderwater();
+	payload["liftType"] = _lift->getType();
+	payload["liftX"] = x;
+	payload["liftY"] = y;
+	JointEcon::submitLocalCmd(_game, "base_new", -1, payload);
+}
+
+/**
+ * Test automation: pick the (front) access lift and place it at grid (x,y) via
+ * the REAL viewClick path (JOINT -> base_new joint_cmd + pop this state;
+ * SEPARATE/solo -> local build). Returns false if no access lift is available.
+ */
+bool PlaceLiftState::harnessPlaceLift(int x, int y)
+{
+	if (!_lift && !_accessLifts.empty()) _lift = _accessLifts.front();
+	if (!_lift) return false;
+	_view->setGridPosition(x, y);
+	viewClick(nullptr);
+	return true;
 }
 
 }

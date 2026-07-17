@@ -31,8 +31,10 @@
 
 #include "../Engine/Game.h"
 #include "../Engine/Language.h"
+#include "../Engine/LocalizedText.h"
 #include "../Engine/Logger.h"
 #include "../Engine/Options.h"
+#include "../Engine/Screen.h"
 #include "../Engine/RNG.h"
 #include "../Engine/State.h"
 #include "../Engine/Yaml.h"
@@ -44,9 +46,13 @@
 #include "../Mod/RuleManufacture.h"
 #include "../Mod/Unit.h"
 #include "../Mod/Armor.h"
+#include "../Mod/RuleBaseFacility.h"
+#include "../Mod/RuleRegion.h"
+#include "../Mod/RuleInterface.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
+#include "../Savegame/Region.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Transfer.h"
@@ -55,9 +61,11 @@
 #include "../Savegame/Production.h"
 
 #include <cmath>
+#include "../Basescape/BaseView.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/ProductionCompleteState.h"
+#include "../Menu/ErrorMessageState.h"
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -1045,6 +1053,396 @@ void manCancelApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	base->removeProduction(p); // frees engineers, deletes the Production
 }
 
+// ---- PRD-J07: facilities, rename, sack, new base, base destroyed -------------
+// Shared-base construction/management via joint_cmd. baseId = index into
+// getBases() (load-bearing: every command routes by it and base add/remove rides
+// joint_apply so host and replicas keep the index in lock-step).
+
+// A transient, headless BaseView so the host validates/applies facility placement
+// EXACTLY as the interactive PlaceFacilityState does (connectivity/overlap rules,
+// build queue), without a mouse. Caller deletes it.
+BaseView* makeGridView(Base* base, int x, int y)
+{
+	BaseView* v = new BaseView(192, 192, 0, 8);
+	v->setBase(base);
+	v->setGridPosition(x, y);
+	return v;
+}
+
+// Accumulate the funds refund + item refunds that placing @a rule at (x,y) would
+// yield by building over the facilities it intersects - byte-identical to
+// PlaceFacilityState::viewClick's removal loop, but WITHOUT mutating (validator
+// side). Funds ride the protocol cost; items are re-derived by the applier.
+void accumulateBuildOverRefunds(Game* game, Base* base, const RuleBaseFacility* rule,
+                                int gridX, int gridY, int64_t& refundValue,
+                                std::map<std::string, int>& refundItems)
+{
+	refundValue = 0;
+	const BaseAreaSubset area = BaseAreaSubset(rule->getSizeX(), rule->getSizeY()).offset(gridX, gridY);
+	for (int i = (int)base->getFacilities()->size() - 1; i >= 0; --i)
+	{
+		BaseFacility* over = base->getFacilities()->at(i);
+		if (!BaseAreaSubset::intersection(area, over->getPlacement())) continue;
+		const auto& itemCost = over->getRules()->getBuildCostItems();
+		if (over->getBuildTime() > over->getRules()->getBuildTime())
+		{
+			refundValue += over->getRules()->getBuildCost();
+			for (auto& it : itemCost) refundItems[it.first] += it.second.first;
+		}
+		else
+		{
+			refundValue += over->getRules()->getRefundValue();
+			for (auto& it : itemCost) refundItems[it.first] += it.second.second;
+		}
+		if (over->getAmmo() > 0)
+			refundItems[over->getRules()->getAmmoItem()->getType()] += over->getAmmo();
+	}
+	(void)game;
+}
+
+// fac_build payload: { facilityType:<ruleName>, x, y }. Client-originated START of
+// a facility build (analogous to man_start). Host re-validates placement + funds +
+// items against the live world; the vanilla validity re-check IS the tile-conflict
+// guard (two players targeting the same tiles -> loser gets joint_fail).
+bool facBuildValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+	RuleBaseFacility* rule = mod->getBaseFacility(payload.get("facilityType", "").asString(), false);
+	if (!rule) { failReason = "unknown facility"; return false; }
+	// Buildability gates (BuildFacilitiesState/PlaceLiftState list filters).
+	if (!save->isResearched(rule->getRequirements()))
+		{ failReason = "facility not researched"; return false; }
+	if (!rule->isAllowedForBaseType(base->isFakeUnderwater()))
+		{ failReason = "facility not allowed for base type"; return false; }
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+
+	BaseView* v = makeGridView(base, x, y);
+	BasePlacementErrors err = v->getPlacementError(rule);
+	delete v;
+	if (err != BPE_None) { failReason = "STR_CANNOT_BUILD_HERE"; return false; }
+
+	int64_t refundValue = 0;
+	std::map<std::string, int> refundItems;
+	accumulateBuildOverRefunds(game, base, rule, x, y, refundValue, refundItems);
+
+	int64_t net = (int64_t)rule->getBuildCost() - refundValue;
+	if (save->getFunds() < net) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	for (const auto& item : rule->getBuildCostItems())
+	{
+		int needed = (item.second.first - refundItems[item.first]) - base->getStorageItems()->getItem(item.first);
+		if (needed > 0) { failReason = "STR_NOT_ENOUGH_ITEMS"; return false; }
+	}
+	cost = net; // net debit (build cost minus build-over refunds); funds via protocol
+	return true;
+}
+
+void facBuildApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	RuleBaseFacility* rule = mod->getBaseFacility(payload.get("facilityType", "").asString(), false);
+	if (!rule) return;
+	int gridX = payload.get("x", -1).asInt();
+	int gridY = payload.get("y", -1).asInt();
+
+	BaseView* view = makeGridView(base, gridX, gridY);
+
+	// Remove any facilities we're building over (refunding items only; funds are the
+	// protocol's job, resolved into the command cost). Mirrors PlaceFacilityState.
+	double reducedBuildTime = 0.0;
+	bool buildingOver = false;
+	const BaseAreaSubset areaToBuildOver = BaseAreaSubset(rule->getSizeX(), rule->getSizeY()).offset(gridX, gridY);
+	for (int i = (int)base->getFacilities()->size() - 1; i >= 0; --i)
+	{
+		BaseFacility* checkFacility = base->getFacilities()->at(i);
+		if (!BaseAreaSubset::intersection(areaToBuildOver, checkFacility->getPlacement())) continue;
+		const auto& itemCost = checkFacility->getRules()->getBuildCostItems();
+		if (checkFacility->getBuildTime() > checkFacility->getRules()->getBuildTime())
+		{
+			for (auto& item : itemCost)
+				base->getStorageItems()->addItem(mod->getItem(item.first, true), item.second.first);
+		}
+		else
+		{
+			for (auto& item : itemCost)
+				base->getStorageItems()->addItem(mod->getItem(item.first, true), item.second.second);
+			double oldSizeSquared = (checkFacility->getRules()->getSizeX() * checkFacility->getRules()->getSizeY());
+			double newSizeSquared = (rule->getSizeX() * rule->getSizeY());
+			reducedBuildTime += (checkFacility->getRules()->getBuildTime() - checkFacility->getBuildTime()) * oldSizeSquared / newSizeSquared;
+			if (checkFacility->getBuildTime() == 0) buildingOver = true;
+		}
+		if (checkFacility->getAmmo() > 0)
+		{
+			base->getStorageItems()->addItem(checkFacility->getRules()->getAmmoItem(), checkFacility->getAmmo());
+			checkFacility->setAmmo(0);
+		}
+		base->getFacilities()->erase(base->getFacilities()->begin() + i);
+		delete checkFacility;
+	}
+
+	BaseFacility* fac = new BaseFacility(rule, base);
+	fac->setX(gridX);
+	fac->setY(gridY);
+	fac->setBuildTime(rule->getBuildTime());
+	if (buildingOver)
+	{
+		fac->setIfHadPreviousFacility(true);
+		reducedBuildTime = reducedBuildTime * mod->getBuildTimeReductionScaling() / 100.0;
+		int reducedBuildTimeRounded = (int)std::round(reducedBuildTime);
+		fac->setBuildTime(std::max(1, fac->getBuildTime() - reducedBuildTimeRounded));
+	}
+	base->getFacilities()->push_back(fac);
+	if (Options::allowBuildingQueue)
+	{
+		if (view->isQueuedBuilding(rule)) fac->setBuildTime(INT_MAX);
+		view->reCalcQueuedBuildings();
+	}
+	// Debit the build-cost items (funds handled by the protocol).
+	for (const auto& item : rule->getBuildCostItems())
+		base->getStorageItems()->removeItem(item.first, item.second.first);
+	delete view;
+}
+
+// fac_dismantle payload: { x, y }. Dismantle the facility at (x,y). If it is the
+// access lift (last facility), the whole base is removed - both cases ride
+// joint_apply so the base-index stays in lock-step. Refund funds ride the cost.
+bool facDismantleValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                          int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+	BaseFacility* fac = nullptr;
+	for (auto* f : *base->getFacilities())
+		if (f->getX() == x && f->getY() == y) { fac = f; break; }
+	if (!fac) { failReason = "facility not found"; return false; }
+
+	if (fac->getRules()->isLift())
+	{
+		// dismantling the access lift removes the whole base; no refund (vanilla).
+		cost = 0;
+		return true;
+	}
+	// Re-run the vanilla dismantle-ability guards (BasescapeState checked them before
+	// opening the dialog; re-check on the host in case the world changed).
+	if (fac->inUse()) { failReason = "STR_FACILITY_IN_USE"; return false; }
+	if (!base->getDisconnectedFacilities(fac).empty() && fac->getRules()->getLeavesBehindOnSell().empty())
+		{ failReason = "STR_CANNOT_DISMANTLE_FACILITY"; return false; }
+	if (fac->getBuildTime() > 0 && fac->getIfHadPreviousFacility())
+		{ failReason = "STR_CANNOT_DISMANTLE_FACILITY_UPGRADING"; return false; }
+
+	// Refund (credit): full if a not-yet-started queued build, else partial.
+	int64_t refund = (fac->getBuildTime() > fac->getRules()->getBuildTime())
+		? fac->getRules()->getBuildCost() : fac->getRules()->getRefundValue();
+	cost = -refund; // negative debit = credit; a negative refund becomes an expense
+	return true;
+}
+
+void facDismantleApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Mod* mod = game->getMod();
+	SavedGame* save = game->getSavedGame();
+	if (!mod || !save) return;
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+	BaseFacility* fac = nullptr;
+	for (auto* f : *base->getFacilities())
+		if (f->getX() == x && f->getY() == y) { fac = f; break; }
+	if (!fac) return;
+
+	if (fac->getRules()->isLift())
+	{
+		// Remove the whole base (index lock-step: both host and replica erase the
+		// same index; subsequent bases shift identically).
+		auto* bases = save->getBases();
+		for (auto it = bases->begin(); it != bases->end(); ++it)
+			if (*it == base) { save->stopHuntingXcomCrafts(base); bases->erase(it); delete base; break; }
+		return;
+	}
+
+	// Item refund (funds ride the protocol credit): full if queued, else partial.
+	const auto& itemCost = fac->getRules()->getBuildCostItems();
+	if (fac->getBuildTime() > fac->getRules()->getBuildTime())
+		for (auto& pair : itemCost) base->getStorageItems()->addItem(mod->getItem(pair.first, true), pair.second.first);
+	else
+		for (auto& pair : itemCost) base->getStorageItems()->addItem(mod->getItem(pair.first, true), pair.second.second);
+	if (fac->getAmmo() > 0)
+	{
+		base->getStorageItems()->addItem(fac->getRules()->getAmmoItem(), fac->getAmmo());
+		fac->setAmmo(0);
+	}
+
+	for (auto facIt = base->getFacilities()->begin(); facIt != base->getFacilities()->end(); ++facIt)
+	{
+		if (*facIt != fac) continue;
+		base->getFacilities()->erase(facIt);
+		// Leaves-behind facilities (mods): mirror PlaceFacilityState's rules exactly.
+		if (fac->getBuildTime() == 0 && !fac->getRules()->getLeavesBehindOnSell().empty())
+		{
+			const auto& facList = fac->getRules()->getLeavesBehindOnSell();
+			if (facList.at(0)->getSizeX() == fac->getRules()->getSizeX() && facList.at(0)->getSizeY() == fac->getRules()->getSizeY())
+			{
+				BaseFacility* nf = new BaseFacility(facList.at(0), base);
+				nf->setX(fac->getX());
+				nf->setY(fac->getY());
+				nf->setBuildTime(fac->getRules()->getRemovalTime() <= -1 ? nf->getRules()->getBuildTime() : fac->getRules()->getRemovalTime());
+				if (nf->getBuildTime() != 0) nf->setIfHadPreviousFacility(true);
+				base->getFacilities()->push_back(nf);
+			}
+			else
+			{
+				size_t j = 0;
+				for (int ny = fac->getY(); ny != fac->getY() + fac->getRules()->getSizeY(); ++ny)
+					for (int nx = fac->getX(); nx != fac->getX() + fac->getRules()->getSizeX(); ++nx)
+					{
+						BaseFacility* nf = new BaseFacility(facList.at(j), base);
+						nf->setX(nx);
+						nf->setY(ny);
+						nf->setBuildTime(fac->getRules()->getRemovalTime() <= -1 ? nf->getRules()->getBuildTime() : fac->getRules()->getRemovalTime());
+						if (nf->getBuildTime() != 0) nf->setIfHadPreviousFacility(true);
+						base->getFacilities()->push_back(nf);
+						if (++j == facList.size()) j = 0;
+					}
+			}
+		}
+		delete fac;
+		if (Options::allowBuildingQueue)
+		{
+			BaseView* view = makeGridView(base, x, y);
+			view->reCalcQueuedBuildings();
+			delete view;
+		}
+		break;
+	}
+}
+
+// base_rename payload: { name }. Replaces the SEPARATE changeBaseName packet in
+// JOINT; host applies + broadcasts (last-write-wins).
+bool baseRenameValidate(Game* /*game*/, const Json::Value& /*payload*/, Base* base, int /*seat*/,
+                        int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	cost = 0;
+	return true;
+}
+void baseRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	base->setName(payload.get("name", base->getName()).asString());
+}
+
+// sack payload: { soldierId }. Policy: ANY player may sack ANY soldier (shared
+// roster management, consistent with J05 sell). No refund (vanilla).
+bool sackValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                  int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	int id = payload.get("soldierId", -1).asInt();
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) { cost = 0; return true; }
+	failReason = "soldier not found";
+	return false;
+}
+void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	int id = payload.get("soldierId", -1).asInt();
+	for (auto it = base->getSoldiers()->begin(); it != base->getSoldiers()->end(); ++it)
+	{
+		Soldier* s = *it;
+		if (s->getId() != id) continue;
+		if (s->getArmor()->getStoreItem())
+			base->getStorageItems()->addItem(s->getArmor()->getStoreItem());
+		base->getSoldiers()->erase(it);
+		delete s;
+		break;
+	}
+}
+
+// base_new payload: { lon, lat, name, liftType, liftX, liftY } (+ host-resolved
+// coopbaseid). Client-originated creation of a SUBSEQUENT base (the initial
+// campaign base is J02's, host-side pre-stream). baseId is -1 (no existing base);
+// the applier appends the new base at the SAME index on host and every replica so
+// the index stays in lock-step. Host debits the region base cost once.
+bool baseNewValidate(Game* game, const Json::Value& payload, Base* /*base*/, int /*seat*/,
+                     int64_t& cost, std::string& failReason)
+{
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) { failReason = "no world"; return false; }
+	double lon = payload.get("lon", 0.0).asDouble();
+	double lat = payload.get("lat", 0.0).asDouble();
+	int regionCost = -1;
+	for (const auto* region : *save->getRegions())
+		if (region->getRules()->insideRegion(lon, lat)) { regionCost = region->getRules()->getBaseCost(); break; }
+	if (regionCost < 0) { failReason = "no region for base"; return false; }
+	if (!mod->getBaseFacility(payload.get("liftType", "").asString(), false))
+		{ failReason = "unknown access lift"; return false; }
+	if (save->getFunds() < regionCost) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	cost = regionCost;
+	return true;
+}
+
+void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+
+	Base* nb = new Base(mod); // ctor random-mints _coop_base_id
+	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
+	nb->setLongitude(payload.get("lon", 0.0).asDouble());
+	nb->setLatitude(payload.get("lat", 0.0).asDouble());
+	nb->setName(payload.get("name", "").asString());
+	nb->calculateServices(save);
+
+	// coopbaseid: host mints (already done by the ctor); serialize into the payload
+	// so replicas adopt the SAME id (the buy-soldier host-RNG-into-payload pattern).
+	if (connectionTCP::getHost() && !payload.isMember("coopbaseid"))
+		payload["coopbaseid"] = nb->_coop_base_id;
+	else if (payload.isMember("coopbaseid"))
+		nb->_coop_base_id = payload["coopbaseid"].asInt();
+
+	RuleBaseFacility* liftRule = mod->getBaseFacility(payload.get("liftType", "").asString(), false);
+	if (liftRule)
+	{
+		BaseFacility* lift = new BaseFacility(liftRule, nb); // default buildTime 0 = instant
+		lift->setX(payload.get("liftX", 0).asInt());
+		lift->setY(payload.get("liftY", 0).asInt());
+		nb->getFacilities()->push_back(lift);
+	}
+	nb->calculateServices(save);
+	save->getBases()->push_back(nb);
+}
+
+// base_destroyed payload: { name } (baseId = index of the destroyed base). Host
+// simulates retaliation (J04) and removes the base in BaseDestroyedState; this
+// mirrors the removal to replicas (applier runs REPLICA-ONLY: the host already
+// erased the base) and pops an informational popup.
+void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // host already removed it in BaseDestroyedState
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	if (!save) return;
+	std::string name = payload.get("name", base->getName()).asString();
+	auto* bases = save->getBases();
+	for (auto it = bases->begin(); it != bases->end(); ++it)
+		if (*it == base) { save->stopHuntingXcomCrafts(base); bases->erase(it); delete base; break; }
+	auto* itf = game->getMod()->getInterface("geoscape");
+	game->pushState(new ErrorMessageState(
+		game->getLanguage()->getString("STR_THE_ALIENS_HAVE_DESTROYED_THE_UNDEFENDED_BASE").arg(name),
+		game->getScreen()->getPalette(),
+		itf->getElement("genericWindow")->color, "BACK01.SCR", itf->getElement("palette")->color));
+}
+
 // ---- PRD-J04: host simulation-result commands --------------------------------
 // These mirror a host-only completion to replicas. The host has ALREADY applied
 // the change via vanilla sim, so:
@@ -1368,7 +1766,11 @@ void processApply(Game* game, const Json::Value& ap)
 	Base* base = resolveBase(game, ap.get("baseId", -1).asInt());
 	auto& reg = registry();
 	auto hit = reg.find(cmd);
-	if (hit == reg.end() || !base) return; // healthy host never broadcasts this
+	// NOTE: no "!base" early-return here. A creation command (base_new) carries
+	// baseId=-1 (no existing base) and its applier ignores @a base; every OTHER
+	// applier already null-guards @a base itself (if (!base) return;), so passing a
+	// null base straight through is safe and keeps base creation working on replicas.
+	if (hit == reg.end()) return;
 
 	// Mutable copy for the applier signature; the replica only READS the resolved
 	// payload (host already resolved any RNG before broadcasting).
@@ -1401,6 +1803,14 @@ void init()
 	registerCmd("man_start",   &manStartValidate,    &manStartApply);
 	registerCmd("man_alloc",   &manAllocValidate,    &manAllocApply);
 	registerCmd("man_cancel",  &manCancelValidate,   &manCancelApply);
+	// PRD-J07 facilities / bases (client -> host mutation requests).
+	registerCmd("fac_build",     &facBuildValidate,     &facBuildApply);
+	registerCmd("fac_dismantle", &facDismantleValidate, &facDismantleApply);
+	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
+	registerCmd("sack",          &sackValidate,         &sackApply);
+	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
+	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
+	registerCmd("base_destroyed", &simAccept, &baseDestroyedApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -1617,6 +2027,14 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived)
 	Json::Value p;
 	p["arrived"] = arrived;
 	submitLocalCmd(game, "transfer_arrived", baseId, p);
+}
+
+void hostBaseDestroyed(Game* game, int baseId, const std::string& name)
+{
+	if (!jointHost(game)) return;
+	Json::Value p;
+	p["name"] = name;
+	submitLocalCmd(game, "base_destroyed", baseId, p);
 }
 
 void hostDayTick(Game* game)
