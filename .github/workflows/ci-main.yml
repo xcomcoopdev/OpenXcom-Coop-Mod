@@ -237,6 +237,21 @@ jobs:
           body_path: ${{ needs.build.outputs.channel == 'release' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ needs.build.outputs.channel != 'release' }}
 
+      - name: Strip auto-generated 'New Contributors' from nightly notes
+        if: needs.build.outputs.channel == 'nightly'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # "New Contributors" is meaningless on a rolling tag: GitHub recomputes it each
+          # run against a shifting base (the last release tag) and flags even the original
+          # dev as "new". Remove that section, keeping "## What's Changed" + "Full Changelog".
+          $body  = gh release view nightly --repo "$env:GITHUB_REPOSITORY" --json body --jq '.body'
+          $clean = [regex]::Replace($body, "(?s)\r?\n?## New Contributors\r?\n(?:\*.*\r?\n?)*?(?=\r?\n?\*\*Full Changelog\*\*)", "`n")
+          Set-Content nightly-notes.md $clean -Encoding utf8
+          gh release edit nightly --repo "$env:GITHUB_REPOSITORY" --notes-file nightly-notes.md
+          Write-Host "Stripped 'New Contributors' from nightly notes"
+
   # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Runs after
   # the publish job creates the release, then attaches its zip as an extra asset.
   # (Folded in from the old build-mxe.yml/build-winxp.yml - one unified CI.)
