@@ -92,11 +92,13 @@ def main(outdir):
         shot("04_msg_confirm.png")
         reset()
 
-        # 05 summary: run the REAL runner over the dual pair. execute() overwrites
-        #    dual_host.sav + writes a backup, so restage a fresh legacy fixture first.
+        # 05 summary: run the REAL runner over the STRONG pair - its report carries the
+        #    stale-link reset detail lines, so the list overflows and the scrollbar
+        #    appears. The plain dual pair reports too few lines to exercise either.
+        #    execute() overwrites the host fixture + writes a backup, so restage first.
         synth.write_all(xcom1)
-        gc.ok({"cmd": "upgrade_show", "state": "summary", "host": "dual_host.sav",
-               "client": "dual_client.sav", "clientName": "ClientPlayer", "hostName": "HostPlayer"})
+        gc.ok({"cmd": "upgrade_show", "state": "summary", "host": "dual_host_strong.sav",
+               "client": "dual_client_strong.sav", "clientName": "ClientPlayer", "hostName": "HostPlayer"})
         gc.wait_for("summary state", lambda: session.has_state(gc, "SaveUpgradeSummaryState"))
         shot("05_summary.png")
         reset()

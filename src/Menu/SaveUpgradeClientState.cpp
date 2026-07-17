@@ -51,7 +51,9 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 	// Width 284 (not 292) keeps the scrollbar - drawn at x + width + 4, 13 wide -
 	// inside the 320px screen and off the window border, whose colors the track
 	// picks up (ScrollBar::drawTrack copies the background, offset -5 blocks).
-	_lstSaves = new TextList(284, 57, 14, 52);
+	// Height must be a whole number of 8px rows: TextList::updateVisible rounds
+	// the row count UP, so 57 counted an 8th row it only had 1px left to draw.
+	_lstSaves = new TextList(284, 56, 14, 52);
 	_txtClientLbl = new Text(150, 9, 14, 112);
 	_edtClientName = new TextEdit(this, 132, 9, 135, 112);
 	_txtClientWarn = new Text(300, 9, 10, 122);

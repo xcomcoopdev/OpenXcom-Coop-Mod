@@ -47,7 +47,12 @@ SaveUpgradeSummaryState::SaveUpgradeSummaryState(OptionsOrigin origin, const std
 	_window = new Window(this, 320, 200, 0, 0, POPUP_BOTH);
 	_txtTitle = new Text(300, 17, 10, 7);
 	_txtIntro = new Text(300, 9, 10, 26);
-	_lstReport = new TextList(292, 86, 14, 40);
+	// Width 284 (not 292) keeps the scrollbar - drawn at x + width + 4, 13 wide -
+	// inside the 320px screen and off the window border, whose colors the track
+	// picks up (ScrollBar::drawTrack copies the background, offset -5 blocks).
+	// Height must be a whole number of 8px rows: TextList::updateVisible rounds
+	// the row count UP, so 86 showed an 11th row with its bottom 2px cut off.
+	_lstReport = new TextList(284, 88, 14, 40);
 	_txtNotes = new Text(300, 38, 10, 130);
 	_btnOk = new TextButton(180, 16, 70, 176);
 
@@ -70,7 +75,7 @@ SaveUpgradeSummaryState::SaveUpgradeSummaryState(OptionsOrigin origin, const std
 
 	_txtIntro->setText(tr("STR_SAVE_UPGRADE_SUMMARY_INTRO"));
 
-	_lstReport->setColumns(1, 284);
+	_lstReport->setColumns(1, 276);
 	_lstReport->setBackground(_window);
 	_lstReport->setMargin(4);
 	_lstReport->setWordWrap(true);
