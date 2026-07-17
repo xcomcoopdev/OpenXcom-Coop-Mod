@@ -518,6 +518,115 @@ void writeBackupFile(const std::string& originalName, const std::string& backupN
 		throw Exception("failed to write backup " + backupName);
 }
 
+////////////////////////////////////////////////////////////
+//  Deep body scan for legacy co-op markers (detector v2)
+////////////////////////////////////////////////////////////
+
+// The distributed 1.7.0-era build wrote every soldier/vehicle/craft/base/ufo
+// co-op key UNCONDITIONALLY, so their mere presence proves nothing. Only
+// NON-DEFAULT values betray real co-op activity. We split them into two tiers:
+//
+//   STRONG - values that only appear once cross-instance co-op links were formed
+//            (a soldier tied to a peer base/craft, a craft carrying peer items,
+//            a target bound to a shared UFO/mission). These uniquely identify a
+//            real co-op campaign -> classify Legacy/Dual, gate automatically.
+//   WEAK   - keys the era serializer emitted for every save whether solo or not
+//            (coop_gamemode, per-soldier coopname, a random base coopbaseid, the
+//            debugCoopMenu option). Alone they cannot tell a co-op campaign from a
+//            plain solo save made by a co-op-capable build -> AmbiguousBuild, ask.
+//
+// The relevant objects live at many depths (bases[].soldiers[], deadSoldiers[],
+// bases[].crafts[], transfers[], top-level ufos[]/missionSites[], the options
+// snapshot), so we walk the whole body tree and test each map node's own keys.
+enum class MarkerLevel { None, Weak, Strong };
+
+MarkerLevel scanReaderForMarkers(const YAML::YamlNodeReader& node, int depth)
+{
+	if (!node || depth > 64)
+		return MarkerLevel::None;
+
+	MarkerLevel best = MarkerLevel::None;
+
+	if (node.isMap())
+	{
+		for (const YAML::YamlNodeReader& child : node.children())
+		{
+			std::string_view k = child.key();
+
+			// --- STRONG: non-default cross-instance link values ---
+			if (k == "coop")
+			{
+				if (child.readVal<int>(0) != 0)
+					return MarkerLevel::Strong;
+			}
+			else if (k == "coopbase")
+			{
+				if (child.readVal<int>(-1) != -1)
+					return MarkerLevel::Strong;
+			}
+			else if (k == "coopcraft")
+			{
+				if (child.readVal<int>(-1) != -1)
+					return MarkerLevel::Strong;
+			}
+			else if (k == "coopcrafttype")
+			{
+				if (child.hasVal() && !child.val().empty())
+					return MarkerLevel::Strong;
+			}
+			else if (k == "coopItems")
+			{
+				if (child.isSeq() && child.childrenCount() > 0)
+					return MarkerLevel::Strong;
+			}
+			else if (k == "coopDestUfoId" || k == "coopDestMissionId"
+				  || k == "coopUfoId" || k == "coopMissionId")
+			{
+				if (child.readVal<int>(0) != 0)
+					return MarkerLevel::Strong;
+			}
+			// --- WEAK: keys the era serializer wrote unconditionally ---
+			else if (k == "coop_gamemode" || k == "debugCoopMenu")
+			{
+				best = MarkerLevel::Weak;
+			}
+			else if (k == "coopname")
+			{
+				if (child.hasVal() && !child.val().empty())
+					best = MarkerLevel::Weak;
+			}
+			else if (k == "coopbaseid")
+			{
+				if (child.readVal<int>(0) != 0)
+					best = MarkerLevel::Weak;
+			}
+
+			// Recurse into nested containers (soldiers, crafts, options, ...).
+			if (child.isMap() || child.isSeq())
+			{
+				MarkerLevel sub = scanReaderForMarkers(child, depth + 1);
+				if (sub == MarkerLevel::Strong)
+					return MarkerLevel::Strong;
+				if (sub == MarkerLevel::Weak)
+					best = MarkerLevel::Weak;
+			}
+		}
+	}
+	else if (node.isSeq())
+	{
+		for (const YAML::YamlNodeReader& child : node.children())
+		{
+			MarkerLevel sub = scanReaderForMarkers(child, depth + 1);
+			if (sub == MarkerLevel::Strong)
+				return MarkerLevel::Strong;
+			if (sub == MarkerLevel::Weak)
+				best = MarkerLevel::Weak;
+		}
+	}
+
+	return best;
+}
+
 // Atomic write: temp then rename over the target (rename is the last step).
 void atomicWriteFile(const std::string& fileName, const std::string& content)
 {
@@ -602,7 +711,30 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// No co-op trace: an ordinary solo save (gains the stamp on next save).
+	// Detector v2 (PRD 3, v2.1): the cheap header/top-level fingerprints above did
+	// not fire, but the distributed 1.7.0-era build left co-op keys deep in the body
+	// even when coop_gamemode/saveID were 0. Deep-scan the body:
+	//   STRONG marker -> a real legacy co-op campaign (Legacy/Dual, auto-gate).
+	//   WEAK-only     -> a save from a co-op-capable build that may be solo or co-op
+	//                    (AmbiguousBuild: ask the player).
+	//   neither       -> a genuine solo/vanilla OXCE save (loads untouched).
+	MarkerLevel ml = scanReaderForMarkers(body, 0);
+	if (ml == MarkerLevel::Strong)
+	{
+		d.kind = DetectedSchema::Legacy;
+		d.schema = 1;
+		d.variant = SchemaVariant::Dual;
+		return d;
+	}
+	if (ml == MarkerLevel::Weak)
+	{
+		d.kind = DetectedSchema::AmbiguousBuild;
+		d.schema = 1;
+		d.variant = SchemaVariant::None; // resolved to Dual only if the player confirms co-op
+		return d;
+	}
+
+	// No co-op trace at all: an ordinary solo save (gains the stamp on next save).
 	d.kind = DetectedSchema::Solo;
 	d.schema = SAVE_SCHEMA_CURRENT;
 	return d;
@@ -666,6 +798,21 @@ DetectedSchema UpgradeRunner::detect()
 	return ensureDetected();
 }
 
+DetectedSchema UpgradeRunner::effectiveDetection(const UpgradeInputs& in)
+{
+	DetectedSchema d = ensureDetected();
+	// The player answered "yes, it was a co-op campaign" in the ambiguous-build
+	// dialog: an AmbiguousBuild save is a legacy dual save whose client world is a
+	// separate standalone .sav, so route it through the exact 1->2 dual transform.
+	if (d.kind == DetectedSchema::AmbiguousBuild && in.treatAmbiguousAsCoop)
+	{
+		d.kind = DetectedSchema::Legacy;
+		d.schema = 1;
+		d.variant = SchemaVariant::Dual;
+	}
+	return d;
+}
+
 std::vector<InputRequest> UpgradeRunner::requiredInputs()
 {
 	std::vector<InputRequest> reqs;
@@ -689,7 +836,7 @@ std::vector<InputRequest> UpgradeRunner::requiredInputs()
 PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 {
 	PreflightResult r;
-	DetectedSchema d = ensureDetected();
+	DetectedSchema d = effectiveDetection(in);
 
 	if (d.kind == DetectedSchema::Malformed)
 	{
@@ -733,7 +880,7 @@ PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 {
 	ExecuteResult res;
-	DetectedSchema d = ensureDetected();
+	DetectedSchema d = effectiveDetection(in);
 
 	if (!d.needsUpgrade())
 	{

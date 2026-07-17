@@ -41,6 +41,7 @@
 #include "../CoopMod/SharedEcon.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "SaveUpgradeDialogState.h"
+#include "SaveUpgradeAmbiguousState.h"
 #include "SaveUpgradeMessageState.h"
 
 namespace OpenXcom
@@ -53,7 +54,7 @@ namespace OpenXcom
  * @param filename Name of the save file without extension.
  * @param palette Parent state palette.
  */
-LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey, bool loadCoopProgress) : _firstRun(0), _origin(origin), _filename(filename), _coopKey(coopKey), _loadCoopProgress(loadCoopProgress)
+LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey, bool loadCoopProgress, bool bypassSchemaGate) : _firstRun(0), _origin(origin), _filename(filename), _coopKey(coopKey), _loadCoopProgress(loadCoopProgress), _bypassSchemaGate(bypassSchemaGate)
 {
 
 	// coop
@@ -174,8 +175,9 @@ void LoadGameState::init()
 	// dialog; saves from a newer build get an informative refusal; current/solo
 	// saves load as usual; malformed saves fall through to the load error path.
 	// Coop-orchestrated loads (host-served blobs / resume) are upgraded host-side
-	// and must never gate, so they are excluded here.
-	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked)
+	// and must never gate, so they are excluded here. bypassSchemaGate skips the
+	// gate for the ambiguous-build "load as solo" choice (else it would loop).
+	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked && !_bypassSchemaGate)
 	{
 		_gateChecked = true;
 		SaveUpgrade::DetectedSchema detected = SaveUpgrade::SchemaDetector::detect(_filename);
@@ -185,6 +187,14 @@ void LoadGameState::init()
 			lines.push_back(tr("STR_SAVE_UPGRADE_FUTURE").arg(detected.schema));
 			_game->popState();
 			_game->pushState(new SaveUpgradeMessageState(_origin, tr("STR_SAVE_UPGRADE_FUTURE_TITLE"), lines));
+			return;
+		}
+		if (detected.isAmbiguous())
+		{
+			// Weak-only co-op traces: might be a legacy co-op save or a plain solo
+			// save from a co-op build. Only the player can say - offer the choice.
+			_game->popState();
+			_game->pushState(new SaveUpgradeAmbiguousState(_origin, _filename, detected));
 			return;
 		}
 		if (detected.needsUpgrade())

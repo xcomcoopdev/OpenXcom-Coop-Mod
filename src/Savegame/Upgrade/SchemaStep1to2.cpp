@@ -194,6 +194,101 @@ std::vector<long long> collectUfoIds(ryml::ConstNodeRef body)
 	return ids;
 }
 
+// Counts of stale session-scoped links reset during a 1->2 transform (PRD 7,
+// v2.1). Every field here referenced a dead session's RANDOM ids; post-upgrade
+// ownership is carried by ownerplayerid, so leaving them would resurrect broken
+// cross-instance links. coopname is deliberately NOT reset (it is real identity).
+struct LinkResetCounts
+{
+	int soldierVehicle = 0; // coop / coopbase / coopcraft / coopcrafttype cleared on a soldier or vehicle
+	int craftItems = 0;     // coopItems peer-item cache removed from a craft
+	int craftDest = 0;      // coopDestUfoId / coopDestMissionId cleared on a craft
+	int ufoMission = 0;     // coopUfoId / coopMissionId cleared on a ufo or mission site
+};
+
+// Walk the whole body tree and reset every stale co-op link field in place. The
+// same objects live at many depths (bases[].soldiers[], deadSoldiers[],
+// bases[].crafts[], transfers[], top-level ufos[]/missionSites[]), so we test
+// each map node's own keys rather than assuming a fixed path.
+void resetStaleLinks(ryml::NodeRef node, LinkResetCounts& c, int depth)
+{
+	if (node.invalid() || depth > 64)
+		return;
+
+	if (node.is_map())
+	{
+		// soldier / vehicle session links -> defaults (keep coopname).
+		bool touchedSV = false;
+		if (hasKey(node, "coop") && getInt(node, "coop", 0) != 0)
+		{
+			setInt(node, "coop", 0);
+			touchedSV = true;
+		}
+		if (hasKey(node, "coopbase") && getInt(node, "coopbase", -1) != -1)
+		{
+			setInt(node, "coopbase", -1);
+			touchedSV = true;
+		}
+		if (hasKey(node, "coopcraft") && getInt(node, "coopcraft", -1) != -1)
+		{
+			setInt(node, "coopcraft", -1);
+			touchedSV = true;
+		}
+		if (hasKey(node, "coopcrafttype") && !getStr(node, "coopcrafttype", std::string()).empty())
+		{
+			setStr(node, "coopcrafttype", std::string());
+			touchedSV = true;
+		}
+		if (touchedSV)
+			++c.soldierVehicle;
+
+		// craft peer-item cache -> gone.
+		if (hasKey(node, "coopItems"))
+		{
+			removeKey(node, "coopItems");
+			++c.craftItems;
+		}
+
+		// craft cross-instance destination -> zeroed.
+		bool touchedDest = false;
+		if (hasKey(node, "coopDestUfoId") && getInt(node, "coopDestUfoId", 0) != 0)
+		{
+			setInt(node, "coopDestUfoId", 0);
+			touchedDest = true;
+		}
+		if (hasKey(node, "coopDestMissionId") && getInt(node, "coopDestMissionId", 0) != 0)
+		{
+			setInt(node, "coopDestMissionId", 0);
+			touchedDest = true;
+		}
+		if (touchedDest)
+			++c.craftDest;
+
+		// ufo / mission cross-instance id -> zeroed.
+		bool touchedUM = false;
+		if (hasKey(node, "coopUfoId") && getInt(node, "coopUfoId", 0) != 0)
+		{
+			setInt(node, "coopUfoId", 0);
+			touchedUM = true;
+		}
+		if (hasKey(node, "coopMissionId") && getInt(node, "coopMissionId", 0) != 0)
+		{
+			setInt(node, "coopMissionId", 0);
+			touchedUM = true;
+		}
+		if (touchedUM)
+			++c.ufoMission;
+
+		for (ryml::NodeRef ch : node.children())
+			resetStaleLinks(ch, c, depth + 1);
+	}
+	else if (node.is_seq())
+	{
+		for (ryml::NodeRef ch : node.children())
+			resetStaleLinks(ch, c, depth + 1);
+	}
+}
+
 void collectCoopnames(ryml::ConstNodeRef body, std::vector<std::string>& names)
 {
 	ryml::ConstNodeRef bases = body.find_child("bases");
@@ -331,6 +426,10 @@ public:
 		int hostBases = countBases(hb);
 		int hostSoldiers = tagSoldiers(hb, 0);
 
+		// Reset stale session-scoped links across the host world (PRD 7, v2.1).
+		LinkResetCounts resets;
+		resetStaleLinks(hb, resets, 0);
+
 		// --- client doc(s) ---
 		int clientBases = 0, clientSoldiers = 0;
 		for (ClientWorld& c : set.clients)
@@ -349,6 +448,8 @@ public:
 				setInt(cb, "coop_gamemode", set.gamemode);
 			clientBases += cbases;
 			clientSoldiers += tagSoldiers(cb, 1);
+			// ...and across every client world too.
+			resetStaleLinks(cb, resets, 0);
 		}
 		// A dual client is keyed by the collected roster name so emit embeds it
 		// under host_<saveID>_<clientName>.data.
@@ -364,6 +465,20 @@ public:
 			set.report.push_back("No client world embedded (skip path); that player restarts fresh on rejoin.");
 		else
 			set.report.push_back("Client '" + clientName + "': " + std::to_string(clientBases) + " base(s), " + std::to_string(clientSoldiers) + " soldier(s) tagged owner 1.");
+
+		// stale session-link resets (report each class with counts, PRD 7 v2.1).
+		if (resets.soldierVehicle || resets.craftItems || resets.craftDest || resets.ufoMission)
+		{
+			set.report.push_back("Reset stale co-op links from the dead session:");
+			set.report.push_back("  soldier/vehicle base+craft links cleared: " + std::to_string(resets.soldierVehicle) + ".");
+			set.report.push_back("  craft peer-item caches removed: " + std::to_string(resets.craftItems) + ".");
+			set.report.push_back("  craft cross-instance destinations cleared: " + std::to_string(resets.craftDest) + ".");
+			set.report.push_back("  ufo/mission cross-instance ids cleared: " + std::to_string(resets.ufoMission) + ".");
+		}
+		else
+		{
+			set.report.push_back("No stale co-op links to reset.");
+		}
 
 		// contamination (report only, PRD §7): duplicate UFO ids across worlds.
 		std::vector<long long> hostIds = collectUfoIds(hb);

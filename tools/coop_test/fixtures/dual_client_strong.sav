@@ -1,0 +1,39 @@
+name: Strong Client
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 0
+monthsPassed: 0
+coop_gamemode: 0
+funds:
+  - 500000
+bases:
+  - name: ClientBase
+    lon: 0.5
+    lat: 0.6
+    coopbaseid: 3050
+    soldiers:
+      - type: STR_SOLDIER
+        id: 10
+        name: Carol
+        coopbase: 2032
+        coop: 1
+        coopcraft: 1
+        coopcrafttype: STR_SKYRANGER
+        coopname: Carol
+    crafts:
+      - type: STR_INTERCEPTOR
+        id: 2
+        coopItems:
+          - {id: 20, name: STR_LASER, owner: false}

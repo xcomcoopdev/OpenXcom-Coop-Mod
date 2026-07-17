@@ -67,6 +67,9 @@ def main():
         expect = {
             "dual_host.sav":        ("legacy", "dual", True),
             "dual_host_saveid.sav": ("legacy", "dual", True),
+            "dual_host_strong.sav": ("legacy", "dual", True),   # detector v2: STRONG deep-scan markers
+            "weak_only.sav":        ("ambiguous_build", "none", False),  # WEAK-only -> ask the player
+            "vanilla_solo.sav":     ("solo", "none", False),    # pure OXCE shape, zero coop keys
             "embed_host.sav":       ("legacy", "embed", True),
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
@@ -173,6 +176,47 @@ def main():
         _, kb = two_docs(os.path.join(xcom1, "dual_host.sav"))
         assert "coopClientSaves" not in kb or kb["coopClientSaves"] in (None, []), kb.get("coopClientSaves")
         print("PASS skip-client: warns + upgraded host carries 0 client worlds")
+
+        # ---- 6. detector v2 STRONG-marker save + transform hardening ---------
+        # The strong pair is shaped like the real-world 1.7.0 save: no saveID,
+        # coop_gamemode 0, real cross-instance links buried in the body (dead
+        # soldier, craft coopItems + coopDestUfoId, ufo coopUfoId). The transform
+        # must reset every stale link on BOTH sides while preserving coopname.
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host_strong.sav",
+                   "client": "dual_client_strong.sav", "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, f"strong upgrade failed: {r}"
+        assert r["errors"] == [], r["errors"]
+        uh, ub = two_docs(os.path.join(xcom1, "dual_host_strong.sav"))
+        # host living soldiers: stamped owner 0, coopname preserved (defaults untouched)
+        hs = ub["bases"][0]["soldiers"]
+        assert all(s["ownerplayerid"] == 0 for s in hs), [s.get("ownerplayerid") for s in hs]
+        assert {s["coopname"] for s in hs} == {"Alice", "Bravo"}, [s.get("coopname") for s in hs]
+        # dead soldier's strong cross-instance links reset; coopname kept
+        dead = ub["deadSoldiers"][0]
+        assert dead["coop"] == 0 and dead["coopbase"] == -1 and dead["coopcraft"] == -1, dead
+        assert dead["coopcrafttype"] in ("", None), dead.get("coopcrafttype")
+        assert dead["coopname"] == "Elliott Kay", "coopname must be preserved through the reset"
+        # craft: peer-item cache removed, cross-instance destination zeroed
+        craft = ub["bases"][0]["crafts"][0]
+        assert "coopItems" not in craft, "host craft coopItems must be removed"
+        assert craft.get("coopDestUfoId", 0) == 0, craft.get("coopDestUfoId")
+        # ufo cross-instance id zeroed
+        assert ub["ufos"][0].get("coopUfoId", 0) == 0, ub["ufos"][0].get("coopUfoId")
+        # embedded client world: soldier links reset (owner 1), craft coopItems gone
+        entry = ub["coopClientSaves"][0]
+        cb = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
+        cs = cb["bases"][0]["soldiers"][0]
+        assert cs["ownerplayerid"] == 1, cs.get("ownerplayerid")
+        assert cs["coop"] == 0 and cs["coopbase"] == -1 and cs["coopcraft"] == -1, cs
+        assert cs["coopcrafttype"] in ("", None), cs.get("coopcrafttype")
+        assert cs["coopname"] == "Carol", "client coopname must be preserved"
+        assert "coopItems" not in cb["bases"][0]["crafts"][0], "client craft coopItems must be removed"
+        # the report calls out the resets with counts
+        assert any("Reset stale co-op links" in l for l in r["report"]), r["report"]
+        # and the upgraded strong save now reads as current
+        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_strong.sav"})["kind"] == "current"
+        print("PASS strong e2e: strong-marker detection + host/client link resets + coopname preserved")
 
         print("ALL PASS test_save_upgrade")
     finally:

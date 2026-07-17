@@ -210,13 +210,166 @@ def solo():
     return _stream(_header("Solo Game"), body)
 
 
+# ---- detector v2 fixtures (strong / weak / vanilla) ---------------------------
+# Shaped after the real-world 1.7.0-era co-op save (see PRD 3, v2.1). The era
+# serializer wrote every co-op key unconditionally, so DEFAULT values (coop 0,
+# coopbase -1, coopcraft -1, coopcrafttype '') mean nothing; only NON-DEFAULT
+# values are STRONG markers, while a handful of always-written keys (coop_gamemode,
+# per-soldier coopname, a random base coopbaseid, the debugCoopMenu option) are the
+# WEAK markers that alone cannot tell a co-op campaign from a co-op-build solo save.
+
+# A living soldier exactly as the era wrote it: all coop keys present but DEFAULT,
+# coopname non-empty. On its own this is a WEAK marker only.
+def _living_soldier(sid, name):
+    return [
+        "      - type: STR_SOLDIER",
+        "        id: %d" % sid,
+        "        name: %s" % name,
+        "        coopbase: -1",
+        "        coop: 0",
+        "        coopcraft: -1",
+        "        coopcrafttype: ''",
+        "        coopname: %s" % name,
+    ]
+
+
+# A dead soldier carrying real cross-instance links (STRONG markers), sitting in
+# the top-level deadSoldiers[] list - proving the detector/transform must scan the
+# WHOLE body, not just bases[].soldiers[].
+def _dead_soldier_strong(sid, name, coopbase):
+    return [
+        "  - type: STR_SOLDIER",
+        "    id: %d" % sid,
+        "    name: %s" % name,
+        "    coopbase: %d" % coopbase,
+        "    coop: 1",
+        "    coopcraft: 1",
+        "    coopcrafttype: STR_SKYRANGER",
+        "    coopname: %s" % name,
+        "    ownerplayerid: 999",
+    ]
+
+
+def _weak_host_body(base_id=2032):
+    """A host geoscape body with ONLY weak co-op traces: coop_gamemode present
+    (=0), non-empty coopname on every soldier, a non-zero base coopbaseid, and a
+    debugCoopMenu option. No strong markers anywhere -> AmbiguousBuild."""
+    lines = ["difficulty: 0", "monthsPassed: 0", "coop_gamemode: 0", "funds:", "  - 1000000",
+             "bases:", "  - name: HostBase", "    lon: 0.1", "    lat: 0.2",
+             "    coopbaseid: %d" % base_id, "    soldiers:"]
+    lines += _living_soldier(1, "Alice")
+    lines += _living_soldier(2, "Bravo")
+    lines += ["options:", "  debugCoopMenu: false"]
+    return "\n".join(lines) + "\n"
+
+
+def _strong_host_body(base_id=2032):
+    """A host body that ALSO carries strong markers: a dead soldier bound to a peer
+    base/craft, a craft with a coopItems peer-item cache + a coopDestUfoId, and a
+    ufo with a coopUfoId. -> Legacy/Dual. The transform must reset every one of
+    these (and leave coopname + the living soldiers' ownerplayerid stamps)."""
+    lines = ["difficulty: 0", "monthsPassed: 0", "coop_gamemode: 0", "funds:", "  - 1000000",
+             "bases:", "  - name: HostBase", "    lon: 0.1", "    lat: 0.2",
+             "    coopbaseid: %d" % base_id, "    soldiers:"]
+    lines += _living_soldier(1, "Alice")
+    lines += _living_soldier(2, "Bravo")
+    lines += [
+        "    crafts:",
+        "      - type: STR_SKYRANGER",
+        "        id: 1",
+        "        fuel: 1375",
+        "        coopDestUfoId: 5001",
+        "        coopItems:",
+        "          - {id: 2, name: STR_RIFLE, owner: true}",
+        "          - {id: 3, name: STR_RIFLE, owner: true}",
+    ]
+    lines += ["deadSoldiers:"]
+    lines += _dead_soldier_strong(49, "Elliott Kay", base_id)
+    lines += [
+        "ufos:",
+        "  - type: STR_SMALL_SCOUT",
+        "    id: 7",
+        "    coopUfoId: 9001",
+    ]
+    lines += ["options:", "  debugCoopMenu: false"]
+    return "\n".join(lines) + "\n"
+
+
+def _strong_client_body():
+    """A standalone client world (gamemode 0 to match the strong host) whose LIVING
+    soldier carries strong links and whose craft has a coopItems cache - so the
+    transform's client-side reset is exercised too."""
+    lines = ["difficulty: 0", "monthsPassed: 0", "coop_gamemode: 0", "funds:", "  - 500000",
+             "bases:", "  - name: ClientBase", "    lon: 0.5", "    lat: 0.6",
+             "    coopbaseid: 3050", "    soldiers:",
+             "      - type: STR_SOLDIER",
+             "        id: 10",
+             "        name: Carol",
+             "        coopbase: 2032",
+             "        coop: 1",
+             "        coopcraft: 1",
+             "        coopcrafttype: STR_SKYRANGER",
+             "        coopname: Carol",
+             "    crafts:",
+             "      - type: STR_INTERCEPTOR",
+             "        id: 2",
+             "        coopItems:",
+             "          - {id: 20, name: STR_LASER, owner: false}"]
+    return "\n".join(lines) + "\n"
+
+
+def dual_host_strong():
+    # no saveID, coop_gamemode 0: the OLD fingerprints do not fire; only the deep
+    # STRONG-marker scan classifies this Legacy/Dual (the real-world bug case).
+    return _stream(_header("Strong Coop"), _strong_host_body())
+
+
+def dual_client_strong():
+    return _stream(_header("Strong Client"), _strong_client_body())
+
+
+def weak_only():
+    # weak markers only -> AmbiguousBuild (ask the player).
+    return _stream(_header("Weak Only"), _weak_host_body())
+
+
+def vanilla_solo():
+    # pure OXCE shape: not a single coop key -> Solo, must keep loading untouched.
+    body = "\n".join([
+        "difficulty: 2",
+        "monthsPassed: 3",
+        "funds:",
+        "  - 2000000",
+        "bases:",
+        "  - name: Vanilla Base",
+        "    lon: 0.3",
+        "    lat: 0.4",
+        "    soldiers:",
+        "      - type: STR_SOLDIER",
+        "        id: 1",
+        "        name: Jane Doe",
+        "      - type: STR_SOLDIER",
+        "        id: 2",
+        "        name: John Roe",
+        "    crafts:",
+        "      - type: STR_SKYRANGER",
+        "        id: 1",
+        "        fuel: 1375",
+    ]) + "\n"
+    return _stream(_header("Vanilla Solo"), body)
+
+
 # name -> builder. .sav files plus the one sidecar .data.
 FILES = {
     "dual_host.sav": dual_host,
     "dual_host_saveid.sav": dual_host_saveid,
     "dual_host_battle.sav": dual_host_battle,
+    "dual_host_strong.sav": dual_host_strong,
     "dual_client.sav": dual_client,
     "dual_client_mode2.sav": dual_client_mode2,
+    "dual_client_strong.sav": dual_client_strong,
+    "weak_only.sav": weak_only,
+    "vanilla_solo.sav": vanilla_solo,
     "embed_host.sav": embed_host,
     "sidecar_host.sav": sidecar_host,
     "solo.sav": solo,

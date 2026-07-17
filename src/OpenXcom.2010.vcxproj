@@ -626,6 +626,7 @@
     <ClCompile Include="md5.cpp" />
     <ClCompile Include="Menu\AbandonGameState.cpp" />
     <ClCompile Include="Menu\ConfirmLoadState.cpp" />
+    <ClCompile Include="Menu\SaveUpgradeAmbiguousState.cpp" />
     <ClCompile Include="Menu\SaveUpgradeClientState.cpp" />
     <ClCompile Include="Menu\SaveUpgradeDialogState.cpp" />
     <ClCompile Include="Menu\SaveUpgradeFlow.cpp" />
@@ -1138,6 +1139,7 @@
     <ClInclude Include="md5.h" />
     <ClInclude Include="Menu\AbandonGameState.h" />
     <ClInclude Include="Menu\ConfirmLoadState.h" />
+    <ClInclude Include="Menu\SaveUpgradeAmbiguousState.h" />
     <ClInclude Include="Menu\SaveUpgradeClientState.h" />
     <ClInclude Include="Menu\SaveUpgradeDialogState.h" />
     <ClInclude Include="Menu\SaveUpgradeFlow.h" />
