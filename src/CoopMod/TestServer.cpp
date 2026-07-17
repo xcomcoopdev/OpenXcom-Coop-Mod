@@ -628,6 +628,46 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "set_ufo_hunt")
+	{
+		// GAP-2 repro: turn an existing UFO into a hunter-killer actively HUNTING
+		// a specific x-craft (isHunterKiller + isHunting, dest = craft, hunt speed).
+		// Drives the UFO-INITIATED attack lane (GeoscapeState::time5Seconds, the
+		// UFO loop's ufo->reachedDestination() && ufo->isHunting() branch) - distinct
+		// from a craft chasing a UFO. Lives in this (shallow) dispatcher, not the
+		// main if-chain, which is at the MSVC C1061 nesting limit. Params: ufo_id,
+		// craft_id (+ optional craft_type).
+		SavedGame* sg = _game->getSavedGame();
+		int uid = req.get("ufo_id", -1).asInt();
+		int cid = req.get("craft_id", -1).asInt();
+		std::string craftType = req.get("craft_type", "").asString();
+		Ufo* ufo = nullptr;
+		Craft* craft = nullptr;
+		if (sg)
+		{
+			for (auto* u : *sg->getUfos())
+				if (u->getId() == uid) { ufo = u; break; }
+			for (auto* b : *sg->getBases())
+			{
+				for (auto* c : *b->getCrafts())
+					if (!c->coop && c->getId() == cid
+						&& (craftType.empty() || c->getRules()->getType() == craftType))
+					{ craft = c; break; }
+				if (craft) break;
+			}
+		}
+		if (!sg) resp["error"] = "no saved game";
+		else if (!ufo) resp["error"] = "no matching ufo";
+		else if (!craft) resp["error"] = "no matching craft";
+		else
+		{
+			ufo->setHunterKiller(true);
+			ufo->setTargetedXcomCraft(craft); // dest=craft, _isHunting=true, hunt speed
+			resp["isHunterKiller"] = ufo->isHunterKiller();
+			resp["isHunting"] = ufo->isHunting();
+			resp["ok"] = true;
+		}
+	}
 	else
 	{
 		return false;
