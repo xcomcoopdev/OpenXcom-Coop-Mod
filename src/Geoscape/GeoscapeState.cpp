@@ -1711,6 +1711,11 @@ void GeoscapeState::think()
 						jc["lat"] = craft->getLatitude();
 						jc["status"] = craft->getStatus();
 						jc["speed"] = craft->getSpeed();
+						// PRD-J08: replica-visible craft condition (refuel/repair/rearm
+						// progress) - the host simulates it, replicas render it.
+						jc["fuel"] = craft->getFuel();
+						jc["damage"] = craft->getDamage();
+						jc["shield"] = craft->getShield();
 						jcrafts.append(jc);
 					}
 				}
@@ -1733,6 +1738,12 @@ void GeoscapeState::think()
 					ju["detected"] = ufo->getDetected();
 					ju["altitude"] = ufo->getAltitude();
 					ju["speed"] = ufo->getSpeed();
+					// PRD-J08: hull damage mirrors so an initiator-simulated
+					// dogfight starts from the authoritative UFO condition.
+					ju["damage"] = ufo->getDamage();
+					// PRD-J08: crash/land marker identity (ids travel by value).
+					ju["crashId"] = ufo->getCrashId();
+					ju["landId"] = ufo->getLandId();
 					jufos.append(ju);
 				}
 				jroot["ufos"] = jufos;
@@ -2613,6 +2624,34 @@ void GeoscapeState::time5Seconds()
 					switch (u->getStatus())
 					{
 					case Ufo::FLYING:
+						// PRD-J08 JOINT: craft orders carry the commanding seat and the
+						// INITIATOR flies the dogfight (locked decision (a)). If a
+						// NON-host seat commanded this craft, the host does not open a
+						// local DogfightState - it marks the pair engaged and
+						// broadcasts dogfight_start; the initiator simulates on its
+						// replica and reports dogfight_result. Engagements are
+						// SERIALIZED per UFO: while a remote engagement is active,
+						// any other craft (host's own included) simply waits.
+						if (_game->getCoopMod()->isJointCampaign() && _game->getCoopMod()->getServerOwner())
+						{
+							const bool ufoBusyRemote = JointEcon::isUfoRemotelyEngaged(u->getId());
+							const int jseat = JointEcon::lastCraftOrderSeat(xcraft);
+							if (jseat > 0) // commanded by a client seat
+							{
+								if (!ufoBusyRemote && !xcraft->isInDogfight()
+									&& u->getSpeed() <= xcraft->getCraftStats().speedMax)
+								{
+									bool ufoBusyLocal = false;
+									for (auto* f : _dogfights) if (f->getUfo() == u) { ufoBusyLocal = true; break; }
+									for (auto* g : _dogfightsToBeStarted) if (g->getUfo() == u) { ufoBusyLocal = true; break; }
+									if (!ufoBusyLocal)
+										JointEcon::hostRemoteDogfightStart(_game, xcraft, u, jseat);
+								}
+								break; // never open a local dogfight UI for another seat's craft
+							}
+							if (ufoBusyRemote)
+								break; // host's craft waits for the remote engagement to resolve
+						}
 						// Not more than 4 interceptions at a time... but hunter-killers are always allowed
 						if (!u->isHunterKiller() && _dogfights.size() + _dogfightsToBeStarted.size() >= 4)
 						{
@@ -5143,6 +5182,30 @@ void GeoscapeState::startDogfight()
 			dfs->setInterceptionsCount(_dogfights.size());
 		}
 	}
+}
+
+/**
+ * PRD-J08 JOINT: opens the interactive dogfight UI on THIS machine for a
+ * craft/UFO pair - the initiating player's side of a host-brokered engagement
+ * (joint_apply{dogfight_start}). Mirrors the vanilla time5Seconds start block:
+ * queue the DogfightState, zoom in, start the timers, switch the music.
+ * @param craft The engaging (replica) craft.
+ * @param ufo The engaged (replica) UFO.
+ */
+void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo)
+{
+	if (!craft || !ufo || craft->isInDogfight())
+		return;
+	_dogfightsToBeStarted.push_back(new DogfightState(this, craft, ufo, false));
+	if (!_dogfightStartTimer->isRunning())
+	{
+		_pause = true;
+		timerReset();
+		_globe->center(craft->getLongitude(), craft->getLatitude());
+		startDogfight();
+		_dogfightStartTimer->start();
+	}
+	_game->getMod()->playMusic("GMINTER");
 }
 
 /**

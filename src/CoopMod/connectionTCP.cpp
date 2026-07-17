@@ -6066,10 +6066,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					if (craft->getId() == craftId && craft->getRules()->getType() == jc["rule"].asString())
 					{
+						// PRD-J08: while this replica simulates a dogfight with this
+						// craft, the local sim owns it - never overwrite mid-fight.
+						if (JointEcon::craftLocallySimulated(craft)) break;
 						craft->setLongitude(jc["lon"].asDouble());
 						craft->setLatitude(jc["lat"].asDouble());
 						craft->setStatus(jc["status"].asString());
 						craft->setSpeed(jc["speed"].asInt());
+						// PRD-J08: replica-visible craft condition (host-simulated
+						// refuel/repair/rearm progress).
+						if (jc.isMember("fuel")) craft->setFuel(jc["fuel"].asInt());
+						if (jc.isMember("damage")) craft->setDamage(jc["damage"].asInt());
+						if (jc.isMember("shield")) craft->setShield(jc["shield"].asInt());
 						break;
 					}
 				}
@@ -6083,6 +6091,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				const Json::Value& ju = obj["ufos"][i];
 				int ufoId = ju["id"].asInt();
 				liveUfoIds.insert(ufoId);
+				// PRD-J08: while this replica dogfight-simulates the UFO, the local
+				// sim owns it (the host still thinks it is FLYING until the result
+				// round-trips) - skip both update and despawn-hiding.
+				if (JointEcon::ufoLocallySimulated(ufoId)) continue;
 				int missionId = ju["mission_id"].asInt();
 
 				// find/create the owning AlienMission (needed for Ufo::getMission()).
@@ -6110,21 +6122,36 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					const UfoTrajectory& traj = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
 					ufo = new Ufo(ufoRule, ufoId);
 					ufo->setMissionInfo(mission, &traj);
+					// PRD-J08 fix: the ctor arg is the UNIQUE id; the DISPLAY id
+					// (Target::getId(), which every subsequent snapshot and the
+					// dogfight lane match by) must be set explicitly - without it
+					// the replica re-created an unmatchable id-0 UFO every tick.
+					ufo->setId(ufoId);
 					sg->getUfos()->push_back(ufo);
 				}
 				ufo->setLongitude(ju["lon"].asDouble());
 				ufo->setLatitude(ju["lat"].asDouble());
+				// PRD-J08: adopt hull damage BEFORE status - setDamage derives
+				// CRASHED/DESTROYED from thresholds, setStatus then re-asserts
+				// the authoritative value.
+				if (ju.isMember("damage")) ufo->setDamage(ju["damage"].asInt(), _game->getMod());
 				ufo->setStatus(intToUfostatus(ju["status"].asInt()));
 				ufo->setDetected(ju["detected"].asBool());
 				ufo->setAltitude(ju["altitude"].asString());
 				ufo->setSpeed(ju["speed"].asInt());
+				// PRD-J08: crash/land marker identity travels by value.
+				if (ju.isMember("crashId") && ju["crashId"].asInt() != 0)
+					ufo->setCrashId(ju["crashId"].asInt());
+				if (ju.isMember("landId") && ju["landId"].asInt() != 0)
+					ufo->setLandId(ju["landId"].asInt());
 				ufo->setSecondsRemaining(100000000);
 			}
 			// despawn: hide replica UFOs no longer in the authoritative set (a frozen
 			// replica has no dogfights/followers to unwind; full cleanup is J10).
 			for (auto* u : *sg->getUfos())
 			{
-				if (liveUfoIds.find(u->getId()) == liveUfoIds.end())
+				if (liveUfoIds.find(u->getId()) == liveUfoIds.end()
+					&& !JointEcon::ufoLocallySimulated(u->getId()))
 				{
 					u->setDetected(false);
 					u->setStatus(Ufo::DESTROYED);

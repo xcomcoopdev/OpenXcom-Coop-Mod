@@ -177,6 +177,14 @@ public:
 	bool getWaitForAltitude() const;
 	/// Award experience to the pilots.
 	void awardExperienceToPilots();
+	/// Test hooks (PRD-J08): dogfight sim internals for the harness.
+	int harnessCurrentDist() const { return _currentDist; }
+	int harnessTargetDist() const { return _targetDist; }
+	bool harnessEnd() const { return _end; }
+	int harnessUpdateCount() const { return _updateCount; }
+private:
+	/// test instrumentation: update() invocation count.
+	int _updateCount = 0;
 };
 
 }

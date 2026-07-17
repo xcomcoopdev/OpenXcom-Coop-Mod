@@ -25,6 +25,7 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -59,10 +60,25 @@
 #include "../Savegame/Soldier.h"
 #include "../Savegame/ResearchProject.h"
 #include "../Savegame/Production.h"
+#include "../Savegame/Ufo.h"
+#include "../Savegame/MissionSite.h"
+#include "../Savegame/AlienBase.h"
+#include "../Savegame/Waypoint.h"
+#include "../Savegame/Target.h"
+#include "../Savegame/AlienMission.h"
+#include "../Savegame/CraftWeapon.h"
+#include "../Savegame/Country.h"
+#include "../Savegame/WeightedOptions.h"
+#include "../Mod/RuleUfo.h"
+#include "../Mod/RuleCraftWeapon.h"
+#include "../Mod/RuleCountry.h"
+#include "../Mod/RuleAlienMission.h"
+#include "../Mod/AlienRace.h"
 
 #include <cmath>
 #include "../Basescape/BaseView.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/Globe.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/ProductionCompleteState.h"
 #include "../Menu/ErrorMessageState.h"
@@ -1475,6 +1491,394 @@ bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
 	return true;
 }
 
+// ---- PRD-J08: shared craft command + dogfight coordination --------------------
+// Any player commands any craft. Orders are joint_cmds; the host validates the
+// vanilla fuel/crew/status rules against the authoritative world and applies in
+// ARRIVAL order (last-command-wins - a later order for the same craft simply
+// overrides the destination; no locking). Craft identity across machines =
+// rule type + per-type id (the proven findCraft identity).
+
+std::string craftKey(const std::string& type, int id)
+{
+	return type + "#" + std::to_string(id);
+}
+std::string craftKey(const Craft* c)
+{
+	return craftKey(c->getRules()->getType(), c->getId());
+}
+
+// Seat of the last APPLIED order per craft. Host and every replica record it
+// from the same joint_apply stream, so it is identical everywhere. The host
+// routes dogfights by it (the initiating seat flies). -1 / absent = the craft
+// was never commanded through the protocol -> treat as host-owned (vanilla).
+std::map<std::string, int> g_craftOrderSeat;
+
+// HOST: ufoId -> engaged craft key while a remote (initiator-simulated)
+// dogfight is in flight. Serializes engagements: a second craft reaching the
+// same UFO waits until the current engagement's result arrives (the locked
+// "host serializes" decision; vanilla's concurrent multi-interception applies
+// only among the host's own craft).
+std::map<int, std::string> g_remoteEngagedUfo;
+
+// REPLICA: objects this machine is currently dogfight-simulating locally. The
+// joint position snapshot skips them so the host's (stale) view cannot
+// overwrite the local sim mid-fight; the exemption is lifted only when the
+// host's joint_apply{dogfight_result} confirms the outcome.
+std::set<int> g_localSimUfos;
+std::set<std::string> g_localSimCrafts;
+
+// Resolve the ordered craft: prefer the command's base, fall back to a
+// world-wide search (the craft may have been transferred since the order).
+Craft* resolveOrderCraft(Game* game, const Json::Value& p, Base* base)
+{
+	int id = p.get("craftId", -1).asInt();
+	std::string type = p.get("craftType", "").asString();
+	if (base)
+		if (Craft* c = findCraft(base, id, type)) return c;
+	SavedGame* save = game->getSavedGame();
+	if (save)
+		for (auto* b : *save->getBases())
+			if (Craft* c = findCraft(b, id, type)) return c;
+	return nullptr;
+}
+
+// Resolve the order's target on THIS machine's world (real shared ids). Null
+// for targetType "point" (the applier creates the shared waypoint) or when the
+// id does not resolve here (replica snapshot race - harmless, see applier).
+Target* resolveOrderTarget(Game* game, const Json::Value& p)
+{
+	SavedGame* save = game->getSavedGame();
+	if (!save) return nullptr;
+	std::string tt = p.get("targetType", "").asString();
+	int tid = p.get("targetId", -1).asInt();
+	if (tt == "ufo")
+	{
+		for (auto* u : *save->getUfos()) if (u->getId() == tid) return u;
+	}
+	else if (tt == "site")
+	{
+		for (auto* s : *save->getMissionSites()) if (s->getId() == tid) return s;
+	}
+	else if (tt == "abase")
+	{
+		for (auto* b : *save->getAlienBases()) if (b->getId() == tid) return b;
+	}
+	else if (tt == "xbase")
+	{
+		return resolveBase(game, p.get("tBaseId", -1).asInt());
+	}
+	else if (tt == "xcraft")
+	{
+		Base* b = resolveBase(game, p.get("tBaseId", -1).asInt());
+		if (b) return findCraft(b, p.get("tCraftId", -1).asInt(), p.get("tCraftType", "").asString());
+	}
+	return nullptr;
+}
+
+// craft_launch / craft_retarget payload: { craftId, craftType, targetType:
+// "ufo"|"site"|"abase"|"xbase"|"xcraft"|"point", targetId | tBaseId(+tCraftId,
+// tCraftType), lon, lat }. baseId = the craft's home-base index. The two cmds
+// share semantics (set destination); the distinct names keep intent readable.
+bool craftOrderValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                        int64_t& cost, std::string& failReason)
+{
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) { failReason = "craft not found"; return false; }
+	// vanilla launch/redirect gate (InterceptState::lstCraftsLeftClick allowStart).
+	const std::string status = craft->getStatus();
+	bool allow = status == "STR_READY"
+		|| ((status == "STR_OUT" || Options::craftLaunchAlways)
+			&& !craft->getLowFuel() && !craft->getMissionComplete());
+	if (!allow) { failReason = "craft not ready"; return false; }
+	// vanilla crew gate (ConfirmDestinationState::btnOkClick).
+	if (!craft->arePilotsOnboard(game->getMod())) { failReason = "STR_PILOT_MISSING"; return false; }
+	std::string tt = payload.get("targetType", "").asString();
+	if (tt != "point" && !resolveOrderTarget(game, payload))
+		{ failReason = "target not found"; return false; }
+	cost = 0;
+	return true;
+}
+
+void craftOrderApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	SavedGame* save = game->getSavedGame();
+	if (!save) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	g_craftOrderSeat[craftKey(craft)] = seat; // initiating seat (dogfight routing)
+
+	std::string tt = payload.get("targetType", "").asString();
+	Target* target = nullptr;
+	bool resolved = false;
+	if (tt == "point")
+	{
+		// A shared waypoint, created by this applier on the host AND every
+		// replica, so the STR_WAY_POINT id counter stays in lock-step.
+		Waypoint* w = new Waypoint();
+		w->setLongitude(payload.get("lon", 0.0).asDouble());
+		w->setLatitude(payload.get("lat", 0.0).asDouble());
+		w->setId(save->getId("STR_WAY_POINT"));
+		save->getWaypoints()->push_back(w);
+		target = w;
+		resolved = true;
+	}
+	else
+	{
+		target = resolveOrderTarget(game, payload);
+		resolved = (target != nullptr);
+	}
+	if (resolved)
+	{
+		if (target == craft) target = nullptr; // vanilla: self-target = "patrol here"
+		craft->setDestination(target);
+	}
+	// else: a replica that has not yet seen the target via the position
+	// snapshot. Skip the local _dest label; position/status still track the
+	// host through the snapshot, and dogfight_start re-asserts _dest if needed.
+	if (craft->getRules()->canAutoPatrol())
+		craft->setIsAutoPatrolling(false); // vanilla: a new order cancels auto-patrol
+	craft->setStatus("STR_OUT");
+}
+
+// craft_return / craft_patrol payload: { craftId, craftType } (+ patrol:
+// { auto:bool } - true from the geoscape craft dialog, which starts
+// auto-patrol on capable craft; false from the "self-target" confirm path).
+bool craftExistsValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                         int64_t& cost, std::string& failReason)
+{
+	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	cost = 0;
+	return true;
+}
+
+void craftReturnApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	g_craftOrderSeat[craftKey(craft)] = seat;
+	craft->returnToBase();
+	if (craft->getRules()->canAutoPatrol())
+		craft->setIsAutoPatrolling(false); // vanilla GeoscapeCraftState::btnBaseClick
+}
+
+void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	g_craftOrderSeat[craftKey(craft)] = seat;
+	craft->setDestination(0);
+	if (payload.get("auto", false).asBool() && craft->getRules()->canAutoPatrol())
+	{
+		// vanilla GeoscapeCraftState::btnPatrolClick auto-patrol anchor.
+		craft->setLatitudeAuto(craft->getLatitude());
+		craft->setLongitudeAuto(craft->getLongitude());
+		craft->setIsAutoPatrolling(true);
+	}
+}
+
+// dogfight_start payload: { craftId, craftType, ufoId, initiatorSeat }.
+// Host-originated when a craft commanded by a NON-host seat reaches a flying
+// UFO: the initiator (and only the initiator) opens the interactive
+// DogfightState against its replica objects; every other machine shows
+// nothing (PRD: no interactive UI elsewhere).
+void dogfightStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // host tracked the engagement at emit
+	if (payload.get("initiatorSeat", -1).asInt() != connectionTCP::localSeat()) return;
+	SavedGame* save = game->getSavedGame();
+	if (!save) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	Ufo* ufo = nullptr;
+	int ufoId = payload.get("ufoId", -1).asInt();
+	for (auto* u : *save->getUfos()) if (u->getId() == ufoId) { ufo = u; break; }
+	GeoscapeState* gs = findGeoState(game);
+	if (!craft || !ufo || !gs || ufo->getStatus() != Ufo::FLYING)
+	{
+		// Cannot simulate here (objects not replicated yet / no geoscape):
+		// report an ABORTED result so the host releases the engagement instead
+		// of holding the craft in a dogfight that will never resolve.
+		Json::Value p;
+		p["craftId"] = payload["craftId"];
+		p["craftType"] = payload["craftType"];
+		p["ufoId"] = ufoId;
+		p["aborted"] = true;
+		submitLocalCmd(game, "dogfight_result", -1, p);
+		return;
+	}
+	// DogfightState::update() requires the craft to be heading at this UFO.
+	if (craft->getDestination() != ufo) craft->setDestination(ufo);
+	craft->setStatus("STR_OUT");
+	g_localSimUfos.insert(ufoId);
+	g_localSimCrafts.insert(craftKey(craft));
+	gs->startJointDogfight(craft, ufo);
+}
+
+// Host-side consequences of a downed UFO that vanilla runs INSIDE the
+// initiator's DogfightState (fenced on a JOINT replica): mission bookkeeping +
+// the retaliation roll. Byte-mirrors DogfightState::update's crash block.
+void hostRollRetaliation(Game* game, Ufo* ufo, Craft* craft)
+{
+	SavedGame* save = game->getSavedGame();
+	AlienRace* race = game->getMod()->getAlienRace(ufo->getAlienRace());
+	AlienMission* mission = ufo->getMission();
+	if (!save || !race || !mission) return;
+	mission->ufoShotDown(*ufo);
+	// Check for retaliation trigger.
+	int retaliationOdds = mission->getRules().getRetaliationOdds();
+	if (retaliationOdds == -1)
+	{
+		retaliationOdds = 100 - (4 * (24 - save->getDifficultyCoefficient()) - race->getRetaliationAggression());
+		{
+			int diff = save->getDifficulty();
+			auto& custom = game->getMod()->getRetaliationTriggerOdds();
+			if (custom.size() > (size_t)diff)
+				retaliationOdds = custom[diff] + race->getRetaliationAggression();
+		}
+	}
+	// Have mercy on beginners
+	if (save->getMonthsPassed() < Mod::DIFFICULTY_BASED_RETAL_DELAY[save->getDifficulty()])
+		retaliationOdds = 0;
+	if (!RNG::percent(retaliationOdds)) return;
+
+	// Spawn retaliation mission.
+	std::string targetRegion;
+	int retaliationUfoMissionRegionOdds = 50 - 6 * save->getDifficultyCoefficient();
+	{
+		int diff = save->getDifficulty();
+		auto& custom = game->getMod()->getRetaliationBaseRegionOdds();
+		if (custom.size() > (size_t)diff)
+			retaliationUfoMissionRegionOdds = 100 - custom[diff];
+	}
+	if (RNG::percent(retaliationUfoMissionRegionOdds))
+		targetRegion = mission->getRegion();
+	else if (craft && craft->getBase())
+		targetRegion = save->locateRegion(*craft->getBase())->getRules()->getType();
+	else
+		targetRegion = mission->getRegion();
+	if (save->findAlienMission(targetRegion, OBJECTIVE_RETALIATION, race)) return;
+	auto* retalWeights = race->retaliationMissionWeights(save->getMonthsPassed());
+	std::string retalMission = retalWeights ? retalWeights->choose() : "";
+	const RuleAlienMission* rule = game->getMod()->getAlienMission(retalMission, false);
+	if (!rule)
+		rule = game->getMod()->getRandomMission(OBJECTIVE_RETALIATION, save->getMonthsPassed());
+	if (!rule) return;
+	GeoscapeState* gs = findGeoState(game);
+	if (!gs) return; // no globe to start against (should not happen on the host)
+	AlienMission* newMission = new AlienMission(*rule);
+	newMission->setId(save->getId("ALIEN_MISSIONS"));
+	newMission->setRegion(targetRegion, *game->getMod());
+	newMission->setRace(ufo->getAlienRace());
+	newMission->start(*game, *gs->getGlobe(), newMission->getRules().getWave(0).spawnTimer);
+	save->getAlienMissions().push_back(newMission);
+}
+
+// dogfight_result payload: { craftId, craftType, ufoId, aborted? } +
+// { ufoDamage, ufoStatus, altitude, detected, ufoSpeed, secondsRemaining,
+//   shotDown, craftDamage, craftFuel, craftLowFuel, ammo:[...] }
+// (+ host-resolved hostCrashId). Initiator-reported (locked decision (a),
+// SEPARATE's trust model); the host applies it to the authoritative world and
+// the rebroadcast settles every replica - including the initiator, whose
+// local-sim snapshot exemption is lifted HERE, so the position snapshot can
+// never overwrite the outcome during the round-trip.
+void dogfightResultApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	const bool host = connectionTCP::getHost();
+	int ufoId = payload.get("ufoId", -1).asInt();
+
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	Ufo* ufo = nullptr;
+	for (auto* u : *save->getUfos()) if (u->getId() == ufoId) { ufo = u; break; }
+
+	// Release the engagement bookkeeping everywhere, first.
+	g_remoteEngagedUfo.erase(ufoId);
+	g_localSimUfos.erase(ufoId);
+	if (craft) g_localSimCrafts.erase(craftKey(craft));
+
+	if (payload.get("aborted", false).asBool())
+	{
+		if (craft) { craft->setInDogfight(false); craft->setInterceptionOrder(0); }
+		return;
+	}
+
+	// ---- UFO outcome (idempotent: the initiator already holds these values) --
+	if (ufo)
+	{
+		Ufo::UfoStatus oldStatus = ufo->getStatus();
+		if (payload.isMember("ufoDamage")) ufo->setDamage(payload["ufoDamage"].asInt(), mod);
+		Ufo::UfoStatus newStatus = (Ufo::UfoStatus)payload.get("ufoStatus", (int)ufo->getStatus()).asInt();
+		// altitude BEFORE status: setAltitude(!STR_GROUND) force-resets to FLYING.
+		if (payload.isMember("altitude")) ufo->setAltitude(payload["altitude"].asString());
+		ufo->setStatus(newStatus);
+		if (payload.isMember("detected")) ufo->setDetected(payload["detected"].asBool());
+		if (payload.isMember("ufoSpeed")) ufo->setSpeed(payload["ufoSpeed"].asInt());
+		if (payload.isMember("secondsRemaining"))
+			ufo->setSecondsRemaining((size_t)payload["secondsRemaining"].asUInt());
+		bool shotDown = payload.get("shotDown", false).asBool();
+		if (craft && shotDown)
+			ufo->setShotDownByCraftId(craft->getUniqueId());
+		if (newStatus == Ufo::CRASHED)
+		{
+			// The HOST mints the authoritative crash-site id and resolves it
+			// into the broadcast (buy-soldier mutable-payload pattern); every
+			// replica - including the initiator, which minted a provisional one
+			// during its local sim - adopts the host's value. Ids travel by
+			// value, so the per-machine id counters need no lock-step here.
+			if (host && !payload.isMember("hostCrashId"))
+				payload["hostCrashId"] = ufo->getCrashId() != 0
+					? ufo->getCrashId() : save->getId("STR_CRASH_SITE");
+			int cid = payload.get("hostCrashId", 0).asInt();
+			if (cid > 0 && ufo->getCrashId() != cid) ufo->setCrashId(cid);
+			if (ufo->isHunterKiller() && craft)
+			{
+				// stop being a hunter-killer (vanilla crash block)
+				ufo->resetOriginalDestination(craft);
+				ufo->setHunterKiller(false);
+			}
+		}
+		// Host-authoritative consequences: score + mission bookkeeping +
+		// retaliation roll (vanilla runs them in the initiator's DogfightState,
+		// which is fenced on a JOINT replica). Exactly once, on the host.
+		bool downed = (newStatus == Ufo::CRASHED || newStatus == Ufo::DESTROYED)
+			&& oldStatus != Ufo::CRASHED && oldStatus != Ufo::DESTROYED;
+		if (host && downed && shotDown)
+		{
+			int score = ufo->getRules()->getScore() * (newStatus == Ufo::DESTROYED ? 2 : 1);
+			for (auto* country : *save->getCountries())
+				if (country->getRules()->insideCountry(ufo->getLongitude(), ufo->getLatitude()))
+					{ country->addActivityXcom(score); break; }
+			for (auto* region : *save->getRegions())
+				if (region->getRules()->insideRegion(ufo->getLongitude(), ufo->getLatitude()))
+					{ region->addActivityXcom(score); break; }
+			hostRollRetaliation(game, ufo, craft);
+		}
+	}
+
+	// ---- craft outcome (fuel/damage/ammo spent during the initiator's sim) ---
+	if (craft)
+	{
+		if (payload.isMember("craftDamage")) craft->setDamage(payload["craftDamage"].asInt());
+		if (payload.isMember("craftFuel")) craft->setFuel(payload["craftFuel"].asInt());
+		if (payload.isMember("craftLowFuel")) craft->setLowFuel(payload["craftLowFuel"].asBool());
+		const Json::Value& ammo = payload["ammo"];
+		if (ammo.isArray())
+			for (Json::ArrayIndex i = 0; i < ammo.size() && i < craft->getWeapons()->size(); ++i)
+			{
+				CraftWeapon* w = craft->getWeapons()->at(i);
+				int a = ammo[i].asInt();
+				if (w && a >= 0)
+				{
+					w->setAmmo(a);
+					w->setRearming(a < w->getRules()->getAmmoMax());
+				}
+			}
+		craft->setInDogfight(false);
+		craft->setInterceptionOrder(0);
+	}
+}
+
 // research_done payload: { research, bonus, newResearch } (rule names; bonus /
 // newResearch may be "").
 void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
@@ -1811,6 +2215,15 @@ void init()
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
 	registerCmd("base_destroyed", &simAccept, &baseDestroyedApply);
+	// PRD-J08 craft orders (any player -> host; last-command-wins by arrival order).
+	registerCmd("craft_launch",   &craftOrderValidate,  &craftOrderApply);
+	registerCmd("craft_retarget", &craftOrderValidate,  &craftOrderApply);
+	registerCmd("craft_return",   &craftExistsValidate, &craftReturnApply);
+	registerCmd("craft_patrol",   &craftExistsValidate, &craftPatrolApply);
+	// PRD-J08 dogfights: host-originated start (only the initiating seat opens
+	// the UI); initiator-reported result (host applies + rebroadcasts).
+	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
+	registerCmd("dogfight_result", &simAccept, &dogfightResultApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -2035,6 +2448,186 @@ void hostBaseDestroyed(Game* game, int baseId, const std::string& name)
 	Json::Value p;
 	p["name"] = name;
 	submitLocalCmd(game, "base_destroyed", baseId, p);
+}
+
+// ---- PRD-J08 public API --------------------------------------------------------
+
+namespace {
+
+// Index of the base holding @a craft (baseId of a craft order), or -1.
+int craftBaseIndex(Game* game, const Craft* craft)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save) return -1;
+	auto* bases = save->getBases();
+	for (int i = 0; i < (int)bases->size(); ++i)
+		for (auto* c : *(*bases)[i]->getCrafts())
+			if (c == craft) return i;
+	return -1;
+}
+
+// Serialize @a target into an order payload (shared real ids; lon/lat always
+// carried so a "point" fallback and the UI echo stay possible).
+void describeTarget(Game* game, Target* target, Json::Value& p)
+{
+	p["lon"] = target->getLongitude();
+	p["lat"] = target->getLatitude();
+	if (auto* u = dynamic_cast<Ufo*>(target))
+	{
+		p["targetType"] = "ufo";
+		p["targetId"] = u->getId();
+	}
+	else if (auto* s = dynamic_cast<MissionSite*>(target))
+	{
+		p["targetType"] = "site";
+		p["targetId"] = s->getId();
+	}
+	else if (auto* ab = dynamic_cast<AlienBase*>(target))
+	{
+		p["targetType"] = "abase";
+		p["targetId"] = ab->getId();
+	}
+	else if (auto* b = dynamic_cast<Base*>(target))
+	{
+		p["targetType"] = "xbase";
+		SavedGame* save = game->getSavedGame();
+		auto* bases = save->getBases();
+		for (int i = 0; i < (int)bases->size(); ++i)
+			if ((*bases)[i] == b) { p["tBaseId"] = i; break; }
+	}
+	else if (auto* c = dynamic_cast<Craft*>(target))
+	{
+		p["targetType"] = "xcraft";
+		p["tBaseId"] = craftBaseIndex(game, c);
+		p["tCraftId"] = c->getId();
+		p["tCraftType"] = c->getRules()->getType();
+	}
+	else
+	{
+		p["targetType"] = "point"; // waypoint (or unknown) -> a lon/lat point
+	}
+}
+
+// Launch when the craft is grounded, retarget when airborne (same handler; the
+// name keeps the wire readable).
+const char* orderCmdFor(const Craft* craft)
+{
+	return craft->getStatus() == "STR_OUT" ? "craft_retarget" : "craft_launch";
+}
+
+} // anonymous namespace
+
+void submitCraftTarget(Game* game, Craft* craft, Target* target)
+{
+	if (!game || !craft || !target) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	describeTarget(game, target, p);
+	submitLocalCmd(game, orderCmdFor(craft), craftBaseIndex(game, craft), p);
+}
+
+void submitCraftPoint(Game* game, Craft* craft, double lon, double lat)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["targetType"] = "point";
+	p["lon"] = lon;
+	p["lat"] = lat;
+	submitLocalCmd(game, orderCmdFor(craft), craftBaseIndex(game, craft), p);
+}
+
+void submitCraftReturn(Game* game, Craft* craft)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	submitLocalCmd(game, "craft_return", craftBaseIndex(game, craft), p);
+}
+
+void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["auto"] = autoPatrol;
+	submitLocalCmd(game, "craft_patrol", craftBaseIndex(game, craft), p);
+}
+
+int lastCraftOrderSeat(const Craft* craft)
+{
+	if (!craft) return -1;
+	auto it = g_craftOrderSeat.find(craftKey(craft));
+	return it == g_craftOrderSeat.end() ? -1 : it->second;
+}
+
+void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)
+{
+	if (!jointHost(game) || !craft || !ufo) return;
+	// Mark the pair engaged BEFORE broadcasting: the craft reads as in-dogfight
+	// to the host's own interception scan (so it neither re-engages nor opens a
+	// local UI), and the UFO serializes any further engagement attempts.
+	craft->setInDogfight(true);
+	g_remoteEngagedUfo[ufo->getId()] = craftKey(craft);
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["ufoId"] = ufo->getId();
+	p["initiatorSeat"] = seat;
+	submitLocalCmd(game, "dogfight_start", craftBaseIndex(game, craft), p);
+}
+
+bool isUfoRemotelyEngaged(int ufoId)
+{
+	return g_remoteEngagedUfo.count(ufoId) != 0;
+}
+
+bool ufoLocallySimulated(int ufoId)
+{
+	return g_localSimUfos.count(ufoId) != 0;
+}
+
+bool craftLocallySimulated(const Craft* craft)
+{
+	return craft && g_localSimCrafts.count(craftKey(craft)) != 0;
+}
+
+bool clientDogfightActive(const Craft* craft, const Ufo* ufo)
+{
+	return craft && ufo
+		&& g_localSimUfos.count(ufo->getId()) != 0
+		&& g_localSimCrafts.count(craftKey(craft)) != 0;
+}
+
+void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo)
+{
+	if (!game || !craft || !ufo) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isJointReplica()) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["ufoId"] = ufo->getId();
+	p["ufoDamage"] = ufo->getDamage();
+	p["ufoStatus"] = (int)ufo->getStatus();
+	p["altitude"] = ufo->getAltitude();
+	p["detected"] = ufo->getDetected();
+	p["ufoSpeed"] = ufo->getSpeed();
+	p["secondsRemaining"] = (Json::UInt)ufo->getSecondsRemaining();
+	p["shotDown"] = (ufo->getShotDownByCraftId() == craft->getUniqueId());
+	p["craftDamage"] = craft->getDamage();
+	p["craftFuel"] = craft->getFuel();
+	p["craftLowFuel"] = craft->getLowFuel();
+	Json::Value ammo(Json::arrayValue);
+	for (auto* w : *craft->getWeapons()) ammo.append(w ? w->getAmmo() : -1);
+	p["ammo"] = ammo;
+	// The local-sim snapshot exemption is deliberately NOT cleared here: the
+	// host's joint_apply{dogfight_result} rebroadcast clears it, so the position
+	// snapshot cannot flap the outcome during the round-trip.
+	submitLocalCmd(game, "dogfight_result", craftBaseIndex(game, craft), p);
 }
 
 void hostDayTick(Game* game)

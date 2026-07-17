@@ -190,6 +190,13 @@ public:
 	int minimizedDogfightsCount();
 	/// Starts a new dogfight.
 	void startDogfight();
+	/// PRD-J08 JOINT: open the dogfight UI for a craft/UFO pair on THIS machine
+	/// (the initiating player's replica) - mirrors the vanilla start block.
+	void startJointDogfight(Craft* craft, Ufo* ufo);
+	/// Test-harness introspection of the live dogfight list.
+	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
+	/// Test-harness: dogfights queued but not yet started.
+	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
 	/// Get first free dogfight slot.
 	int getFirstFreeDogfightSlot();
 	/// Handler for clicking the timer button.

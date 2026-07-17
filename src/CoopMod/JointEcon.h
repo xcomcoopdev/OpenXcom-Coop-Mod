@@ -30,6 +30,9 @@ namespace OpenXcom
 
 class Game;
 class Base;
+class Craft;
+class Ufo;
+class Target;
 
 /**
  * PRD-J03: the generic JOINT economy command protocol.
@@ -165,6 +168,50 @@ void hostDayTick(Game* game);
 /// the base in BaseDestroyedState). Mirror the removal to replicas (they erase the
 /// same base index + pop a popup). @a baseId = the destroyed base's index.
 void hostBaseDestroyed(Game* game, int baseId, const std::string& name);
+
+// ---- PRD-J08: shared craft command + dogfight coordination -------------------
+// Any player commands any craft; orders ride joint_cmd (craft_launch /
+// craft_retarget / craft_return / craft_patrol), the host validates the vanilla
+// fuel/crew/status rules against the authoritative world and applies in ARRIVAL
+// order (last-command-wins - a later order for the same craft simply overrides).
+// Dogfights follow locked decision (a): the player whose order engaged the UFO
+// (the "initiating seat", tracked per craft from the orders) simulates the
+// DogfightState on their machine against replica data; the result is reported
+// via joint_cmd{dogfight_result}, applied by the host to the authoritative world
+// and rebroadcast (joint_apply). While the initiator simulates, the engaged
+// craft/UFO are exempt from the joint position snapshot so the local sim isn't
+// overwritten mid-fight.
+
+/// UI entry points (initiator side; JOINT only - caller gates). Each builds the
+/// payload and submits the matching joint_cmd; nothing is mutated locally.
+void submitCraftTarget(Game* game, Craft* craft, Target* target); // launch/retarget
+void submitCraftPoint(Game* game, Craft* craft, double lon, double lat); // waypoint
+void submitCraftReturn(Game* game, Craft* craft);
+void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
+
+/// Seat of the last order applied for @a craft, or -1 if it was never commanded
+/// through the protocol (treat as host-owned -> vanilla local dogfight).
+int lastCraftOrderSeat(const Craft* craft);
+
+/// HOST: a craft commanded by a non-host seat reached a flying UFO. Marks the
+/// craft in-dogfight + the UFO remotely engaged, and broadcasts
+/// joint_apply{dogfight_start} so the initiating seat opens the dogfight UI.
+void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat);
+
+/// HOST: true while a remote (client-simulated) engagement is active on @a ufo.
+/// Used to SERIALIZE engagements: a second craft reaching the same UFO waits.
+bool isUfoRemotelyEngaged(int ufoId);
+
+/// REPLICA: true if this machine is currently simulating a dogfight involving
+/// the object - the joint position snapshot must not overwrite it mid-fight.
+bool ufoLocallySimulated(int ufoId);
+bool craftLocallySimulated(const Craft* craft);
+bool clientDogfightActive(const Craft* craft, const Ufo* ufo);
+
+/// REPLICA: the locally-simulated dogfight ended - report the outcome to the
+/// host (joint_cmd{dogfight_result}). The local-sim exemption is kept until the
+/// host's rebroadcast confirms the result, so the snapshot can't flap the state.
+void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo);
 
 // ---- PRD-J04: lightweight world checksum (log-only desync detect) ------------
 // Repair is PRD-J10; here the host stamps funds + base count + discovered-tech

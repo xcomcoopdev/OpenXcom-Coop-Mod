@@ -53,6 +53,7 @@
 #include "DogfightErrorState.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -955,6 +956,7 @@ void DogfightState::animate()
  */
 void DogfightState::update()
 {
+	++_updateCount; // test instrumentation (PRD-J08)
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() && _ufo->_coop == true)
@@ -1631,6 +1633,17 @@ void DogfightState::update()
 				AlienRace *race = _game->getMod()->getAlienRace(_ufo->getAlienRace());
 				AlienMission *mission = _ufo->getMission();
 				mission->ufoShotDown(*_ufo);
+				// PRD-J08: on a JOINT replica this dogfight runs against replica
+				// data; mission consequences (retaliation roll + spawn) are
+				// HOST-authoritative and are rolled by the host when it applies
+				// the reported dogfight_result - never here (a replica-side roll
+				// would spawn a mission the host's world does not have).
+				if (_game->getCoopMod()->isJointReplica())
+				{
+					// skip the retaliation roll block below
+				}
+				else
+				{
 				// Check for retaliation trigger.
 				int retaliationOdds = mission->getRules().getRetaliationOdds();
 				if (retaliationOdds == -1)
@@ -1697,6 +1710,7 @@ void DogfightState::update()
 						}
 					}
 				}
+				} // end of the JOINT-replica retaliation fence (PRD-J08)
 			}
 
 			if (_ufo->isDestroyed())
@@ -2723,6 +2737,16 @@ void DogfightState::endDogfight()
 {
 	if (_endDogfight)
 		return;
+	// PRD-J08 JOINT: this machine simulated the dogfight as the initiating
+	// seat (host-brokered dogfight_start). Report the outcome to the host,
+	// which applies it to the authoritative world and rebroadcasts
+	// joint_apply{dogfight_result} to settle every replica.
+	if (_craft && _ufo
+		&& _game->getCoopMod()->isJointReplica()
+		&& JointEcon::clientDogfightActive(_craft, _ufo))
+	{
+		JointEcon::clientDogfightEnded(_game, _craft, _ufo);
+	}
 	if (_craft)
 	{
 		_craft->setInDogfight(false);

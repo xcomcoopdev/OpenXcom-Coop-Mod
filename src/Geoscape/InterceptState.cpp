@@ -40,6 +40,7 @@
 #include "../Basescape/CraftInfoState.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -177,8 +178,10 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	{
 		if (_base != 0 && xbase != _base)
 			continue;
-		// coop
-		if (xbase)
+		// coop: SEPARATE hides the peer's mirror bases. PRD-J08 JOINT: fenced -
+		// every base is shared and lists for ALL players (a JOINT world has no
+		// _coopIcon mirrors, so this is an explicit no-op safety guard).
+		if (xbase && !_game->getCoopMod()->isJointCampaign())
 		{
 			if (xbase->_coopIcon == true)
 				continue;
@@ -512,8 +515,8 @@ void InterceptState::lstCraftsRightClick(Action *)
 		{
 			if (_base != 0 && xbase != _base)
 				continue;
-			// coop
-			if (xbase)
+			// coop: SEPARATE mirror-base skip; fenced in JOINT (PRD-J08, see ctor).
+			if (xbase && !_game->getCoopMod()->isJointCampaign())
 			{
 				if (xbase->_coopIcon == true)
 					continue;

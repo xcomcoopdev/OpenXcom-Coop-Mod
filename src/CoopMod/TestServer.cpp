@@ -27,6 +27,7 @@
 #include <json/json.h>
 #include <SDL_net.h>
 
+#include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/Logger.h"
 #include "../Engine/Options.h"
@@ -97,6 +98,9 @@
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/ConfirmNewBaseState.h"
 #include "../Geoscape/UfoDetectedState.h"
+#include "../Geoscape/InterceptState.h"
+#include "../Geoscape/ConfirmDestinationState.h"
+#include "../Geoscape/DogfightState.h"
 #include "LobbyMenu.h"
 #include "HostMenu.h"
 #include "Profile.h"
@@ -544,6 +548,8 @@ std::string TestServer::execute(const std::string& line)
 						jc["lon"] = c->getLongitude();
 						jc["lat"] = c->getLatitude();
 						jc["weapons"] = (int)c->getWeapons()->size();
+						jc["fuel"] = c->getFuel();       // PRD-J08
+						jc["damage"] = c->getDamage();   // PRD-J08
 						jc["lowFuel"] = c->getLowFuel();
 						jc["mission"] = c->getMissionComplete();
 						jc["inDogfight"] = c->isInDogfight();
@@ -630,6 +636,8 @@ std::string TestServer::execute(const std::string& line)
 					ju["lon"] = u->getLongitude();
 					ju["lat"] = u->getLatitude();
 					ju["coop"] = u->getCoop();
+					ju["crashId"] = u->getCrashId();   // PRD-J08
+					ju["damage"] = u->getDamage();     // PRD-J08
 					ufos.append(ju);
 				}
 				resp["ufos"] = ufos;
@@ -3293,8 +3301,12 @@ std::string TestServer::execute(const std::string& line)
 				RuleCraftWeapon* cwRule = const_cast<RuleCraftWeapon*>(
 					mod->getCraftWeapon(req.get("weapon", "STR_STINGRAY").asString(), false));
 				if (cwRule)
-					for (int i = 0; i < rule->getWeapons(); ++i)
-						craft->getWeapons()->push_back(new CraftWeapon(cwRule, cwRule->getAmmoMax()));
+					// The Craft ctor pre-fills getWeapons() null slots; mount INTO
+					// them (a push_back would leave the first slots empty - the
+					// dogfight only scans the first rule->getWeapons() slots).
+					for (size_t i = 0; i < craft->getWeapons()->size(); ++i)
+						if (!craft->getWeapons()->at(i))
+							craft->getWeapons()->at(i) = new CraftWeapon(cwRule, cwRule->getAmmoMax());
 				craft->checkup(); // -> STR_READY
 				base->getCrafts()->push_back(craft);
 				resp["craft_id"] = craft->getId();
@@ -3395,6 +3407,184 @@ std::string TestServer::execute(const std::string& line)
 				resp["coop"] = craft->coop;
 				resp["buttons_visible"] = gcs->testControlButtonsVisible();
 				delete gcs;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "craft_order")
+		{
+			// PRD-J08: drive the REAL craft-command screens - in a JOINT campaign
+			// their branches submit joint_cmds (craft_launch/craft_retarget/
+			// craft_return/craft_patrol); SEPARATE/solo take the vanilla paths.
+			// Params: order = "target" (with ufo_id | site_id | lon+lat) |
+			// "return" | "patrol"; craft_id (+ optional craft_type).
+			SavedGame* sg = _game->getSavedGame();
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			int craftId = req.get("craft_id", -1).asInt();
+			std::string craftType = req.get("craft_type", "").asString();
+			Craft* craft = nullptr;
+			if (sg)
+			{
+				for (auto* b : *sg->getBases())
+				{
+					for (auto* c : *b->getCrafts())
+						if (!c->coop && c->getId() == craftId
+							&& (craftType.empty() || c->getRules()->getType() == craftType))
+						{ craft = c; break; }
+					if (craft) break;
+				}
+			}
+			std::string order = req.get("order", "target").asString();
+			if (!sg) resp["error"] = "no saved game";
+			else if (!geo) resp["error"] = "no geoscape";
+			else if (!craft) resp["error"] = "no matching craft";
+			else if (order == "return" || order == "patrol")
+			{
+				// The REAL geoscape craft dialog: its handler pops itself (net 0).
+				GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
+				_game->pushState(gcs);
+				if (order == "return") gcs->btnBaseClick(nullptr);
+				else gcs->btnPatrolClick(nullptr);
+				resp["ok"] = true;
+			}
+			else
+			{
+				Target* target = nullptr;
+				if (req.isMember("ufo_id"))
+				{
+					int id = req["ufo_id"].asInt();
+					for (auto* u : *sg->getUfos()) if (u->getId() == id) { target = u; break; }
+				}
+				else if (req.isMember("site_id"))
+				{
+					int id = req["site_id"].asInt();
+					for (auto* ms : *sg->getMissionSites()) if (ms->getId() == id) { target = ms; break; }
+				}
+				else if (req.isMember("lon") && req.isMember("lat"))
+				{
+					// A fresh waypoint (id 0), exactly what SelectDestinationState
+					// hands to ConfirmDestinationState; the confirm handler owns it.
+					Waypoint* w = new Waypoint();
+					w->setLongitude(req["lon"].asDouble());
+					w->setLatitude(req["lat"].asDouble());
+					target = w;
+				}
+				if (!target)
+				{
+					resp["error"] = "no matching target";
+				}
+				else
+				{
+					// Real screens: a filler InterceptState absorbs the SECOND
+					// popState of ConfirmDestinationState::btnOkClick (vanilla
+					// pops the destination-selection screen underneath it).
+					_game->pushState(new InterceptState(geo->getGlobe(), false, nullptr, nullptr));
+					ConfirmDestinationState* cds =
+						new ConfirmDestinationState(std::vector<Craft*>{ craft }, target);
+					_game->pushState(cds);
+					cds->btnOkClick(nullptr);
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "dogfight_state")
+		{
+			// PRD-J08: introspect the live dogfight list (which machine holds the
+			// interactive UI - in JOINT only the initiating seat may).
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			if (!geo) resp["error"] = "no geoscape";
+			else
+			{
+				Json::Value list(Json::arrayValue);
+				for (auto* df : geo->getDogfights())
+				{
+					Json::Value jd;
+					jd["ufoId"] = df->getUfo() ? df->getUfo()->getId() : -1;
+					jd["craftId"] = df->getCraft() ? df->getCraft()->getId() : -1;
+					jd["craftType"] = df->getCraft() ? df->getCraft()->getRules()->getType() : "";
+					jd["minimized"] = df->isMinimized();
+					jd["ended"] = df->dogfightEnded();
+					jd["dist"] = df->harnessCurrentDist();
+					jd["targetDist"] = df->harnessTargetDist();
+					jd["updates"] = df->harnessUpdateCount();
+					jd["disengaging"] = df->harnessEnd();
+					list.append(jd);
+				}
+				resp["dogfights"] = list;
+				resp["count"] = (int)geo->getDogfights().size();
+				resp["pending"] = (int)geo->pendingDogfightCount();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "dogfight_action")
+		{
+			// PRD-J08: drive the FIRST live dogfight's mode buttons. Must go
+			// through the Simulate*LeftPress lane (a synthetic left-click, the
+			// same one GeoscapeState::handleDogfightMultiAction uses): the raw
+			// Press handlers set reload intervals but NOT the _mode button
+			// group, and update()'s fire condition checks _mode.
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			std::string action = req.get("action", "aggressive").asString();
+			if (!geo) resp["error"] = "no geoscape";
+			else if (geo->getDogfights().empty()) resp["error"] = "no dogfight";
+			else
+			{
+				DogfightState* df = geo->getDogfights().front();
+				SDL_Event ev;
+				ev.type = SDL_MOUSEBUTTONDOWN;
+				ev.button.button = SDL_BUTTON_LEFT;
+				Action a = Action(&ev, 0.0, 0.0, 0, 0);
+				if (action == "aggressive") df->btnAggressiveSimulateLeftPress(&a);
+				else if (action == "standard") df->btnStandardSimulateLeftPress(&a);
+				else if (action == "cautious") df->btnCautiousSimulateLeftPress(&a);
+				else if (action == "standoff") df->btnStandoffSimulateLeftPress(&a);
+				else if (action == "disengage") df->btnDisengageSimulateLeftPress(&a);
+				else if (action == "minimize") df->setMinimized(true);
+				else resp["error"] = "unknown action: " + action;
+				if (!resp.isMember("error")) resp["ok"] = true;
+			}
+		}
+		else if (cmd == "set_ufo_damage")
+		{
+			// PRD-J08: seed a UFO's damage (e.g. just below the crash threshold,
+			// damageMax/2, so the next cannon hit crashes it deterministically).
+			SavedGame* sg = _game->getSavedGame();
+			int id = req.get("ufo_id", -1).asInt();
+			Ufo* ufo = nullptr;
+			if (sg)
+				for (auto* u : *sg->getUfos())
+					if (u->getId() == id) { ufo = u; break; }
+			if (!ufo) resp["error"] = "no matching ufo";
+			else
+			{
+				ufo->setDamage(req.get("damage", 0).asInt(), _game->getMod());
+				resp["damage"] = ufo->getDamage();
+				resp["damageMax"] = ufo->getCraftStats().damageMax;
+				resp["status"] = (int)ufo->getStatus();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "intercept_list")
+		{
+			// PRD-J08 AC3: the REAL InterceptState's rows - every shared base's
+			// crafts must list for every player in JOINT.
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			if (!geo) resp["error"] = "no geoscape";
+			else
+			{
+				InterceptState* is = new InterceptState(geo->getGlobe(), false, nullptr, nullptr);
+				Json::Value rows(Json::arrayValue);
+				for (auto* c : is->harnessListedCrafts())
+				{
+					Json::Value jr;
+					jr["craft"] = c->getName(_game->getLanguage());
+					jr["craftId"] = c->getId();
+					jr["type"] = c->getRules()->getType();
+					jr["base"] = c->getBase()->getName();
+					jr["status"] = c->getStatus();
+					rows.append(jr);
+				}
+				delete is;
+				resp["rows"] = rows;
 				resp["ok"] = true;
 			}
 		}

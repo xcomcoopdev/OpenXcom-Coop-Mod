@@ -46,6 +46,8 @@
 #include "../Engine/Options.h"
 #include "../Engine/Sound.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/JointEcon.h"
 
 namespace OpenXcom
 {
@@ -67,6 +69,13 @@ ConfirmDestinationState::ConfirmDestinationState(std::vector<Craft*> crafts, Tar
 	if (_crafts.size() == 1)
 	{
 		transferAvailable = (Options::canTransferCraftsWhileAirborne && base != 0 && base != _crafts.front()->getBase() && _crafts.front()->arePilotsOnboard(_game->getMod()));
+		// PRD-J08 JOINT: airborne craft transfer mutates two bases directly and
+		// is not one of the J08 craft-order commands - hide it (the base
+		// Transfer screen, which rides the J05 "transfer" command, covers it).
+		if (_game->getCoopMod()->isJointCampaign())
+		{
+			transferAvailable = false;
+		}
 	}
 
 	int btnOkX = transferAvailable ? 29 : 68;
@@ -353,6 +362,41 @@ void ConfirmDestinationState::btnOkClick(Action *)
 			_game->pushState(new CraftNotEnoughPilotsState(craft));
 			return;
 		}
+	}
+
+	// PRD-J08 JOINT: launch/retarget are commands to the host - nothing is
+	// mutated locally. The pre-checks above stay as the initiator's immediate
+	// UX; the host re-validates the same vanilla rules on the live world and
+	// applies orders in arrival order (last-command-wins). A fresh waypoint
+	// (id 0) travels as a lon/lat "point"; the applier creates the shared
+	// waypoint on host + replicas so the id counter stays in lock-step.
+	if (_game->getCoopMod()->isJointCampaign())
+	{
+		Waypoint* wj = dynamic_cast<Waypoint*>(_target);
+		for (auto* craft : _crafts)
+		{
+			Target* tgt = _target;
+			// non-leader wing craft optionally follow the wing leader
+			if (craft != _crafts.front() && _btnFollowWingLeader->getPressed())
+			{
+				tgt = _crafts.front();
+			}
+			if (tgt == _target && wj != 0 && wj->getId() == 0)
+			{
+				JointEcon::submitCraftPoint(_game, craft, wj->getLongitude(), wj->getLatitude());
+			}
+			else
+			{
+				JointEcon::submitCraftTarget(_game, craft, tgt);
+			}
+		}
+		if (wj != 0 && wj->getId() == 0)
+		{
+			delete wj; // never registered locally; the applier builds the real one
+		}
+		_game->popState();
+		_game->popState();
+		return;
 	}
 
 	Waypoint *w = dynamic_cast<Waypoint*>(_target);
