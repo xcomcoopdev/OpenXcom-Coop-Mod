@@ -219,7 +219,7 @@ void hostFacilityDone(Game* game, int baseId, int x, int y,
 /// produced items/crafts, removes the Production (freeing engineers), and mirrors
 /// the completion popup.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress);
+                        int units, int progress, bool sell);
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.

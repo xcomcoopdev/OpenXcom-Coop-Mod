@@ -3755,7 +3755,8 @@ void GeoscapeState::time1Hour()
 				if (!pair.first->getInfiniteAmount())
 					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
 				JointEcon::hostProductionDone(_game, jointBaseId(xbase),
-					pair.first->getRules()->getName(), prodUnits, pair.second);
+					pair.first->getRules()->getName(), prodUnits, pair.second,
+					pair.first->getSellItems());
 				xbase->removeProduction(pair.first);
 			}
 		}

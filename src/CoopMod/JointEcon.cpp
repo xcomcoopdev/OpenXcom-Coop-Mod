@@ -2261,7 +2261,7 @@ void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
-// prod_done payload: { manufacture, units, progress }.
+// prod_done payload: { manufacture, units, progress, sell }.
 void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -2272,14 +2272,22 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	const std::string mName = payload.get("manufacture", "").asString();
 	int units = payload.get("units", 0).asInt();
+	// GAP-6b: the host Production's SELL flag. When set, Production::step() credited
+	// funds and added NOTHING to stores for the produced items; the authoritative
+	// funds ride this joint_apply as usual, so the replica must skip the storage add
+	// or its item count drifts ABOVE the host. The sell branch lives inside the
+	// NON-craft arm of Production::step(), so a produced CRAFT is never sold - the
+	// craft materialization below stays unconditional.
+	bool sell = payload.get("sell", false).asBool();
 	RuleManufacture* rule = mod->getManufacture(mName, false);
 	if (!rule || units <= 0) return;
 
 	// Materialize the deterministic output (items + crafts). Random/spawned-person
 	// production is host-RNG and NOT reconstructed here (documented limitation);
 	// the next joint_apply / checksum surfaces any resulting drift.
-	for (const auto& it : rule->getProducedItems())
-		base->getStorageItems()->addItem(it.first, it.second * units);
+	if (!sell)
+		for (const auto& it : rule->getProducedItems())
+			base->getStorageItems()->addItem(it.first, it.second * units);
 	if (const RuleCraft* craftRule = rule->getProducedCraft())
 	{
 		for (int c = 0; c < units; ++c)
@@ -2872,13 +2880,16 @@ void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& f
 }
 
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress)
+                        int units, int progress, bool sell)
 {
 	if (!jointHost(game)) return;
 	Json::Value p;
 	p["manufacture"] = manufacture;
 	p["units"] = units;
 	p["progress"] = progress;
+	// GAP-6b: carry the host Production's SELL flag so the replica materializes
+	// exactly what the host did (sold -> funds only, nothing to stores).
+	p["sell"] = sell;
 	submitLocalCmd(game, "prod_done", baseId, p);
 }
 
