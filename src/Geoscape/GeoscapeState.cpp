@@ -1892,7 +1892,16 @@ void GeoscapeState::think()
 		if (!_dogfights.empty() || _minimizedDogfights != 0)
 		{
 			// If all dogfights are minimized rotate the globe, etc.
-			if (_dogfights.size() == _minimizedDogfights)
+			// PRD-DF02 dual-clock fix (4): on a JOINT replica the world clock is gated by
+			// the HOST's authoritative "any non-minimized window" (_dfHostAnyOpen from
+			// df_state), NOT this machine's local minimize - so a replica un-minimizing to
+			// watch never desyncs its clock from the host. Host + solo keep the vanilla
+			// "all local windows minimized" rule.
+			bool jointReplica = _game->getCoopMod() && _game->getCoopMod()->isJointCampaign()
+				&& !_game->getCoopMod()->getServerOwner();
+			bool clockRuns = jointReplica ? !_dfHostAnyOpen
+			                              : (_dogfights.size() == _minimizedDogfights);
+			if (clockRuns)
 			{
 				_pause = false;
 				_gameTimer->think(this, 0);
@@ -5309,7 +5318,7 @@ void GeoscapeState::jointLandingReply(Craft* craft, bool yes, bool patrol)
 	cls->btnYesClick(nullptr);
 }
 
-void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking)
+void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized)
 {
 	if (!craft || !ufo || craft->isInDogfight())
 		return;
@@ -5317,7 +5326,13 @@ void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacki
 	// _isReplicaView from the coop role; it renders the host's df_state stream
 	// and never sims. ufoIsAttacking (from df_open) lets the ctor derive the same
 	// static-per-fight fields (disable flags, initial mode) the host derived.
-	_dogfightsToBeStarted.push_back(new DogfightState(this, craft, ufo, ufoIsAttacking));
+	DogfightState* df = new DogfightState(this, craft, ufo, ufoIsAttacking);
+	// PRD-DF02 presentation policy (3b): a non-commanding seat opens minimized (an
+	// icon it can click to spectate/command); the commanding seat opens full. INITIAL
+	// minimize only - a per-machine VIEW choice (4); the world clock is gated by the
+	// host's authoritative hostAnyOpen, never by this local minimize state.
+	if (startMinimized) df->setMinimized(true);
+	_dogfightsToBeStarted.push_back(df);
 	if (!_dogfightStartTimer->isRunning())
 	{
 		_pause = true;
@@ -5396,6 +5411,7 @@ void GeoscapeState::jointBroadcastDogfights()
 			d["craftType"] = df->getCraft()->getRules()->getType();
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
+			d["commandingSeat"] = JointEcon::lastCraftOrderSeat(df->getCraft());
 			arr.append(d);
 		}
 		for (auto* df : _dogfightsToBeStarted)
@@ -5406,6 +5422,7 @@ void GeoscapeState::jointBroadcastDogfights()
 			d["craftType"] = df->getCraft()->getRules()->getType();
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
+			d["commandingSeat"] = JointEcon::lastCraftOrderSeat(df->getCraft());
 			arr.append(d);
 		}
 		payload["dogfights"] = arr;
@@ -5450,6 +5467,7 @@ void GeoscapeState::jointApplyDogfightMembership(const Json::Value& dogfights, i
 			m.craftType = d.get("craftType", "").asString();
 			m.ufoId = d.get("ufoId", -1).asInt();
 			m.ufoIsAttacking = d.get("ufoIsAttacking", false).asBool();
+			m.commandingSeat = d.get("commandingSeat", -1).asInt();
 			_dfDesired.push_back(m);
 		}
 	}
@@ -5529,8 +5547,15 @@ void GeoscapeState::jointReconcileReplicaDogfights()
 		for (auto* u : *save->getUfos())
 			if (u->getId() == m.ufoId) { ufo = u; break; }
 		// Both objects present, UFO still flying, craft free: open the replica window.
+		// PRD-DF02 3b: minimize unless THIS machine is the commanding seat. A host-
+		// commanded / HK craft has commandingSeat <= 0 -> the host commands it, so every
+		// client (seat >= 1) opens the minimized icon; the commanding client opens full.
 		if (craft && ufo && ufo->getStatus() == Ufo::FLYING && !craft->isInDogfight())
-			startJointDogfight(craft, ufo, m.ufoIsAttacking);
+		{
+			int mySeat = _game->getCoopMod() ? _game->getCoopMod()->localSeat() : -1;
+			bool startMinimized = (m.commandingSeat != mySeat);
+			startJointDogfight(craft, ufo, m.ufoIsAttacking, startMinimized);
+		}
 	}
 }
 
@@ -5545,6 +5570,10 @@ void GeoscapeState::jointApplyDogfightState(const Json::Value& root)
 	int epoch = root.get("epoch", 0).asInt();
 	if (epoch < _dfReplicaEpoch)
 		return; // stale: predates the current membership
+	// PRD-DF02 dual-clock fix: adopt the host's authoritative "any non-minimized window
+	// open on the host". On a replica this gates the world clock (think()), so a
+	// replica's own local minimize never desyncs its clock from the host.
+	_dfHostAnyOpen = root.get("hostAnyOpen", _dfHostAnyOpen).asBool();
 	const Json::Value& frames = root["frames"];
 	if (!frames.isArray()) return;
 	for (Json::ArrayIndex i = 0; i < frames.size(); ++i)
@@ -5563,6 +5592,39 @@ void GeoscapeState::jointApplyDogfightState(const Json::Value& root)
 				break;
 			}
 	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated df_cmd. Finds the authoritative DogfightState for
+ * (craftId,craftType,ufoId) and drives the action through the SAME lane the local UI
+ * uses (hostApplyStance / hostToggleWeapon / hostSelfDestruct), so all vanilla side
+ * effects fire identically. Called from the g_cmdQ drain in receive-order, so
+ * concurrent commands resolve last-received-wins. Minimize is a per-machine VIEW action
+ * (4) and is intentionally a no-op here. Returns false if the pair is no longer a live
+ * fight (a stale pre-reshuffle command -> the caller drops it + logs once, epoch guard).
+ */
+bool GeoscapeState::jointApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+                                          const std::string& action, int arg)
+{
+	DogfightState* target = nullptr;
+	for (auto* df : _dogfights)
+		if (df->getCraft() && df->getUfo()
+			&& df->getCraft()->getId() == craftId
+			&& df->getUfo()->getId() == ufoId
+			&& df->getCraft()->getRules()->getType() == craftType)
+		{ target = df; break; }
+	if (!target)
+		return false; // stale: the (craft,ufo) left the live membership (epoch guard 6)
+
+	if      (action == "standoff")     target->hostApplyStance(0);
+	else if (action == "cautious")     target->hostApplyStance(1);
+	else if (action == "standard")     target->hostApplyStance(2);
+	else if (action == "aggressive")   target->hostApplyStance(3);
+	else if (action == "disengage")    target->hostApplyStance(4);
+	else if (action == "weaponToggle") target->hostToggleWeapon(arg);
+	else if (action == "selfDestruct") target->hostSelfDestruct();
+	else if (action == "minimize")     { /* per-machine VIEW state (4): no host effect */ }
+	return true;
 }
 
 int GeoscapeState::getFirstFreeDogfightSlot()

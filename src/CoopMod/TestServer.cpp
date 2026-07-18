@@ -4133,6 +4133,14 @@ std::string TestServer::execute(const std::string& line)
 					jd["targetDist"] = df->harnessTargetDist();
 					jd["updates"] = df->harnessUpdateCount();
 					jd["disengaging"] = df->harnessEnd();
+					// PRD-DF02: synced UFO attack-mode marker + replica flag + weapon states.
+					jd["ufoStance"] = df->harnessUfoStance();
+					jd["mode"] = df->harnessMode();
+					jd["replica"] = df->isReplicaView();
+					Json::Value we(Json::arrayValue);
+					for (int wi = 0; wi < df->harnessWeaponCount(); ++wi)
+						we.append(df->harnessWeaponEnabled(wi));
+					jd["weaponEnabled"] = we;
 					list.append(jd);
 				}
 				resp["dogfights"] = list;
@@ -4155,16 +4163,32 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				DogfightState* df = geo->getDogfights().front();
+				int warg = req.get("arg", 0).asInt();
 				SDL_Event ev;
 				ev.type = SDL_MOUSEBUTTONDOWN;
 				ev.button.button = SDL_BUTTON_LEFT;
 				Action a = Action(&ev, 0.0, 0.0, 0, 0);
-				if (action == "aggressive") df->btnAggressiveSimulateLeftPress(&a);
+				if (df->isReplicaView())
+				{
+					// PRD-DF02: the raw Press handlers emit df_cmd (+ optimistic echo)
+					// regardless of window visibility, so a minimized (non-commanding)
+					// replica can still command the host.
+					if (action == "aggressive") df->btnAggressivePress(&a);
+					else if (action == "standard") df->btnStandardPress(&a);
+					else if (action == "cautious") df->btnCautiousPress(&a);
+					else if (action == "standoff") df->btnStandoffPress(&a);
+					else if (action == "disengage") df->btnDisengagePress(&a);
+					else if (action == "minimize") df->setMinimized(true);
+					else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
+					else resp["error"] = "unknown action: " + action;
+				}
+				else if (action == "aggressive") df->btnAggressiveSimulateLeftPress(&a);
 				else if (action == "standard") df->btnStandardSimulateLeftPress(&a);
 				else if (action == "cautious") df->btnCautiousSimulateLeftPress(&a);
 				else if (action == "standoff") df->btnStandoffSimulateLeftPress(&a);
 				else if (action == "disengage") df->btnDisengageSimulateLeftPress(&a);
 				else if (action == "minimize") df->setMinimized(true);
+				else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
 				else resp["error"] = "unknown action: " + action;
 				if (!resp.isMember("error")) resp["ok"] = true;
 			}

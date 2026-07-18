@@ -85,11 +85,19 @@ private:
 	// the reshuffle race) plus the desired membership set it reconciles its
 	// render-only windows against every think() (opens a window as soon as the craft +
 	// UFO are replicated, closes windows no longer in the set).
-	struct DfMember { std::string craftType; int craftId; int ufoId; bool ufoIsAttacking; };
+	// PRD-DF02: commandingSeat = lastCraftOrderSeat(craft), carried in df_open so a
+	// replica opens the window minimized unless it IS the commanding seat (<=0 = host-
+	// commanded/HK -> the host commands, so every client gets the minimized icon).
+	struct DfMember { std::string craftType; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
 	int _dfEpoch = 0;
 	std::string _dfMembershipSig;
 	int _dfReplicaEpoch = 0;
 	std::vector<DfMember> _dfDesired;
+	// PRD-DF02 dual-clock fix (locked decision #6): the host's authoritative "any
+	// non-minimized dogfight window on the host", adopted from df_state. On a replica
+	// this - NOT the replica's own local minimize - gates whether the world clock runs,
+	// so host and replica agree regardless of a replica's per-machine minimize choice.
+	bool _dfHostAnyOpen = true;
 	/// HOST: emit df_open on a membership change + one df_state frame per tick.
 	void jointBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
@@ -228,12 +236,19 @@ public:
 	/// pair on THIS (replica) machine - mirrors the vanilla start block. @a
 	/// ufoIsAttacking carries the HK flag from df_open so the ctor derives the same
 	/// static-per-fight fields (disable flags, initial mode) as the host.
-	void startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking);
+	/// PRD-DF02: @a startMinimized opens the replica window as a minimized icon (the
+	/// presentation policy: only the commanding seat gets the full window).
+	void startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
 	/// PRD-DF01 REPLICA: adopt a df_open membership set (opens/closes windows).
 	void jointApplyDogfightMembership(const Json::Value& dogfights, int epoch);
 	/// PRD-DF01 REPLICA: adopt a df_state frame set (epoch-guarded; routes each
 	/// frame to the matching render-only window by (craftId,ufoId)).
 	void jointApplyDogfightState(const Json::Value& root);
+	/// PRD-DF02 (HOST): apply a replicated df_cmd to the authoritative DogfightState
+	/// for (craftId,craftType,ufoId). Returns false if no such live fight exists
+	/// (stale/reshuffled membership -> the caller drops + logs once).
+	bool jointApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+	                           const std::string& action, int arg);
 	/// PRD-J10 JOINT (HOST): the commanding seat answered a brokered landing
 	/// prompt. @a yes -> generate the battle exactly as the host's own
 	/// ConfirmLandingState would; otherwise patrol here / return to base.

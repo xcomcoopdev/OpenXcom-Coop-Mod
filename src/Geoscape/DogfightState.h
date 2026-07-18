@@ -75,6 +75,13 @@ private:
 	int _pilotAccuracyBonus, _pilotDodgeBonus, _pilotApproachSpeedModifier, _craftAccelerationBonus;
 	bool _firedAtLeastOnce, _experienceAwarded;
 	bool _delayedRecolorDone;
+	// PRD-DF02 JOINT: the UFO's synced attack posture (Ufo::getHuntBehavior()), carried
+	// per-tick in df_state so every player renders the same marker. On the host it is
+	// refreshed from the live UFO in animate(); on a replica it is adopted from the frame.
+	int _ufoStance;
+	// PRD-DF02: the status line WITHOUT the stance marker, so the marker can be
+	// re-composed each frame (refreshStatus) and the streamed statusText stays marker-free.
+	std::string _statusBase;
 	// PRD-DF01 JOINT: a render-only replica of a host-simulated dogfight. Set in the
 	// ctor = isJointCampaign() && !host. On a replica update() applies the latest
 	// df_state frame + animate()s and returns - the entire sim body is skipped, no
@@ -88,6 +95,10 @@ private:
 	void updateOceanIndicator();
 	/// PRD-DF01: current mode-button as a wire enum (0..4) for df_state.
 	int modeIndex() const;
+	/// PRD-DF02: re-compose the status line = _statusBase + the synced UFO stance marker.
+	void refreshStatus();
+	/// PRD-DF02 REPLICA: emit a df_cmd (stance/weapon/disengage/selfDestruct) to the host.
+	void emitDfCmd(const std::string& action, int arg = -1);
 
 public:
 	/// Creates the Dogfight state.
@@ -198,11 +209,31 @@ public:
 	/// UFO render bits the geo snapshot does not carry (shield/hitFrame), craft ammo,
 	/// the end flags, and a rebuilt projectile draw set.
 	void applyFrame(const Json::Value& frame);
+	/// PRD-DF02 (HOST): apply a replicated stance command (0=standoff..4=disengage) by
+	/// setting _mode + running the vanilla Press body (the Simulate*LeftPress lane, but
+	/// visibility-independent so a host-minimized window still obeys a client command).
+	void hostApplyStance(int stanceIdx);
+	/// PRD-DF02 (HOST): apply a replicated weapon toggle for weapon @a idx.
+	void hostToggleWeapon(int idx);
+	/// PRD-DF02 (HOST): apply a replicated self-destruct toggle (defenseless craft only).
+	void hostSelfDestruct();
 	/// Test hooks (PRD-J08): dogfight sim internals for the harness.
 	int harnessCurrentDist() const { return _currentDist; }
 	int harnessTargetDist() const { return _targetDist; }
 	bool harnessEnd() const { return _end; }
 	int harnessUpdateCount() const { return _updateCount; }
+	/// PRD-DF02: current stance as the df_state wire enum (0=standoff..4=disengage).
+	int harnessMode() const { return modeIndex(); }
+	/// PRD-DF02: the UFO's synced attack posture for the harness (host reads the live
+	/// UFO; a replica returns the value adopted from df_state).
+	int harnessUfoStance() const;
+	/// PRD-DF02: weapon-enabled state for the harness (client weaponToggle assertions).
+	int harnessWeaponCount() const { return _weaponNum; }
+	bool harnessWeaponEnabled(int i) const { return i >= 0 && i < _weaponNum && _weaponEnabled[i]; }
+	/// PRD-DF02: toggle weapon @a idx via the correct role lane (replica: optimistic
+	/// echo + df_cmd; host: apply directly) - a harness affordance (weaponClick needs a
+	/// widget sender the harness cannot synthesize).
+	void harnessToggleWeapon(int idx);
 private:
 	/// test instrumentation: update() invocation count.
 	int _updateCount = 0;

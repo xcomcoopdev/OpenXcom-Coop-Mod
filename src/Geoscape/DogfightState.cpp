@@ -249,7 +249,7 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_minimized(false), _endDogfight(false), _animatingHit(false), _waitForPoly(false), _waitForAltitude(false), _ufoSize(0), _ufoBlobSize(0),
 	_craftHeight(0), _currentCraftDamageColor(0),
 	_interceptionNumber(0), _interceptionsCount(0), _x(0), _y(0), _minimizedIconX(0), _minimizedIconY(0), _firedAtLeastOnce(false), _experienceAwarded(false),
-	_delayedRecolorDone(false), _isReplicaView(false)
+	_delayedRecolorDone(false), _isReplicaView(false), _ufoStance(0)
 {
 	_screen = false;
 	// PRD-DF01: on a JOINT replica this window renders a host-simulated fight from
@@ -524,10 +524,10 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_txtDistance->setText("640");
 	updateOceanIndicator();
 
-	if (_ufoIsAttacking)
-		_txtStatus->setText(tr("STR_AGGRESSIVE_ATTACK"));
-	else
-		_txtStatus->setText(tr("STR_STANDOFF"));
+	// PRD-DF02: route through _statusBase so the synced UFO-stance marker composes on
+	// top (refreshStatus) and the streamed statusText stays marker-free.
+	_statusBase = _ufoIsAttacking ? tr("STR_AGGRESSIVE_ATTACK") : tr("STR_STANDOFF");
+	refreshStatus();
 
 	SurfaceSet *set = _game->getMod()->getSurfaceSet("INTICON.PCK");
 
@@ -929,15 +929,23 @@ void DogfightState::animate()
 		drawProjectile(cwp);
 	}
 
+	// PRD-DF02: keep the synced UFO-stance marker current. On the host, refresh from
+	// the live UFO; on a replica _ufoStance is adopted from df_state (applyFrame).
+	if (!_isReplicaView && _ufo)
+		_ufoStance = _ufo->getHuntBehavior();
+
 	// Clears text after a while
 	if (_timeout == 0)
 	{
-		_txtStatus->setText("");
+		_statusBase.clear();
 	}
 	else
 	{
 		_timeout--;
 	}
+	// Re-compose status + stance marker every frame so the marker stays visible while
+	// the status message persists and after it clears (the marker is persistent).
+	refreshStatus();
 
 	// Animate UFO hit.
 	bool lastHitAnimFrame = false;
@@ -2073,8 +2081,115 @@ void DogfightState::aggressiveDistance()
  */
 void DogfightState::setStatus(const std::string &status)
 {
-	_txtStatus->setText(tr(status));
+	_statusBase = tr(status);
+	refreshStatus();
 	_timeout = 50;
+}
+
+/**
+ * PRD-DF02: re-compose the status line. The synced UFO attack-mode marker (the UFO's
+ * hunt posture, carried in df_state as ufoStance) is appended to the base status so
+ * every player sees the same marker; the base (marker-free) string is what the host
+ * streams. huntBehavior 1 = kamikaze/aggressive posture -> shown; 0 = normal -> clean.
+ */
+void DogfightState::refreshStatus()
+{
+	if (_ufoStance == 1)
+		_txtStatus->setText(_statusBase.empty() ? std::string("[UFO AGGR]")
+		                                        : _statusBase + " [UFO AGGR]");
+	else
+		_txtStatus->setText(_statusBase);
+}
+
+/**
+ * PRD-DF02 REPLICA: emit a df_cmd on the reliable FIFO joint_cmd lane. The host
+ * validates membership (epoch guard) and applies it to the authoritative sim in
+ * receive-order; the result surfaces to every replica on the next df_state frame.
+ */
+void DogfightState::emitDfCmd(const std::string& action, int arg)
+{
+	Json::Value p;
+	p["craftId"] = _craft ? _craft->getId() : -1;
+	p["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	p["ufoId"] = _ufo ? _ufo->getId() : -1;
+	p["action"] = action;
+	p["arg"] = arg;
+	JointEcon::submitLocalCmd(_game, "df_cmd", -1, p);
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated stance command. Sets the _mode button group and
+ * runs the vanilla Press body (the same side effects as an actual mouse press:
+ * reload intervals, _targetDist, _end). Visibility-independent (unlike the
+ * Simulate*LeftPress lane) so a host-minimized window still obeys a client command.
+ */
+void DogfightState::hostApplyStance(int stanceIdx)
+{
+	switch (stanceIdx)
+	{
+	case 0: _mode = _btnStandoff;   btnStandoffPress(nullptr);   break;
+	case 1: _mode = _btnCautious;   btnCautiousPress(nullptr);   break;
+	case 2: _mode = _btnStandard;   btnStandardPress(nullptr);   break;
+	case 3: _mode = _btnAggressive; btnAggressivePress(nullptr); break;
+	case 4: _mode = _btnDisengage;  btnDisengagePress(nullptr);  break;
+	default: break;
+	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated weapon toggle (same body as weaponClick, by index).
+ */
+void DogfightState::hostToggleWeapon(int idx)
+{
+	if (idx < 0 || idx >= _weaponNum) return;
+	_weaponEnabled[idx] = !_weaponEnabled[idx];
+	recolor(idx, _weaponEnabled[idx]);
+	if (Options::oxceRememberDisabledCraftWeapons)
+	{
+		CraftWeapon* w = _craft->getWeapons()->at(idx);
+		if (w) w->setDisabled(!_weaponEnabled[idx]);
+	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated self-destruct toggle (defenseless craft only;
+ * mirrors the btnMinimizeClick self-destruct branch, minus the local button redraw).
+ */
+void DogfightState::hostSelfDestruct()
+{
+	if (!_craftIsDefenseless) return;
+	_selfDestructPressed = !_selfDestructPressed;
+	setStatus(_selfDestructPressed ? "STR_SELF_DESTRUCT_ACTIVATED" : "STR_SELF_DESTRUCT_CANCELLED");
+}
+
+/**
+ * PRD-DF02: the UFO's synced attack posture for the harness. On the host, read the
+ * live UFO (authoritative); on a replica, return the value adopted from df_state, so a
+ * host/replica parity assertion actually proves the value travelled over the wire.
+ */
+int DogfightState::harnessUfoStance() const
+{
+	if (_isReplicaView) return _ufoStance;
+	return _ufo ? _ufo->getHuntBehavior() : _ufoStance;
+}
+
+/**
+ * PRD-DF02: harness-only weapon toggle by index, routed through the same role lane the
+ * UI uses (weaponClick needs a widget sender the harness cannot synthesize).
+ */
+void DogfightState::harnessToggleWeapon(int idx)
+{
+	if (idx < 0 || idx >= _weaponNum) return;
+	if (_isReplicaView)
+	{
+		_weaponEnabled[idx] = !_weaponEnabled[idx]; // optimistic echo
+		recolor(idx, _weaponEnabled[idx]);
+		emitDfCmd("weaponToggle", idx);
+	}
+	else
+	{
+		hostToggleWeapon(idx);
+	}
 }
 
 /**
@@ -2093,6 +2208,19 @@ void DogfightState::btnMinimizeClick(Action *)
 		int offset = _game->getMod()->getInterface("dogfight")->getElement("minimizeButtonDummy")->TFTDMode ? 1 : 0;
 		int color = _selfDestructPressed ? DAMAGE_MIN : DAMAGE_MAX;
 		_btnMinimize->drawRect(1 + offset, 1, _btnMinimize->getWidth() - 2 - offset, _btnMinimize->getHeight() - 2, _colors[color]);
+		// PRD-DF02 REPLICA: self-destruct is authoritative - emit df_cmd so the host
+		// toggles its own _selfDestructPressed (the toggle above is the optimistic echo).
+		if (_isReplicaView)
+			emitDfCmd("selfDestruct");
+		return;
+	}
+
+	// PRD-DF02 REPLICA: minimize is per-machine VIEW state (README #6): minimize
+	// freely and locally. It never drives the world clock (the host's authoritative
+	// hostAnyOpen does, 4) and never touches the host-owned sim (no shield write).
+	if (_isReplicaView)
+	{
+		setMinimized(true);
 		return;
 	}
 
@@ -2116,7 +2244,9 @@ void DogfightState::btnMinimizeClick(Action *)
  */
 void DogfightState::btnStandoffPress(Action *)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	// PRD-DF02 REPLICA: optimistic echo (set _mode now, pure render) then emit df_cmd;
+	// the next authoritative df_state confirms/corrects _mode.
+	if (_isReplicaView) { _mode = _btnStandoff; emitDfCmd("standoff"); return; }
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2144,7 +2274,7 @@ void DogfightState::btnStandoffSimulateLeftPress(Action *action)
  */
 void DogfightState::btnCautiousPress(Action *)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	if (_isReplicaView) { _mode = _btnCautious; emitDfCmd("cautious"); return; } // PRD-DF02: optimistic echo + df_cmd
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2198,7 +2328,7 @@ void DogfightState::btnCautiousSimulateLeftPress(Action *action)
  */
 void DogfightState::btnStandardPress(Action *)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	if (_isReplicaView) { _mode = _btnStandard; emitDfCmd("standard"); return; } // PRD-DF02: optimistic echo + df_cmd
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2234,7 +2364,7 @@ void DogfightState::btnStandardSimulateLeftPress(Action *action)
  */
 void DogfightState::btnAggressivePress(Action *)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	if (_isReplicaView) { _mode = _btnAggressive; emitDfCmd("aggressive"); return; } // PRD-DF02: optimistic echo + df_cmd
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2270,7 +2400,7 @@ void DogfightState::btnAggressiveSimulateLeftPress(Action *action)
  */
 void DogfightState::btnDisengagePress(Action *)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	if (_isReplicaView) { _mode = _btnDisengage; emitDfCmd("disengage"); return; } // PRD-DF02: optimistic echo + df_cmd
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = true;
@@ -2468,7 +2598,21 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
-	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
+	// PRD-DF02 REPLICA: optimistically recolor the icon now (pure render) + emit
+	// df_cmd{weaponToggle,arg=i}; the next df_state confirms/corrects (applyFrame
+	// recolors to the host's authoritative _weaponEnabled).
+	if (_isReplicaView)
+	{
+		for (int i = 0; i < _weaponNum; ++i)
+			if (a->getSender() == _weapon[i])
+			{
+				_weaponEnabled[i] = !_weaponEnabled[i];
+				recolor(i, _weaponEnabled[i]);
+				emitDfCmd("weaponToggle", i);
+				return;
+			}
+		return;
+	}
 	for (int i = 0; i < _weaponNum; ++i)
 	{
 		if (a->getSender() == _weapon[i])
@@ -2886,7 +3030,10 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 	frame["hitFrame"] = _ufo ? _ufo->getHitFrame() : 0;
 	frame["animatingHit"] = _animatingHit;
 	frame["craftDamageColor"] = _currentCraftDamageColor;
-	frame["statusText"] = _txtStatus->getText(); // already localized (host language)
+	// PRD-DF02: synced UFO attack-mode marker (the UFO's hunt posture, 0=normal /
+	// 1=kamikaze-aggressive) so every player renders the same marker.
+	frame["ufoStance"] = _ufo ? _ufo->getHuntBehavior() : 0;
+	frame["statusText"] = _statusBase; // marker-free base; the replica re-adds the marker
 	frame["end"] = _end;
 	frame["endDogfight"] = _endDogfight;
 	frame["ufoBreakingOff"] = _ufoBreakingOff;
@@ -2957,6 +3104,8 @@ void DogfightState::applyFrame(const Json::Value& frame)
 	_ufoBlobSize = frame.get("ufoBlobSize", _ufoBlobSize).asInt();
 	_animatingHit = frame.get("animatingHit", false).asBool();
 	_currentCraftDamageColor = frame.get("craftDamageColor", _currentCraftDamageColor).asInt();
+	// PRD-DF02: adopt the host's synced UFO attack posture (rendered by refreshStatus).
+	_ufoStance = frame.get("ufoStance", _ufoStance).asInt();
 
 	if (_ufo)
 	{
@@ -2970,7 +3119,19 @@ void DogfightState::applyFrame(const Json::Value& frame)
 	const Json::Value& ammo = frame["ammo"];
 	for (int i = 0; i < _weaponNum; ++i)
 	{
-		if (we.isArray()  && (Json::ArrayIndex)i < we.size())  _weaponEnabled[i]      = we[i].asBool();
+		if (we.isArray() && (Json::ArrayIndex)i < we.size())
+		{
+			// PRD-DF02: adopt the host's authoritative weapon-enabled state AND recolor
+			// the icon on a change (recolor() is a relative offset, so only on change) -
+			// this confirms/corrects the optimistic weaponToggle echo and closes the
+			// DF01 gap where replica icons never tracked the disabled colour.
+			bool newEnabled = we[i].asBool();
+			if (newEnabled != _weaponEnabled[i])
+			{
+				_weaponEnabled[i] = newEnabled;
+				recolor(i, newEnabled);
+			}
+		}
 		if (wfc.isArray() && (Json::ArrayIndex)i < wfc.size()) _weaponFireCountdown[i] = wfc[i].asInt();
 		if (tl.isArray()  && (Json::ArrayIndex)i < tl.size())  _tractorLockedOn[i]     = tl[i].asBool();
 		if (ammo.isArray() && (Json::ArrayIndex)i < ammo.size() && _craft)
@@ -2989,10 +3150,11 @@ void DogfightState::applyFrame(const Json::Value& frame)
 
 	if (frame.isMember("statusText"))
 	{
-		std::string s = frame["statusText"].asString();
-		if (!s.empty())
-			_txtStatus->setText(s); // host-localized text streamed verbatim
+		// PRD-DF02: adopt the host's marker-free base status; refreshStatus() (below)
+		// re-composes the synced UFO-stance marker on top, locally.
+		_statusBase = frame["statusText"].asString();
 	}
+	refreshStatus();
 
 	_end = frame.get("end", _end).asBool();
 	_ufoBreakingOff = frame.get("ufoBreakingOff", _ufoBreakingOff).asBool();

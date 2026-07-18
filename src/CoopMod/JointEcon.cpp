@@ -1940,6 +1940,37 @@ void dfOpenApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 	gs->jointApplyDogfightMembership(payload["dogfights"], payload.get("epoch", 0).asInt());
 }
 
+// PRD-DF02: df_cmd applier (HOST only). A replica emits df_cmd on the reliable FIFO
+// joint_cmd lane when any player presses a stance / weapon / disengage / self-destruct
+// button on a replica-view dogfight; the host drives its authoritative DogfightState
+// through the SAME lane the local UI uses, arbitrated in g_cmdQ receive-order
+// (last-received-wins). Epoch guard (6): the (craftId,ufoId) must still be a live host
+// dogfight, else the command is a stale pre-reshuffle order and is dropped (logged
+// once). Payload: { craftId, craftType, ufoId, action, arg }. Minimize is NOT sent here
+// (per-machine VIEW state, 4). The uniform joint_apply echo to replicas is a no-op
+// (this applier early-returns off-host).
+void dfCmdApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (!connectionTCP::getHost()) return; // host applies; a replica ignores the echo
+	GeoscapeState* gs = findGeoState(game);
+	if (!gs) return;
+	int craftId = payload.get("craftId", -1).asInt();
+	int ufoId = payload.get("ufoId", -1).asInt();
+	std::string craftType = payload.get("craftType", "").asString();
+	std::string action = payload.get("action", "").asString();
+	int arg = payload.get("arg", -1).asInt();
+	if (!gs->jointApplyDogfightCmd(craftId, ufoId, craftType, action, arg))
+	{
+		static bool warned = false;
+		if (!warned)
+		{
+			warned = true;
+			Log(LOG_INFO) << "[JOINT] df_cmd dropped (stale/unknown membership): craft "
+				<< craftId << " ufo " << ufoId << " action '" << action << "' (logged once)";
+		}
+	}
+}
+
 // ---- PRD-J10: the landing broker ---------------------------------------------
 // land_prompt payload: { craftId, craftType, initiatorSeat, shade }. Host-origin
 // (simAccept; applier replica-only + seat-gated), exactly like dogfight_start:
@@ -2479,6 +2510,9 @@ void init()
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
 	// slot, NOT this reliable FIFO lane, so it has no registerCmd entry.
 	registerCmd("df_open", &simAccept, &dfOpenApply);
+	// PRD-DF02 replicated control: client->host dogfight command (stance / weapon /
+	// disengage / self-destruct). Host applies to the authoritative sim in receive-order.
+	registerCmd("df_cmd", &simAccept, &dfCmdApply);
 	// PRD-J10 landing broker: host-origin prompt (seat-gated replica applier);
 	// initiator-reported answer (host-only applier).
 	registerCmd("land_prompt", &simAccept, &landPromptApply);
