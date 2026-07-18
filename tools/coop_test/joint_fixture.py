@@ -39,8 +39,11 @@ helper.
 KNOWN-VOLATILE (excluded, with the reason - each is a real, documented property
 of the design, not a fudge):
 
-  * clock + monthly tails       - the replica's clock is host-driven and lands a
-                                  tick later; tails are asserted by test_joint_sim.
+  * clock (hour/minute)         - the replica's clock is host-driven and lands a
+                                  tick later. monthsPassed and the income/
+                                  expenditure tails ARE compared (GAP-9 made the
+                                  series host-authoritative); maintenance is
+                                  asserted by test_joint_sim / test_joint_month_run.
   * craft kinematics            - lon/lat/fuel/damage/lowFuel/inDogfight ride the
                                   position snapshot (async, lossy by design), and
                                   a craft's _dest label lags host-side AUTO-returns
@@ -123,6 +126,12 @@ def world_dump(gc):
 
     return {
         "funds": g["funds"],
+        # GAP-9: the current-month income/expenditure graph tails are now host-
+        # authoritative (the joint_apply carries them; the replica adopts them
+        # verbatim via setFundsRaw). They are equal at rest, so they are compared
+        # here - the exclusion this helper used to carry has been removed.
+        "incomeTail": g["incomeTail"],
+        "expenditureTail": g["expenditureTail"],
         "campaignType": g["campaignType"],
         "monthsPassed": g["monthsPassed"],
         "discoveredResearch": sorted(g["discoveredResearch"]),

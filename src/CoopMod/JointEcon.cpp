@@ -2466,6 +2466,16 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	apply["baseId"] = pc.baseId;
 	apply["payload"] = payload;
 	apply["funds"] = Json::Value::Int64(save->getFunds());
+	// GAP-9: carry the host's authoritative current-month income/expenditure tails
+	// (read AFTER apply, so they include any gross flow the applier booked, e.g. a
+	// prod_done that both sells and restarts a unit). The replica adopts these
+	// verbatim instead of net-inferring them from setFunds, keeping the Graphs->
+	// Finance series exactly the host's. Funds alone are not enough: the host's
+	// gross income/expenditure decomposition cannot be reconstructed from the net.
+	if (!save->getIncomes().empty())
+		apply["incTail"] = Json::Value::Int64(save->getIncomes().back());
+	if (!save->getExpenditures().empty())
+		apply["expTail"] = Json::Value::Int64(save->getExpenditures().back());
 	broadcast(game, apply);
 
 	if (pc.remote && game->getCoopMod())
@@ -2488,7 +2498,28 @@ void processApply(Game* game, const Json::Value& ap)
 	SavedGame* save = game->getSavedGame();
 	// Funds are host-authoritative: adopt them from the packet no matter what, so
 	// the replica cannot drift even if the mutation itself cannot be reconstructed.
-	if (save && ap.isMember("funds")) save->setFunds(ap["funds"].asInt64());
+	if (save && ap.isMember("funds"))
+	{
+		if (ap.isMember("incTail") && ap.isMember("expTail"))
+		{
+			// GAP-9: adopt the host's authoritative funds AND its income/expenditure
+			// tails verbatim. setFunds() would net-infer the direction from the delta
+			// and drift the Graphs->Finance series (the host reached this value through
+			// gross income AND expenditure, e.g. a prod_done that sells + restarts a
+			// unit); setFundsRaw() moves only _funds.back(), then we copy the tails.
+			save->setFundsRaw(ap["funds"].asInt64());
+			if (!save->getIncomes().empty())
+				save->getIncomes().back() = ap["incTail"].asInt64();
+			if (!save->getExpenditures().empty())
+				save->getExpenditures().back() = ap["expTail"].asInt64();
+		}
+		else
+		{
+			// Legacy packet without the series tails: keep the old net-inference so
+			// funds still stay exact (series may drift, as before the fix).
+			save->setFunds(ap["funds"].asInt64());
+		}
+	}
 
 	std::string cmd = ap.get("cmd", "").asString();
 	Base* base = resolveBase(game, ap.get("baseId", -1).asInt());
@@ -3240,9 +3271,13 @@ int64_t gameMinutes(SavedGame* save)
 // CONSTRUCTION - both walk the one replicated world - and only real store /
 // roster / transfer / production drift moves them. Counts only: no per-item
 // hashing and no string building, because this rides the ~2 kHz `time` heartbeat
-// (session-notes-10 #1). Deliberately NOT the income/expenditure series, which
-// the replica legitimately drifts on (session-notes-11 #1) - hashing that would
-// make auto-resync fire constantly.
+// (session-notes-10 #1). Deliberately NOT the income/expenditure series: GAP-9
+// made those host-authoritative (the joint_apply carries them, the replica adopts
+// them verbatim), so they are now equal AT REST - but they still take a discrete
+// jump at the monthly roll that host and replica apply a few ticks apart (the same
+// transient funds has, only funds already gates the checksum). Adding them would
+// double the false-positive surface for that roll transient without catching any
+// desync funds/counts don't already catch, so they stay out (GAP-9 decision).
 void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
 	int64_t& transfers, int64_t& productions)
 {

@@ -1975,6 +1975,24 @@ void SavedGame::setFunds(int64_t funds)
 }
 
 /**
+ * Changes the player's funds WITHOUT booking the delta into the income/
+ * expenditure graph series.
+ * setFunds() infers income-vs-expenditure from the net delta, which is correct
+ * for a single local transaction but WRONG for a JOINT replica adopting the
+ * host's authoritative funds once per joint_apply: the host reached that value
+ * through many gross income AND expenditure events, so net-inference on the
+ * replica drifts the Graphs->Finance series (GAP-9). The JOINT apply layer calls
+ * this and then copies the host's authoritative _incomes/_expenditures tails
+ * verbatim, keeping the replica's series exactly the host's. Never used by the
+ * HOST or by SEPARATE campaigns (setFunds is unchanged there).
+ * @param funds New funds.
+ */
+void SavedGame::setFundsRaw(int64_t funds)
+{
+	_funds.back() = funds;
+}
+
+/**
  * Returns the current longitude of the Geoscape globe.
  * @return Longitude.
  */

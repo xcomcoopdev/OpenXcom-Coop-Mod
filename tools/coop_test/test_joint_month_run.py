@@ -113,23 +113,20 @@ def _roll_month(host, client, tag):
     print(f"PASS {tag}: monthsPassed {gh['monthsPassed']}, funds {gh['funds']}, "
           f"maintenance {gh['maintenanceTail']} - settled identically on both")
 
-    # KNOWN GAP, reported not asserted: the income/expenditure vectors are NOT
-    # reliably equal on a replica. SavedGame::setFunds (SavedGame.cpp:~1964)
-    # books every funds change into ONE bucket by net direction:
-    #     _funds.back() > funds ? _expenditures.back() += d : _incomes.back() += d
-    # A replica's funds move ONLY via setFunds(authoritative) once per joint_apply,
-    # so it books the NET of a step the host reached through separate income AND
-    # expenditure. PRD-J04 overwrites the tails at each roll (above), but any
-    # joint_apply after that re-nudges them. Funds - the number that matters, and
-    # the one in the world checksum - stay exact; the drift is confined to the
-    # Graphs screen's finance series. Measured and printed so a regression in
-    # FUNDS can never hide behind this known cosmetic drift.
-    d_inc = gh["incomeTail"] - gc_["incomeTail"]
-    d_exp = gh["expenditureTail"] - gc_["expenditureTail"]
-    if d_inc or d_exp:
-        print(f"  NOTE {tag}: known replica graph drift - income host="
-              f"{gh['incomeTail']} client={gc_['incomeTail']} (delta {d_inc}), "
-              f"expenditure delta {d_exp}. Funds are exact; see session-notes-11.")
+    # GAP-9 (fixed): the income/expenditure graph tails are now host-authoritative.
+    # Every joint_apply carries the host's _incomes.back()/_expenditures.back() and
+    # the replica adopts them verbatim (setFundsRaw + copy) instead of net-inferring
+    # them from setFunds; the monthly settlement overwrites the just-rolled tail the
+    # same way. So they must be exactly equal at the roll, like funds/maintenance.
+    # (Pre-fix this drifted net-vs-gross and was only printed; test_joint_graphs is
+    # the focused red/green repro.)
+    assert gh["incomeTail"] == gc_["incomeTail"], \
+        f"{tag}: income tail differs: host={gh['incomeTail']} client={gc_['incomeTail']}"
+    assert gh["expenditureTail"] == gc_["expenditureTail"], \
+        f"{tag}: expenditure tail differs: host={gh['expenditureTail']} " \
+        f"client={gc_['expenditureTail']}"
+    print(f"  PASS {tag}: income {gh['incomeTail']} + expenditure "
+          f"{gh['expenditureTail']} tails equal on both (GAP-9)")
     return gh["monthsPassed"]
 
 

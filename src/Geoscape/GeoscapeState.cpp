@@ -4566,13 +4566,15 @@ void GeoscapeState::time1MonthCoop()
 
 	_game->getSavedGame()->monthlyFunding();
 
-	// PRD-J04: overwrite the just-rolled tail with the host's authoritative
-	// settlement (carried on the extended monthly_report packet). setFunds fixes
-	// _funds.back() but nudges incomes/expenditures, so re-assert those tails too.
+	// PRD-J04 / GAP-9: overwrite the just-rolled tail with the host's authoritative
+	// settlement (carried on the extended monthly_report packet). setFundsRaw moves
+	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
+	// expenditure/maintenance tails are then set from the host's values directly, so
+	// the replica's Graphs->Finance series match the host across the month boundary.
 	if (_game->getCoopMod()->isJointReplica() && _game->getCoopMod()->jointMonthlyPending)
 	{
 		SavedGame* sg = _game->getSavedGame();
-		sg->setFunds(_game->getCoopMod()->jointMonthlyFunds);
+		sg->setFundsRaw(_game->getCoopMod()->jointMonthlyFunds);
 		// monthlyFunding() rolled a new (0) month onto each vector, so the
 		// just-ended month's real values live at [size-2] for maintenance, and at
 		// back() for incomes/expenditures. Overwrite them with the host's.

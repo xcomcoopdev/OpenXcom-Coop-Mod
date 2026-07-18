@@ -297,6 +297,10 @@ private:
 	std::vector<int64_t> &getFundsList();
 	/// Sets new funds.
 	void setFunds(int64_t funds);
+	/// Sets new funds WITHOUT booking the delta into the income/expenditure
+	/// graph series (JOINT replica adopts host-authoritative funds + series
+	/// separately; see JointEcon processApply / GAP-9). HOST/SEPARATE unaffected.
+	void setFundsRaw(int64_t funds);
 	/// Gets the current globe longitude.
 	double getGlobeLongitude() const;
 	/// Sets the new globe longitude.
