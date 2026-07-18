@@ -259,6 +259,11 @@ public:
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
+	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
+	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last
+	/// df_open it applied). Lets a test assert host/replica epoch lock-step across an
+	/// HK reshuffle (no stale-epoch window survives).
+	int harnessDogfightEpoch() const;
 	/// Get first free dogfight slot.
 	int getFirstFreeDogfightSlot();
 	/// Handler for clicking the timer button.

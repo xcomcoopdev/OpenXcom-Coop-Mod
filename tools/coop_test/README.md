@@ -134,13 +134,34 @@ finally:
 | `test_joint_commerce.py` | sell / hire / cross-base transfer / containment |
 | `test_joint_research.py`, `test_joint_manufacture.py` | research + manufacture start/allocate/cancel, incl. the two-players-one-project race |
 | `test_joint_facilities.py`, `test_joint_newbase.py` | facilities, dismantle, sack; atomic new-base creation + base-index lock-step |
-| `test_joint_craft.py` | shared craft command + a client-simulated dogfight applied host-side |
+| `test_joint_craft.py` | shared craft command + interception; the host sims the dogfight, both machines spectate the same fight |
 | `test_joint_deploy.py`, `test_joint_battle.py` | mixed-owner squads: control split follows soldier ownership; post-battle worlds identical |
 | `test_joint_landing.py` | the landing broker asks the seat that gave the order |
 | `test_joint_refresh.py`, `test_joint_resync.py` | live screen refresh on apply; desync detect -> auto-repair |
 | `test_joint_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+
+#### Shared / replicated JOINT dogfights (PRD-DF01..DF03)
+
+The host simulates EVERY JOINT dogfight and streams a per-tick state frame
+(`df_state`); every player opens a render-only `DogfightState` and can issue
+stance / weapon / disengage commands (`df_cmd`, arbitrated host-side in
+receive-order). Membership rides `df_open` with a monotonic `membershipEpoch`
+that guards `df_state` against the HK-reshuffle out-of-order race. This dissolves
+GAP-2 (no exclusive "flyer" to route an HK to) and closes GAP-7 / GAP-8 (XP and
+`_dest`/waypoints are host-authoritative, since a replica's `update()`
+early-returns before any sim/award code).
+
+| test | proves |
+|---|---|
+| `test_joint_hk_dogfight.py` | GAP-2: an HK attack on a client-commanded craft opens the SAME fight on both machines (no host-only routing); outcome mirrored |
+| `test_joint_intercept_spectate.py` | a regular (non-HK) intercept is spectated on both machines; ONE authoritative crash (status + crashId), world-equal |
+| `test_joint_dogfight_control.py` | any player commands a shared fight: stance/weapon/disengage via `df_cmd`, host arbitrates receive-order (last-received-wins); synced UFO-stance marker; client-local minimize |
+| `test_joint_dogfight_present.py` | presentation policy: a host-commanded fight opens FULL on the host / a minimized icon on the client, and a minimized client still commands the host |
+| `test_joint_dogfight_xp.py` | GAP-7: pilot dogfight XP is host-authoritative - EQUAL on both machines, lands on the host `Soldier`, rides the roster stream; a replica is refused the award and never accrues XP locally |
+| `test_joint_dogfight_dest.py` | GAP-8: after a dogfight ends in auto-return, the replica craft's `_dest`/status match the host - no lag, no orphan waypoint to the downed UFO (the replica never sets `_dest` locally) |
+| `test_joint_dogfight_concurrent.py` | up to 4 concurrent interceptions hold ONE membership set on both machines; an HK interrupt-all-and-restart converges both to the new set atomically (epoch lock-step, no stale window, no old-epoch `df_state`); exercises per-(craft,ufo) command targeting |
 
 Traps worth knowing before you write a JOINT test:
 
@@ -155,8 +176,9 @@ Traps worth knowing before you write a JOINT test:
 - New TestServer hooks go in `TestServer::executeJoint10`; the old `execute`
   if/else chain is at MSVC's 128-block nesting limit (C1061).
 
-Full suite (43 tests, serial) is ~14 min; no test exceeds ~2 min. Known flakes,
-retry once: `test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`.
+Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once:
+`test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`,
+`test_joint_disconnect`, `test_joint_resync`.
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
 / `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
@@ -189,7 +211,16 @@ JOINT bring-up + world equality on top of it.
   `cancel_dialog`, `show_notice`, `get_notices`, `dismiss_notice`,
   `get_palettes`.
 - Geoscape: `geo_state`, `geo_set_speed`, `dismiss_popup`, `craft_dispatch`,
-  `confirm_landing`.
+  `confirm_landing`, `craft_order` (`target`/`return`/`patrol`), `intercept_list`.
+- Dogfights (shared JOINT): `dogfight_state` (per-open-fight introspection on each
+  machine: `craftId/ufoId/currentDist/targetDist/mode/ufoIsAttacking/minimized/
+  ended/isReplicaView/epoch/ufoStance/weaponEnabled[]/projectileCount`, plus the
+  machine's membership `epoch`), `dogfight_action` (drive a fight's stance / weapon
+  toggle / minimize / disengage; targets a specific `(craft_id,ufo_id)` fight or
+  the first live one), `spawn_ufo`, `set_ufo_damage`, `set_ufo_hunt` (make a UFO an
+  HK hunting a craft), `assign_crew` (seat a soldier on a craft, call on both), and
+  `award_dogfight_xp` (HOST-only: award deterministic dogfight XP to a live fight's
+  crew, for the GAP-7 propagation test).
 - Battlescape: `close_briefing`, `battle_inventory`, `battle_state`,
   `battle_action` (`select` / `move` / `shoot` / `end_turn` / `abort`).
 - Server browser: `open_server_browser`, `server_combo`, `combo_open`,

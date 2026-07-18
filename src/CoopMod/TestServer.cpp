@@ -377,6 +377,60 @@ static std::string transferRuleName(Transfer* t)
 	}
 }
 
+// PRD-DF03: resolve the (dogfight_action / award_dogfight_xp) target - the specific
+// (craft,ufo) fight when a craft_id/ufo_id is given (the 4-concurrent test drives
+// distinct fights), else the first live fight. A free helper so the deep execute()
+// if-chain (already at the MSVC C1061 nesting limit) stays flat.
+static DogfightState* resolveDogfight(GeoscapeState* geo, int craftId, int ufoId)
+{
+	if (!geo || geo->getDogfights().empty()) return nullptr;
+	if (craftId < 0 && ufoId < 0) return geo->getDogfights().front();
+	for (auto* d : geo->getDogfights())
+		if ((craftId < 0 || (d->getCraft() && d->getCraft()->getId() == craftId))
+			&& (ufoId < 0 || (d->getUfo() && d->getUfo()->getId() == ufoId)))
+			return d;
+	return nullptr;
+}
+
+// PRD-DF03: dogfight_action body, extracted so the deep execute() if-chain (MSVC C1061
+// nesting limit) does not carry the stance/weapon dispatch. On a replica the raw Press
+// handlers emit df_cmd (+ optimistic echo) regardless of window visibility; on the host
+// the Simulate*LeftPress lane. Targets a specific (craft,ufo) fight when given, else front().
+static void doDogfightAction(GeoscapeState* geo, const Json::Value& req, Json::Value& resp)
+{
+	std::string action = req.get("action", "aggressive").asString();
+	if (!geo) { resp["error"] = "no geoscape"; return; }
+	if (geo->getDogfights().empty()) { resp["error"] = "no dogfight"; return; }
+	DogfightState* df = resolveDogfight(geo, req.get("craft_id", -1).asInt(),
+	                                    req.get("ufo_id", -1).asInt());
+	if (!df) { resp["error"] = "no matching dogfight"; return; }
+	int warg = req.get("arg", 0).asInt();
+	SDL_Event ev;
+	ev.type = SDL_MOUSEBUTTONDOWN;
+	ev.button.button = SDL_BUTTON_LEFT;
+	Action a = Action(&ev, 0.0, 0.0, 0, 0);
+	if (df->isReplicaView())
+	{
+		if (action == "aggressive") df->btnAggressivePress(&a);
+		else if (action == "standard") df->btnStandardPress(&a);
+		else if (action == "cautious") df->btnCautiousPress(&a);
+		else if (action == "standoff") df->btnStandoffPress(&a);
+		else if (action == "disengage") df->btnDisengagePress(&a);
+		else if (action == "minimize") df->setMinimized(true);
+		else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
+		else resp["error"] = "unknown action: " + action;
+	}
+	else if (action == "aggressive") df->btnAggressiveSimulateLeftPress(&a);
+	else if (action == "standard") df->btnStandardSimulateLeftPress(&a);
+	else if (action == "cautious") df->btnCautiousSimulateLeftPress(&a);
+	else if (action == "standoff") df->btnStandoffSimulateLeftPress(&a);
+	else if (action == "disengage") df->btnDisengageSimulateLeftPress(&a);
+	else if (action == "minimize") df->setMinimized(true);
+	else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
+	else resp["error"] = "unknown action: " + action;
+	if (!resp.isMember("error")) resp["ok"] = true;
+}
+
 static Json::Value soldierToJson(Soldier* s)
 {
 	Json::Value j;
@@ -389,6 +443,13 @@ static Json::Value soldierToJson(Soldier* s)
 	j["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1; // PRD-J09
 	j["armor"] = s->getArmor()->getType(); // PRD-J09 GAP-5b
 	j["dead"] = s->getDeath() != nullptr;
+	// PRD-DF03 GAP-7: pilot stats + the daily dogfight-XP accumulator, so a test can
+	// assert dogfight XP is host-authoritative (equal on both machines, on the
+	// authoritative host Soldier) and never accrues replica-locally.
+	j["firing"] = s->getCurrentStats()->firing;
+	j["reactions"] = s->getCurrentStats()->reactions;
+	j["bravery"] = s->getCurrentStats()->bravery;
+	j["dogfightXp"] = s->getDailyDogfightExperienceCache()->firing;
 	return j;
 }
 
@@ -837,6 +898,67 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			found->setArmor(rule, true);
 			resp["armor"] = found->getArmor()->getType();
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "assign_crew")
+	{
+		// PRD-DF03 GAP-7 scaffolding: directly seat soldier <soldier_id> on craft
+		// <craft_id> on THIS machine (Soldier::setCraft), no JOINT route - call on BOTH
+		// machines identically (the spawn_craft idiom) to seat a pilot lock-step for the
+		// dogfight-XP test. Keeps the shared world equal (same soldier on the same craft id).
+		SavedGame* sg = _game->getSavedGame();
+		int sid = req.get("soldier_id", -1).asInt();
+		int cid = req.get("craft_id", -1).asInt();
+		std::string ctype = req.get("craft_type", "").asString();
+		Craft* craft = nullptr;
+		Base* base = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+			{
+				for (auto* c : *b->getCrafts())
+					if (!c->coop && c->getId() == cid
+						&& (ctype.empty() || c->getRules()->getType() == ctype))
+					{ craft = c; base = b; break; }
+				if (craft) break;
+			}
+		Soldier* sol = nullptr;
+		if (base)
+			for (auto* s : *base->getSoldiers())
+				if (s->getId() == sid) { sol = s; break; }
+		if (!craft) resp["error"] = "craft not found";
+		else if (!sol) resp["error"] = "soldier not on craft base";
+		else { sol->setCraft(craft); resp["craftId"] = sol->getCraft()->getId(); resp["ok"] = true; }
+	}
+	else if (cmd == "award_dogfight_xp")
+	{
+		// PRD-DF03 GAP-7 (HOST): emulate the host awarding dogfight XP to a live fight's
+		// crew. The vanilla harness ruleset defines no craft pilots and no dogfight-
+		// Experience, so the real award RNG path yields zero; this applies the SAME
+		// authoritative mutation host-side (DogfightState::harnessAwardPilotXp), then the
+		// test force_resyncs and asserts the XP rode the roster stream onto the host
+		// Soldier. HOST-only: a replica must never award (update() early-returns). Params:
+		// craft_id, ufo_id (optional; default first fight), firing/reactions/bravery deltas.
+		if (!connectionTCP::getServerOwner())
+			resp["error"] = "award_dogfight_xp is host-only (replicas never award XP)";
+		else
+		{
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			int cid = req.get("craft_id", -1).asInt();
+			int uid = req.get("ufo_id", -1).asInt();
+			int fd = req.get("firing", 1).asInt();
+			int rd = req.get("reactions", 0).asInt();
+			int bd = req.get("bravery", 0).asInt();
+			DogfightState* df = resolveDogfight(geo, cid, uid);
+			if (!geo) resp["error"] = "no geoscape";
+			else if (!df) resp["error"] = "no matching dogfight";
+			else
+			{
+				std::vector<int> ids = df->harnessAwardPilotXp(fd, rd, bd);
+				Json::Value arr(Json::arrayValue);
+				for (int id : ids) arr.append(id);
+				resp["pilots"] = arr;
+				resp["ok"] = true;
+			}
 		}
 	}
 	else
@@ -4137,6 +4259,12 @@ std::string TestServer::execute(const std::string& line)
 					jd["ufoStance"] = df->harnessUfoStance();
 					jd["mode"] = df->harnessMode();
 					jd["replica"] = df->isReplicaView();
+					// PRD-DF03: full per-machine frame-agreement fields.
+					jd["isReplicaView"] = df->isReplicaView();
+					jd["currentDist"] = df->harnessCurrentDist();
+					jd["ufoIsAttacking"] = df->isUfoAttacking();
+					jd["projectileCount"] = df->harnessProjectileCount();
+					jd["epoch"] = geo->harnessDogfightEpoch();
 					Json::Value we(Json::arrayValue);
 					for (int wi = 0; wi < df->harnessWeaponCount(); ++wi)
 						we.append(df->harnessWeaponEnabled(wi));
@@ -4146,52 +4274,16 @@ std::string TestServer::execute(const std::string& line)
 				resp["dogfights"] = list;
 				resp["count"] = (int)geo->getDogfights().size();
 				resp["pending"] = (int)geo->pendingDogfightCount();
+				resp["epoch"] = geo->harnessDogfightEpoch();
 				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "dogfight_action")
 		{
-			// PRD-J08: drive the FIRST live dogfight's mode buttons. Must go
-			// through the Simulate*LeftPress lane (a synthetic left-click, the
-			// same one GeoscapeState::handleDogfightMultiAction uses): the raw
-			// Press handlers set reload intervals but NOT the _mode button
-			// group, and update()'s fire condition checks _mode.
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			std::string action = req.get("action", "aggressive").asString();
-			if (!geo) resp["error"] = "no geoscape";
-			else if (geo->getDogfights().empty()) resp["error"] = "no dogfight";
-			else
-			{
-				DogfightState* df = geo->getDogfights().front();
-				int warg = req.get("arg", 0).asInt();
-				SDL_Event ev;
-				ev.type = SDL_MOUSEBUTTONDOWN;
-				ev.button.button = SDL_BUTTON_LEFT;
-				Action a = Action(&ev, 0.0, 0.0, 0, 0);
-				if (df->isReplicaView())
-				{
-					// PRD-DF02: the raw Press handlers emit df_cmd (+ optimistic echo)
-					// regardless of window visibility, so a minimized (non-commanding)
-					// replica can still command the host.
-					if (action == "aggressive") df->btnAggressivePress(&a);
-					else if (action == "standard") df->btnStandardPress(&a);
-					else if (action == "cautious") df->btnCautiousPress(&a);
-					else if (action == "standoff") df->btnStandoffPress(&a);
-					else if (action == "disengage") df->btnDisengagePress(&a);
-					else if (action == "minimize") df->setMinimized(true);
-					else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
-					else resp["error"] = "unknown action: " + action;
-				}
-				else if (action == "aggressive") df->btnAggressiveSimulateLeftPress(&a);
-				else if (action == "standard") df->btnStandardSimulateLeftPress(&a);
-				else if (action == "cautious") df->btnCautiousSimulateLeftPress(&a);
-				else if (action == "standoff") df->btnStandoffSimulateLeftPress(&a);
-				else if (action == "disengage") df->btnDisengageSimulateLeftPress(&a);
-				else if (action == "minimize") df->setMinimized(true);
-				else if (action == "weaponToggle") df->harnessToggleWeapon(warg);
-				else resp["error"] = "unknown action: " + action;
-				if (!resp.isMember("error")) resp["ok"] = true;
-			}
+			// PRD-J08/DF02/DF03: drive a live fight's mode/weapon lane. Body extracted to
+			// doDogfightAction() so the deep execute() if-chain stays under the C1061 nesting
+			// limit; targets a specific (craft,ufo) fight when craft_id/ufo_id is given, else front().
+			doDogfightAction(findState<GeoscapeState>(_game), req, resp);
 		}
 		else if (cmd == "set_ufo_damage")
 		{

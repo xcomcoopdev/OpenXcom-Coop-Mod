@@ -5388,6 +5388,19 @@ static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
  * one combined per-tick render frame over every live fight. Replicas diff-reconcile
  * their render-only windows against the df_open set and render the df_state frames.
  */
+/**
+ * PRD-DF03 test-harness: the dogfight membership epoch this machine holds. On the
+ * HOST it is _dfEpoch (the epoch it stamps onto every df_open/df_state); on a
+ * REPLICA it is _dfReplicaEpoch (the epoch of the last df_open it adopted, which
+ * guards df_state against the reshuffle race). A convergence test asserts the two
+ * are equal in lock-step after an HK interrupt-all-and-restart.
+ */
+int GeoscapeState::harnessDogfightEpoch() const
+{
+	connectionTCP* coop = _game->getCoopMod();
+	return (coop && coop->getServerOwner()) ? _dfEpoch : _dfReplicaEpoch;
+}
+
 void GeoscapeState::jointBroadcastDogfights()
 {
 	connectionTCP* coop = _game->getCoopMod();

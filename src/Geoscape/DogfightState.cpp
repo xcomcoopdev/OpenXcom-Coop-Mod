@@ -2996,6 +2996,40 @@ void DogfightState::awardExperienceToPilots()
 	}
 }
 
+/**
+ * PRD-DF03 GAP-7 (HOST): apply a deterministic dogfight-XP award to this fight's crew.
+ * The vanilla harness ruleset defines no craft pilots and no dogfightExperience, so the
+ * real awardExperienceToPilots() RNG path awards nothing; this applies the SAME
+ * authoritative mutation (currentStats + the daily dogfight-XP cache) to the soldiers
+ * aboard the craft, on the HOST's authoritative Soldier objects. The host->replica
+ * roster stream then carries it to every replica identically (Soldier::save serializes
+ * both currentStats and dailyDogfightExperienceCache), while a replica never runs this
+ * (its update() early-returns before awardExperienceToPilots) - which is exactly the
+ * GAP-7 fix. Returns the crew soldier ids that were awarded.
+ */
+std::vector<int> DogfightState::harnessAwardPilotXp(int firingDelta, int reactionsDelta, int braveryDelta)
+{
+	std::vector<int> touched;
+	if (!_craft || !_craft->getBase())
+		return touched;
+	for (auto* s : *_craft->getBase()->getSoldiers())
+	{
+		if (s->getCraft() != _craft)
+			continue;
+		UnitStats* cur = s->getCurrentStatsEditable();
+		cur->firing += firingDelta;
+		cur->reactions += reactionsDelta;
+		cur->bravery += braveryDelta;
+		UnitStats* cache = s->getDailyDogfightExperienceCache();
+		cache->firing += firingDelta;
+		cache->reactions += reactionsDelta;
+		cache->bravery += braveryDelta;
+		touched.push_back(s->getId());
+	}
+	_experienceAwarded = true;
+	return touched;
+}
+
 // PRD-DF01: which mode-button the group pointer currently selects, as a small
 // wire enum (0 standoff / 1 cautious / 2 standard / 3 aggressive / 4 disengage).
 int DogfightState::modeIndex() const

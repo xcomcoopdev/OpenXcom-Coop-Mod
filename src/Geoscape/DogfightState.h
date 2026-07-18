@@ -230,10 +230,19 @@ public:
 	/// PRD-DF02: weapon-enabled state for the harness (client weaponToggle assertions).
 	int harnessWeaponCount() const { return _weaponNum; }
 	bool harnessWeaponEnabled(int i) const { return i >= 0 && i < _weaponNum && _weaponEnabled[i]; }
+	/// PRD-DF03: draw-only projectile record count, so a test can assert the replica
+	/// rebuilt the host's projectile set from df_state (frame agreement).
+	int harnessProjectileCount() const { return (int)_projectiles.size(); }
 	/// PRD-DF02: toggle weapon @a idx via the correct role lane (replica: optimistic
 	/// echo + df_cmd; host: apply directly) - a harness affordance (weaponClick needs a
 	/// widget sender the harness cannot synthesize).
 	void harnessToggleWeapon(int idx);
+	/// PRD-DF03 GAP-7 (HOST): deterministically award dogfight XP to this fight's crew
+	/// (currentStats + the daily dogfight-XP cache), as awardExperienceToPilots would
+	/// on a hit - but ruleset-independent, so the propagation invariant (XP lands on the
+	/// authoritative host Soldier + rides the roster stream; replicas never award) is
+	/// testable in the vanilla harness. Returns the crew soldier ids touched.
+	std::vector<int> harnessAwardPilotXp(int firingDelta, int reactionsDelta, int braveryDelta);
 private:
 	/// test instrumentation: update() invocation count.
 	int _updateCount = 0;
