@@ -3744,10 +3744,18 @@ void GeoscapeState::time1Hour()
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
 				popup(new ProductionCompleteState(xbase,  tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
-				// PRD-J04: mirror the finished manufacture to JOINT replicas before
-				// the Production object is destroyed (units produced + progress).
+				// PRD-J04: mirror the finished manufacture to JOINT replicas before the
+				// Production object is destroyed. GAP-6: broadcast the count the host
+				// ACTUALLY materialized, NOT the raw time-based getAmountProduced(), which
+				// overshoots getAmountTotal() when a single hourly step advances _timeSpent
+				// past _amount*manufactureTime (big engineer pool, or a multi-day time jump).
+				// Production::step() caps materialization at getAmountTotal() via std::min;
+				// mirror that cap so the replica delivers the same count, never over-materializes.
+				int prodUnits = pair.first->getAmountProduced();
+				if (!pair.first->getInfiniteAmount())
+					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
 				JointEcon::hostProductionDone(_game, jointBaseId(xbase),
-					pair.first->getRules()->getName(), pair.first->getAmountProduced(), pair.second);
+					pair.first->getRules()->getName(), prodUnits, pair.second);
 				xbase->removeProduction(pair.first);
 			}
 		}

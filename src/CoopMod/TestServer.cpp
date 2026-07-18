@@ -2914,6 +2914,12 @@ std::string TestServer::execute(const std::string& line)
 			SavedGame* sg = _game->getSavedGame();
 			std::string item = req.get("item", "").asString();
 			int spent = req.get("timeSpent", 0).asInt();
+			// GAP-6 test hook: optionally set the production's assigned engineers too, so a
+			// single hourly step can be driven to overshoot _amount*manufactureTime (the
+			// prod_done over-materialization repro). Set directly on the Production (NOT via
+			// the base pool); removeProduction returns it on completion, so call this on BOTH
+			// machines with the SAME value to keep the free-engineer pools in lock-step.
+			int engineers = req.get("engineers", -1).asInt();
 			std::string baseName = req.get("base", "").asString();
 			Base* target = nullptr;
 			if (sg)
@@ -2924,7 +2930,7 @@ std::string TestServer::execute(const std::string& line)
 			bool found = false;
 			if (target)
 				for (auto* p : target->getProductions())
-					if (p->getRules()->getName() == item) { p->setTimeSpent(spent); found = true; break; }
+					if (p->getRules()->getName() == item) { p->setTimeSpent(spent); if (engineers >= 0) p->setAssignedEngineers(engineers); found = true; break; }
 			resp["found"] = found;
 			resp["ok"] = found;
 			if (!found) resp["error"] = "production not running: " + item;

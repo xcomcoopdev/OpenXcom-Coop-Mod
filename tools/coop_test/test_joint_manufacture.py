@@ -33,10 +33,11 @@ import geo
 
 LASER = "STR_LASER_PISTOL"      # manufacture (requires research STR_LASER_PISTOL)
 ARMOR = "STR_PERSONAL_ARMOR"    # manufacture (requires research STR_PERSONAL_ARMOR)
-ALLOYS = "STR_ALIEN_ALLOYS"     # STR_PERSONAL_ARMOR requiredItems: 4
+ALLOYS = "STR_ALIEN_ALLOYS"     # STR_PERSONAL_ARMOR requiredItems: 4; also a manufacture
 LASER_COST = 8000               # STR_LASER_PISTOL manufacture cost (first unit)
 ARMOR_COST = 22000              # STR_PERSONAL_ARMOR manufacture cost (first unit)
 ARMOR_ALLOYS = 4                # STR_PERSONAL_ARMOR requiredItems STR_ALIEN_ALLOYS
+ALLOYS_TIME = 100               # STR_ALIEN_ALLOYS manufacture time (units = timeSpent / 100)
 
 
 def _base0(gc):
@@ -66,6 +67,11 @@ def _storage(gc, item):
     return st.get(item, 0)
 
 
+def _chk(gc):
+    r = gc.ok({"cmd": "joint_checksum"})
+    return r["chkItems"], r["chkProduction"]
+
+
 def _discover_both(host, client, topic):
     for gc in (host, client):
         gc.ok({"cmd": "discover_research", "topic": topic})
@@ -85,6 +91,7 @@ def main():
         # shared world equal), and stock alloys for the material-debit test.
         _discover_both(host, client, LASER)
         _discover_both(host, client, ARMOR)
+        _discover_both(host, client, ALLOYS)   # unlocks the STR_ALIEN_ALLOYS manufacture
         _give_both(host, client, ALLOYS, 10)
 
         eng0 = _free_eng(host)
@@ -223,6 +230,64 @@ def main():
         assert _free_eng(host) == _free_eng(client) == eng0, \
             f"engineers not freed on completion: host={_free_eng(host)} client={_free_eng(client)} (want {eng0})"
         print(f"PASS completion: 1 {LASER} delivered on both; engineers freed back to {eng0}")
+
+        # ================================================================
+        # 7) OVERSHOOT (GAP-6): the host caps materialization at getAmountTotal()
+        #    (Production::step: std::min(getAmountProduced(), _amount)) but the
+        #    prod_done broadcast used to carry the raw getAmountProduced(), which is
+        #    _timeSpent / manufactureTime and OVERSHOOTS _amount when a single hourly
+        #    step advances _timeSpent past _amount * manufactureTime (a large engineer
+        #    pool, or the headless multi-day time jump). The replica then materialized
+        #    getAmountProduced() units while the host made only _amount -> item drift.
+        #
+        #    Drive it deterministically: a qty=1 STR_ALIEN_ALLOYS production (time 100)
+        #    with 400 assigned engineers completes on the FIRST hourly step, and that
+        #    step jumps _timeSpent 0 -> 400 => getAmountProduced() == 4 while the host
+        #    materializes exactly 1. Pre-fix the replica delivered 4; post-fix both
+        #    deliver 1. (Engineers are set on BOTH sides so removeProduction returns an
+        #    equal amount to each pool and only the ITEM count can diverge.)
+        # ================================================================
+        OVER_ENG = 400
+        over_units = OVER_ENG // ALLOYS_TIME          # host getAmountProduced() at completion
+        assert over_units >= 2, "test must actually overshoot _amount(=1)"
+        client.ok({"cmd": "joint_cmd", "jcmd": "man_start", "baseId": 0,
+                   "payload": {"item": ALLOYS, "engineers": 1, "qty": 1,
+                               "infinite": False, "sell": False, "fallback": False}})
+        host.wait_for("host started alloys",
+                      lambda: (_prod(host, ALLOYS) is not None) or None, timeout=30, interval=0.5)
+        client.wait_for("client started alloys",
+                        lambda: (_prod(client, ALLOYS) is not None) or None, timeout=30, interval=0.5)
+        al0_h, al0_c = _storage(host, ALLOYS), _storage(client, ALLOYS)
+        assert al0_h == al0_c, f"pre-overshoot alloy stock differs: host={al0_h} client={al0_c}"
+        # Seed the overshoot on the HOST; mirror the engineer count on the client so
+        # the freed-engineer pools stay equal (client sim is frozen, so its _timeSpent
+        # is irrelevant - only its assigned-engineer count matters at removeProduction).
+        r = host.ok({"cmd": "set_production_progress", "item": ALLOYS,
+                     "timeSpent": 0, "engineers": OVER_ENG})
+        assert r.get("found"), f"could not seed host overshoot: {r}"
+        client.ok({"cmd": "set_production_progress", "item": ALLOYS,
+                   "timeSpent": 0, "engineers": OVER_ENG})
+        geo.skip_ingame_time(host, client, minutes=60 * 3, speed_idx=5, real_timeout=90)
+        host.wait_for("host alloys produced",
+                      lambda: (_storage(host, ALLOYS) == al0_h + 1) or None, timeout=30, interval=0.5)
+        client.wait_for("client alloys produced (any completion)",
+                        lambda: (_prod(client, ALLOYS) is None) or None, timeout=30, interval=0.5)
+        # The host, capping at _amount, made exactly ONE unit. The fix makes prod_done
+        # carry that capped count, so the replica also holds exactly one more.
+        assert _storage(host, ALLOYS) == al0_h + 1, \
+            f"host over/under-produced: made {_storage(host, ALLOYS) - al0_h}, want 1"
+        assert _storage(client, ALLOYS) == _storage(host, ALLOYS), \
+            (f"prod_done over-materialized on the replica: host={_storage(host, ALLOYS)} "
+             f"client={_storage(client, ALLOYS)} (host made 1, replica made "
+             f"{_storage(client, ALLOYS) - al0_c}; pre-fix would be {over_units})")
+        assert _prod(host, ALLOYS) is None and _prod(client, ALLOYS) is None, \
+            "overshoot production still present"
+        ch_h, ch_c = _chk(host), _chk(client)
+        assert ch_h == ch_c, f"world checksum diverged after overshoot: host={ch_h} client={ch_c}"
+        assert _free_eng(host) == _free_eng(client), \
+            f"engineer pool diverged after overshoot: host={_free_eng(host)} client={_free_eng(client)}"
+        print(f"PASS overshoot: host+replica each +1 {ALLOYS} despite {OVER_ENG} eng "
+              f"(getAmountProduced()={over_units}); chkItems/chkProduction equal")
 
         # PRD-J11: the shared final-state assertions (world equality +
         # the replica's zero-disk invariant).
