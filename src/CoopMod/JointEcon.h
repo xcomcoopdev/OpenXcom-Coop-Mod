@@ -234,18 +234,17 @@ void hostDayTick(Game* game);
 /// same base index + pop a popup). @a baseId = the destroyed base's index.
 void hostBaseDestroyed(Game* game, int baseId, const std::string& name);
 
-// ---- PRD-J08: shared craft command + dogfight coordination -------------------
+// ---- PRD-J08: shared craft command --------------------------------------------
 // Any player commands any craft; orders ride joint_cmd (craft_launch /
 // craft_retarget / craft_return / craft_patrol), the host validates the vanilla
 // fuel/crew/status rules against the authoritative world and applies in ARRIVAL
 // order (last-command-wins - a later order for the same craft simply overrides).
-// Dogfights follow locked decision (a): the player whose order engaged the UFO
-// (the "initiating seat", tracked per craft from the orders) simulates the
-// DogfightState on their machine against replica data; the result is reported
-// via joint_cmd{dogfight_result}, applied by the host to the authoritative world
-// and rebroadcast (joint_apply). While the initiator simulates, the engaged
-// craft/UFO are exempt from the joint position snapshot so the local sim isn't
-// overwritten mid-fight.
+// Dogfights are PRD-DF01 (shared/replicated): the J08 initiator model is gone -
+// the HOST simulates EVERY dogfight in its own DogfightState and both players open
+// a render-only replica fed by df_open (membership) + df_state (per-tick render;
+// the SNAP_DOGFIGHT conflation slot). The outcome the host mutates into its world
+// reaches replicas via the existing joint:true position snapshot; there is no
+// per-fight result message and no snapshot exemption.
 
 /// UI entry points (initiator side; JOINT only - caller gates). Each builds the
 /// payload and submits the matching joint_cmd; nothing is mutated locally.
@@ -283,10 +282,12 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
-/// HOST: a craft commanded by a non-host seat reached a flying UFO. Marks the
-/// craft in-dogfight + the UFO remotely engaged, and broadcasts
-/// joint_apply{dogfight_start} so the initiating seat opens the dogfight UI.
-void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat);
+// ---- PRD-DF01: shared/replicated dogfights -----------------------------------
+/// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw
+/// top-level message, not the joint_apply lane). Epoch-guarded + fanned to the
+/// matching render-only DogfightState windows. No-op on the host. (df_open rides
+/// the joint_apply lane via registerCmd and needs no public entry point.)
+void applyDogfightState(Game* game, const Json::Value& obj);
 
 // ---- PRD-J10: the landing broker (deferred from PRD-J09) --------------------
 // The host runs the only geoscape simulation, so ConfirmLandingState pops on the
@@ -306,21 +307,6 @@ void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// decision to the host (joint_cmd{land_reply}); the host owns the consequence.
 /// @a yes = land; otherwise @a patrol picks "patrol here" over "return to base".
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
-
-/// HOST: true while a remote (client-simulated) engagement is active on @a ufo.
-/// Used to SERIALIZE engagements: a second craft reaching the same UFO waits.
-bool isUfoRemotelyEngaged(int ufoId);
-
-/// REPLICA: true if this machine is currently simulating a dogfight involving
-/// the object - the joint position snapshot must not overwrite it mid-fight.
-bool ufoLocallySimulated(int ufoId);
-bool craftLocallySimulated(const Craft* craft);
-bool clientDogfightActive(const Craft* craft, const Ufo* ufo);
-
-/// REPLICA: the locally-simulated dogfight ended - report the outcome to the
-/// host (joint_cmd{dogfight_result}). The local-sim exemption is kept until the
-/// host's rebroadcast confirms the result, so the snapshot can't flap the state.
-void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo);
 
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
 // The host stamps a lightweight world checksum onto the periodic geoscape `time`

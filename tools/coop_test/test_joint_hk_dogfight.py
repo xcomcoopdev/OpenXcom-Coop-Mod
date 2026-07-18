@@ -1,36 +1,39 @@
-"""GAP-2 (intended-behaviour regression): alien Hunter-Killer (HK) attack on a
-CLIENT-commanded craft is flown by the HOST.
+"""PRD-DF01 (shared/replicated co-op dogfights): an alien Hunter-Killer (HK)
+attack on a CLIENT-commanded craft is now SPECTATED by both machines.
 
-GAP-2 investigation (see .agents/prds/joint/session-notes-gap2.md) concluded this
-is NOT a bug: craft control in JOINT is purely last-command-wins with no per-craft
-owner field, and an HK attack is UFO-initiated (no initiator seat to key on), so
-"the host flies HK defence" is the direct reading of locked decision #5. The host
-is the only machine that runs geoscape sim in JOINT (the replica returns early in
-time5Seconds), and the HK-attack lane (UFO loop `ufo->reachedDestination() &&
-ufo->isHunting()` ~2353) deliberately has no seat routing.
+SUPERSEDES the GAP-2 host-only regression. GAP-2 investigation
+(.agents/prds/joint/session-notes-gap2.md) concluded that "who flies the HK
+dogfight" was undefined because craft control in JOINT is last-command-wins with
+no per-craft owner. The owner resolved it by building shared/replicated dogfights:
+the HOST simulates EVERY dogfight and EVERY player opens a render-only DogfightState
+that renders a per-tick host state stream (df_state), with membership carried by
+df_open. GAP-2 dissolves - there is no exclusive "flyer" to route to.
 
-This test PINS that intended interim behaviour so a future change is visible.
-
-NOTE - scheduled to be SUPERSEDED: the owner chose to build shared/replicated
-co-op dogfights (host sims every dogfight; ALL players render it and can issue
-commands; host arbitrates in receive-order) as a phased feature AFTER the gap
-hardening pass. When that lands, "who flies" dissolves entirely and this
-assertion flips to "BOTH machines have the dogfight open". Until then, host-flies
-is correct and asserted here. The set_ufo_hunt harness hook + this scaffolding are
-the ready-made seed for that feature's acceptance test.
+So the assertion that was RED in the GAP-2 repro (host_df=1, client_df=0) and then
+PINNED as "host-flies interim" now FLIPS: after an HK attack BOTH machines open the
+SAME fight (host_df>=1 AND client_df>=1), render the same craft/UFO/currentDist, and
+resolve to the SAME authoritative outcome (the host is the sole sim; the client
+mirrors it via df_state + the geo position snapshot).
 
 Sequence:
   * spawn an armed Avenger on BOTH machines (ids lock-step, the test_joint_craft
     precedent);
-  * the CLIENT commands it to a far waypoint  ->  craft OUT, last-command seat =
-    the client's seat (>0), i.e. "the client is flying this craft";
-  * seed an HK UFO on the host at the craft's position and make it HUNT the
-    craft (set_ufo_hunt: setHunterKiller + setTargetedXcomCraft);
-  * advance and observe which machine opens the dogfight.
+  * the CLIENT commands it to a far waypoint -> craft OUT, last-command seat = the
+    client's seat (>0) - the exact GAP-2 setup that used to route host-only;
+  * seed an HK UFO on the host at the craft's position and make it HUNT the craft
+    (set_ufo_hunt: setHunterKiller + setTargetedXcomCraft);
+  * advance and observe: the host opens its OWN DogfightState (Lane 1, unchanged),
+    df_open/df_state replicate it, and the client opens a render-only replica.
 
-Assertion (intended interim behaviour): the HOST opens the HK dogfight and the
-client does not - host is authoritative for the sim, and there is no per-craft
-owner to route to.
+Assertions (PRD-DF01):
+  1. BOTH machines have the fight open (host_df>=1 AND client_df>=1) on the same
+     (craftId, ufoId) - inverting the GAP-2 host-only regression;
+  2. the client's rendered currentDist tracks the host's (within tolerance) - it is
+     rendering the live df_state stream, not simulating;
+  3. the fight resolves to ONE authoritative outcome: after the host's dogfight
+     ends, host and client agree on the UFO's status + crashId (the host mutates its
+     own world; the client mirrors via the geo snapshot). A deterministic CRASH +
+     world-equality is exercised by test_joint_intercept_spectate.py (non-HK).
 
 Run:  python tools/coop_test/test_joint_hk_dogfight.py
 """
@@ -63,23 +66,25 @@ def _craft(gc, craft_id, craft_type):
     return None
 
 
+def _ufo(gc, ufo_id):
+    for u in _geo(gc).get("ufos", []):
+        if u["id"] == ufo_id:
+            return u
+    return None
+
+
 def _dogfights(gc):
     d = gc.ok({"cmd": "dogfight_state"})
     return d["count"] + d["pending"], d
 
 
-def _poll_both(host, client, label, pred, timeout=60, speed_idx=0):
-    deadline = time.time() + timeout
-    last = ("", "")
-    while time.time() < deadline:
-        geo.skip_realtime(host, client, 1, speed_idx=speed_idx, stuck_timeout=None)
-        h, c = pred(host), pred(client)
-        last = (h, c)
-        if h is True and c is True:
-            return
-        time.sleep(0.2)
-    raise AssertionError(f"{label}: not converged after {timeout}s "
-                         f"(host={last[0]!r} client={last[1]!r})")
+def _df_for(gc, craft_id, ufo_id):
+    """The started (non-pending) dogfight for this (craft, ufo) pair, or None."""
+    d = gc.ok({"cmd": "dogfight_state"})
+    for df in d.get("dogfights", []):
+        if df["craftId"] == craft_id and df["ufoId"] == ufo_id:
+            return df
+    return None
 
 
 def main():
@@ -100,8 +105,7 @@ def main():
         print(f"setup: base ({blon:.3f},{blat:.3f}); avenger id {avenger_id}")
 
         # CLIENT commands the craft to a FAR waypoint -> it flies OUT and the
-        # last-command seat becomes the CLIENT's (>0). This is the JOINT sense
-        # of "the client is flying this craft"; it is NOT chasing the UFO.
+        # last-command seat becomes the CLIENT's (>0). Exactly the GAP-2 setup.
         client.ok({"cmd": "craft_order", "order": "target",
                    "craft_id": avenger_id, "craft_type": "STR_AVENGER",
                    "lon": blon + 3.0, "lat": blat})
@@ -116,7 +120,8 @@ def main():
         print("client commanded the avenger OUT (last-command seat = client)")
 
         # Seed an HK UFO on the host, right on the craft, and make it HUNT the
-        # craft (UFO-initiated attack).
+        # craft (UFO-initiated attack). spawn_ufo is host-only; the replica
+        # materialises it via the position snapshot.
         ch = _craft(host, avenger_id, "STR_AVENGER")
         ufo = host.ok({"cmd": "spawn_ufo", "type": "STR_MEDIUM_SCOUT",
                        "mission": "STR_ALIEN_RESEARCH",
@@ -130,37 +135,109 @@ def main():
             f"HK/hunt not set: {hk}"
         print(f"seeded HK UFO id {ufo_id} hunting the client's avenger")
 
-        # Advance until an HK dogfight materialises on EITHER machine.
-        deadline = time.time() + 90
-        host_df = client_df = 0
+        # AC1: advance until the HK dogfight is open on BOTH machines for the same
+        # (craft, ufo). The host opens its own DogfightState (Lane 1, unchanged);
+        # df_open makes the client open a render-only replica of the same fight.
+        deadline = time.time() + 120
+        both = False
         while time.time() < deadline:
             geo.skip_realtime(host, client, 1, speed_idx=0, stuck_timeout=None)
-            host_df, dh = _dogfights(host)
-            client_df, dc = _dogfights(client)
-            if host_df or client_df:
+            hd = _df_for(host, avenger_id, ufo_id)
+            cd = _df_for(client, avenger_id, ufo_id)
+            hn, _ = _dogfights(host)
+            cn, _ = _dogfights(client)
+            if hd and cd:
+                both = True
                 break
             time.sleep(0.2)
 
-        print(f"observed after HK attack: host_df={host_df} client_df={client_df}")
-        assert host_df or client_df, \
-            "no HK dogfight opened on EITHER machine within 90s (engagement dropped?)"
+        hn, _ = _dogfights(host)
+        cn, _ = _dogfights(client)
+        print(f"observed after HK attack: host_df={hn} client_df={cn}")
+        assert both, (
+            "PRD-DF01 FAILED: the HK dogfight did not open on BOTH machines for "
+            f"the same (craft {avenger_id}, ufo {ufo_id}) within 120s "
+            f"(host_df={hn}, client_df={cn}). Expected host_df>=1 AND client_df>=1 "
+            "(the GAP-2 host-only regression is inverted).")
+        assert hn >= 1 and cn >= 1, f"host_df={hn} client_df={cn}, both must be >=1"
+        print(f"PASS AC1: BOTH machines opened the same HK fight "
+              f"(host_df={hn}, client_df={cn}) - GAP-2 inverted")
 
-        # Intended interim behaviour (GAP-2 = design, not bug): the HOST is
-        # authoritative for the geoscape sim and there is no per-craft owner to
-        # route to, so the host opens the HK dogfight and the client does not.
-        # (Superseded when shared/replicated dogfights land - see module docstring.)
-        assert host_df >= 1 and client_df == 0, (
-            f"expected the HOST to fly the HK dogfight (host_df>=1, client_df==0), "
-            f"got host_df={host_df} client_df={client_df}. If shared/replicated "
-            "dogfights have landed, this assertion must flip to 'both machines "
-            "have the dogfight open' - see the module docstring.")
+        # AC2: the client's rendered distance tracks the host's (it renders df_state,
+        # it does not simulate). Sample a few ticks; require convergence within
+        # tolerance at least once (conflation = the client is at most a few ticks
+        # behind the host).
+        TOL = 160
+        converged = False
+        best = None
+        for _ in range(30):
+            geo.skip_realtime(host, client, 1, speed_idx=0, stuck_timeout=None)
+            hd = _df_for(host, avenger_id, ufo_id)
+            cd = _df_for(client, avenger_id, ufo_id)
+            if hd and cd:
+                delta = abs(hd["dist"] - cd["dist"])
+                best = (hd["dist"], cd["dist"], delta) if best is None or delta < best[2] else best
+                if delta <= TOL:
+                    converged = True
+                    break
+            else:
+                break  # one side resolved; stop sampling distance
+            time.sleep(0.2)
+        if best is not None:
+            print(f"currentDist host={best[0]} client={best[1]} (min |delta|={best[2]})")
+            assert converged, (
+                f"PRD-DF01 FAILED: client currentDist never tracked the host within "
+                f"{TOL} (best delta {best[2]}) - the client is not rendering df_state")
+            print("PASS AC2: client currentDist tracks the host (rendering df_state)")
 
-        print("PASS: host flew the HK dogfight (intended interim behaviour); "
-              "client opened nothing")
+        # AC3: let the host's authoritative sim resolve the fight, then confirm host
+        # and client agree on the UFO outcome (status + crashId). The host mutates
+        # its own world; the client mirrors it via the geo position snapshot.
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            geo.skip_realtime(host, client, 1, speed_idx=0, stuck_timeout=None)
+            hn, _ = _dogfights(host)
+            if hn == 0:
+                break
+            time.sleep(0.2)
+        # settle the snapshot to the replica
+        geo.skip_realtime(host, client, 2, speed_idx=0, stuck_timeout=None)
+
+        uh = _ufo(host, ufo_id)
+        uc = _ufo(client, ufo_id)
+        assert uh is not None, "host lost the UFO from geo_state"
+        # If the UFO despawned entirely on the client it is a mirror failure only if
+        # the host still has it flying; a downed UFO stays as a crash site on both.
+        assert uc is not None, "client lost the UFO from geo_state (mirror failure)"
+        print(f"outcome: host ufo status={uh['status']} crashId={uh['crashId']}; "
+              f"client status={uc['status']} crashId={uc['crashId']}")
+        assert uh["status"] == uc["status"], (
+            f"PRD-DF01 FAILED: UFO status diverged host={uh['status']} "
+            f"client={uc['status']} - the client did not mirror the host outcome")
+        assert uh["crashId"] == uc["crashId"], (
+            f"PRD-DF01 FAILED: UFO crashId diverged host={uh['crashId']} "
+            f"client={uc['crashId']}")
+        print("PASS AC3: host and client agree on the UFO outcome "
+              "(status + crashId equal) - single authoritative sim, mirrored")
+
         js.finish()
-        print("ALL JOINT HK TESTS PASSED")
+        print("ALL JOINT HK SPECTATE TESTS PASSED")
     finally:
         js.shutdown()
+
+
+def _poll_both(host, client, label, pred, timeout=60, speed_idx=0):
+    deadline = time.time() + timeout
+    last = ("", "")
+    while time.time() < deadline:
+        geo.skip_realtime(host, client, 1, speed_idx=speed_idx, stuck_timeout=None)
+        h, c = pred(host), pred(client)
+        last = (h, c)
+        if h is True and c is True:
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"{label}: not converged after {timeout}s "
+                         f"(host={last[0]!r} client={last[1]!r})")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@
 #include <vector>
 #include <string>
 
+namespace Json { class Value; }
+
 namespace OpenXcom
 {
 
@@ -73,12 +75,19 @@ private:
 	int _pilotAccuracyBonus, _pilotDodgeBonus, _pilotApproachSpeedModifier, _craftAccelerationBonus;
 	bool _firedAtLeastOnce, _experienceAwarded;
 	bool _delayedRecolorDone;
+	// PRD-DF01 JOINT: a render-only replica of a host-simulated dogfight. Set in the
+	// ctor = isJointCampaign() && !host. On a replica update() applies the latest
+	// df_state frame + animate()s and returns - the entire sim body is skipped, no
+	// RNG, no world mutation; the host is the sole authority. Host instances = false.
+	bool _isReplicaView;
 	// craft min/max, radar min/max, damage min/max, shield min/max
 	int _colors[13];
 	// Ends the dogfight.
 	void endDogfight();
 	bool _tractorLockedOn[RuleCraft::WeaponMax];
 	void updateOceanIndicator();
+	/// PRD-DF01: current mode-button as a wire enum (0..4) for df_state.
+	int modeIndex() const;
 
 public:
 	/// Creates the Dogfight state.
@@ -177,6 +186,18 @@ public:
 	bool getWaitForAltitude() const;
 	/// Award experience to the pilots.
 	void awardExperienceToPilots();
+	/// PRD-DF01: is this a render-only JOINT replica (renders df_state, never sims)?
+	bool isReplicaView() const { return _isReplicaView; }
+	/// PRD-DF01 REPLICA: force this render-only window to close (host membership
+	/// dropped it); handleDogfights() erases it on the next tick.
+	void closeReplicaWindow() { endDogfight(); }
+	/// PRD-DF01 (HOST): serialize this fight's per-tick render state into one
+	/// df_state frame (the README schema). Reads private fields; funds-free.
+	void buildStateFrame(Json::Value& frame) const;
+	/// PRD-DF01 (REPLICA): adopt a host df_state frame - distance/mode/status, the
+	/// UFO render bits the geo snapshot does not carry (shield/hitFrame), craft ammo,
+	/// the end flags, and a rebuilt projectile draw set.
+	void applyFrame(const Json::Value& frame);
 	/// Test hooks (PRD-J08): dogfight sim internals for the harness.
 	int harnessCurrentDist() const { return _currentDist; }
 	int harnessTargetDist() const { return _targetDist; }

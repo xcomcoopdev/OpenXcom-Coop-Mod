@@ -156,7 +156,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 // overflows on a slow link), each channel keeps a single overwrite slot; the
 // send thread emits the freshest one at whatever rate the link drains. Preserves
 // update rate (no throttle) while eliminating the backlog.
-enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_COUNT };
+enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_DOGFIGHT = 2, SNAP_COUNT };
 
 // Overwrite the conflation slot with the newest snapshot (thread-safe).
 void enqueueSnapshot(CoopSnapSlot slot, std::string&& s);

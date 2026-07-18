@@ -249,9 +249,15 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_minimized(false), _endDogfight(false), _animatingHit(false), _waitForPoly(false), _waitForAltitude(false), _ufoSize(0), _ufoBlobSize(0),
 	_craftHeight(0), _currentCraftDamageColor(0),
 	_interceptionNumber(0), _interceptionsCount(0), _x(0), _y(0), _minimizedIconX(0), _minimizedIconY(0), _firedAtLeastOnce(false), _experienceAwarded(false),
-	_delayedRecolorDone(false)
+	_delayedRecolorDone(false), _isReplicaView(false)
 {
 	_screen = false;
+	// PRD-DF01: on a JOINT replica this window renders a host-simulated fight from
+	// the df_state stream and never runs the sim body (see update()). The host owns
+	// every dogfight; a replica never has a non-replica instance and vice versa.
+	_isReplicaView = _game->getCoopMod()
+		&& _game->getCoopMod()->isJointCampaign()
+		&& !_game->getCoopMod()->getServerOwner();
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
 	if (_weaponNum > RuleCraft::WeaponMax)
@@ -776,7 +782,10 @@ void DogfightState::think()
 		update();
 		_craftDamageAnimTimer->think(this, 0);
 	}
-	if (!_ufoIsAttacking || _ufo->getStatus() == Ufo::LANDED)
+	// PRD-DF01: on a JOINT replica this auto-end heuristic reads replica craft state
+	// (isInDogfight / getDestination) that the host's sim owns - the window's
+	// lifecycle is instead driven by df_open/df_close (host membership). Skip it.
+	if (!_isReplicaView && (!_ufoIsAttacking || _ufo->getStatus() == Ufo::LANDED))
 	{
 		if (!_craft->isInDogfight() || _craft->getDestination() != _ufo || _ufo->getStatus() == Ufo::LANDED)
 		{
@@ -957,6 +966,21 @@ void DogfightState::animate()
 void DogfightState::update()
 {
 	++_updateCount; // test instrumentation (PRD-J08)
+
+	// PRD-DF01 JOINT replica: render-only. The freshest df_state frame was already
+	// adopted by the transport (applyFrame, at df_state consume time); here we only
+	// re-render. The ENTIRE sim body below - Ufo/Craft mutation, every RNG site,
+	// projectile movement, end detection, retaliation + score - is the HOST's alone.
+	// Because handleDogfightExperience() (GAP-7 pilot XP) and _craft->setDestination
+	// / returnToBase (GAP-8 _dest + waypoints) both live in that body, a replica
+	// never reaches them: both gaps close for free. Window lifecycle + world outcome
+	// arrive out-of-band (df_open/df_close membership + the joint position snapshot).
+	if (_isReplicaView)
+	{
+		if (!_minimized)
+			animate();
+		return;
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() && _ufo->_coop == true)
@@ -2092,6 +2116,7 @@ void DogfightState::btnMinimizeClick(Action *)
  */
 void DogfightState::btnStandoffPress(Action *)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2119,6 +2144,7 @@ void DogfightState::btnStandoffSimulateLeftPress(Action *action)
  */
 void DogfightState::btnCautiousPress(Action *)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2172,6 +2198,7 @@ void DogfightState::btnCautiousSimulateLeftPress(Action *action)
  */
 void DogfightState::btnStandardPress(Action *)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2207,6 +2234,7 @@ void DogfightState::btnStandardSimulateLeftPress(Action *action)
  */
 void DogfightState::btnAggressivePress(Action *)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2242,6 +2270,7 @@ void DogfightState::btnAggressiveSimulateLeftPress(Action *action)
  */
 void DogfightState::btnDisengagePress(Action *)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = true;
@@ -2439,6 +2468,7 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
+	if (_isReplicaView) return; // PRD-DF01: replica buttons are inert (DF02 wires df_cmd)
 	for (int i = 0; i < _weaponNum; ++i)
 	{
 		if (a->getSender() == _weapon[i])
@@ -2737,16 +2767,11 @@ void DogfightState::endDogfight()
 {
 	if (_endDogfight)
 		return;
-	// PRD-J08 JOINT: this machine simulated the dogfight as the initiating
-	// seat (host-brokered dogfight_start). Report the outcome to the host,
-	// which applies it to the authoritative world and rebroadcasts
-	// joint_apply{dogfight_result} to settle every replica.
-	if (_craft && _ufo
-		&& _game->getCoopMod()->isJointReplica()
-		&& JointEcon::clientDogfightActive(_craft, _ufo))
-	{
-		JointEcon::clientDogfightEnded(_game, _craft, _ufo);
-	}
+	// PRD-DF01: the J08 initiator-reports-result path is gone. The host simulates
+	// every JOINT dogfight (host instance) and mutates its own authoritative world
+	// here / in update(); a replica reaches endDogfight() only to drop its
+	// render-only window (its update() never rolled anything). No result is
+	// reported back - the geo position snapshot carries the outcome to replicas.
 	if (_craft)
 	{
 		_craft->setInDogfight(false);
@@ -2825,6 +2850,183 @@ void DogfightState::awardExperienceToPilots()
 		}
 		_experienceAwarded = true;
 	}
+}
+
+// PRD-DF01: which mode-button the group pointer currently selects, as a small
+// wire enum (0 standoff / 1 cautious / 2 standard / 3 aggressive / 4 disengage).
+int DogfightState::modeIndex() const
+{
+	if (_mode == _btnCautious)   return 1;
+	if (_mode == _btnStandard)   return 2;
+	if (_mode == _btnAggressive) return 3;
+	if (_mode == _btnDisengage)  return 4;
+	return 0; // standoff (default)
+}
+
+/**
+ * PRD-DF01 (HOST): serialize this fight's per-tick render state into ONE df_state
+ * frame (the README schema). Read-only over the host's own DogfightState - it
+ * mutates nothing and touches no funds. The replica reconstructs the visible fight
+ * from this + the static-per-fight fields its own ctor already derived from the
+ * df_open ufoIsAttacking flag.
+ */
+void DogfightState::buildStateFrame(Json::Value& frame) const
+{
+	frame["craftId"] = _craft ? _craft->getId() : -1;
+	frame["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	frame["ufoId"] = _ufo ? _ufo->getId() : -1;
+	frame["currentDist"] = _currentDist;
+	frame["targetDist"] = _targetDist;
+	frame["mode"] = modeIndex();
+	frame["ufoIsAttacking"] = _ufoIsAttacking;
+	frame["ufoSize"] = _ufoSize;
+	frame["ufoBlobSize"] = _ufoBlobSize;
+	// UFO render bits the geo position snapshot does not carry.
+	frame["ufoShield"] = _ufo ? _ufo->getShield() : 0;
+	frame["hitFrame"] = _ufo ? _ufo->getHitFrame() : 0;
+	frame["animatingHit"] = _animatingHit;
+	frame["craftDamageColor"] = _currentCraftDamageColor;
+	frame["statusText"] = _txtStatus->getText(); // already localized (host language)
+	frame["end"] = _end;
+	frame["endDogfight"] = _endDogfight;
+	frame["ufoBreakingOff"] = _ufoBreakingOff;
+	frame["destroyUfo"] = _destroyUfo;
+	frame["destroyCraft"] = _destroyCraft;
+	frame["timeout"] = _timeout;
+
+	Json::Value we(Json::arrayValue), wfc(Json::arrayValue), tl(Json::arrayValue), ammo(Json::arrayValue);
+	for (int i = 0; i < _weaponNum; ++i)
+	{
+		we.append(_weaponEnabled[i]);
+		wfc.append(_weaponFireCountdown[i]);
+		tl.append(_tractorLockedOn[i]);
+		CraftWeapon* w = _craft ? _craft->getWeapons()->at(i) : nullptr;
+		ammo.append(w ? w->getAmmo() : -1);
+	}
+	frame["weaponEnabled"] = we;
+	frame["weaponFireCountdown"] = wfc;
+	frame["tractorLockedOn"] = tl;
+	frame["ammo"] = ammo;
+
+	Json::Value projs(Json::arrayValue);
+	for (auto* p : _projectiles)
+	{
+		Json::Value jp;
+		jp["pos"] = p->getPosition();
+		jp["hpos"] = p->getHorizontalPosition();
+		jp["dir"] = p->getDirection();
+		jp["blobType"] = (int)p->getType();
+		projs.append(jp);
+	}
+	frame["projectiles"] = projs;
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a host df_state frame. Sets the render-driving state
+ * the animate()/drawUfo()/drawProjectile() helpers read, plus the UFO render bits
+ * (shield/hitFrame) and craft ammo the geo snapshot does not carry, and rebuilds
+ * the projectile draw set. Never mutates the shared world beyond those local
+ * render bits; the window's lifecycle is owned by df_open/df_close.
+ */
+void DogfightState::applyFrame(const Json::Value& frame)
+{
+	_currentDist = frame.get("currentDist", _currentDist).asInt();
+	_targetDist = frame.get("targetDist", _targetDist).asInt();
+	if (_game->getMod()->getShowDogfightDistanceInKm())
+	{
+		_txtDistance->setText(tr("STR_KILOMETERS").arg(_currentDist / 8));
+	}
+	else
+	{
+		std::ostringstream ss;
+		ss << _currentDist;
+		_txtDistance->setText(ss.str());
+	}
+
+	switch (frame.get("mode", modeIndex()).asInt())
+	{
+	case 1:  _mode = _btnCautious;   break;
+	case 2:  _mode = _btnStandard;   break;
+	case 3:  _mode = _btnAggressive; break;
+	case 4:  _mode = _btnDisengage;  break;
+	default: _mode = _btnStandoff;   break;
+	}
+
+	_ufoIsAttacking = frame.get("ufoIsAttacking", _ufoIsAttacking).asBool();
+	_ufoSize = frame.get("ufoSize", _ufoSize).asInt();
+	_ufoBlobSize = frame.get("ufoBlobSize", _ufoBlobSize).asInt();
+	_animatingHit = frame.get("animatingHit", false).asBool();
+	_currentCraftDamageColor = frame.get("craftDamageColor", _currentCraftDamageColor).asInt();
+
+	if (_ufo)
+	{
+		_ufo->setShield(frame.get("ufoShield", 0).asInt());
+		_ufo->setHitFrame(frame.get("hitFrame", 0).asInt());
+	}
+
+	const Json::Value& we = frame["weaponEnabled"];
+	const Json::Value& wfc = frame["weaponFireCountdown"];
+	const Json::Value& tl = frame["tractorLockedOn"];
+	const Json::Value& ammo = frame["ammo"];
+	for (int i = 0; i < _weaponNum; ++i)
+	{
+		if (we.isArray()  && (Json::ArrayIndex)i < we.size())  _weaponEnabled[i]      = we[i].asBool();
+		if (wfc.isArray() && (Json::ArrayIndex)i < wfc.size()) _weaponFireCountdown[i] = wfc[i].asInt();
+		if (tl.isArray()  && (Json::ArrayIndex)i < tl.size())  _tractorLockedOn[i]     = tl[i].asBool();
+		if (ammo.isArray() && (Json::ArrayIndex)i < ammo.size() && _craft)
+		{
+			CraftWeapon* w = _craft->getWeapons()->at(i);
+			int a = ammo[i].asInt();
+			if (w && a >= 0)
+			{
+				w->setAmmo(a);
+				std::ostringstream ss;
+				ss << w->getAmmo();
+				_txtAmmo[i]->setText(ss.str());
+			}
+		}
+	}
+
+	if (frame.isMember("statusText"))
+	{
+		std::string s = frame["statusText"].asString();
+		if (!s.empty())
+			_txtStatus->setText(s); // host-localized text streamed verbatim
+	}
+
+	_end = frame.get("end", _end).asBool();
+	_ufoBreakingOff = frame.get("ufoBreakingOff", _ufoBreakingOff).asBool();
+	_destroyUfo = frame.get("destroyUfo", _destroyUfo).asBool();
+	_destroyCraft = frame.get("destroyCraft", _destroyCraft).asBool();
+	_timeout = frame.get("timeout", _timeout).asInt();
+
+	// Rebuild the projectile draw records. The sim never runs on a replica, so
+	// these are pure draw state (position/horizontal/direction/blob) - move() is
+	// never called on them; the next frame replaces them wholesale.
+	while (!_projectiles.empty())
+	{
+		delete _projectiles.back();
+		_projectiles.pop_back();
+	}
+	const Json::Value& projs = frame["projectiles"];
+	if (projs.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < projs.size(); ++i)
+		{
+			const Json::Value& jp = projs[i];
+			CraftWeaponProjectile* p = new CraftWeaponProjectile(nullptr);
+			p->setType((CraftWeaponProjectileType)jp.get("blobType", 0).asInt());
+			// setDirection(D_UP) zeroes the position, so set position AFTER direction.
+			p->setDirection(jp.get("dir", (int)D_UP).asInt());
+			p->setPosition(jp.get("pos", 0).asInt());
+			p->setHorizontalPosition(jp.get("hpos", 0).asInt());
+			_projectiles.push_back(p);
+		}
+	}
+
+	// Refresh the craft damage + shield overlays with the adopted values.
+	drawCraftDamage();
+	drawCraftShield();
 }
 
 }

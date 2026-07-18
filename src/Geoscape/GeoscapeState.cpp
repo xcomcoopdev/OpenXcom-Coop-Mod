@@ -1914,6 +1914,18 @@ void GeoscapeState::think()
 			_popups.erase(_popups.begin());
 		}
 	}
+
+	// PRD-DF01 shared/replicated JOINT dogfights. HOST: publish the membership
+	// set (df_open) + one per-tick render frame (df_state). REPLICA: reconcile
+	// its render-only windows toward the latest df_open set (runs every think so
+	// a window opens the moment its craft + UFO are replicated).
+	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	{
+		if (_game->getCoopMod()->getServerOwner())
+			jointBroadcastDogfights();
+		else
+			jointReconcileReplicaDogfights();
+	}
 }
 
 /**
@@ -2657,34 +2669,12 @@ void GeoscapeState::time5Seconds()
 					switch (u->getStatus())
 					{
 					case Ufo::FLYING:
-						// PRD-J08 JOINT: craft orders carry the commanding seat and the
-						// INITIATOR flies the dogfight (locked decision (a)). If a
-						// NON-host seat commanded this craft, the host does not open a
-						// local DogfightState - it marks the pair engaged and
-						// broadcasts dogfight_start; the initiator simulates on its
-						// replica and reports dogfight_result. Engagements are
-						// SERIALIZED per UFO: while a remote engagement is active,
-						// any other craft (host's own included) simply waits.
-						if (_game->getCoopMod()->isJointCampaign() && _game->getCoopMod()->getServerOwner())
-						{
-							const bool ufoBusyRemote = JointEcon::isUfoRemotelyEngaged(u->getId());
-							const int jseat = JointEcon::lastCraftOrderSeat(xcraft);
-							if (jseat > 0) // commanded by a client seat
-							{
-								if (!ufoBusyRemote && !xcraft->isInDogfight()
-									&& u->getSpeed() <= xcraft->getCraftStats().speedMax)
-								{
-									bool ufoBusyLocal = false;
-									for (auto* f : _dogfights) if (f->getUfo() == u) { ufoBusyLocal = true; break; }
-									for (auto* g : _dogfightsToBeStarted) if (g->getUfo() == u) { ufoBusyLocal = true; break; }
-									if (!ufoBusyLocal)
-										JointEcon::hostRemoteDogfightStart(_game, xcraft, u, jseat);
-								}
-								break; // never open a local dogfight UI for another seat's craft
-							}
-							if (ufoBusyRemote)
-								break; // host's craft waits for the remote engagement to resolve
-						}
+						// PRD-DF01 JOINT: the initiator model is gone. The host simulates
+						// EVERY dogfight (it is the sole geoscape sim), so a craft that any
+						// seat commanded and that reaches a flying UFO falls straight through
+						// to the vanilla path below - the host opens its own DogfightState and
+						// df_open/df_state replicate it to every player. GAP-2 dissolves: there
+						// is no exclusive "flyer" to route to.
 						// Not more than 4 interceptions at a time... but hunter-killers are always allowed
 						if (!u->isHunterKiller() && _dogfights.size() + _dogfightsToBeStarted.size() >= 4)
 						{
@@ -5319,11 +5309,15 @@ void GeoscapeState::jointLandingReply(Craft* craft, bool yes, bool patrol)
 	cls->btnYesClick(nullptr);
 }
 
-void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo)
+void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking)
 {
 	if (!craft || !ufo || craft->isInDogfight())
 		return;
-	_dogfightsToBeStarted.push_back(new DogfightState(this, craft, ufo, false));
+	// PRD-DF01: a render-only replica window - the DogfightState ctor sets
+	// _isReplicaView from the coop role; it renders the host's df_state stream
+	// and never sims. ufoIsAttacking (from df_open) lets the ctor derive the same
+	// static-per-fight fields (disable flags, initial mode) the host derived.
+	_dogfightsToBeStarted.push_back(new DogfightState(this, craft, ufo, ufoIsAttacking));
 	if (!_dogfightStartTimer->isRunning())
 	{
 		_pause = true;
@@ -5339,6 +5333,238 @@ void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo)
  * Returns the first free dogfight slot.
  * @return free slot
  */
+// ---- PRD-DF01: shared/replicated dogfight transport --------------------------
+
+// HOST: a stable signature of the live membership set { _dogfights U
+// _dogfightsToBeStarted } as sorted (craftType#craftId:ufoId:hk) tuples, so pure
+// ordering churn never bumps the epoch.
+static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
+                                         const std::list<DogfightState*>& b)
+{
+	std::vector<std::string> keys;
+	for (auto* df : a)
+	{
+		if (!df->getCraft() || !df->getUfo()) continue;
+		std::ostringstream k;
+		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
+		keys.push_back(k.str());
+	}
+	for (auto* df : b)
+	{
+		if (!df->getCraft() || !df->getUfo()) continue;
+		std::ostringstream k;
+		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
+		keys.push_back(k.str());
+	}
+	std::sort(keys.begin(), keys.end());
+	std::string sig;
+	for (auto& k : keys) { sig += k; sig += '|'; }
+	return sig;
+}
+
+/**
+ * PRD-DF01 (HOST): publish this tick's dogfights. df_open (reliable FIFO
+ * joint_apply lane) carries the FULL membership set + a monotonically increasing
+ * epoch, emitted only on a change (a new fight, an HK reshuffle, a fight ending -
+ * all collapse to one df_open with the new set). df_state (the SNAP_DOGFIGHT
+ * conflation slot: last-write-wins, freshest-only, NEVER the reliable FIFO) carries
+ * one combined per-tick render frame over every live fight. Replicas diff-reconcile
+ * their render-only windows against the df_open set and render the df_state frames.
+ */
+void GeoscapeState::jointBroadcastDogfights()
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (!coop || !coop->isJointCampaign() || !coop->getServerOwner())
+		return;
+
+	// 1) df_open on a membership change (epoch++).
+	std::string sig = dfMembershipSignature(_dogfights, _dogfightsToBeStarted);
+	if (sig != _dfMembershipSig)
+	{
+		_dfMembershipSig = sig;
+		++_dfEpoch;
+		Json::Value payload;
+		payload["epoch"] = _dfEpoch;
+		Json::Value arr(Json::arrayValue);
+		for (auto* df : _dogfights)
+		{
+			if (!df->getCraft() || !df->getUfo()) continue;
+			Json::Value d;
+			d["craftId"] = df->getCraft()->getId();
+			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["ufoId"] = df->getUfo()->getId();
+			d["ufoIsAttacking"] = df->isUfoAttacking();
+			arr.append(d);
+		}
+		for (auto* df : _dogfightsToBeStarted)
+		{
+			if (!df->getCraft() || !df->getUfo()) continue;
+			Json::Value d;
+			d["craftId"] = df->getCraft()->getId();
+			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["ufoId"] = df->getUfo()->getId();
+			d["ufoIsAttacking"] = df->isUfoAttacking();
+			arr.append(d);
+		}
+		payload["dogfights"] = arr;
+		JointEcon::submitLocalCmd(_game, "df_open", -1, payload);
+	}
+
+	// 2) df_state: one combined full-set frame per tick on the conflation slot.
+	if (!_dogfights.empty())
+	{
+		Json::Value root;
+		root["state"] = "df_state";
+		root["epoch"] = _dfEpoch;
+		// host-authoritative "any window non-minimized on the host" (DF02 clock gate).
+		root["hostAnyOpen"] = (_minimizedDogfights < _dogfights.size());
+		Json::Value frames(Json::arrayValue);
+		for (auto* df : _dogfights)
+		{
+			Json::Value frame;
+			df->buildStateFrame(frame);
+			frames.append(frame);
+		}
+		root["frames"] = frames;
+		coop->sendCoopSnapshot(SNAP_DOGFIGHT, root.toStyledString());
+	}
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a df_open membership set - store it + the epoch (the
+ * df_state guard) and reconcile the render-only windows toward it.
+ */
+void GeoscapeState::jointApplyDogfightMembership(const Json::Value& dogfights, int epoch)
+{
+	_dfReplicaEpoch = epoch;
+	_dfDesired.clear();
+	if (dogfights.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < dogfights.size(); ++i)
+		{
+			const Json::Value& d = dogfights[i];
+			DfMember m;
+			m.craftId = d.get("craftId", -1).asInt();
+			m.craftType = d.get("craftType", "").asString();
+			m.ufoId = d.get("ufoId", -1).asInt();
+			m.ufoIsAttacking = d.get("ufoIsAttacking", false).asBool();
+			_dfDesired.push_back(m);
+		}
+	}
+	jointReconcileReplicaDogfights();
+}
+
+/**
+ * PRD-DF01 (REPLICA): make the open render-only window set EQUAL _dfDesired. Opens
+ * a window as soon as both the craft and the (flying) UFO are replicated here (the
+ * UFO arrives via the geo position snapshot, the craft via the streamed world);
+ * closes any window whose tuple left the set (a fight that ended / an HK reshuffle).
+ * Runs every think() so a window opens the moment its objects materialize.
+ */
+void GeoscapeState::jointReconcileReplicaDogfights()
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (!coop || !coop->isJointCampaign() || coop->getServerOwner())
+		return;
+	SavedGame* save = _game->getSavedGame();
+	if (!save) return;
+
+	auto inDesired = [&](Craft* c, Ufo* u) -> bool
+	{
+		if (!c || !u) return false;
+		for (auto& m : _dfDesired)
+			if (m.craftId == c->getId() && m.ufoId == u->getId()
+				&& m.craftType == c->getRules()->getType())
+				return true;
+		return false;
+	};
+
+	// Close live windows no longer desired (handleDogfights() erases them next tick).
+	for (auto* df : _dogfights)
+		if (df->isReplicaView() && !df->dogfightEnded()
+			&& !inDesired(df->getCraft(), df->getUfo()))
+			df->closeReplicaWindow();
+	// Drop still-pending windows the diff removed before they started.
+	for (auto it = _dogfightsToBeStarted.begin(); it != _dogfightsToBeStarted.end(); )
+	{
+		DogfightState* df = *it;
+		if (df->isReplicaView() && !inDesired(df->getCraft(), df->getUfo()))
+		{
+			delete df;
+			it = _dogfightsToBeStarted.erase(it);
+		}
+		else ++it;
+	}
+
+	// Open a window for each desired tuple not already open.
+	for (auto& m : _dfDesired)
+	{
+		bool open = false;
+		for (auto* df : _dogfights)
+			if (df->getCraft() && df->getUfo()
+				&& df->getCraft()->getId() == m.craftId
+				&& df->getUfo()->getId() == m.ufoId
+				&& df->getCraft()->getRules()->getType() == m.craftType)
+			{ open = true; break; }
+		if (!open)
+			for (auto* df : _dogfightsToBeStarted)
+				if (df->getCraft() && df->getUfo()
+					&& df->getCraft()->getId() == m.craftId
+					&& df->getUfo()->getId() == m.ufoId
+					&& df->getCraft()->getRules()->getType() == m.craftType)
+				{ open = true; break; }
+		if (open) continue;
+
+		Craft* craft = nullptr;
+		for (auto* b : *save->getBases())
+		{
+			for (auto* c : *b->getCrafts())
+				if (c->getId() == m.craftId && c->getRules()->getType() == m.craftType)
+				{ craft = c; break; }
+			if (craft) break;
+		}
+		Ufo* ufo = nullptr;
+		for (auto* u : *save->getUfos())
+			if (u->getId() == m.ufoId) { ufo = u; break; }
+		// Both objects present, UFO still flying, craft free: open the replica window.
+		if (craft && ufo && ufo->getStatus() == Ufo::FLYING && !craft->isInDogfight())
+			startJointDogfight(craft, ufo, m.ufoIsAttacking);
+	}
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a df_state frame set. Epoch-guarded: a frame set that
+ * predates the replica's current df_open membership is a stale full-set frame
+ * racing a reshuffle (locked decision #4) and is dropped. Each surviving frame is
+ * routed to the matching render-only window by (craftId, craftType, ufoId).
+ */
+void GeoscapeState::jointApplyDogfightState(const Json::Value& root)
+{
+	int epoch = root.get("epoch", 0).asInt();
+	if (epoch < _dfReplicaEpoch)
+		return; // stale: predates the current membership
+	const Json::Value& frames = root["frames"];
+	if (!frames.isArray()) return;
+	for (Json::ArrayIndex i = 0; i < frames.size(); ++i)
+	{
+		const Json::Value& f = frames[i];
+		int craftId = f.get("craftId", -1).asInt();
+		int ufoId = f.get("ufoId", -1).asInt();
+		std::string craftType = f.get("craftType", "").asString();
+		for (auto* df : _dogfights)
+			if (df->isReplicaView() && df->getCraft() && df->getUfo()
+				&& df->getCraft()->getId() == craftId
+				&& df->getUfo()->getId() == ufoId
+				&& df->getCraft()->getRules()->getType() == craftType)
+			{
+				df->applyFrame(f);
+				break;
+			}
+	}
+}
+
 int GeoscapeState::getFirstFreeDogfightSlot()
 {
 	int slotNo = 1;

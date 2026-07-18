@@ -6064,6 +6064,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	// PRD-DF01: per-tick dogfight render frames. df_state rides the
+	// SNAP_DOGFIGHT conflation slot as a raw top-level message (last-write-
+	// wins, freshest-only, never the reliable FIFO), so it is dispatched
+	// here by state string. On a replica it fans out to the render-only
+	// DogfightState windows (epoch-guarded); the host ignores its own stream.
+	if (stateString == "df_state")
+	{
+		JointEcon::applyDogfightState(_game, obj);
+	}
+
 	// target positions
 	if (stateString == "target_positions")
 	{
@@ -6090,9 +6100,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					if (craft->getId() == craftId && craft->getRules()->getType() == jc["rule"].asString())
 					{
-						// PRD-J08: while this replica simulates a dogfight with this
-						// craft, the local sim owns it - never overwrite mid-fight.
-						if (JointEcon::craftLocallySimulated(craft)) break;
 						craft->setLongitude(jc["lon"].asDouble());
 						craft->setLatitude(jc["lat"].asDouble());
 						craft->setStatus(jc["status"].asString());
@@ -6115,10 +6122,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				const Json::Value& ju = obj["ufos"][i];
 				int ufoId = ju["id"].asInt();
 				liveUfoIds.insert(ufoId);
-				// PRD-J08: while this replica dogfight-simulates the UFO, the local
-				// sim owns it (the host still thinks it is FLYING until the result
-				// round-trips) - skip both update and despawn-hiding.
-				if (JointEcon::ufoLocallySimulated(ufoId)) continue;
 				int missionId = ju["mission_id"].asInt();
 
 				// find/create the owning AlienMission (needed for Ufo::getMission()).
@@ -6174,8 +6177,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// replica has no dogfights/followers to unwind; full cleanup is J10).
 			for (auto* u : *sg->getUfos())
 			{
-				if (liveUfoIds.find(u->getId()) == liveUfoIds.end()
-					&& !JointEcon::ufoLocallySimulated(u->getId()))
+				if (liveUfoIds.find(u->getId()) == liveUfoIds.end())
 				{
 					u->setDetected(false);
 					u->setStatus(Ufo::DESTROYED);

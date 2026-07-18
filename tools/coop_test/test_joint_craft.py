@@ -5,10 +5,11 @@ craft. Orders ride the J03 joint_cmd protocol (craft_launch / craft_retarget /
 craft_return / craft_patrol); the host validates the vanilla fuel/crew/status
 rules against the live world and applies them in ARRIVAL order
 (last-command-wins). Replica craft positions/status/fuel flow through the
-joint:true position snapshot. Dogfights follow locked decision (a): the seat
-whose order engaged the UFO simulates the DogfightState on ITS machine; the
-result is reported to the host (joint_cmd{dogfight_result}), applied to the
-authoritative world and rebroadcast.
+joint:true position snapshot. Dogfights (PRD-DF01, superseding the J08 initiator
+model): the HOST simulates EVERY dogfight and BOTH machines open a window - the
+host's is the sim, the client's is a render-only replica fed by the per-tick
+df_state stream (membership via df_open). The outcome the host mutates into its
+own world reaches the client via the geo position snapshot.
 
   LIST    intercept_list rows identical on host + client (fenced SEPARATE
           peer-base hiding); the geoscape craft dialog shows ENABLED command
@@ -20,10 +21,11 @@ authoritative world and rebroadcast.
           replica follows (last-command-wins; shared waypoint id lock-step).
   RETURN  client orders return-to-base -> lands + refuels host-side; status
           and fuel visible on the replica (snapshot fuel/damage sync).
-  DOGFIGHT client launches at a seeded nearby UFO -> host brokers
-          dogfight_start -> ONLY the client gets the interactive dogfight ->
-          aggressive attack crashes the UFO -> host applies dogfight_result ->
-          crash (status+crashId) identical on both; craft damage synced.
+  DOGFIGHT client launches at a seeded nearby UFO -> the HOST opens its own
+          DogfightState (vanilla Lane 2), df_open makes the client open a
+          render-only replica -> the HOST drives the fight aggressive (DF01
+          replica buttons are inert) -> crash (status+crashId) identical on
+          both; craft damage synced.
 
 Scaffolding note: spawn_craft (the Avenger used for the dogfight) mutates one
 machine's world directly, so it is called on BOTH machines - deterministic and
@@ -228,8 +230,9 @@ def main():
               "fuel identical on replica")
 
         # ================================================================
-        # 5) DOGFIGHT: client engages a seeded UFO; ONLY the client gets the
-        #    interactive dogfight; the crash lands identically on both.
+        # 5) DOGFIGHT (PRD-DF01): client engages a seeded UFO; the HOST sims it
+        #    and BOTH machines open a window (client = render-only replica); the
+        #    crash lands identically on both.
         # ================================================================
         # A craft faster than the scout so a break-off cannot escape, armed
         # with cannons only (low damage -> crash, never destroy). BOTH
@@ -272,33 +275,34 @@ def main():
 
         _poll_both(host, client, "ufo launch parity", _at_ufo, timeout=45)
 
-        # the interactive dogfight must open on the CLIENT (initiator) only
+        # PRD-DF01: the host simulates the dogfight and BOTH machines open a
+        # window (host = the sim, client = a render-only replica via df_open).
         deadline = time.time() + 120
         opened = False
         while time.time() < deadline:
             geo.skip_realtime(host, client, 1, speed_idx=1)
             dc = _dogfights(client)
             dh = _dogfights(host)
-            assert dh["count"] == 0, \
-                f"host opened a dogfight UI for a client-commanded craft: {dh}"
-            if dc["count"] >= 1:
+            if dc["count"] >= 1 and dh["count"] >= 1:
                 opened = True
                 break
-        assert opened, "client dogfight UI never opened (dogfight_start lost?)"
-        print("PASS dogfight start: interactive dogfight on the CLIENT only")
+        assert opened, "dogfight did not open on BOTH machines (df_open lost?)"
+        print("PASS dogfight start: BOTH machines opened the dogfight "
+              "(host sims, client renders)")
 
         # From here keep geo time at 5-sec speed: the dogfight sim is real-time
         # (independent of geo speed), and a slow clock keeps the host's craft
-        # from burning through its fuel while the client fights.
+        # from burning through its fuel while it fights.
 
-        client.ok({"cmd": "dogfight_action", "action": "aggressive"})
+        # PRD-DF01: the HOST is the sim authority and drives the fight; the
+        # client's replica buttons are inert (DF02 wires df_cmd).
+        host.ok({"cmd": "dogfight_action", "action": "aggressive"})
 
-        # crash lands on the HOST (authoritative apply), then on the client.
+        # crash lands on the HOST (authoritative), then mirrors to the client.
         # Re-assert aggressive every poll: if the UFO broke off and the craft
         # re-engaged, the fresh dogfight would otherwise idle at standoff.
         def _crashed(gc):
-            if gc is client:
-                client.cmd({"cmd": "dogfight_action", "action": "aggressive"})
+            host.cmd({"cmd": "dogfight_action", "action": "aggressive"})
             u = _ufo(gc, ufo_id)
             if not u:
                 return "ufo missing"

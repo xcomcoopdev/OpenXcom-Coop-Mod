@@ -1552,20 +1552,6 @@ std::string craftKey(const Craft* c)
 // was never commanded through the protocol -> treat as host-owned (vanilla).
 std::map<std::string, int> g_craftOrderSeat;
 
-// HOST: ufoId -> engaged craft key while a remote (initiator-simulated)
-// dogfight is in flight. Serializes engagements: a second craft reaching the
-// same UFO waits until the current engagement's result arrives (the locked
-// "host serializes" decision; vanilla's concurrent multi-interception applies
-// only among the host's own craft).
-std::map<int, std::string> g_remoteEngagedUfo;
-
-// REPLICA: objects this machine is currently dogfight-simulating locally. The
-// joint position snapshot skips them so the host's (stale) view cannot
-// overwrite the local sim mid-fight; the exemption is lifted only when the
-// host's joint_apply{dogfight_result} confirms the outcome.
-std::set<int> g_localSimUfos;
-std::set<std::string> g_localSimCrafts;
-
 // Resolve the ordered craft: prefer the command's base, fall back to a
 // world-wide search (the craft may have been transferred since the order).
 Craft* resolveOrderCraft(Game* game, const Json::Value& p, Base* base)
@@ -1941,41 +1927,17 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
-// dogfight_start payload: { craftId, craftType, ufoId, initiatorSeat }.
-// Host-originated when a craft commanded by a NON-host seat reaches a flying
-// UFO: the initiator (and only the initiator) opens the interactive
-// DogfightState against its replica objects; every other machine shows
-// nothing (PRD: no interactive UI elsewhere).
-void dogfightStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+// PRD-DF01: df_open applier (REPLICA only). The host publishes the FULL dogfight
+// membership set + epoch on every change; the replica adopts it and reconciles its
+// render-only windows (opens new tuples once their craft + UFO are replicated,
+// closes departed ones). Payload: { epoch, dogfights:[ {craftId, craftType, ufoId,
+// ufoIsAttacking} ] }. This REPLACES the J08 dogfightStartApply (initiator model).
+void dfOpenApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 {
-	if (connectionTCP::getHost()) return; // host tracked the engagement at emit
-	if (payload.get("initiatorSeat", -1).asInt() != connectionTCP::localSeat()) return;
-	SavedGame* save = game->getSavedGame();
-	if (!save) return;
-	Craft* craft = resolveOrderCraft(game, payload, base);
-	Ufo* ufo = nullptr;
-	int ufoId = payload.get("ufoId", -1).asInt();
-	for (auto* u : *save->getUfos()) if (u->getId() == ufoId) { ufo = u; break; }
+	if (connectionTCP::getHost()) return; // host owns its own DogfightState set
 	GeoscapeState* gs = findGeoState(game);
-	if (!craft || !ufo || !gs || ufo->getStatus() != Ufo::FLYING)
-	{
-		// Cannot simulate here (objects not replicated yet / no geoscape):
-		// report an ABORTED result so the host releases the engagement instead
-		// of holding the craft in a dogfight that will never resolve.
-		Json::Value p;
-		p["craftId"] = payload["craftId"];
-		p["craftType"] = payload["craftType"];
-		p["ufoId"] = ufoId;
-		p["aborted"] = true;
-		submitLocalCmd(game, "dogfight_result", -1, p);
-		return;
-	}
-	// DogfightState::update() requires the craft to be heading at this UFO.
-	if (craft->getDestination() != ufo) craft->setDestination(ufo);
-	craft->setStatus("STR_OUT");
-	g_localSimUfos.insert(ufoId);
-	g_localSimCrafts.insert(craftKey(craft));
-	gs->startJointDogfight(craft, ufo);
+	if (!gs) return; // no geoscape (sub-screen/battle): reconcile when it returns
+	gs->jointApplyDogfightMembership(payload["dogfights"], payload.get("epoch", 0).asInt());
 }
 
 // ---- PRD-J10: the landing broker ---------------------------------------------
@@ -2024,172 +1986,12 @@ void landReplyApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		payload.get("patrol", false).asBool());
 }
 
-// Host-side consequences of a downed UFO that vanilla runs INSIDE the
-// initiator's DogfightState (fenced on a JOINT replica): mission bookkeeping +
-// the retaliation roll. Byte-mirrors DogfightState::update's crash block.
-void hostRollRetaliation(Game* game, Ufo* ufo, Craft* craft)
-{
-	SavedGame* save = game->getSavedGame();
-	AlienRace* race = game->getMod()->getAlienRace(ufo->getAlienRace());
-	AlienMission* mission = ufo->getMission();
-	if (!save || !race || !mission) return;
-	mission->ufoShotDown(*ufo);
-	// Check for retaliation trigger.
-	int retaliationOdds = mission->getRules().getRetaliationOdds();
-	if (retaliationOdds == -1)
-	{
-		retaliationOdds = 100 - (4 * (24 - save->getDifficultyCoefficient()) - race->getRetaliationAggression());
-		{
-			int diff = save->getDifficulty();
-			auto& custom = game->getMod()->getRetaliationTriggerOdds();
-			if (custom.size() > (size_t)diff)
-				retaliationOdds = custom[diff] + race->getRetaliationAggression();
-		}
-	}
-	// Have mercy on beginners
-	if (save->getMonthsPassed() < Mod::DIFFICULTY_BASED_RETAL_DELAY[save->getDifficulty()])
-		retaliationOdds = 0;
-	if (!RNG::percent(retaliationOdds)) return;
-
-	// Spawn retaliation mission.
-	std::string targetRegion;
-	int retaliationUfoMissionRegionOdds = 50 - 6 * save->getDifficultyCoefficient();
-	{
-		int diff = save->getDifficulty();
-		auto& custom = game->getMod()->getRetaliationBaseRegionOdds();
-		if (custom.size() > (size_t)diff)
-			retaliationUfoMissionRegionOdds = 100 - custom[diff];
-	}
-	if (RNG::percent(retaliationUfoMissionRegionOdds))
-		targetRegion = mission->getRegion();
-	else if (craft && craft->getBase())
-		targetRegion = save->locateRegion(*craft->getBase())->getRules()->getType();
-	else
-		targetRegion = mission->getRegion();
-	if (save->findAlienMission(targetRegion, OBJECTIVE_RETALIATION, race)) return;
-	auto* retalWeights = race->retaliationMissionWeights(save->getMonthsPassed());
-	std::string retalMission = retalWeights ? retalWeights->choose() : "";
-	const RuleAlienMission* rule = game->getMod()->getAlienMission(retalMission, false);
-	if (!rule)
-		rule = game->getMod()->getRandomMission(OBJECTIVE_RETALIATION, save->getMonthsPassed());
-	if (!rule) return;
-	GeoscapeState* gs = findGeoState(game);
-	if (!gs) return; // no globe to start against (should not happen on the host)
-	AlienMission* newMission = new AlienMission(*rule);
-	newMission->setId(save->getId("ALIEN_MISSIONS"));
-	newMission->setRegion(targetRegion, *game->getMod());
-	newMission->setRace(ufo->getAlienRace());
-	newMission->start(*game, *gs->getGlobe(), newMission->getRules().getWave(0).spawnTimer);
-	save->getAlienMissions().push_back(newMission);
-}
-
-// dogfight_result payload: { craftId, craftType, ufoId, aborted? } +
-// { ufoDamage, ufoStatus, altitude, detected, ufoSpeed, secondsRemaining,
-//   shotDown, craftDamage, craftFuel, craftLowFuel, ammo:[...] }
-// (+ host-resolved hostCrashId). Initiator-reported (locked decision (a),
-// SEPARATE's trust model); the host applies it to the authoritative world and
-// the rebroadcast settles every replica - including the initiator, whose
-// local-sim snapshot exemption is lifted HERE, so the position snapshot can
-// never overwrite the outcome during the round-trip.
-void dogfightResultApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
-{
-	SavedGame* save = game->getSavedGame();
-	Mod* mod = game->getMod();
-	if (!save || !mod) return;
-	const bool host = connectionTCP::getHost();
-	int ufoId = payload.get("ufoId", -1).asInt();
-
-	Craft* craft = resolveOrderCraft(game, payload, base);
-	Ufo* ufo = nullptr;
-	for (auto* u : *save->getUfos()) if (u->getId() == ufoId) { ufo = u; break; }
-
-	// Release the engagement bookkeeping everywhere, first.
-	g_remoteEngagedUfo.erase(ufoId);
-	g_localSimUfos.erase(ufoId);
-	if (craft) g_localSimCrafts.erase(craftKey(craft));
-
-	if (payload.get("aborted", false).asBool())
-	{
-		if (craft) { craft->setInDogfight(false); craft->setInterceptionOrder(0); }
-		return;
-	}
-
-	// ---- UFO outcome (idempotent: the initiator already holds these values) --
-	if (ufo)
-	{
-		Ufo::UfoStatus oldStatus = ufo->getStatus();
-		if (payload.isMember("ufoDamage")) ufo->setDamage(payload["ufoDamage"].asInt(), mod);
-		Ufo::UfoStatus newStatus = (Ufo::UfoStatus)payload.get("ufoStatus", (int)ufo->getStatus()).asInt();
-		// altitude BEFORE status: setAltitude(!STR_GROUND) force-resets to FLYING.
-		if (payload.isMember("altitude")) ufo->setAltitude(payload["altitude"].asString());
-		ufo->setStatus(newStatus);
-		if (payload.isMember("detected")) ufo->setDetected(payload["detected"].asBool());
-		if (payload.isMember("ufoSpeed")) ufo->setSpeed(payload["ufoSpeed"].asInt());
-		if (payload.isMember("secondsRemaining"))
-			ufo->setSecondsRemaining((size_t)payload["secondsRemaining"].asUInt());
-		bool shotDown = payload.get("shotDown", false).asBool();
-		if (craft && shotDown)
-			ufo->setShotDownByCraftId(craft->getUniqueId());
-		if (newStatus == Ufo::CRASHED)
-		{
-			// The HOST mints the authoritative crash-site id and resolves it
-			// into the broadcast (buy-soldier mutable-payload pattern); every
-			// replica - including the initiator, which minted a provisional one
-			// during its local sim - adopts the host's value. Ids travel by
-			// value, so the per-machine id counters need no lock-step here.
-			if (host && !payload.isMember("hostCrashId"))
-				payload["hostCrashId"] = ufo->getCrashId() != 0
-					? ufo->getCrashId() : save->getId("STR_CRASH_SITE");
-			int cid = payload.get("hostCrashId", 0).asInt();
-			if (cid > 0 && ufo->getCrashId() != cid) ufo->setCrashId(cid);
-			if (ufo->isHunterKiller() && craft)
-			{
-				// stop being a hunter-killer (vanilla crash block)
-				ufo->resetOriginalDestination(craft);
-				ufo->setHunterKiller(false);
-			}
-		}
-		// Host-authoritative consequences: score + mission bookkeeping +
-		// retaliation roll (vanilla runs them in the initiator's DogfightState,
-		// which is fenced on a JOINT replica). Exactly once, on the host.
-		bool downed = (newStatus == Ufo::CRASHED || newStatus == Ufo::DESTROYED)
-			&& oldStatus != Ufo::CRASHED && oldStatus != Ufo::DESTROYED;
-		if (host && downed && shotDown)
-		{
-			int score = ufo->getRules()->getScore() * (newStatus == Ufo::DESTROYED ? 2 : 1);
-			for (auto* country : *save->getCountries())
-				if (country->getRules()->insideCountry(ufo->getLongitude(), ufo->getLatitude()))
-					{ country->addActivityXcom(score); break; }
-			for (auto* region : *save->getRegions())
-				if (region->getRules()->insideRegion(ufo->getLongitude(), ufo->getLatitude()))
-					{ region->addActivityXcom(score); break; }
-			hostRollRetaliation(game, ufo, craft);
-		}
-	}
-
-	// ---- craft outcome (fuel/damage/ammo spent during the initiator's sim) ---
-	if (craft)
-	{
-		if (payload.isMember("craftDamage")) craft->setDamage(payload["craftDamage"].asInt());
-		if (payload.isMember("craftFuel")) craft->setFuel(payload["craftFuel"].asInt());
-		if (payload.isMember("craftLowFuel")) craft->setLowFuel(payload["craftLowFuel"].asBool());
-		const Json::Value& ammo = payload["ammo"];
-		if (ammo.isArray())
-			for (Json::ArrayIndex i = 0; i < ammo.size() && i < craft->getWeapons()->size(); ++i)
-			{
-				CraftWeapon* w = craft->getWeapons()->at(i);
-				int a = ammo[i].asInt();
-				if (w && a >= 0)
-				{
-					w->setAmmo(a);
-					w->setRearming(a < w->getRules()->getAmmoMax());
-				}
-			}
-		craft->setInDogfight(false);
-		craft->setInterceptionOrder(0);
-	}
-}
-
+// PRD-DF01: the J08 host-applies-reported-result path is GONE. The host now
+// simulates every JOINT dogfight in its own DogfightState::update, which is the
+// SINGLE home for the UFO-downed consequences (country/region score + the
+// retaliation roll) - so hostRollRetaliation + dogfightResultApply are deleted
+// to avoid a double-roll. The world outcome reaches replicas via the geo
+// position snapshot (UFO CRASHED/crashId, craft damage/fuel/ammo).
 // research_done payload: { research, bonus, newResearch } (rule names; bonus /
 // newResearch may be "").
 void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
@@ -2672,10 +2474,11 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
-	// PRD-J08 dogfights: host-originated start (only the initiating seat opens
-	// the UI); initiator-reported result (host applies + rebroadcasts).
-	registerCmd("dogfight_start",  &simAccept, &dogfightStartApply);
-	registerCmd("dogfight_result", &simAccept, &dogfightResultApply);
+	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
+	// (df_open, full set + epoch each change; replica reconciles its render-only
+	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
+	// slot, NOT this reliable FIFO lane, so it has no registerCmd entry.
+	registerCmd("df_open", &simAccept, &dfOpenApply);
 	// PRD-J10 landing broker: host-origin prompt (seat-gated replica applier);
 	// initiator-reported answer (host-only applier).
 	registerCmd("land_prompt", &simAccept, &landPromptApply);
@@ -2695,6 +2498,18 @@ void broadcast(Game* game, const Json::Value& msg)
 	// Transport is strictly 1:1 today (PRD-J01 audit); "broadcast" is a single
 	// peer send. When N-player TCP lands, only this body iterates the client set.
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+}
+
+// PRD-DF01: df_state router (REPLICA only). df_state rides the SNAP_DOGFIGHT
+// conflation slot (a raw top-level message, NOT the joint_apply lane), so
+// connectionTCP::onTCPMessage hands it straight here. The GeoscapeState
+// epoch-guards it against the reshuffle race and routes each frame to the
+// matching render-only window by (craftId, craftType, ufoId).
+void applyDogfightState(Game* game, const Json::Value& obj)
+{
+	if (!game || connectionTCP::getHost()) return; // host renders from its own sim
+	GeoscapeState* gs = findGeoState(game);
+	if (gs) gs->jointApplyDogfightState(obj);
 }
 
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
@@ -3098,22 +2913,6 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
 }
 
-void hostRemoteDogfightStart(Game* game, Craft* craft, Ufo* ufo, int seat)
-{
-	if (!jointHost(game) || !craft || !ufo) return;
-	// Mark the pair engaged BEFORE broadcasting: the craft reads as in-dogfight
-	// to the host's own interception scan (so it neither re-engages nor opens a
-	// local UI), and the UFO serializes any further engagement attempts.
-	craft->setInDogfight(true);
-	g_remoteEngagedUfo[ufo->getId()] = craftKey(craft);
-	Json::Value p;
-	p["craftId"] = craft->getId();
-	p["craftType"] = craft->getRules()->getType();
-	p["ufoId"] = ufo->getId();
-	p["initiatorSeat"] = seat;
-	submitLocalCmd(game, "dogfight_start", craftBaseIndex(game, craft), p);
-}
-
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
 {
 	if (!jointHost(game) || !craft) return;
@@ -3136,55 +2935,6 @@ void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)
 	p["yes"] = yes;
 	p["patrol"] = patrol;
 	submitLocalCmd(game, "land_reply", craftBaseIndex(game, craft), p);
-}
-
-bool isUfoRemotelyEngaged(int ufoId)
-{
-	return g_remoteEngagedUfo.count(ufoId) != 0;
-}
-
-bool ufoLocallySimulated(int ufoId)
-{
-	return g_localSimUfos.count(ufoId) != 0;
-}
-
-bool craftLocallySimulated(const Craft* craft)
-{
-	return craft && g_localSimCrafts.count(craftKey(craft)) != 0;
-}
-
-bool clientDogfightActive(const Craft* craft, const Ufo* ufo)
-{
-	return craft && ufo
-		&& g_localSimUfos.count(ufo->getId()) != 0
-		&& g_localSimCrafts.count(craftKey(craft)) != 0;
-}
-
-void clientDogfightEnded(Game* game, Craft* craft, Ufo* ufo)
-{
-	if (!game || !craft || !ufo) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isJointReplica()) return;
-	Json::Value p;
-	p["craftId"] = craft->getId();
-	p["craftType"] = craft->getRules()->getType();
-	p["ufoId"] = ufo->getId();
-	p["ufoDamage"] = ufo->getDamage();
-	p["ufoStatus"] = (int)ufo->getStatus();
-	p["altitude"] = ufo->getAltitude();
-	p["detected"] = ufo->getDetected();
-	p["ufoSpeed"] = ufo->getSpeed();
-	p["secondsRemaining"] = (Json::UInt)ufo->getSecondsRemaining();
-	p["shotDown"] = (ufo->getShotDownByCraftId() == craft->getUniqueId());
-	p["craftDamage"] = craft->getDamage();
-	p["craftFuel"] = craft->getFuel();
-	p["craftLowFuel"] = craft->getLowFuel();
-	Json::Value ammo(Json::arrayValue);
-	for (auto* w : *craft->getWeapons()) ammo.append(w ? w->getAmmo() : -1);
-	p["ammo"] = ammo;
-	// The local-sim snapshot exemption is deliberately NOT cleared here: the
-	// host's joint_apply{dogfight_result} rebroadcast clears it, so the position
-	// snapshot cannot flap the outcome during the round-trip.
-	submitLocalCmd(game, "dogfight_result", craftBaseIndex(game, craft), p);
 }
 
 void hostDayTick(Game* game)
