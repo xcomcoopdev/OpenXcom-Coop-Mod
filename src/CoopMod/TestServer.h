@@ -60,6 +60,10 @@ private:
 	/// limit (C1061), so newer commands get their own dispatcher; execute() tries
 	/// this one first. True = @a cmd was handled here.
 	bool executeJoint10(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// Second sub-dispatcher: after an upstream rebase re-stacked commands onto the
+	/// chain it tipped C1061 again, so the back half of execute()'s chain lives here.
+	/// execute() tries this after executeJoint10. True = @a cmd was handled here.
+	bool executeJoint11(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

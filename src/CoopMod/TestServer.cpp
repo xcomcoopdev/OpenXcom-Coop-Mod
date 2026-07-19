@@ -968,6 +968,1645 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	return true;
 }
 
+/**
+ * PRD-J10/J11 test hooks, second sub-dispatcher. execute()'s command chain hit
+ * MSVC's C1061 nested-block limit again after the upstream rebase stacked more
+ * commands onto it, so the back half of the chain lives here. Returns true if
+ * @a cmd was one of ours (and @a resp was filled).
+ */
+bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	connectionTCP* coop = _game->getCoopMod();
+
+	if (cmd == "build_new_base")
+	{
+		// PRD-J07: drive the FULL subsequent-base flow end-to-end through the
+		// real states: BuildNewBaseState (globe pick at <lon>,<lat>) ->
+		// ConfirmNewBaseState (cost gate; JOINT debits nothing locally) ->
+		// BaseNameState (<name>) -> PlaceLiftState (lift at <liftX>,<liftY>).
+		// In JOINT the lift click submits ONE base_new joint_cmd; the base
+		// materializes on both machines via joint_apply. Response carries the
+		// region base <cost> so the test can assert the exact single debit.
+		double lon = req.get("lon", 0.0).asDouble();
+		double lat = req.get("lat", 0.0).asDouble();
+		std::string name = req.get("name", "Joint Base").asString();
+		int liftX = req.get("liftX", 2).asInt();
+		int liftY = req.get("liftY", 2).asInt();
+		GeoscapeState* gs = findState<GeoscapeState>(_game);
+		if (!gs || !_game->getSavedGame())
+			resp["error"] = "no geoscape";
+		else
+		{
+			Base* b = new Base(_game->getMod());
+			BuildNewBaseState* build = new BuildNewBaseState(b, gs->getGlobe(), false);
+			_game->pushState(build);
+			if (!build->placeAt(lon, lat))
+			{
+				resp["error"] = "coordinates not on land";
+				_game->popState();
+				delete b;
+			}
+			else
+			{
+				ConfirmNewBaseState* conf = findState<ConfirmNewBaseState>(_game);
+				if (!conf)
+					resp["error"] = "no ConfirmNewBaseState";
+				else
+				{
+					resp["cost"] = conf->harnessCost();
+					resp["affordable"] = conf->harnessConfirm();
+					conf->btnOkClick(nullptr); // JOINT: no debit, pushes BaseNameState
+					BaseNameState* nameState = findState<BaseNameState>(_game);
+					if (!nameState)
+						resp["error"] = "no BaseNameState (not enough money?)";
+					else
+					{
+						nameState->setNameAndConfirm(name); // pops name+confirm+build, pushes PlaceLiftState
+						PlaceLiftState* lift = findState<PlaceLiftState>(_game);
+						if (!lift)
+							resp["error"] = "no PlaceLiftState";
+						else
+						{
+							bool ok = lift->harnessPlaceLift(liftX, liftY); // JOINT: base_new + pop
+							resp["ok"] = ok;
+							if (!ok) resp["error"] = "no access lift available";
+						}
+					}
+				}
+			}
+		}
+	}
+	else if (cmd == "joint_cmd")
+	{
+		// PRD-J03: submit an arbitrary joint_cmd through the protocol (used to
+		// exercise the unknown-command path). <jcmd> = command string,
+		// <baseId> = base index, <payload> = optional JSON object.
+		std::string jcmd = req.get("jcmd", "").asString();
+		int baseId = req.get("baseId", 0).asInt();
+		Json::Value payload = req.get("payload", Json::Value(Json::objectValue));
+		JointEcon::submitLocalCmd(_game, jcmd, baseId, payload);
+		resp["ok"] = true;
+	}
+	else if (cmd == "joint_stats")
+	{
+		// PRD-J03: read this machine's JointEcon protocol counters + the most
+		// recent joint_fail reason surfaced here.
+		JointEcon::Stats st = JointEcon::stats();
+		resp["cmd"] = Json::Value::UInt64(st.cmd);
+		resp["okCount"] = Json::Value::UInt64(st.ok);
+		resp["failCount"] = Json::Value::UInt64(st.fail);
+		resp["applyCount"] = Json::Value::UInt64(st.apply);
+		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
+		resp["lastFail"] = JointEcon::lastFailReason();
+		resp["ok"] = true;
+	}
+	else if (cmd == "joint_reset_stats")
+	{
+		JointEcon::resetStats();
+		resp["ok"] = true;
+	}
+	else if (cmd == "set_funds")
+	{
+		// PRD-J03 test helper: force this world's funds (host-authoritative in
+		// JOINT). Used to set up the insufficient-funds rejection path cleanly
+		// without also tripping storage/space limits.
+		if (!_game->getSavedGame())
+			resp["error"] = "no saved game";
+		else
+		{
+			int64_t value = req.get("value", 0).asInt64();
+			_game->getSavedGame()->setFunds(value);
+			resp["funds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "start_research")
+	{
+		// PRD-J04 test helper: force-start a research project at the first real
+		// base on THIS machine (vanilla has no naturally-available research at
+		// game start). Low cost -> finishes in ~1 game day. In JOINT the host
+		// ticks it to completion and broadcasts research_done; a replica that
+		// also started it here gets its project removed + scientists freed on
+		// apply, matching the host.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg || sg->getBases()->empty())
+			resp["error"] = "no base";
+		else
+		{
+			Base* base = nullptr;
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+			if (!base) base = sg->getBases()->front();
+			std::string topic = req.get("topic", "").asString();
+			int cost = req.get("cost", 1).asInt();
+			int want = req.get("scientists", 1).asInt();
+			RuleResearch* rule = nullptr;
+			if (!topic.empty())
+				rule = _game->getMod()->getResearch(topic, false);
+			else
+			{
+				for (const auto& name : _game->getMod()->getResearchList())
+				{
+					RuleResearch* r = _game->getMod()->getResearch(name, false);
+					if (!r || sg->isResearched(r, false)) continue;
+					if (sg->isResearchRuleStatusDisabled(name)) continue;
+					bool inProg = false;
+					for (auto* p : base->getResearch())
+						if (p->getRules() == r) { inProg = true; break; }
+					if (!inProg) { rule = r; break; }
+				}
+			}
+			if (!rule)
+				resp["error"] = "no research rule";
+			else
+			{
+				int assign = want;
+				if (assign > base->getScientists()) assign = base->getScientists();
+				if (assign < 1) assign = 1;
+				ResearchProject* proj = new ResearchProject(rule, cost);
+				proj->setAssigned(assign);
+				base->addResearch(proj);
+				if (base->getScientists() >= assign)
+					base->setScientists(base->getScientists() - assign);
+				resp["topic"] = rule->getName();
+				resp["assigned"] = assign;
+				resp["freeScientists"] = base->getScientists();
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "is_researched")
+	{
+		// PRD-J04 test helper: has a research topic been discovered on THIS world?
+		SavedGame* sg = _game->getSavedGame();
+		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+		resp["researched"] = (sg && rule) ? sg->isResearched(rule, false) : false;
+		resp["ok"] = true;
+	}
+	else if (cmd == "available_research")
+	{
+		// PRD-J06 test helper: topics res_start would accept at the base right now
+		// (SavedGame::getAvailableResearchProjects). Lets a test pick a real topic.
+		SavedGame* sg = _game->getSavedGame();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (sg)
+			for (auto* base : *sg->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+		if (!target)
+			resp["error"] = "base not found";
+		else
+		{
+			std::vector<RuleResearch*> avail;
+			sg->getAvailableResearchProjects(avail, _game->getMod(), target, false);
+			Json::Value topics(Json::arrayValue);
+			for (auto* r : avail) topics.append(r->getName());
+			resp["topics"] = topics;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "discover_research")
+	{
+		// PRD-J06 test helper: mark <topic> discovered on THIS machine (call on
+		// host AND client to keep the shared world equal). Unlocks manufactures /
+		// research gated on it so a man_start test has an available production.
+		// Deterministic; touches no funds.
+		SavedGame* sg = _game->getSavedGame();
+		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+		Base* base = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+		if (!sg || !rule)
+			resp["error"] = "no world / unknown research";
+		else
+		{
+			sg->addFinishedResearch(rule, _game->getMod(), base);
+			resp["researched"] = sg->isResearched(rule, false);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_research_cost")
+	{
+		// PRD-J06 test helper: override a running project's _cost on THIS machine
+		// (call on the HOST to force a fast completion). Host-authoritative
+		// completion then broadcasts research_done regardless of replica cost.
+		SavedGame* sg = _game->getSavedGame();
+		std::string topic = req.get("topic", "").asString();
+		int cost = req.get("cost", 1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (sg)
+			for (auto* base : *sg->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+		bool found = false;
+		if (target)
+			for (auto* p : target->getResearch())
+				if (p->getRules()->getName() == topic) { p->setCost(cost); found = true; break; }
+		resp["found"] = found;
+		resp["ok"] = found;
+		if (!found) resp["error"] = "research not running: " + topic;
+	}
+	else if (cmd == "set_production_progress")
+	{
+		// PRD-J06 test helper: set a running production's _timeSpent on THIS
+		// machine (call on the HOST to drive a deterministic completion on the
+		// next hourly step - host-authoritative prod_done then delivers items to
+		// both). Avoids the coarse speed-5 overshoot completing early.
+		SavedGame* sg = _game->getSavedGame();
+		std::string item = req.get("item", "").asString();
+		int spent = req.get("timeSpent", 0).asInt();
+		// GAP-6 test hook: optionally set the production's assigned engineers too, so a
+		// single hourly step can be driven to overshoot _amount*manufactureTime (the
+		// prod_done over-materialization repro). Set directly on the Production (NOT via
+		// the base pool); removeProduction returns it on completion, so call this on BOTH
+		// machines with the SAME value to keep the free-engineer pools in lock-step.
+		int engineers = req.get("engineers", -1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (sg)
+			for (auto* base : *sg->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+		bool found = false;
+		if (target)
+			for (auto* p : target->getProductions())
+				if (p->getRules()->getName() == item) { p->setTimeSpent(spent); if (engineers >= 0) p->setAssignedEngineers(engineers); found = true; break; }
+		resp["found"] = found;
+		resp["ok"] = found;
+		if (!found) resp["error"] = "production not running: " + item;
+	}
+	else if (cmd == "research_start")
+	{
+		// PRD-J06: drive the REAL ResearchInfoState "start project" OK path. In
+		// JOINT this emits res_start (+ res_alloc when scientists>0); nothing is
+		// applied until the joint_apply round-trip. Proves the UI submit path.
+		std::string topic = req.get("topic", "").asString();
+		int scientists = req.get("scientists", 0).asInt();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+		RuleResearch* rule = _game->getMod()->getResearch(topic, false);
+		if (!target)
+			resp["error"] = "base not found";
+		else if (!rule)
+			resp["error"] = "unknown research: " + topic;
+		else
+		{
+			ResearchInfoState* st = new ResearchInfoState(target, rule);
+			_game->pushState(st);
+			bool ok = st->harnessStart(scientists); // btnOkClick -> popState
+			resp["sent"] = ok;
+			resp["ok"] = ok;
+		}
+	}
+	else if (cmd == "manufacture_start")
+	{
+		// PRD-J06: drive the REAL ManufactureInfoState "start production" OK path
+		// (JOINT -> man_start). A parent ManufactureState is pushed first because
+		// ManufactureInfoState::exitState pops TWO states for a new production.
+		std::string item = req.get("item", "").asString();
+		int engineers = req.get("engineers", 0).asInt();
+		int qty = req.get("qty", 1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				                     : base->getName() == baseName)
+				{ target = base; break; }
+		RuleManufacture* rule = _game->getMod()->getManufacture(item, false);
+		if (!target)
+			resp["error"] = "base not found";
+		else if (!rule)
+			resp["error"] = "unknown manufacture: " + item;
+		else
+		{
+			_game->pushState(new ManufactureState(target)); // absorbs the 2nd pop
+			ManufactureInfoState* st = new ManufactureInfoState(target, rule);
+			_game->pushState(st);
+			bool ok = st->harnessStart(engineers, qty); // btnOkClick -> exitState
+			resp["sent"] = ok;
+			resp["ok"] = ok;
+		}
+	}
+	else if (cmd == "set_facility_build_time")
+	{
+		// PRD-J04 test helper: set a base facility's buildTime on THIS machine.
+		// A JOINT replica's time1Day must NOT decrement it; only fac_done (host
+		// completion broadcast) may drive it to 0.
+		SavedGame* sg = _game->getSavedGame();
+		int baseId = req.get("baseId", 0).asInt();
+		int index = req.get("index", -1).asInt();
+		int t = req.get("time", 10).asInt();
+		if (!sg || baseId < 0 || baseId >= (int)sg->getBases()->size())
+			resp["error"] = "bad base";
+		else
+		{
+			Base* base = (*sg->getBases())[baseId];
+			auto* facs = base->getFacilities();
+			BaseFacility* fac = nullptr;
+			if (index >= 0 && index < (int)facs->size()) fac = (*facs)[index];
+			else if (!facs->empty()) fac = facs->front();
+			if (!fac)
+				resp["error"] = "no facility";
+			else
+			{
+				fac->setBuildTime(t);
+				resp["x"] = fac->getX();
+				resp["y"] = fac->getY();
+				resp["type"] = fac->getRules()->getType();
+				resp["buildTime"] = fac->getBuildTime();
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "set_geo_day")
+	{
+		// PRD-J04 test helper: jump the host clock to near month-end so a short
+		// advance rolls the month (exercising the monthly settlement sync)
+		// without simulating 30 in-game days. Host-authoritative; the client's
+		// clock follows via the time packet.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+			resp["error"] = "no save";
+		else
+		{
+			GameTime* t = sg->getTime();
+			int day = req.get("day", 28).asInt();
+			int hour = req.get("hour", t->getHour()).asInt();
+			GameTime nt(t->getWeekday(), day, t->getMonth(), t->getYear(),
+			            hour, t->getMinute(), t->getSecond());
+			sg->setTime(nt);
+			resp["day"] = sg->getTime()->getDay();
+			resp["month"] = sg->getTime()->getMonth();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "fly_craft")
+	{
+		// PRD-J04 test helper: launch the first ready craft at the first real
+		// base toward a distant waypoint, so the host moves it and the JOINT
+		// position snapshot carries the motion to the (frozen) replica.
+		SavedGame* sg = _game->getSavedGame();
+		Base* base = nullptr; Craft* craft = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon && !b->getCrafts()->empty())
+				{ base = b; craft = b->getCrafts()->front(); break; }
+		if (!craft)
+			resp["error"] = "no craft";
+		else
+		{
+			Waypoint* w = new Waypoint();
+			// lon/lat are radians; a large longitude offset (wraps, no pole
+			// clamp) keeps the craft en route for the whole observation window.
+			w->setLongitude(base->getLongitude() + 0.5);
+			w->setLatitude(base->getLatitude() + 0.1);
+			w->setId(sg->getId("STR_WAY_POINT"));
+			sg->getWaypoints()->push_back(w);
+			craft->setDestination(w);
+			craft->setStatus("STR_OUT");
+			resp["craftId"] = craft->getId();
+			resp["baseLon"] = base->getLongitude();
+			resp["baseLat"] = base->getLatitude();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "give_layout")
+	{
+		// Test helper: give every soldier at a base an equipment-layout entry
+		// for <item> (optionally capped at <count> soldiers). Reproduces the
+		// state a player creates by equipping soldiers - the layout reserves
+		// the item, but (as in the real game) base storage is NOT decremented,
+		// so the item is double-counted until a battle actually consumes it.
+		std::string layoutBase = req.get("base", "").asString();
+		bool wantCoop = req.get("coop", false).asBool();
+		std::string itemName = req.get("item", "").asString();
+		int count = req.get("count", -1).asInt();
+		std::string slotName = req.get("slot", "belt").asString();  // belt|right|left
+		std::string onlyName = req.get("name", "").asString();      // limit to soldiers matching this
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				bool match;
+				if (wantCoop) match = base->_coopBase;
+				else if (!layoutBase.empty()) match = (base->getName() == layoutBase);
+				else match = (base->_coopBase == false && base->_coopIcon == false);
+				if (match) { target = base; break; }
+			}
+		}
+		const RuleItem* rule = itemName.empty() ? nullptr : _game->getMod()->getItem(itemName, false);
+		if (!target)
+			resp["error"] = "base not found";
+		else if (!rule)
+			resp["error"] = "unknown item: " + itemName;
+		else
+		{
+			auto* slot = _game->getMod()->getInventoryBelt();
+			if (slotName == "right") slot = _game->getMod()->getInventoryRightHand();
+			else if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
+			int dummyId = 0;
+			int given = 0;
+			for (auto* s : *target->getSoldiers())
+			{
+				if (!onlyName.empty() && s->getName().find(onlyName) == std::string::npos) continue;
+				if (count >= 0 && given >= count) break;
+				BattleItem tmp(rule, &dummyId);
+				tmp.setSlot(slot);
+				tmp.setSlotX(0);
+				tmp.setSlotY(0);
+				s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
+				given++;
+			}
+			resp["given"] = given;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "transfer_to_coop_base")
+	{
+		// Vanilla base->base transfer of one soldier to a co-op base (no
+		// ownership change), driven through the real TransferItemsState /
+		// completeTransfer path. This is the "transfer" (distinct from the
+		// "gift" ownership change).
+		std::string name = req.get("name", "").asString();
+		std::string toBaseName = req.get("toBase", "").asString();
+		Base* baseFrom = nullptr;
+		Soldier* soldier = nullptr;
+		Base* baseTo = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase == false && base->_coopIcon == false)
+				{
+					for (auto* s : *base->getSoldiers())
+					{
+						if (s->getName().find(name) != std::string::npos) { soldier = s; baseFrom = base; break; }
+					}
+				}
+				if (soldier) break;
+			}
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+			}
+			if (!baseTo)
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopIcon && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+				}
+			}
+		}
+		if (!soldier)
+			resp["error"] = "soldier not found in own base: " + name;
+		else if (!baseTo)
+			resp["error"] = "coop dest base not found: " + toBaseName;
+		else
+		{
+			resp["toBase"] = baseTo->getName();
+			resp["toBaseCoopBase"] = baseTo->_coopBase;
+			resp["toBaseCoopIcon"] = baseTo->_coopIcon;
+			TransferItemsState* st = new TransferItemsState(baseFrom, baseTo, nullptr);
+			bool ok = st->transferSoldierNow(soldier);
+			delete st;
+			resp["transferred"] = ok;
+			resp["ok"] = ok;
+			if (!ok) resp["error"] = "soldier not a transferable row";
+		}
+	}
+	else if (cmd == "set_coop_base")
+	{
+		// Test helper: force a soldier's coopBase field. A value != -1 makes
+		// the own-base SoldiersState treat it as a foreign/guest soldier and
+		// strip it from the editable roster (reproducing the own-base variant
+		// of issue #33 without a cross-machine transfer).
+		std::string name = req.get("name", "").asString();
+		int value = req.get("value", -1).asInt();
+		Soldier* found = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+				{
+					if (s->getName().find(name) != std::string::npos) { found = s; break; }
+				}
+				if (found) break;
+			}
+		}
+		if (!found)
+			resp["error"] = "soldier not found: " + name;
+		else
+		{
+			found->setCoopBase(value);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "visit_coop_base")
+	{
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase == true || base->_coopIcon == true)
+				{
+					if (baseName.empty() || base->getName() == baseName)
+					{
+						target = base;
+						break;
+					}
+				}
+			}
+		}
+		GeoscapeState* geo = _game->getGeoscapeState();
+		if (!target)
+		{
+			resp["error"] = "coop base not found: " + baseName;
+		}
+		else if (!geo)
+		{
+			resp["error"] = "no GeoscapeState";
+		}
+		else
+		{
+			// same as clicking the peer base marker (MultipleTargetsState)
+			coop->current_base_name = target->getName();
+			CoopState* w = new CoopState(50);
+			w->setGlobe(geo->getGlobe());
+			_game->pushState(w);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "leave_base")
+	{
+		BasescapeState* st = findState<BasescapeState>(_game);
+		if (st)
+		{
+			st->btnGeoscapeClick(nullptr);
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "no BasescapeState in state stack";
+		}
+	}
+	else if (cmd == "gift_targets")
+	{
+		// What the transfer dialog would offer for this soldier - lets
+		// tests validate owner resolution + button names without UI.
+		std::string name = req.get("name", "").asString();
+		Soldier* found = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+				{
+					if (s->getName().find(name) != std::string::npos)
+					{
+						found = s;
+						break;
+					}
+				}
+				if (found) break;
+			}
+		}
+		if (!found)
+		{
+			resp["error"] = "soldier not found: " + name;
+		}
+		else
+		{
+			int currentOwner = GiftSoldierMenu::resolveOwnerId(found);
+			int localPlayerId = connectionTCP::localSeat();
+			Json::Value targets(Json::arrayValue);
+			for (int playerId = 0; playerId <= 1; ++playerId)
+			{
+				if (playerId != currentOwner)
+				{
+					Json::Value t;
+					t["id"] = playerId;
+					t["name"] = (playerId == localPlayerId) ? coop->getHostName() : coop->getCurrentClientName();
+					targets.append(t);
+				}
+			}
+			resp["currentOwner"] = currentOwner;
+			resp["localPlayer"] = localPlayerId;
+			resp["targets"] = targets;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "open_gift_dialog")
+	{
+		std::string name = req.get("name", "").asString();
+		Soldier* found = nullptr;
+		if (_game->getSavedGame())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+				{
+					if (s->getName().find(name) != std::string::npos)
+					{
+						found = s;
+						break;
+					}
+				}
+				if (found) break;
+			}
+		}
+		if (found)
+		{
+			_game->pushState(new GiftSoldierMenu(found, GiftSoldierMenu::resolveOwnerId(found)));
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "soldier not found: " + name;
+		}
+	}
+	else if (cmd == "rename_soldier")
+	{
+		std::string name = req.get("name", "").asString();
+		std::string newName = req.get("newName", "").asString();
+		Soldier* found = nullptr;
+		if (_game->getSavedGame() && !newName.empty())
+		{
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+				{
+					if (s->getName().find(name) != std::string::npos)
+					{
+						found = s;
+						break;
+					}
+				}
+				if (found) break;
+			}
+		}
+		if (found)
+		{
+			found->setName(newName);
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "soldier not found: " + name;
+		}
+	}
+	else if (cmd == "show_notice")
+	{
+		_game->pushState(new GiftNoticeState(req.get("message", "test notice").asString()));
+		resp["ok"] = true;
+	}
+	else if (cmd == "get_notices")
+	{
+		Json::Value notices(Json::arrayValue);
+		// PRD-13: left inline - appends every match's category into a container, not a find
+		for (auto* s : _game->getStates())
+		{
+			if (auto* n = dynamic_cast<GiftNoticeState*>(s))
+			{
+				notices.append(n->getCategory());
+			}
+		}
+		resp["categories"] = notices;
+		resp["ok"] = true;
+	}
+	else if (cmd == "dismiss_notice")
+	{
+		GiftNoticeState* st = findState<GiftNoticeState>(_game);
+		if (st)
+		{
+			st->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "no GiftNoticeState in state stack";
+		}
+	}
+	else if (cmd == "cancel_dialog")
+	{
+		GiftSoldierMenu* st = findState<GiftSoldierMenu>(_game);
+		if (st)
+		{
+			st->btnCancelClick(nullptr);
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "no GiftSoldierMenu in state stack";
+		}
+	}
+	else if (cmd == "get_palettes")
+	{
+		// First N palette entries of the top two states, for asserting
+		// that a dialog adopted its parent's palette (flicker check).
+		Json::Value states(Json::arrayValue);
+		// PRD-13: left inline - reads every state's palette into a container, not a find
+		auto& stack = _game->getStates();
+		for (auto* s : stack)
+		{
+			Json::Value e;
+			e["state"] = typeid(*s).name();
+			Json::Value cols(Json::arrayValue);
+			SDL_Color* pal = s->getPalette();
+			for (int i = 0; i < 16; ++i)
+			{
+				cols.append((pal[i].r << 16) | (pal[i].g << 8) | pal[i].b);
+			}
+			e["colors"] = cols;
+			states.append(e);
+		}
+		resp["states"] = states;
+		resp["ok"] = true;
+	}
+	else if (cmd == "gift")
+	{
+		std::string name = req.get("name", "").asString();
+		int owner = req.get("owner", -1).asInt();
+		if (name.empty() || owner < 0)
+		{
+			resp["error"] = "need name and owner";
+		}
+		else if (!_game->getSavedGame())
+		{
+			resp["error"] = "no save loaded";
+		}
+		else
+		{
+			Soldier* found = nullptr;
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+				{
+					if (s->getName().find(name) != std::string::npos)
+					{
+						found = s;
+						break;
+					}
+				}
+				if (found) break;
+			}
+			if (!found)
+			{
+				resp["error"] = "soldier not found: " + name;
+			}
+			else
+			{
+				coop->giftSoldier(found, owner, true);
+				resp["soldier"] = soldierToJson(found);
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "save_game")
+	{
+		std::string file = req.get("file", "").asString();
+		if (file.empty() || !_game->getSavedGame())
+		{
+			resp["error"] = "need file + loaded save";
+		}
+		else
+		{
+			_game->getSavedGame()->save(file, _game->getMod());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "save_game_ui")
+	{
+		// Save through the real SaveGameState funnel (same path as the
+		// in-game autosaves/quicksave), unlike save_game which calls
+		// SavedGame::save directly. Exercises the coop save cycle and the
+		// client-side save suppression gate. Only the single-pop SaveTypes
+		// are exposed: SAVE_DEFAULT pops the save+pause menus it normally
+		// sits on, which don't exist when pushed from here.
+		std::string type = req.get("type", "").asString();
+		if (!_game->getSavedGame())
+		{
+			resp["error"] = "no loaded save";
+		}
+		else if (type == "auto_geoscape")
+		{
+			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _game->getScreen()->getPalette()));
+			resp["ok"] = true;
+		}
+		else if (type == "quick")
+		{
+			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "need type (auto_geoscape|quick)";
+		}
+	}
+	else if (cmd == "client_reload_progress")
+	{
+		// Reconnect flow: ask the host for our world (same as the client
+		// branch of Profile::buttonOK).
+		if (connectionTCP::getServerOwner())
+		{
+			resp["error"] = "host cannot reload progress";
+		}
+		else if (connectionTCP::saveID == 0)
+		{
+			resp["error"] = "no saveID";
+		}
+		else
+		{
+			Json::Value root;
+			root["state"] = "request_load_progress";
+			coop->sendTCPPacketData(root.toStyledString());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "lobby_state")
+	{
+		// campaign-lobby introspection (flow-redesign F2)
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		resp["lobbyOpen"] = (lobby != nullptr);
+		resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+		resp["sessionLocked"] = connectionTCP::session.sessionLocked;
+		resp["startEligible"] = (lobby != nullptr) && lobby->startEligible();
+		if (lobby)
+		{
+			resp["buttonText"] = lobby->actionButtonText();
+			resp["buttonVisible"] = lobby->actionButtonVisible();
+			resp["detailsText"] = lobby->detailsText();
+			int idx = 0;
+			for (const auto& n : lobby->rosterNames())
+			{
+				resp["players"][idx++] = n;
+			}
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "load_save_menu")
+	{
+		// load through the real LoadGameState (runs the co-op routing:
+		// coop save -> host window + resume lobby) (flow-redesign F3)
+		std::string file = req.get("file", "").asString();
+		if (file.empty())
+		{
+			resp["error"] = "need file";
+		}
+		else
+		{
+			_game->pushState(new LoadGameState(OPT_MENU, file, _game->getScreen()->getPalette()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "lobby_resume_campaign")
+	{
+		// host clicks RESUME CAMPAIGN (flow-redesign F3)
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+		{
+			resp["error"] = "no LobbyMenu in state stack";
+		}
+		else if (connectionTCP::session.lobbyMode != 2)
+		{
+			resp["error"] = "lobby is not in resume mode";
+		}
+		else if (!lobby->missingPlayers().empty())
+		{
+			std::string missing;
+			for (const auto& m : lobby->missingPlayers())
+			{
+				if (!missing.empty()) missing += ", ";
+				missing += m;
+			}
+			resp["error"] = "waiting for: " + missing;
+		}
+		else
+		{
+			lobby->resumeCampaign();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "lobby_start_campaign")
+	{
+		// host clicks START CAMPAIGN + confirms (flow-redesign F2)
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+		{
+			resp["error"] = "no LobbyMenu in state stack";
+		}
+		else if (connectionTCP::session.lobbyMode != 1)
+		{
+			resp["error"] = "lobby is not in new-campaign mode";
+		}
+		else if (req.get("confirm", "").asString() == "dialog")
+		{
+			// PRD-10: route through the REAL confirm dialog so the test drives
+			// ConfirmStartCampaignState::btnOkClick (the true UI path). Do NOT
+			// pre-check startEligible here - the dialog/OK path IS the gate.
+			lobby->openStartConfirmDialog();
+			resp["ok"] = true;
+		}
+		else if (!lobby->startEligible())
+		{
+			resp["error"] = "no client connected";
+		}
+		else
+		{
+			lobby->startCampaign();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "lobby_confirm_ok")
+	{
+		// PRD-10: click OK on the START CAMPAIGN confirm dialog (the real
+		// ConfirmStartCampaignState::btnOkClick path, which re-checks
+		// eligibility before starting).
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+		{
+			resp["error"] = "no LobbyMenu in state stack";
+		}
+		else
+		{
+			resp["clicked"] = lobby->clickStartConfirmOk();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "save_markers")
+	{
+		// Co-op campaign markers of the live save (flow-redesign F0)
+		if (!_game->getSavedGame())
+		{
+			resp["error"] = "no loaded save";
+		}
+		else
+		{
+			resp["coop"] = _game->getSavedGame()->isCoopSave();
+			int idx = 0;
+			for (const auto& p : _game->getSavedGame()->getCoopPlayers())
+			{
+				resp["coopPlayers"][idx++] = p;
+			}
+			// PRD-J01: campaign economy model (0 = Separate, 1 = Joint).
+			resp["campaignType"] = static_cast<int>(_game->getSavedGame()->getCampaignType());
+			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "has_coop_file")
+	{
+		std::string key = req.get("key", "").asString();
+		resp["present"] = connectionTCP::hasCoopFile(key);
+		resp["ok"] = true;
+	}
+	else if (cmd == "dump_coop_file")
+	{
+		// Test fixture builder: write an in-memory blob to the user dir
+		// (used to fabricate legacy sidecar .data files for the
+		// v1.8.4-migration test; nothing in normal play calls this).
+		std::string key = req.get("key", "").asString();
+		std::string blob;
+		{
+			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+			auto it = connectionTCP::coopFilesHost.find(key);
+			if (it != connectionTCP::coopFilesHost.end())
+				blob = it->second;
+			else
+			{
+				auto cit = connectionTCP::coopFilesClient.find(key);
+				if (cit != connectionTCP::coopFilesClient.end())
+					blob = cit->second;
+			}
+		}
+		if (blob.empty())
+		{
+			resp["error"] = "no such blob";
+		}
+		else
+		{
+			std::ofstream out(Options::getMasterUserFolder() + key, std::ios::binary);
+			out << blob;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_option")
+	{
+		std::string name = req.get("name", "").asString();
+		if (name == "HostSaveProgress")
+		{
+			// Removed option (host-save authority is the only mode now);
+			// accepted and ignored so older test scripts keep running.
+			resp["ok"] = true;
+		}
+		else if (name == "autosave")
+		{
+			Options::autosave = req.get("value", false).asBool();
+			resp["ok"] = true;
+		}
+		else if (name == "autosaveFrequency")
+		{
+			Options::autosaveFrequency = req.get("value", 5).asInt();
+			resp["ok"] = true;
+		}
+		else if (name == "oxceGeoAutosaveFrequency")
+		{
+			Options::oxceGeoAutosaveFrequency = req.get("value", 0).asInt();
+			resp["ok"] = true;
+		}
+		else if (name == "oxceAlternateCraftEquipmentManagement")
+		{
+			Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "unknown option: " + name;
+		}
+	}
+	else if (cmd == "set_seed")
+	{
+		// Pin the RNG so a scenario's real-sim outcome is reproducible.
+		RNG::setSeed((uint64_t)req.get("seed", 1).asInt64());
+		resp["seed"] = Json::Value::Int64((int64_t)RNG::getSeed());
+		resp["ok"] = true;
+	}
+	else if (cmd == "craft_force")
+	{
+		// Owner-side deterministic state setter for craft-status tests. With
+		// craft_id omitted, targets the first own (non-coop) craft. Only sets
+		// the fields present in the request; optional checkup() re-derives the
+		// base-side _status (READY/REFUELLING/REARMING/REPAIRS) from real logic.
+		int craftId = req.get("craft_id", -1).asInt();
+		SavedGame* sg = _game->getSavedGame();
+		Craft* craft = nullptr; Base* cbase = nullptr;
+		if (sg)
+		{
+			for (auto* b : *sg->getBases())
+			{
+				for (auto* c : *b->getCrafts())
+				{
+					if (craftId == -1 ? !c->coop : c->getId() == craftId)
+					{
+						craft = c; cbase = b; break;
+					}
+				}
+				if (craft) break;
+			}
+		}
+		if (!craft)
+		{
+			resp["error"] = "no matching craft";
+		}
+		else
+		{
+			if (req.isMember("lowFuel")) craft->setLowFuel(req["lowFuel"].asBool());
+			if (req.isMember("mission")) craft->setMissionComplete(req["mission"].asBool());
+			// Force the geoscape status string directly (e.g. "STR_OUT" to make
+			// an own craft "out"/airborne without the takeoff sim). Honors the
+			// coop==false guard in Craft::setStatus.
+			if (req.isMember("status")) craft->setStatus(req["status"].asString());
+			// Teleport the craft (e.g. away from its base so it reads as OUT).
+			if (req.isMember("lon")) craft->setLongitude(req["lon"].asDouble());
+			if (req.isMember("lat")) craft->setLatitude(req["lat"].asDouble());
+			if (req.isMember("fuel")) craft->setFuel(req["fuel"].asInt());
+			if (req.isMember("damage")) craft->setDamage(req["damage"].asInt());
+			if (req.isMember("dogfight")) craft->setInDogfight(req["dogfight"].asBool());
+			if (req.isMember("ammo"))
+			{
+				int ammo = req["ammo"].asInt();
+				for (auto* cw : *craft->getWeapons())
+					if (cw) { cw->setAmmo(ammo); cw->setRearming(ammo < cw->getRules()->getAmmoMax()); }
+			}
+			if (req.isMember("dest"))
+			{
+				std::string dest = req["dest"].asString();
+				if (dest == "base") craft->setDestination(cbase);
+				else if (dest == "patrol") craft->setDestination(nullptr);
+				else if (dest.rfind("site:", 0) == 0)
+				{
+					int id = std::atoi(dest.c_str() + 5);
+					for (auto* ms : *sg->getMissionSites())
+						if (ms->getId() == id) { craft->setDestination(ms); break; }
+				}
+				else if (dest.rfind("ufo:", 0) == 0)
+				{
+					int id = std::atoi(dest.c_str() + 4);
+					for (auto* u : *sg->getUfos())
+						if (u->getId() == id) { craft->setDestination(u); break; }
+				}
+			}
+			if (req.get("checkup", false).asBool()) craft->checkup();
+			resp["craft_id"] = craft->getId();
+			resp["status"] = craft->getStatus();
+			resp["displayStatus"] = craft->getDisplayStatus(_game->getLanguage());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_mission_site")
+	{
+		// Deterministically place a mission site (no alien-mission RNG), so a
+		// craft can be dispatched to it -> "heading to <site>" status. Params:
+		// mission (RuleAlienMission id), deployment (AlienDeployment id),
+		// lon/lat (radians), race (optional).
+		SavedGame* sg = _game->getSavedGame();
+		Mod* mod = _game->getMod();
+		const RuleAlienMission* mission = mod->getAlienMission(req.get("mission", "").asString(), false);
+		const AlienDeployment* deployment = mod->getDeployment(req.get("deployment", "").asString(), false);
+		if (!sg) resp["error"] = "no saved game";
+		else if (!mission) resp["error"] = "unknown mission rule";
+		else if (!deployment) resp["error"] = "unknown deployment rule";
+		else
+		{
+			MissionSite* site = new MissionSite(mission, deployment, nullptr);
+			site->setLongitude(req.get("lon", 0.0).asDouble());
+			site->setLatitude(req.get("lat", 0.0).asDouble());
+			site->setId(sg->getId(deployment->getMarkerName()));
+			site->setSecondsRemaining((size_t)req.get("hours", 48).asInt() * 3600);
+			site->setAlienRace(req.get("race", "STR_SECTOID").asString());
+			site->setDetected(true);
+			sg->getMissionSites()->push_back(site);
+			resp["site_id"] = site->getId();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_ufo")
+	{
+		// Deterministically place a UFO so a craft can be dispatched to it
+		// (B7 intercepting / B8 destination-crashed / B6 tailing). Attaches a
+		// registered throwaway AlienMission so the UFO's lifecycle (race bonus,
+		// ~Ufo decreaseLiveUfos) is well-formed and doesn't crash on cleanup.
+		// Params: type (RuleUfo), mission (RuleAlienMission), region, race,
+		// trajectory (UfoTrajectory id), state (flying|crashed|landed), lon/lat.
+		SavedGame* sg = _game->getSavedGame();
+		Mod* mod = _game->getMod();
+		const RuleUfo* ufoRule = mod->getUfo(req.get("type", "").asString(), false);
+		const RuleAlienMission* missionRule = mod->getAlienMission(req.get("mission", "").asString(), false);
+		const UfoTrajectory* traj = mod->getUfoTrajectory(req.get("trajectory", "").asString(), false);
+		if (!sg) resp["error"] = "no saved game";
+		else if (!ufoRule) resp["error"] = "unknown ufo type";
+		else if (!missionRule) resp["error"] = "unknown mission rule";
+		else if (!traj) resp["error"] = "unknown trajectory";
+		else
+		{
+			AlienMission* m = new AlienMission(*missionRule);
+			m->setRace(req.get("race", "STR_SECTOID").asString());
+			m->setRegion(req.get("region", "STR_NORTH_AMERICA").asString(), *mod);
+			m->setId(sg->getId("STR_ALIEN_MISSIONS"));
+			sg->getAlienMissions().push_back(m);
+
+			Ufo* u = new Ufo(ufoRule, sg->getId("STR_UFO_UNIQUE"));
+			u->setMissionInfo(m, traj);
+			// _uniqueId (ctor) is internal; the display id / craft targeting
+			// use Target::getId(), which real UFOs get on detection. Assign it
+			// so geo_state reports distinct ids and craft_force can target this
+			// exact UFO instead of colliding on id 0.
+			u->setId(sg->getId("STR_UFO"));
+			u->setLongitude(req.get("lon", 0.0).asDouble());
+			u->setLatitude(req.get("lat", 0.0).asDouble());
+			u->setAltitude("STR_HIGH_UC");
+			u->setDetected(true);
+			std::string state = req.get("state", "flying").asString();
+			if (state == "crashed")
+			{
+				u->setStatus(Ufo::CRASHED);
+				u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
+				u->setSpeed(0);
+			}
+			else if (state == "landed")
+			{
+				u->setStatus(Ufo::LANDED);
+				u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
+				u->setSpeed(0);
+			}
+			else
+			{
+				// Flying: give it a destination waypoint so think()->move() is
+				// well-formed (a null destination would misbehave).
+				u->setStatus(Ufo::FLYING);
+				Waypoint* wp = new Waypoint();
+				wp->setLongitude(req.get("lon", 0.0).asDouble() + 0.2);
+				wp->setLatitude(req.get("lat", 0.0).asDouble());
+				u->setDestination(wp);
+				u->setSpeed(req.get("speed", 1).asInt());
+			}
+			sg->getUfos()->push_back(u);
+			resp["ufo_id"] = u->getId();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_craft")
+	{
+		// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.
+		// The coop start base only has an unarmed transport, so REARMING and
+		// UFO-interception status tests need a combat craft. Params: type
+		// (RuleCraft), weapon (RuleCraftWeapon to mount on every hardpoint).
+		SavedGame* sg = _game->getSavedGame();
+		Mod* mod = _game->getMod();
+		const RuleCraft* rule = mod->getCraft(req.get("type", "").asString(), false);
+		Base* base = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase) { base = b; break; }
+		if (!sg) resp["error"] = "no saved game";
+		else if (!rule) resp["error"] = "unknown craft type";
+		else if (!base) resp["error"] = "no own base";
+		else
+		{
+			Craft* craft = new Craft(rule, base, sg->getId(rule->getType()));
+			craft->setFuel(craft->getFuelMax());
+			RuleCraftWeapon* cwRule = const_cast<RuleCraftWeapon*>(
+				mod->getCraftWeapon(req.get("weapon", "STR_STINGRAY").asString(), false));
+			if (cwRule)
+				// The Craft ctor pre-fills getWeapons() null slots; mount INTO
+				// them (a push_back would leave the first slots empty - the
+				// dogfight only scans the first rule->getWeapons() slots).
+				for (size_t i = 0; i < craft->getWeapons()->size(); ++i)
+					if (!craft->getWeapons()->at(i))
+						craft->getWeapons()->at(i) = new CraftWeapon(cwRule, cwRule->getAmmoMax());
+			craft->checkup(); // -> STR_READY
+			base->getCrafts()->push_back(craft);
+			resp["craft_id"] = craft->getId();
+			resp["weapons"] = (int)craft->getWeapons()->size();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "move_ufo")
+	{
+		// Teleport an existing UFO to lon/lat (radians). Used to prove a peer
+		// craft live-tracks a MOVING coop UFO: move the host's UFO and the
+		// client mirror (and any craft bound to it) follows via target_positions.
+		// Target by cross-instance coop id (coop_id) or local id (ufo_id).
+		SavedGame* sg = _game->getSavedGame();
+		int coopId = req.get("coop_id", -1).asInt();
+		int id = req.get("ufo_id", -1).asInt();
+		Ufo* target = nullptr;
+		if (sg)
+			for (auto* u : *sg->getUfos())
+				if ((coopId != -1 && u->getCoopUfoId() == coopId) || (id != -1 && u->getId() == id))
+				{ target = u; break; }
+		if (!sg) resp["error"] = "no saved game";
+		else if (!target) resp["error"] = "no matching ufo";
+		else
+		{
+			target->setLongitude(req.get("lon", target->getLongitude()).asDouble());
+			target->setLatitude(req.get("lat", target->getLatitude()).asDouble());
+			resp["lon"] = target->getLongitude();
+			resp["lat"] = target->getLatitude();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "geo_run")
+	{
+		// Advance geoscape time while auto-draining event popups, until a stop
+		// condition or a game-time budget. Requires GeoscapeState on top after
+		// draining. Params: speed (0..5 idx), until (one of: minutes:<n>,
+		// craft_status:<STR_key>, craft_dest:<kind>, at_base), max_minutes.
+		// NOTE: real advancing happens across pump() frames; this handler sets
+		// up the run and reports readiness. The driver polls geo_state between
+		// geo_run calls. Here we just (a) enable host-only time so the client
+		// mirrors, (b) select the requested speed, (c) drain any popup now.
+		GeoscapeState* gs = findState<GeoscapeState>(_game);
+		// Drain a single blocking popup if present (driver calls repeatedly).
+		State* top = topState<State>(_game);
+		bool drained = false;
+		if (top && !dynamic_cast<GeoscapeState*>(top)
+		    && !dynamic_cast<BattlescapeState*>(top))
+		{
+			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top)) { ev->btnOkClick(nullptr); drained = true; }
+			else if (dynamic_cast<ArticleState*>(top)) { _game->popState(); drained = true; }
+			else if (auto* mr = dynamic_cast<MonthlyReportState*>(top)) { mr->btnOkClick(nullptr); drained = true; }
+			else if (auto* md = dynamic_cast<MissionDetectedState*>(top)) { md->btnCancelClick(nullptr); drained = true; }
+			// A craft reaching a site pops ConfirmLanding; decline it so the
+			// craft stays airborne (status tests never enter the battle).
+			else if (auto* cl = dynamic_cast<ConfirmLandingState*>(top)) { cl->btnNoClick(nullptr); drained = true; }
+			else { _game->popState(); drained = true; }
+		}
+		resp["drained"] = drained;
+		resp["topType"] = top ? typeid(*top).name() : "none";
+		if (gs)
+		{
+			// Coop time only advances when BOTH players hold the same speed;
+			// the driver calls geo_run on host AND client each tick, so just
+			// select the requested speed here (no host-only override, which
+			// stalls the peer's clock).
+			gs->setTimeSpeedIndex(req.get("speed", 1).asInt());
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "no GeoscapeState (in popup/battle?)";
+		}
+	}
+	else if (cmd == "geo_craft_buttons")
+	{
+		// Control-guard check: build the geoscape craft dialog for a craft and
+		// report whether the command buttons (Return to base / Select target /
+		// Patrol) are shown. A peer's coop craft must NOT show them, so a
+		// non-owning player cannot redirect another player's ship. Params:
+		// craft_id, coop (which copy to match - own=false, peer mirror=true).
+		int craftId = req.get("craft_id", -1).asInt();
+		bool wantCoop = req.get("coop", false).asBool();
+		SavedGame* sg = _game->getSavedGame();
+		Craft* craft = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				for (auto* c : *b->getCrafts())
+					if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		if (!craft) resp["error"] = "no matching craft";
+		else if (!geo) resp["error"] = "no geoscape";
+		else
+		{
+			// Built but not pushed: the ctor configures button visibility (the
+			// guard), which is all we read; then discard it.
+			GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
+			resp["coop"] = craft->coop;
+			resp["buttons_visible"] = gcs->testControlButtonsVisible();
+			delete gcs;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_order")
+	{
+		// PRD-J08: drive the REAL craft-command screens - in a JOINT campaign
+		// their branches submit joint_cmds (craft_launch/craft_retarget/
+		// craft_return/craft_patrol); SEPARATE/solo take the vanilla paths.
+		// Params: order = "target" (with ufo_id | site_id | lon+lat) |
+		// "return" | "patrol"; craft_id (+ optional craft_type).
+		SavedGame* sg = _game->getSavedGame();
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		int craftId = req.get("craft_id", -1).asInt();
+		std::string craftType = req.get("craft_type", "").asString();
+		Craft* craft = nullptr;
+		if (sg)
+		{
+			for (auto* b : *sg->getBases())
+			{
+				for (auto* c : *b->getCrafts())
+					if (!c->coop && c->getId() == craftId
+						&& (craftType.empty() || c->getRules()->getType() == craftType))
+					{ craft = c; break; }
+				if (craft) break;
+			}
+		}
+		std::string order = req.get("order", "target").asString();
+		if (!sg) resp["error"] = "no saved game";
+		else if (!geo) resp["error"] = "no geoscape";
+		else if (!craft) resp["error"] = "no matching craft";
+		else if (order == "return" || order == "patrol")
+		{
+			// The REAL geoscape craft dialog: its handler pops itself (net 0).
+			GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
+			_game->pushState(gcs);
+			if (order == "return") gcs->btnBaseClick(nullptr);
+			else gcs->btnPatrolClick(nullptr);
+			resp["ok"] = true;
+		}
+		else
+		{
+			Target* target = nullptr;
+			if (req.isMember("ufo_id"))
+			{
+				int id = req["ufo_id"].asInt();
+				for (auto* u : *sg->getUfos()) if (u->getId() == id) { target = u; break; }
+			}
+			else if (req.isMember("site_id"))
+			{
+				int id = req["site_id"].asInt();
+				for (auto* ms : *sg->getMissionSites()) if (ms->getId() == id) { target = ms; break; }
+			}
+			else if (req.isMember("lon") && req.isMember("lat"))
+			{
+				// A fresh waypoint (id 0), exactly what SelectDestinationState
+				// hands to ConfirmDestinationState; the confirm handler owns it.
+				Waypoint* w = new Waypoint();
+				w->setLongitude(req["lon"].asDouble());
+				w->setLatitude(req["lat"].asDouble());
+				target = w;
+			}
+			if (!target)
+			{
+				resp["error"] = "no matching target";
+			}
+			else
+			{
+				// Real screens: a filler InterceptState absorbs the SECOND
+				// popState of ConfirmDestinationState::btnOkClick (vanilla
+				// pops the destination-selection screen underneath it).
+				_game->pushState(new InterceptState(geo->getGlobe(), false, nullptr, nullptr));
+				ConfirmDestinationState* cds =
+					new ConfirmDestinationState(std::vector<Craft*>{ craft }, target);
+				_game->pushState(cds);
+				cds->btnOkClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "dogfight_state")
+	{
+		// PRD-J08: introspect the live dogfight list (which machine holds the
+		// interactive UI - in JOINT only the initiating seat may).
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		if (!geo) resp["error"] = "no geoscape";
+		else
+		{
+			Json::Value list(Json::arrayValue);
+			for (auto* df : geo->getDogfights())
+			{
+				Json::Value jd;
+				jd["ufoId"] = df->getUfo() ? df->getUfo()->getId() : -1;
+				jd["craftId"] = df->getCraft() ? df->getCraft()->getId() : -1;
+				jd["craftType"] = df->getCraft() ? df->getCraft()->getRules()->getType() : "";
+				jd["minimized"] = df->isMinimized();
+				jd["ended"] = df->dogfightEnded();
+				jd["dist"] = df->harnessCurrentDist();
+				jd["targetDist"] = df->harnessTargetDist();
+				jd["updates"] = df->harnessUpdateCount();
+				jd["disengaging"] = df->harnessEnd();
+				// PRD-DF02: synced UFO attack-mode marker + replica flag + weapon states.
+				jd["ufoStance"] = df->harnessUfoStance();
+				jd["mode"] = df->harnessMode();
+				jd["replica"] = df->isReplicaView();
+				// PRD-DF03: full per-machine frame-agreement fields.
+				jd["isReplicaView"] = df->isReplicaView();
+				jd["currentDist"] = df->harnessCurrentDist();
+				jd["ufoIsAttacking"] = df->isUfoAttacking();
+				jd["projectileCount"] = df->harnessProjectileCount();
+				jd["epoch"] = geo->harnessDogfightEpoch();
+				Json::Value we(Json::arrayValue);
+				for (int wi = 0; wi < df->harnessWeaponCount(); ++wi)
+					we.append(df->harnessWeaponEnabled(wi));
+				jd["weaponEnabled"] = we;
+				list.append(jd);
+			}
+			resp["dogfights"] = list;
+			resp["count"] = (int)geo->getDogfights().size();
+			resp["pending"] = (int)geo->pendingDogfightCount();
+			resp["epoch"] = geo->harnessDogfightEpoch();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "dogfight_action")
+	{
+		// PRD-J08/DF02/DF03: drive a live fight's mode/weapon lane. Body extracted to
+		// doDogfightAction() so the deep execute() if-chain stays under the C1061 nesting
+		// limit; targets a specific (craft,ufo) fight when craft_id/ufo_id is given, else front().
+		doDogfightAction(findState<GeoscapeState>(_game), req, resp);
+	}
+	else if (cmd == "set_ufo_damage")
+	{
+		// PRD-J08: seed a UFO's damage (e.g. just below the crash threshold,
+		// damageMax/2, so the next cannon hit crashes it deterministically).
+		SavedGame* sg = _game->getSavedGame();
+		int id = req.get("ufo_id", -1).asInt();
+		Ufo* ufo = nullptr;
+		if (sg)
+			for (auto* u : *sg->getUfos())
+				if (u->getId() == id) { ufo = u; break; }
+		if (!ufo) resp["error"] = "no matching ufo";
+		else
+		{
+			ufo->setDamage(req.get("damage", 0).asInt(), _game->getMod());
+			resp["damage"] = ufo->getDamage();
+			resp["damageMax"] = ufo->getCraftStats().damageMax;
+			resp["status"] = (int)ufo->getStatus();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "intercept_list")
+	{
+		// PRD-J08 AC3: the REAL InterceptState's rows - every shared base's
+		// crafts must list for every player in JOINT.
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		if (!geo) resp["error"] = "no geoscape";
+		else
+		{
+			InterceptState* is = new InterceptState(geo->getGlobe(), false, nullptr, nullptr);
+			Json::Value rows(Json::arrayValue);
+			for (auto* c : is->harnessListedCrafts())
+			{
+				Json::Value jr;
+				jr["craft"] = c->getName(_game->getLanguage());
+				jr["craftId"] = c->getId();
+				jr["type"] = c->getRules()->getType();
+				jr["base"] = c->getBase()->getName();
+				jr["status"] = c->getStatus();
+				rows.append(jr);
+			}
+			delete is;
+			resp["rows"] = rows;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "repro_craft_uaf")
+	{
+		// Bug #1 shim: drives the REAL Base::removePendingTransfers + the REAL
+		// Transfer dtor. Mirrors createPendingTransfers (one soldier transfer
+		// for the crew + one craft transfer), then runs exactly the
+		// connectionTCP "transfer_completed" removal+delete sequence and checks
+		// whether the kept crew's Craft* is left dangling.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg) { resp["error"] = "no save loaded"; }
+		else {
+			Base* baseFrom = nullptr;
+			for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { baseFrom = b; break; }
+			if (!baseFrom) resp["error"] = "no own base";
+			else if (baseFrom->getCrafts()->empty()) resp["error"] = "base has no craft";
+			else if (baseFrom->getSoldiers()->empty()) resp["error"] = "base has no soldier";
+			else {
+				Craft* craft = baseFrom->getCrafts()->front();
+				Soldier* crew = baseFrom->getSoldiers()->front();
+				// SETUP FIX: strip any default crew so the transfer set is complete (else validation rejects).
+				for (auto* s : *baseFrom->getSoldiers())
+					if (s->getCraft() == craft && s != crew) s->setCraft(nullptr);
+				crew->setCraft(craft);
+
+				// Mirror createPendingTransfers: one soldier transfer for the crew + one craft transfer.
+				std::vector<Transfer*> pending;
+				Transfer* st = new Transfer(6); st->setSoldier(crew); pending.push_back(st);
+				Transfer* ct = new Transfer(6); ct->setCraft(craft);  pending.push_back(ct);
+
+				// Exactly the connectionTCP "transfer_completed" sequence:
+				bool removeOk = baseFrom->removePendingTransfers(&pending);
+				if (removeOk) { for (Transfer* t : pending) delete t; pending.clear(); } // dtor frees _craft
+
+				// Detect the dangling ref WITHOUT dereferencing the freed craft:
+				Craft* stored = crew->getCraft();
+				bool craftStillLive = false;
+				for (auto* c : *baseFrom->getCrafts()) if (c == stored) { craftStillLive = true; break; }
+
+				resp["removeOk"] = removeOk;
+				resp["crewName"] = crew->getName();
+				resp["crewCraftNonNull"] = (stored != nullptr);
+				resp["crewCraftDangling"] = (stored != nullptr && !craftStillLive); // TRUE == bug present
+				crew->setCraft(nullptr); // repair the live instance so teardown/save is safe
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "repro_receiver_ack_gap")
+	{
+		// Bug #2 shim: drives the REAL onTCPMessage("transfer", ...) + the REAL
+		// updateCoopTask() drain. Feeds a transfer whose base_to_id exists on no
+		// base and checks the receiver does not accept+queue (and would ACK) it.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg || !coop) { resp["error"] = "no save/coop"; }
+		else {
+			int bogus = 424242;
+			for (auto* b : *sg->getBases()) if (b->_coop_base_id == bogus) bogus = 424243;
+			int before = 0; for (auto* b : *sg->getBases()) before += (int)b->getTransfers()->size();
+
+			Json::Value obj;
+			obj["state"] = "transfer";
+			obj["base_to_id"] = bogus; obj["base_from_id"] = bogus; obj["total_funds"] = 0;
+			obj["items"][0]["name"] = "STR_PISTOL_CLIP"; obj["items"][0]["amount"] = 3;
+			obj["items"][0]["hour"] = 1; obj["items"][0]["type"] = 0; obj["items"][0]["craft_rule"] = "";
+
+			coop->onTCPMessage("transfer", obj);   // real receiver: accepts (items non-empty), would ACK
+			coop->updateCoopTask();                // real drain: no base matches -> silently retained
+
+			int afterNoMatch = 0; for (auto* b : *sg->getBases()) afterNoMatch += (int)b->getTransfers()->size();
+
+			// Prove it was accepted+queued (not rejected): give a real base the bogus id, drain again.
+			Base* victim = nullptr;
+			for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { victim = b; break; }
+			bool acceptedAndQueued = false;
+			if (victim) {
+				int vBefore = (int)victim->getTransfers()->size();
+				int saved = victim->_coop_base_id; victim->_coop_base_id = bogus;
+				coop->updateCoopTask();
+				acceptedAndQueued = ((int)victim->getTransfers()->size() > vBefore);
+				victim->_coop_base_id = saved;
+			}
+			resp["bogusBaseId"] = bogus;
+			resp["appliedToAnyBaseWhenNoMatch"] = (afterNoMatch > before); // FALSE == silent drop
+			resp["receiverAcceptedAndQueued"] = acceptedAndQueued;         // TRUE  == bug present
+			resp["ok"] = true;
+		}
+	}
+	else
+	{
+		return false;
+	}
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -2794,1627 +4433,10 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
-		else if (cmd == "build_new_base")
+		else if (executeJoint11(cmd, req, resp))
 		{
-			// PRD-J07: drive the FULL subsequent-base flow end-to-end through the
-			// real states: BuildNewBaseState (globe pick at <lon>,<lat>) ->
-			// ConfirmNewBaseState (cost gate; JOINT debits nothing locally) ->
-			// BaseNameState (<name>) -> PlaceLiftState (lift at <liftX>,<liftY>).
-			// In JOINT the lift click submits ONE base_new joint_cmd; the base
-			// materializes on both machines via joint_apply. Response carries the
-			// region base <cost> so the test can assert the exact single debit.
-			double lon = req.get("lon", 0.0).asDouble();
-			double lat = req.get("lat", 0.0).asDouble();
-			std::string name = req.get("name", "Joint Base").asString();
-			int liftX = req.get("liftX", 2).asInt();
-			int liftY = req.get("liftY", 2).asInt();
-			GeoscapeState* gs = findState<GeoscapeState>(_game);
-			if (!gs || !_game->getSavedGame())
-				resp["error"] = "no geoscape";
-			else
-			{
-				Base* b = new Base(_game->getMod());
-				BuildNewBaseState* build = new BuildNewBaseState(b, gs->getGlobe(), false);
-				_game->pushState(build);
-				if (!build->placeAt(lon, lat))
-				{
-					resp["error"] = "coordinates not on land";
-					_game->popState();
-					delete b;
-				}
-				else
-				{
-					ConfirmNewBaseState* conf = findState<ConfirmNewBaseState>(_game);
-					if (!conf)
-						resp["error"] = "no ConfirmNewBaseState";
-					else
-					{
-						resp["cost"] = conf->harnessCost();
-						resp["affordable"] = conf->harnessConfirm();
-						conf->btnOkClick(nullptr); // JOINT: no debit, pushes BaseNameState
-						BaseNameState* nameState = findState<BaseNameState>(_game);
-						if (!nameState)
-							resp["error"] = "no BaseNameState (not enough money?)";
-						else
-						{
-							nameState->setNameAndConfirm(name); // pops name+confirm+build, pushes PlaceLiftState
-							PlaceLiftState* lift = findState<PlaceLiftState>(_game);
-							if (!lift)
-								resp["error"] = "no PlaceLiftState";
-							else
-							{
-								bool ok = lift->harnessPlaceLift(liftX, liftY); // JOINT: base_new + pop
-								resp["ok"] = ok;
-								if (!ok) resp["error"] = "no access lift available";
-							}
-						}
-					}
-				}
-			}
-		}
-		else if (cmd == "joint_cmd")
-		{
-			// PRD-J03: submit an arbitrary joint_cmd through the protocol (used to
-			// exercise the unknown-command path). <jcmd> = command string,
-			// <baseId> = base index, <payload> = optional JSON object.
-			std::string jcmd = req.get("jcmd", "").asString();
-			int baseId = req.get("baseId", 0).asInt();
-			Json::Value payload = req.get("payload", Json::Value(Json::objectValue));
-			JointEcon::submitLocalCmd(_game, jcmd, baseId, payload);
-			resp["ok"] = true;
-		}
-		else if (cmd == "joint_stats")
-		{
-			// PRD-J03: read this machine's JointEcon protocol counters + the most
-			// recent joint_fail reason surfaced here.
-			JointEcon::Stats st = JointEcon::stats();
-			resp["cmd"] = Json::Value::UInt64(st.cmd);
-			resp["okCount"] = Json::Value::UInt64(st.ok);
-			resp["failCount"] = Json::Value::UInt64(st.fail);
-			resp["applyCount"] = Json::Value::UInt64(st.apply);
-			resp["unknownCount"] = Json::Value::UInt64(st.unknown);
-			resp["lastFail"] = JointEcon::lastFailReason();
-			resp["ok"] = true;
-		}
-		else if (cmd == "joint_reset_stats")
-		{
-			JointEcon::resetStats();
-			resp["ok"] = true;
-		}
-		else if (cmd == "set_funds")
-		{
-			// PRD-J03 test helper: force this world's funds (host-authoritative in
-			// JOINT). Used to set up the insufficient-funds rejection path cleanly
-			// without also tripping storage/space limits.
-			if (!_game->getSavedGame())
-				resp["error"] = "no saved game";
-			else
-			{
-				int64_t value = req.get("value", 0).asInt64();
-				_game->getSavedGame()->setFunds(value);
-				resp["funds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "start_research")
-		{
-			// PRD-J04 test helper: force-start a research project at the first real
-			// base on THIS machine (vanilla has no naturally-available research at
-			// game start). Low cost -> finishes in ~1 game day. In JOINT the host
-			// ticks it to completion and broadcasts research_done; a replica that
-			// also started it here gets its project removed + scientists freed on
-			// apply, matching the host.
-			SavedGame* sg = _game->getSavedGame();
-			if (!sg || sg->getBases()->empty())
-				resp["error"] = "no base";
-			else
-			{
-				Base* base = nullptr;
-				for (auto* b : *sg->getBases())
-					if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
-				if (!base) base = sg->getBases()->front();
-				std::string topic = req.get("topic", "").asString();
-				int cost = req.get("cost", 1).asInt();
-				int want = req.get("scientists", 1).asInt();
-				RuleResearch* rule = nullptr;
-				if (!topic.empty())
-					rule = _game->getMod()->getResearch(topic, false);
-				else
-				{
-					for (const auto& name : _game->getMod()->getResearchList())
-					{
-						RuleResearch* r = _game->getMod()->getResearch(name, false);
-						if (!r || sg->isResearched(r, false)) continue;
-						if (sg->isResearchRuleStatusDisabled(name)) continue;
-						bool inProg = false;
-						for (auto* p : base->getResearch())
-							if (p->getRules() == r) { inProg = true; break; }
-						if (!inProg) { rule = r; break; }
-					}
-				}
-				if (!rule)
-					resp["error"] = "no research rule";
-				else
-				{
-					int assign = want;
-					if (assign > base->getScientists()) assign = base->getScientists();
-					if (assign < 1) assign = 1;
-					ResearchProject* proj = new ResearchProject(rule, cost);
-					proj->setAssigned(assign);
-					base->addResearch(proj);
-					if (base->getScientists() >= assign)
-						base->setScientists(base->getScientists() - assign);
-					resp["topic"] = rule->getName();
-					resp["assigned"] = assign;
-					resp["freeScientists"] = base->getScientists();
-					resp["ok"] = true;
-				}
-			}
-		}
-		else if (cmd == "is_researched")
-		{
-			// PRD-J04 test helper: has a research topic been discovered on THIS world?
-			SavedGame* sg = _game->getSavedGame();
-			RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
-			resp["researched"] = (sg && rule) ? sg->isResearched(rule, false) : false;
-			resp["ok"] = true;
-		}
-		else if (cmd == "available_research")
-		{
-			// PRD-J06 test helper: topics res_start would accept at the base right now
-			// (SavedGame::getAvailableResearchProjects). Lets a test pick a real topic.
-			SavedGame* sg = _game->getSavedGame();
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (sg)
-				for (auto* base : *sg->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
-					                     : base->getName() == baseName)
-					{ target = base; break; }
-			if (!target)
-				resp["error"] = "base not found";
-			else
-			{
-				std::vector<RuleResearch*> avail;
-				sg->getAvailableResearchProjects(avail, _game->getMod(), target, false);
-				Json::Value topics(Json::arrayValue);
-				for (auto* r : avail) topics.append(r->getName());
-				resp["topics"] = topics;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "discover_research")
-		{
-			// PRD-J06 test helper: mark <topic> discovered on THIS machine (call on
-			// host AND client to keep the shared world equal). Unlocks manufactures /
-			// research gated on it so a man_start test has an available production.
-			// Deterministic; touches no funds.
-			SavedGame* sg = _game->getSavedGame();
-			RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
-			Base* base = nullptr;
-			if (sg)
-				for (auto* b : *sg->getBases())
-					if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
-			if (!sg || !rule)
-				resp["error"] = "no world / unknown research";
-			else
-			{
-				sg->addFinishedResearch(rule, _game->getMod(), base);
-				resp["researched"] = sg->isResearched(rule, false);
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "set_research_cost")
-		{
-			// PRD-J06 test helper: override a running project's _cost on THIS machine
-			// (call on the HOST to force a fast completion). Host-authoritative
-			// completion then broadcasts research_done regardless of replica cost.
-			SavedGame* sg = _game->getSavedGame();
-			std::string topic = req.get("topic", "").asString();
-			int cost = req.get("cost", 1).asInt();
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (sg)
-				for (auto* base : *sg->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
-					                     : base->getName() == baseName)
-					{ target = base; break; }
-			bool found = false;
-			if (target)
-				for (auto* p : target->getResearch())
-					if (p->getRules()->getName() == topic) { p->setCost(cost); found = true; break; }
-			resp["found"] = found;
-			resp["ok"] = found;
-			if (!found) resp["error"] = "research not running: " + topic;
-		}
-		else if (cmd == "set_production_progress")
-		{
-			// PRD-J06 test helper: set a running production's _timeSpent on THIS
-			// machine (call on the HOST to drive a deterministic completion on the
-			// next hourly step - host-authoritative prod_done then delivers items to
-			// both). Avoids the coarse speed-5 overshoot completing early.
-			SavedGame* sg = _game->getSavedGame();
-			std::string item = req.get("item", "").asString();
-			int spent = req.get("timeSpent", 0).asInt();
-			// GAP-6 test hook: optionally set the production's assigned engineers too, so a
-			// single hourly step can be driven to overshoot _amount*manufactureTime (the
-			// prod_done over-materialization repro). Set directly on the Production (NOT via
-			// the base pool); removeProduction returns it on completion, so call this on BOTH
-			// machines with the SAME value to keep the free-engineer pools in lock-step.
-			int engineers = req.get("engineers", -1).asInt();
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (sg)
-				for (auto* base : *sg->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
-					                     : base->getName() == baseName)
-					{ target = base; break; }
-			bool found = false;
-			if (target)
-				for (auto* p : target->getProductions())
-					if (p->getRules()->getName() == item) { p->setTimeSpent(spent); if (engineers >= 0) p->setAssignedEngineers(engineers); found = true; break; }
-			resp["found"] = found;
-			resp["ok"] = found;
-			if (!found) resp["error"] = "production not running: " + item;
-		}
-		else if (cmd == "research_start")
-		{
-			// PRD-J06: drive the REAL ResearchInfoState "start project" OK path. In
-			// JOINT this emits res_start (+ res_alloc when scientists>0); nothing is
-			// applied until the joint_apply round-trip. Proves the UI submit path.
-			std::string topic = req.get("topic", "").asString();
-			int scientists = req.get("scientists", 0).asInt();
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (_game->getSavedGame())
-				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
-					                     : base->getName() == baseName)
-					{ target = base; break; }
-			RuleResearch* rule = _game->getMod()->getResearch(topic, false);
-			if (!target)
-				resp["error"] = "base not found";
-			else if (!rule)
-				resp["error"] = "unknown research: " + topic;
-			else
-			{
-				ResearchInfoState* st = new ResearchInfoState(target, rule);
-				_game->pushState(st);
-				bool ok = st->harnessStart(scientists); // btnOkClick -> popState
-				resp["sent"] = ok;
-				resp["ok"] = ok;
-			}
-		}
-		else if (cmd == "manufacture_start")
-		{
-			// PRD-J06: drive the REAL ManufactureInfoState "start production" OK path
-			// (JOINT -> man_start). A parent ManufactureState is pushed first because
-			// ManufactureInfoState::exitState pops TWO states for a new production.
-			std::string item = req.get("item", "").asString();
-			int engineers = req.get("engineers", 0).asInt();
-			int qty = req.get("qty", 1).asInt();
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (_game->getSavedGame())
-				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
-					                     : base->getName() == baseName)
-					{ target = base; break; }
-			RuleManufacture* rule = _game->getMod()->getManufacture(item, false);
-			if (!target)
-				resp["error"] = "base not found";
-			else if (!rule)
-				resp["error"] = "unknown manufacture: " + item;
-			else
-			{
-				_game->pushState(new ManufactureState(target)); // absorbs the 2nd pop
-				ManufactureInfoState* st = new ManufactureInfoState(target, rule);
-				_game->pushState(st);
-				bool ok = st->harnessStart(engineers, qty); // btnOkClick -> exitState
-				resp["sent"] = ok;
-				resp["ok"] = ok;
-			}
-		}
-		else if (cmd == "set_facility_build_time")
-		{
-			// PRD-J04 test helper: set a base facility's buildTime on THIS machine.
-			// A JOINT replica's time1Day must NOT decrement it; only fac_done (host
-			// completion broadcast) may drive it to 0.
-			SavedGame* sg = _game->getSavedGame();
-			int baseId = req.get("baseId", 0).asInt();
-			int index = req.get("index", -1).asInt();
-			int t = req.get("time", 10).asInt();
-			if (!sg || baseId < 0 || baseId >= (int)sg->getBases()->size())
-				resp["error"] = "bad base";
-			else
-			{
-				Base* base = (*sg->getBases())[baseId];
-				auto* facs = base->getFacilities();
-				BaseFacility* fac = nullptr;
-				if (index >= 0 && index < (int)facs->size()) fac = (*facs)[index];
-				else if (!facs->empty()) fac = facs->front();
-				if (!fac)
-					resp["error"] = "no facility";
-				else
-				{
-					fac->setBuildTime(t);
-					resp["x"] = fac->getX();
-					resp["y"] = fac->getY();
-					resp["type"] = fac->getRules()->getType();
-					resp["buildTime"] = fac->getBuildTime();
-					resp["ok"] = true;
-				}
-			}
-		}
-		else if (cmd == "set_geo_day")
-		{
-			// PRD-J04 test helper: jump the host clock to near month-end so a short
-			// advance rolls the month (exercising the monthly settlement sync)
-			// without simulating 30 in-game days. Host-authoritative; the client's
-			// clock follows via the time packet.
-			SavedGame* sg = _game->getSavedGame();
-			if (!sg)
-				resp["error"] = "no save";
-			else
-			{
-				GameTime* t = sg->getTime();
-				int day = req.get("day", 28).asInt();
-				int hour = req.get("hour", t->getHour()).asInt();
-				GameTime nt(t->getWeekday(), day, t->getMonth(), t->getYear(),
-				            hour, t->getMinute(), t->getSecond());
-				sg->setTime(nt);
-				resp["day"] = sg->getTime()->getDay();
-				resp["month"] = sg->getTime()->getMonth();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "fly_craft")
-		{
-			// PRD-J04 test helper: launch the first ready craft at the first real
-			// base toward a distant waypoint, so the host moves it and the JOINT
-			// position snapshot carries the motion to the (frozen) replica.
-			SavedGame* sg = _game->getSavedGame();
-			Base* base = nullptr; Craft* craft = nullptr;
-			if (sg)
-				for (auto* b : *sg->getBases())
-					if (!b->_coopBase && !b->_coopIcon && !b->getCrafts()->empty())
-					{ base = b; craft = b->getCrafts()->front(); break; }
-			if (!craft)
-				resp["error"] = "no craft";
-			else
-			{
-				Waypoint* w = new Waypoint();
-				// lon/lat are radians; a large longitude offset (wraps, no pole
-				// clamp) keeps the craft en route for the whole observation window.
-				w->setLongitude(base->getLongitude() + 0.5);
-				w->setLatitude(base->getLatitude() + 0.1);
-				w->setId(sg->getId("STR_WAY_POINT"));
-				sg->getWaypoints()->push_back(w);
-				craft->setDestination(w);
-				craft->setStatus("STR_OUT");
-				resp["craftId"] = craft->getId();
-				resp["baseLon"] = base->getLongitude();
-				resp["baseLat"] = base->getLatitude();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "give_layout")
-		{
-			// Test helper: give every soldier at a base an equipment-layout entry
-			// for <item> (optionally capped at <count> soldiers). Reproduces the
-			// state a player creates by equipping soldiers - the layout reserves
-			// the item, but (as in the real game) base storage is NOT decremented,
-			// so the item is double-counted until a battle actually consumes it.
-			std::string layoutBase = req.get("base", "").asString();
-			bool wantCoop = req.get("coop", false).asBool();
-			std::string itemName = req.get("item", "").asString();
-			int count = req.get("count", -1).asInt();
-			std::string slotName = req.get("slot", "belt").asString();  // belt|right|left
-			std::string onlyName = req.get("name", "").asString();      // limit to soldiers matching this
-			Base* target = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					bool match;
-					if (wantCoop) match = base->_coopBase;
-					else if (!layoutBase.empty()) match = (base->getName() == layoutBase);
-					else match = (base->_coopBase == false && base->_coopIcon == false);
-					if (match) { target = base; break; }
-				}
-			}
-			const RuleItem* rule = itemName.empty() ? nullptr : _game->getMod()->getItem(itemName, false);
-			if (!target)
-				resp["error"] = "base not found";
-			else if (!rule)
-				resp["error"] = "unknown item: " + itemName;
-			else
-			{
-				auto* slot = _game->getMod()->getInventoryBelt();
-				if (slotName == "right") slot = _game->getMod()->getInventoryRightHand();
-				else if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
-				int dummyId = 0;
-				int given = 0;
-				for (auto* s : *target->getSoldiers())
-				{
-					if (!onlyName.empty() && s->getName().find(onlyName) == std::string::npos) continue;
-					if (count >= 0 && given >= count) break;
-					BattleItem tmp(rule, &dummyId);
-					tmp.setSlot(slot);
-					tmp.setSlotX(0);
-					tmp.setSlotY(0);
-					s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
-					given++;
-				}
-				resp["given"] = given;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "transfer_to_coop_base")
-		{
-			// Vanilla base->base transfer of one soldier to a co-op base (no
-			// ownership change), driven through the real TransferItemsState /
-			// completeTransfer path. This is the "transfer" (distinct from the
-			// "gift" ownership change).
-			std::string name = req.get("name", "").asString();
-			std::string toBaseName = req.get("toBase", "").asString();
-			Base* baseFrom = nullptr;
-			Soldier* soldier = nullptr;
-			Base* baseTo = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					if (base->_coopBase == false && base->_coopIcon == false)
-					{
-						for (auto* s : *base->getSoldiers())
-						{
-							if (s->getName().find(name) != std::string::npos) { soldier = s; baseFrom = base; break; }
-						}
-					}
-					if (soldier) break;
-				}
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					if (base->_coopBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
-				}
-				if (!baseTo)
-				{
-					for (auto* base : *_game->getSavedGame()->getBases())
-					{
-						if (base->_coopIcon && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
-					}
-				}
-			}
-			if (!soldier)
-				resp["error"] = "soldier not found in own base: " + name;
-			else if (!baseTo)
-				resp["error"] = "coop dest base not found: " + toBaseName;
-			else
-			{
-				resp["toBase"] = baseTo->getName();
-				resp["toBaseCoopBase"] = baseTo->_coopBase;
-				resp["toBaseCoopIcon"] = baseTo->_coopIcon;
-				TransferItemsState* st = new TransferItemsState(baseFrom, baseTo, nullptr);
-				bool ok = st->transferSoldierNow(soldier);
-				delete st;
-				resp["transferred"] = ok;
-				resp["ok"] = ok;
-				if (!ok) resp["error"] = "soldier not a transferable row";
-			}
-		}
-		else if (cmd == "set_coop_base")
-		{
-			// Test helper: force a soldier's coopBase field. A value != -1 makes
-			// the own-base SoldiersState treat it as a foreign/guest soldier and
-			// strip it from the editable roster (reproducing the own-base variant
-			// of issue #33 without a cross-machine transfer).
-			std::string name = req.get("name", "").asString();
-			int value = req.get("value", -1).asInt();
-			Soldier* found = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					for (auto* s : *base->getSoldiers())
-					{
-						if (s->getName().find(name) != std::string::npos) { found = s; break; }
-					}
-					if (found) break;
-				}
-			}
-			if (!found)
-				resp["error"] = "soldier not found: " + name;
-			else
-			{
-				found->setCoopBase(value);
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "visit_coop_base")
-		{
-			std::string baseName = req.get("base", "").asString();
-			Base* target = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					if (base->_coopBase == true || base->_coopIcon == true)
-					{
-						if (baseName.empty() || base->getName() == baseName)
-						{
-							target = base;
-							break;
-						}
-					}
-				}
-			}
-			GeoscapeState* geo = _game->getGeoscapeState();
-			if (!target)
-			{
-				resp["error"] = "coop base not found: " + baseName;
-			}
-			else if (!geo)
-			{
-				resp["error"] = "no GeoscapeState";
-			}
-			else
-			{
-				// same as clicking the peer base marker (MultipleTargetsState)
-				coop->current_base_name = target->getName();
-				CoopState* w = new CoopState(50);
-				w->setGlobe(geo->getGlobe());
-				_game->pushState(w);
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "leave_base")
-		{
-			BasescapeState* st = findState<BasescapeState>(_game);
-			if (st)
-			{
-				st->btnGeoscapeClick(nullptr);
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "no BasescapeState in state stack";
-			}
-		}
-		else if (cmd == "gift_targets")
-		{
-			// What the transfer dialog would offer for this soldier - lets
-			// tests validate owner resolution + button names without UI.
-			std::string name = req.get("name", "").asString();
-			Soldier* found = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					for (auto* s : *base->getSoldiers())
-					{
-						if (s->getName().find(name) != std::string::npos)
-						{
-							found = s;
-							break;
-						}
-					}
-					if (found) break;
-				}
-			}
-			if (!found)
-			{
-				resp["error"] = "soldier not found: " + name;
-			}
-			else
-			{
-				int currentOwner = GiftSoldierMenu::resolveOwnerId(found);
-				int localPlayerId = connectionTCP::localSeat();
-				Json::Value targets(Json::arrayValue);
-				for (int playerId = 0; playerId <= 1; ++playerId)
-				{
-					if (playerId != currentOwner)
-					{
-						Json::Value t;
-						t["id"] = playerId;
-						t["name"] = (playerId == localPlayerId) ? coop->getHostName() : coop->getCurrentClientName();
-						targets.append(t);
-					}
-				}
-				resp["currentOwner"] = currentOwner;
-				resp["localPlayer"] = localPlayerId;
-				resp["targets"] = targets;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "open_gift_dialog")
-		{
-			std::string name = req.get("name", "").asString();
-			Soldier* found = nullptr;
-			if (_game->getSavedGame())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					for (auto* s : *base->getSoldiers())
-					{
-						if (s->getName().find(name) != std::string::npos)
-						{
-							found = s;
-							break;
-						}
-					}
-					if (found) break;
-				}
-			}
-			if (found)
-			{
-				_game->pushState(new GiftSoldierMenu(found, GiftSoldierMenu::resolveOwnerId(found)));
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "soldier not found: " + name;
-			}
-		}
-		else if (cmd == "rename_soldier")
-		{
-			std::string name = req.get("name", "").asString();
-			std::string newName = req.get("newName", "").asString();
-			Soldier* found = nullptr;
-			if (_game->getSavedGame() && !newName.empty())
-			{
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					for (auto* s : *base->getSoldiers())
-					{
-						if (s->getName().find(name) != std::string::npos)
-						{
-							found = s;
-							break;
-						}
-					}
-					if (found) break;
-				}
-			}
-			if (found)
-			{
-				found->setName(newName);
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "soldier not found: " + name;
-			}
-		}
-		else if (cmd == "show_notice")
-		{
-			_game->pushState(new GiftNoticeState(req.get("message", "test notice").asString()));
-			resp["ok"] = true;
-		}
-		else if (cmd == "get_notices")
-		{
-			Json::Value notices(Json::arrayValue);
-			// PRD-13: left inline - appends every match's category into a container, not a find
-			for (auto* s : _game->getStates())
-			{
-				if (auto* n = dynamic_cast<GiftNoticeState*>(s))
-				{
-					notices.append(n->getCategory());
-				}
-			}
-			resp["categories"] = notices;
-			resp["ok"] = true;
-		}
-		else if (cmd == "dismiss_notice")
-		{
-			GiftNoticeState* st = findState<GiftNoticeState>(_game);
-			if (st)
-			{
-				st->btnOkClick(nullptr);
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "no GiftNoticeState in state stack";
-			}
-		}
-		else if (cmd == "cancel_dialog")
-		{
-			GiftSoldierMenu* st = findState<GiftSoldierMenu>(_game);
-			if (st)
-			{
-				st->btnCancelClick(nullptr);
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "no GiftSoldierMenu in state stack";
-			}
-		}
-		else if (cmd == "get_palettes")
-		{
-			// First N palette entries of the top two states, for asserting
-			// that a dialog adopted its parent's palette (flicker check).
-			Json::Value states(Json::arrayValue);
-			// PRD-13: left inline - reads every state's palette into a container, not a find
-			auto& stack = _game->getStates();
-			for (auto* s : stack)
-			{
-				Json::Value e;
-				e["state"] = typeid(*s).name();
-				Json::Value cols(Json::arrayValue);
-				SDL_Color* pal = s->getPalette();
-				for (int i = 0; i < 16; ++i)
-				{
-					cols.append((pal[i].r << 16) | (pal[i].g << 8) | pal[i].b);
-				}
-				e["colors"] = cols;
-				states.append(e);
-			}
-			resp["states"] = states;
-			resp["ok"] = true;
-		}
-		else if (cmd == "gift")
-		{
-			std::string name = req.get("name", "").asString();
-			int owner = req.get("owner", -1).asInt();
-			if (name.empty() || owner < 0)
-			{
-				resp["error"] = "need name and owner";
-			}
-			else if (!_game->getSavedGame())
-			{
-				resp["error"] = "no save loaded";
-			}
-			else
-			{
-				Soldier* found = nullptr;
-				for (auto* base : *_game->getSavedGame()->getBases())
-				{
-					for (auto* s : *base->getSoldiers())
-					{
-						if (s->getName().find(name) != std::string::npos)
-						{
-							found = s;
-							break;
-						}
-					}
-					if (found) break;
-				}
-				if (!found)
-				{
-					resp["error"] = "soldier not found: " + name;
-				}
-				else
-				{
-					coop->giftSoldier(found, owner, true);
-					resp["soldier"] = soldierToJson(found);
-					resp["ok"] = true;
-				}
-			}
-		}
-		else if (cmd == "save_game")
-		{
-			std::string file = req.get("file", "").asString();
-			if (file.empty() || !_game->getSavedGame())
-			{
-				resp["error"] = "need file + loaded save";
-			}
-			else
-			{
-				_game->getSavedGame()->save(file, _game->getMod());
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "save_game_ui")
-		{
-			// Save through the real SaveGameState funnel (same path as the
-			// in-game autosaves/quicksave), unlike save_game which calls
-			// SavedGame::save directly. Exercises the coop save cycle and the
-			// client-side save suppression gate. Only the single-pop SaveTypes
-			// are exposed: SAVE_DEFAULT pops the save+pause menus it normally
-			// sits on, which don't exist when pushed from here.
-			std::string type = req.get("type", "").asString();
-			if (!_game->getSavedGame())
-			{
-				resp["error"] = "no loaded save";
-			}
-			else if (type == "auto_geoscape")
-			{
-				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _game->getScreen()->getPalette()));
-				resp["ok"] = true;
-			}
-			else if (type == "quick")
-			{
-				_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "need type (auto_geoscape|quick)";
-			}
-		}
-		else if (cmd == "client_reload_progress")
-		{
-			// Reconnect flow: ask the host for our world (same as the client
-			// branch of Profile::buttonOK).
-			if (connectionTCP::getServerOwner())
-			{
-				resp["error"] = "host cannot reload progress";
-			}
-			else if (connectionTCP::saveID == 0)
-			{
-				resp["error"] = "no saveID";
-			}
-			else
-			{
-				Json::Value root;
-				root["state"] = "request_load_progress";
-				coop->sendTCPPacketData(root.toStyledString());
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "lobby_state")
-		{
-			// campaign-lobby introspection (flow-redesign F2)
-			LobbyMenu* lobby = findState<LobbyMenu>(_game);
-			resp["lobbyOpen"] = (lobby != nullptr);
-			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
-			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
-			resp["startEligible"] = (lobby != nullptr) && lobby->startEligible();
-			if (lobby)
-			{
-				resp["buttonText"] = lobby->actionButtonText();
-				resp["buttonVisible"] = lobby->actionButtonVisible();
-				resp["detailsText"] = lobby->detailsText();
-				int idx = 0;
-				for (const auto& n : lobby->rosterNames())
-				{
-					resp["players"][idx++] = n;
-				}
-			}
-			resp["ok"] = true;
-		}
-		else if (cmd == "load_save_menu")
-		{
-			// load through the real LoadGameState (runs the co-op routing:
-			// coop save -> host window + resume lobby) (flow-redesign F3)
-			std::string file = req.get("file", "").asString();
-			if (file.empty())
-			{
-				resp["error"] = "need file";
-			}
-			else
-			{
-				_game->pushState(new LoadGameState(OPT_MENU, file, _game->getScreen()->getPalette()));
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "lobby_resume_campaign")
-		{
-			// host clicks RESUME CAMPAIGN (flow-redesign F3)
-			LobbyMenu* lobby = findState<LobbyMenu>(_game);
-			if (!lobby)
-			{
-				resp["error"] = "no LobbyMenu in state stack";
-			}
-			else if (connectionTCP::session.lobbyMode != 2)
-			{
-				resp["error"] = "lobby is not in resume mode";
-			}
-			else if (!lobby->missingPlayers().empty())
-			{
-				std::string missing;
-				for (const auto& m : lobby->missingPlayers())
-				{
-					if (!missing.empty()) missing += ", ";
-					missing += m;
-				}
-				resp["error"] = "waiting for: " + missing;
-			}
-			else
-			{
-				lobby->resumeCampaign();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "lobby_start_campaign")
-		{
-			// host clicks START CAMPAIGN + confirms (flow-redesign F2)
-			LobbyMenu* lobby = findState<LobbyMenu>(_game);
-			if (!lobby)
-			{
-				resp["error"] = "no LobbyMenu in state stack";
-			}
-			else if (connectionTCP::session.lobbyMode != 1)
-			{
-				resp["error"] = "lobby is not in new-campaign mode";
-			}
-			else if (req.get("confirm", "").asString() == "dialog")
-			{
-				// PRD-10: route through the REAL confirm dialog so the test drives
-				// ConfirmStartCampaignState::btnOkClick (the true UI path). Do NOT
-				// pre-check startEligible here - the dialog/OK path IS the gate.
-				lobby->openStartConfirmDialog();
-				resp["ok"] = true;
-			}
-			else if (!lobby->startEligible())
-			{
-				resp["error"] = "no client connected";
-			}
-			else
-			{
-				lobby->startCampaign();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "lobby_confirm_ok")
-		{
-			// PRD-10: click OK on the START CAMPAIGN confirm dialog (the real
-			// ConfirmStartCampaignState::btnOkClick path, which re-checks
-			// eligibility before starting).
-			LobbyMenu* lobby = findState<LobbyMenu>(_game);
-			if (!lobby)
-			{
-				resp["error"] = "no LobbyMenu in state stack";
-			}
-			else
-			{
-				resp["clicked"] = lobby->clickStartConfirmOk();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "save_markers")
-		{
-			// Co-op campaign markers of the live save (flow-redesign F0)
-			if (!_game->getSavedGame())
-			{
-				resp["error"] = "no loaded save";
-			}
-			else
-			{
-				resp["coop"] = _game->getSavedGame()->isCoopSave();
-				int idx = 0;
-				for (const auto& p : _game->getSavedGame()->getCoopPlayers())
-				{
-					resp["coopPlayers"][idx++] = p;
-				}
-				// PRD-J01: campaign economy model (0 = Separate, 1 = Joint).
-				resp["campaignType"] = static_cast<int>(_game->getSavedGame()->getCampaignType());
-				resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "has_coop_file")
-		{
-			std::string key = req.get("key", "").asString();
-			resp["present"] = connectionTCP::hasCoopFile(key);
-			resp["ok"] = true;
-		}
-		else if (cmd == "dump_coop_file")
-		{
-			// Test fixture builder: write an in-memory blob to the user dir
-			// (used to fabricate legacy sidecar .data files for the
-			// v1.8.4-migration test; nothing in normal play calls this).
-			std::string key = req.get("key", "").asString();
-			std::string blob;
-			{
-				std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
-				auto it = connectionTCP::coopFilesHost.find(key);
-				if (it != connectionTCP::coopFilesHost.end())
-					blob = it->second;
-				else
-				{
-					auto cit = connectionTCP::coopFilesClient.find(key);
-					if (cit != connectionTCP::coopFilesClient.end())
-						blob = cit->second;
-				}
-			}
-			if (blob.empty())
-			{
-				resp["error"] = "no such blob";
-			}
-			else
-			{
-				std::ofstream out(Options::getMasterUserFolder() + key, std::ios::binary);
-				out << blob;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "set_option")
-		{
-			std::string name = req.get("name", "").asString();
-			if (name == "HostSaveProgress")
-			{
-				// Removed option (host-save authority is the only mode now);
-				// accepted and ignored so older test scripts keep running.
-				resp["ok"] = true;
-			}
-			else if (name == "autosave")
-			{
-				Options::autosave = req.get("value", false).asBool();
-				resp["ok"] = true;
-			}
-			else if (name == "autosaveFrequency")
-			{
-				Options::autosaveFrequency = req.get("value", 5).asInt();
-				resp["ok"] = true;
-			}
-			else if (name == "oxceGeoAutosaveFrequency")
-			{
-				Options::oxceGeoAutosaveFrequency = req.get("value", 0).asInt();
-				resp["ok"] = true;
-			}
-			else if (name == "oxceAlternateCraftEquipmentManagement")
-			{
-				Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "unknown option: " + name;
-			}
-		}
-		else if (cmd == "set_seed")
-		{
-			// Pin the RNG so a scenario's real-sim outcome is reproducible.
-			RNG::setSeed((uint64_t)req.get("seed", 1).asInt64());
-			resp["seed"] = Json::Value::Int64((int64_t)RNG::getSeed());
-			resp["ok"] = true;
-		}
-		else if (cmd == "craft_force")
-		{
-			// Owner-side deterministic state setter for craft-status tests. With
-			// craft_id omitted, targets the first own (non-coop) craft. Only sets
-			// the fields present in the request; optional checkup() re-derives the
-			// base-side _status (READY/REFUELLING/REARMING/REPAIRS) from real logic.
-			int craftId = req.get("craft_id", -1).asInt();
-			SavedGame* sg = _game->getSavedGame();
-			Craft* craft = nullptr; Base* cbase = nullptr;
-			if (sg)
-			{
-				for (auto* b : *sg->getBases())
-				{
-					for (auto* c : *b->getCrafts())
-					{
-						if (craftId == -1 ? !c->coop : c->getId() == craftId)
-						{
-							craft = c; cbase = b; break;
-						}
-					}
-					if (craft) break;
-				}
-			}
-			if (!craft)
-			{
-				resp["error"] = "no matching craft";
-			}
-			else
-			{
-				if (req.isMember("lowFuel")) craft->setLowFuel(req["lowFuel"].asBool());
-				if (req.isMember("mission")) craft->setMissionComplete(req["mission"].asBool());
-				// Force the geoscape status string directly (e.g. "STR_OUT" to make
-				// an own craft "out"/airborne without the takeoff sim). Honors the
-				// coop==false guard in Craft::setStatus.
-				if (req.isMember("status")) craft->setStatus(req["status"].asString());
-				// Teleport the craft (e.g. away from its base so it reads as OUT).
-				if (req.isMember("lon")) craft->setLongitude(req["lon"].asDouble());
-				if (req.isMember("lat")) craft->setLatitude(req["lat"].asDouble());
-				if (req.isMember("fuel")) craft->setFuel(req["fuel"].asInt());
-				if (req.isMember("damage")) craft->setDamage(req["damage"].asInt());
-				if (req.isMember("dogfight")) craft->setInDogfight(req["dogfight"].asBool());
-				if (req.isMember("ammo"))
-				{
-					int ammo = req["ammo"].asInt();
-					for (auto* cw : *craft->getWeapons())
-						if (cw) { cw->setAmmo(ammo); cw->setRearming(ammo < cw->getRules()->getAmmoMax()); }
-				}
-				if (req.isMember("dest"))
-				{
-					std::string dest = req["dest"].asString();
-					if (dest == "base") craft->setDestination(cbase);
-					else if (dest == "patrol") craft->setDestination(nullptr);
-					else if (dest.rfind("site:", 0) == 0)
-					{
-						int id = std::atoi(dest.c_str() + 5);
-						for (auto* ms : *sg->getMissionSites())
-							if (ms->getId() == id) { craft->setDestination(ms); break; }
-					}
-					else if (dest.rfind("ufo:", 0) == 0)
-					{
-						int id = std::atoi(dest.c_str() + 4);
-						for (auto* u : *sg->getUfos())
-							if (u->getId() == id) { craft->setDestination(u); break; }
-					}
-				}
-				if (req.get("checkup", false).asBool()) craft->checkup();
-				resp["craft_id"] = craft->getId();
-				resp["status"] = craft->getStatus();
-				resp["displayStatus"] = craft->getDisplayStatus(_game->getLanguage());
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "spawn_mission_site")
-		{
-			// Deterministically place a mission site (no alien-mission RNG), so a
-			// craft can be dispatched to it -> "heading to <site>" status. Params:
-			// mission (RuleAlienMission id), deployment (AlienDeployment id),
-			// lon/lat (radians), race (optional).
-			SavedGame* sg = _game->getSavedGame();
-			Mod* mod = _game->getMod();
-			const RuleAlienMission* mission = mod->getAlienMission(req.get("mission", "").asString(), false);
-			const AlienDeployment* deployment = mod->getDeployment(req.get("deployment", "").asString(), false);
-			if (!sg) resp["error"] = "no saved game";
-			else if (!mission) resp["error"] = "unknown mission rule";
-			else if (!deployment) resp["error"] = "unknown deployment rule";
-			else
-			{
-				MissionSite* site = new MissionSite(mission, deployment, nullptr);
-				site->setLongitude(req.get("lon", 0.0).asDouble());
-				site->setLatitude(req.get("lat", 0.0).asDouble());
-				site->setId(sg->getId(deployment->getMarkerName()));
-				site->setSecondsRemaining((size_t)req.get("hours", 48).asInt() * 3600);
-				site->setAlienRace(req.get("race", "STR_SECTOID").asString());
-				site->setDetected(true);
-				sg->getMissionSites()->push_back(site);
-				resp["site_id"] = site->getId();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "spawn_ufo")
-		{
-			// Deterministically place a UFO so a craft can be dispatched to it
-			// (B7 intercepting / B8 destination-crashed / B6 tailing). Attaches a
-			// registered throwaway AlienMission so the UFO's lifecycle (race bonus,
-			// ~Ufo decreaseLiveUfos) is well-formed and doesn't crash on cleanup.
-			// Params: type (RuleUfo), mission (RuleAlienMission), region, race,
-			// trajectory (UfoTrajectory id), state (flying|crashed|landed), lon/lat.
-			SavedGame* sg = _game->getSavedGame();
-			Mod* mod = _game->getMod();
-			const RuleUfo* ufoRule = mod->getUfo(req.get("type", "").asString(), false);
-			const RuleAlienMission* missionRule = mod->getAlienMission(req.get("mission", "").asString(), false);
-			const UfoTrajectory* traj = mod->getUfoTrajectory(req.get("trajectory", "").asString(), false);
-			if (!sg) resp["error"] = "no saved game";
-			else if (!ufoRule) resp["error"] = "unknown ufo type";
-			else if (!missionRule) resp["error"] = "unknown mission rule";
-			else if (!traj) resp["error"] = "unknown trajectory";
-			else
-			{
-				AlienMission* m = new AlienMission(*missionRule);
-				m->setRace(req.get("race", "STR_SECTOID").asString());
-				m->setRegion(req.get("region", "STR_NORTH_AMERICA").asString(), *mod);
-				m->setId(sg->getId("STR_ALIEN_MISSIONS"));
-				sg->getAlienMissions().push_back(m);
-
-				Ufo* u = new Ufo(ufoRule, sg->getId("STR_UFO_UNIQUE"));
-				u->setMissionInfo(m, traj);
-				// _uniqueId (ctor) is internal; the display id / craft targeting
-				// use Target::getId(), which real UFOs get on detection. Assign it
-				// so geo_state reports distinct ids and craft_force can target this
-				// exact UFO instead of colliding on id 0.
-				u->setId(sg->getId("STR_UFO"));
-				u->setLongitude(req.get("lon", 0.0).asDouble());
-				u->setLatitude(req.get("lat", 0.0).asDouble());
-				u->setAltitude("STR_HIGH_UC");
-				u->setDetected(true);
-				std::string state = req.get("state", "flying").asString();
-				if (state == "crashed")
-				{
-					u->setStatus(Ufo::CRASHED);
-					u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
-					u->setSpeed(0);
-				}
-				else if (state == "landed")
-				{
-					u->setStatus(Ufo::LANDED);
-					u->setSecondsRemaining((size_t)req.get("hours", 24).asInt() * 3600);
-					u->setSpeed(0);
-				}
-				else
-				{
-					// Flying: give it a destination waypoint so think()->move() is
-					// well-formed (a null destination would misbehave).
-					u->setStatus(Ufo::FLYING);
-					Waypoint* wp = new Waypoint();
-					wp->setLongitude(req.get("lon", 0.0).asDouble() + 0.2);
-					wp->setLatitude(req.get("lat", 0.0).asDouble());
-					u->setDestination(wp);
-					u->setSpeed(req.get("speed", 1).asInt());
-				}
-				sg->getUfos()->push_back(u);
-				resp["ufo_id"] = u->getId();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "spawn_craft")
-		{
-			// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.
-			// The coop start base only has an unarmed transport, so REARMING and
-			// UFO-interception status tests need a combat craft. Params: type
-			// (RuleCraft), weapon (RuleCraftWeapon to mount on every hardpoint).
-			SavedGame* sg = _game->getSavedGame();
-			Mod* mod = _game->getMod();
-			const RuleCraft* rule = mod->getCraft(req.get("type", "").asString(), false);
-			Base* base = nullptr;
-			if (sg)
-				for (auto* b : *sg->getBases())
-					if (!b->_coopBase) { base = b; break; }
-			if (!sg) resp["error"] = "no saved game";
-			else if (!rule) resp["error"] = "unknown craft type";
-			else if (!base) resp["error"] = "no own base";
-			else
-			{
-				Craft* craft = new Craft(rule, base, sg->getId(rule->getType()));
-				craft->setFuel(craft->getFuelMax());
-				RuleCraftWeapon* cwRule = const_cast<RuleCraftWeapon*>(
-					mod->getCraftWeapon(req.get("weapon", "STR_STINGRAY").asString(), false));
-				if (cwRule)
-					// The Craft ctor pre-fills getWeapons() null slots; mount INTO
-					// them (a push_back would leave the first slots empty - the
-					// dogfight only scans the first rule->getWeapons() slots).
-					for (size_t i = 0; i < craft->getWeapons()->size(); ++i)
-						if (!craft->getWeapons()->at(i))
-							craft->getWeapons()->at(i) = new CraftWeapon(cwRule, cwRule->getAmmoMax());
-				craft->checkup(); // -> STR_READY
-				base->getCrafts()->push_back(craft);
-				resp["craft_id"] = craft->getId();
-				resp["weapons"] = (int)craft->getWeapons()->size();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "move_ufo")
-		{
-			// Teleport an existing UFO to lon/lat (radians). Used to prove a peer
-			// craft live-tracks a MOVING coop UFO: move the host's UFO and the
-			// client mirror (and any craft bound to it) follows via target_positions.
-			// Target by cross-instance coop id (coop_id) or local id (ufo_id).
-			SavedGame* sg = _game->getSavedGame();
-			int coopId = req.get("coop_id", -1).asInt();
-			int id = req.get("ufo_id", -1).asInt();
-			Ufo* target = nullptr;
-			if (sg)
-				for (auto* u : *sg->getUfos())
-					if ((coopId != -1 && u->getCoopUfoId() == coopId) || (id != -1 && u->getId() == id))
-					{ target = u; break; }
-			if (!sg) resp["error"] = "no saved game";
-			else if (!target) resp["error"] = "no matching ufo";
-			else
-			{
-				target->setLongitude(req.get("lon", target->getLongitude()).asDouble());
-				target->setLatitude(req.get("lat", target->getLatitude()).asDouble());
-				resp["lon"] = target->getLongitude();
-				resp["lat"] = target->getLatitude();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "geo_run")
-		{
-			// Advance geoscape time while auto-draining event popups, until a stop
-			// condition or a game-time budget. Requires GeoscapeState on top after
-			// draining. Params: speed (0..5 idx), until (one of: minutes:<n>,
-			// craft_status:<STR_key>, craft_dest:<kind>, at_base), max_minutes.
-			// NOTE: real advancing happens across pump() frames; this handler sets
-			// up the run and reports readiness. The driver polls geo_state between
-			// geo_run calls. Here we just (a) enable host-only time so the client
-			// mirrors, (b) select the requested speed, (c) drain any popup now.
-			GeoscapeState* gs = findState<GeoscapeState>(_game);
-			// Drain a single blocking popup if present (driver calls repeatedly).
-			State* top = topState<State>(_game);
-			bool drained = false;
-			if (top && !dynamic_cast<GeoscapeState*>(top)
-			    && !dynamic_cast<BattlescapeState*>(top))
-			{
-				if (auto* ev = dynamic_cast<GeoscapeEventState*>(top)) { ev->btnOkClick(nullptr); drained = true; }
-				else if (dynamic_cast<ArticleState*>(top)) { _game->popState(); drained = true; }
-				else if (auto* mr = dynamic_cast<MonthlyReportState*>(top)) { mr->btnOkClick(nullptr); drained = true; }
-				else if (auto* md = dynamic_cast<MissionDetectedState*>(top)) { md->btnCancelClick(nullptr); drained = true; }
-				// A craft reaching a site pops ConfirmLanding; decline it so the
-				// craft stays airborne (status tests never enter the battle).
-				else if (auto* cl = dynamic_cast<ConfirmLandingState*>(top)) { cl->btnNoClick(nullptr); drained = true; }
-				else { _game->popState(); drained = true; }
-			}
-			resp["drained"] = drained;
-			resp["topType"] = top ? typeid(*top).name() : "none";
-			if (gs)
-			{
-				// Coop time only advances when BOTH players hold the same speed;
-				// the driver calls geo_run on host AND client each tick, so just
-				// select the requested speed here (no host-only override, which
-				// stalls the peer's clock).
-				gs->setTimeSpeedIndex(req.get("speed", 1).asInt());
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "no GeoscapeState (in popup/battle?)";
-			}
-		}
-		else if (cmd == "geo_craft_buttons")
-		{
-			// Control-guard check: build the geoscape craft dialog for a craft and
-			// report whether the command buttons (Return to base / Select target /
-			// Patrol) are shown. A peer's coop craft must NOT show them, so a
-			// non-owning player cannot redirect another player's ship. Params:
-			// craft_id, coop (which copy to match - own=false, peer mirror=true).
-			int craftId = req.get("craft_id", -1).asInt();
-			bool wantCoop = req.get("coop", false).asBool();
-			SavedGame* sg = _game->getSavedGame();
-			Craft* craft = nullptr;
-			if (sg)
-				for (auto* b : *sg->getBases())
-					for (auto* c : *b->getCrafts())
-						if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			if (!craft) resp["error"] = "no matching craft";
-			else if (!geo) resp["error"] = "no geoscape";
-			else
-			{
-				// Built but not pushed: the ctor configures button visibility (the
-				// guard), which is all we read; then discard it.
-				GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
-				resp["coop"] = craft->coop;
-				resp["buttons_visible"] = gcs->testControlButtonsVisible();
-				delete gcs;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "craft_order")
-		{
-			// PRD-J08: drive the REAL craft-command screens - in a JOINT campaign
-			// their branches submit joint_cmds (craft_launch/craft_retarget/
-			// craft_return/craft_patrol); SEPARATE/solo take the vanilla paths.
-			// Params: order = "target" (with ufo_id | site_id | lon+lat) |
-			// "return" | "patrol"; craft_id (+ optional craft_type).
-			SavedGame* sg = _game->getSavedGame();
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			int craftId = req.get("craft_id", -1).asInt();
-			std::string craftType = req.get("craft_type", "").asString();
-			Craft* craft = nullptr;
-			if (sg)
-			{
-				for (auto* b : *sg->getBases())
-				{
-					for (auto* c : *b->getCrafts())
-						if (!c->coop && c->getId() == craftId
-							&& (craftType.empty() || c->getRules()->getType() == craftType))
-						{ craft = c; break; }
-					if (craft) break;
-				}
-			}
-			std::string order = req.get("order", "target").asString();
-			if (!sg) resp["error"] = "no saved game";
-			else if (!geo) resp["error"] = "no geoscape";
-			else if (!craft) resp["error"] = "no matching craft";
-			else if (order == "return" || order == "patrol")
-			{
-				// The REAL geoscape craft dialog: its handler pops itself (net 0).
-				GeoscapeCraftState* gcs = new GeoscapeCraftState(craft, geo->getGlobe(), nullptr, false);
-				_game->pushState(gcs);
-				if (order == "return") gcs->btnBaseClick(nullptr);
-				else gcs->btnPatrolClick(nullptr);
-				resp["ok"] = true;
-			}
-			else
-			{
-				Target* target = nullptr;
-				if (req.isMember("ufo_id"))
-				{
-					int id = req["ufo_id"].asInt();
-					for (auto* u : *sg->getUfos()) if (u->getId() == id) { target = u; break; }
-				}
-				else if (req.isMember("site_id"))
-				{
-					int id = req["site_id"].asInt();
-					for (auto* ms : *sg->getMissionSites()) if (ms->getId() == id) { target = ms; break; }
-				}
-				else if (req.isMember("lon") && req.isMember("lat"))
-				{
-					// A fresh waypoint (id 0), exactly what SelectDestinationState
-					// hands to ConfirmDestinationState; the confirm handler owns it.
-					Waypoint* w = new Waypoint();
-					w->setLongitude(req["lon"].asDouble());
-					w->setLatitude(req["lat"].asDouble());
-					target = w;
-				}
-				if (!target)
-				{
-					resp["error"] = "no matching target";
-				}
-				else
-				{
-					// Real screens: a filler InterceptState absorbs the SECOND
-					// popState of ConfirmDestinationState::btnOkClick (vanilla
-					// pops the destination-selection screen underneath it).
-					_game->pushState(new InterceptState(geo->getGlobe(), false, nullptr, nullptr));
-					ConfirmDestinationState* cds =
-						new ConfirmDestinationState(std::vector<Craft*>{ craft }, target);
-					_game->pushState(cds);
-					cds->btnOkClick(nullptr);
-					resp["ok"] = true;
-				}
-			}
-		}
-		else if (cmd == "dogfight_state")
-		{
-			// PRD-J08: introspect the live dogfight list (which machine holds the
-			// interactive UI - in JOINT only the initiating seat may).
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			if (!geo) resp["error"] = "no geoscape";
-			else
-			{
-				Json::Value list(Json::arrayValue);
-				for (auto* df : geo->getDogfights())
-				{
-					Json::Value jd;
-					jd["ufoId"] = df->getUfo() ? df->getUfo()->getId() : -1;
-					jd["craftId"] = df->getCraft() ? df->getCraft()->getId() : -1;
-					jd["craftType"] = df->getCraft() ? df->getCraft()->getRules()->getType() : "";
-					jd["minimized"] = df->isMinimized();
-					jd["ended"] = df->dogfightEnded();
-					jd["dist"] = df->harnessCurrentDist();
-					jd["targetDist"] = df->harnessTargetDist();
-					jd["updates"] = df->harnessUpdateCount();
-					jd["disengaging"] = df->harnessEnd();
-					// PRD-DF02: synced UFO attack-mode marker + replica flag + weapon states.
-					jd["ufoStance"] = df->harnessUfoStance();
-					jd["mode"] = df->harnessMode();
-					jd["replica"] = df->isReplicaView();
-					// PRD-DF03: full per-machine frame-agreement fields.
-					jd["isReplicaView"] = df->isReplicaView();
-					jd["currentDist"] = df->harnessCurrentDist();
-					jd["ufoIsAttacking"] = df->isUfoAttacking();
-					jd["projectileCount"] = df->harnessProjectileCount();
-					jd["epoch"] = geo->harnessDogfightEpoch();
-					Json::Value we(Json::arrayValue);
-					for (int wi = 0; wi < df->harnessWeaponCount(); ++wi)
-						we.append(df->harnessWeaponEnabled(wi));
-					jd["weaponEnabled"] = we;
-					list.append(jd);
-				}
-				resp["dogfights"] = list;
-				resp["count"] = (int)geo->getDogfights().size();
-				resp["pending"] = (int)geo->pendingDogfightCount();
-				resp["epoch"] = geo->harnessDogfightEpoch();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "dogfight_action")
-		{
-			// PRD-J08/DF02/DF03: drive a live fight's mode/weapon lane. Body extracted to
-			// doDogfightAction() so the deep execute() if-chain stays under the C1061 nesting
-			// limit; targets a specific (craft,ufo) fight when craft_id/ufo_id is given, else front().
-			doDogfightAction(findState<GeoscapeState>(_game), req, resp);
-		}
-		else if (cmd == "set_ufo_damage")
-		{
-			// PRD-J08: seed a UFO's damage (e.g. just below the crash threshold,
-			// damageMax/2, so the next cannon hit crashes it deterministically).
-			SavedGame* sg = _game->getSavedGame();
-			int id = req.get("ufo_id", -1).asInt();
-			Ufo* ufo = nullptr;
-			if (sg)
-				for (auto* u : *sg->getUfos())
-					if (u->getId() == id) { ufo = u; break; }
-			if (!ufo) resp["error"] = "no matching ufo";
-			else
-			{
-				ufo->setDamage(req.get("damage", 0).asInt(), _game->getMod());
-				resp["damage"] = ufo->getDamage();
-				resp["damageMax"] = ufo->getCraftStats().damageMax;
-				resp["status"] = (int)ufo->getStatus();
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "intercept_list")
-		{
-			// PRD-J08 AC3: the REAL InterceptState's rows - every shared base's
-			// crafts must list for every player in JOINT.
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			if (!geo) resp["error"] = "no geoscape";
-			else
-			{
-				InterceptState* is = new InterceptState(geo->getGlobe(), false, nullptr, nullptr);
-				Json::Value rows(Json::arrayValue);
-				for (auto* c : is->harnessListedCrafts())
-				{
-					Json::Value jr;
-					jr["craft"] = c->getName(_game->getLanguage());
-					jr["craftId"] = c->getId();
-					jr["type"] = c->getRules()->getType();
-					jr["base"] = c->getBase()->getName();
-					jr["status"] = c->getStatus();
-					rows.append(jr);
-				}
-				delete is;
-				resp["rows"] = rows;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "repro_craft_uaf")
-		{
-			// Bug #1 shim: drives the REAL Base::removePendingTransfers + the REAL
-			// Transfer dtor. Mirrors createPendingTransfers (one soldier transfer
-			// for the crew + one craft transfer), then runs exactly the
-			// connectionTCP "transfer_completed" removal+delete sequence and checks
-			// whether the kept crew's Craft* is left dangling.
-			SavedGame* sg = _game->getSavedGame();
-			if (!sg) { resp["error"] = "no save loaded"; }
-			else {
-				Base* baseFrom = nullptr;
-				for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { baseFrom = b; break; }
-				if (!baseFrom) resp["error"] = "no own base";
-				else if (baseFrom->getCrafts()->empty()) resp["error"] = "base has no craft";
-				else if (baseFrom->getSoldiers()->empty()) resp["error"] = "base has no soldier";
-				else {
-					Craft* craft = baseFrom->getCrafts()->front();
-					Soldier* crew = baseFrom->getSoldiers()->front();
-					// SETUP FIX: strip any default crew so the transfer set is complete (else validation rejects).
-					for (auto* s : *baseFrom->getSoldiers())
-						if (s->getCraft() == craft && s != crew) s->setCraft(nullptr);
-					crew->setCraft(craft);
-
-					// Mirror createPendingTransfers: one soldier transfer for the crew + one craft transfer.
-					std::vector<Transfer*> pending;
-					Transfer* st = new Transfer(6); st->setSoldier(crew); pending.push_back(st);
-					Transfer* ct = new Transfer(6); ct->setCraft(craft);  pending.push_back(ct);
-
-					// Exactly the connectionTCP "transfer_completed" sequence:
-					bool removeOk = baseFrom->removePendingTransfers(&pending);
-					if (removeOk) { for (Transfer* t : pending) delete t; pending.clear(); } // dtor frees _craft
-
-					// Detect the dangling ref WITHOUT dereferencing the freed craft:
-					Craft* stored = crew->getCraft();
-					bool craftStillLive = false;
-					for (auto* c : *baseFrom->getCrafts()) if (c == stored) { craftStillLive = true; break; }
-
-					resp["removeOk"] = removeOk;
-					resp["crewName"] = crew->getName();
-					resp["crewCraftNonNull"] = (stored != nullptr);
-					resp["crewCraftDangling"] = (stored != nullptr && !craftStillLive); // TRUE == bug present
-					crew->setCraft(nullptr); // repair the live instance so teardown/save is safe
-					resp["ok"] = true;
-				}
-			}
-		}
-		else if (cmd == "repro_receiver_ack_gap")
-		{
-			// Bug #2 shim: drives the REAL onTCPMessage("transfer", ...) + the REAL
-			// updateCoopTask() drain. Feeds a transfer whose base_to_id exists on no
-			// base and checks the receiver does not accept+queue (and would ACK) it.
-			SavedGame* sg = _game->getSavedGame();
-			if (!sg || !coop) { resp["error"] = "no save/coop"; }
-			else {
-				int bogus = 424242;
-				for (auto* b : *sg->getBases()) if (b->_coop_base_id == bogus) bogus = 424243;
-				int before = 0; for (auto* b : *sg->getBases()) before += (int)b->getTransfers()->size();
-
-				Json::Value obj;
-				obj["state"] = "transfer";
-				obj["base_to_id"] = bogus; obj["base_from_id"] = bogus; obj["total_funds"] = 0;
-				obj["items"][0]["name"] = "STR_PISTOL_CLIP"; obj["items"][0]["amount"] = 3;
-				obj["items"][0]["hour"] = 1; obj["items"][0]["type"] = 0; obj["items"][0]["craft_rule"] = "";
-
-				coop->onTCPMessage("transfer", obj);   // real receiver: accepts (items non-empty), would ACK
-				coop->updateCoopTask();                // real drain: no base matches -> silently retained
-
-				int afterNoMatch = 0; for (auto* b : *sg->getBases()) afterNoMatch += (int)b->getTransfers()->size();
-
-				// Prove it was accepted+queued (not rejected): give a real base the bogus id, drain again.
-				Base* victim = nullptr;
-				for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { victim = b; break; }
-				bool acceptedAndQueued = false;
-				if (victim) {
-					int vBefore = (int)victim->getTransfers()->size();
-					int saved = victim->_coop_base_id; victim->_coop_base_id = bogus;
-					coop->updateCoopTask();
-					acceptedAndQueued = ((int)victim->getTransfers()->size() > vBefore);
-					victim->_coop_base_id = saved;
-				}
-				resp["bogusBaseId"] = bogus;
-				resp["appliedToAnyBaseWhenNoMatch"] = (afterNoMatch > before); // FALSE == silent drop
-				resp["receiverAcceptedAndQueued"] = acceptedAndQueued;         // TRUE  == bug present
-				resp["ok"] = true;
-			}
+			// handled by the second sub-dispatcher (executeJoint11), split off to
+			// stay under MSVC's C1061 nested-block limit (same reason as executeJoint10).
 		}
 		else
 		{
