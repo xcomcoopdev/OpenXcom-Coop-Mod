@@ -66,6 +66,9 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier names.
 	void init() override;
+	/// Test automation: the soldier ids this screen actually displays (the built
+	/// _filteredListOfSoldiers). In JOINT this is what each player SEES in the roster.
+	std::vector<int> harnessDisplayedSoldierIds() const;
 	/// Applies a pending PRD-J10 live refresh.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.

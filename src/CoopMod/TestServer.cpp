@@ -680,7 +680,15 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		else if (dynamic_cast<ResearchState*>(top))    resp["top"] = "research";
 		else if (dynamic_cast<ManufactureState*>(top)) resp["top"] = "manufacture";
 		else if (dynamic_cast<StoresState*>(top))      resp["top"] = "stores";
-		else if (dynamic_cast<SoldiersState*>(top))    resp["top"] = "soldiers";
+		else if (auto* ss = dynamic_cast<SoldiersState*>(top))
+		{
+			// Playtest: what the soldier-list SCREEN actually displays. In JOINT each
+			// player should see only their own half of the shared roster.
+			resp["top"] = "soldiers";
+			Json::Value arr(Json::arrayValue);
+			for (int id : ss->harnessDisplayedSoldierIds()) arr.append(id);
+			resp["displayed"] = arr;
+		}
 		else if (dynamic_cast<BuildFacilitiesState*>(top))
 		{
 			// Playtest B1: the popup itself has no funds label - the stale/refreshed

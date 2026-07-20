@@ -1050,4 +1050,16 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 	_game->pushState(new GiftSoldierMenu(soldier, GiftSoldierMenu::resolveOwnerId(soldier)));
 }
 
+/**
+ * Test automation: the soldier ids this screen actually displays.
+ */
+std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : _filteredListOfSoldiers)
+		ids.push_back(s->getId());
+	return ids;
+}
+
+
 }
