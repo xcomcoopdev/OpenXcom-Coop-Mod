@@ -48,6 +48,10 @@ def main():
         time.sleep(3)
         ls = host.ok({"cmd": "lobby_state"})
         assert not ls["startEligible"], f"BUG1: lone host is start-eligible: {ls}"
+        # Playtest B7 regression: the PRE-game lobby (campaign not started) must NOT
+        # show the mid-game RESUME GAME button - that is only for the in-game coop menu.
+        assert ls.get("buttonText") != "RESUME GAME", \
+            f"B7: pre-game lobby wrongly shows RESUME GAME: {ls}"
         r = host.cmd({"cmd": "lobby_start_campaign"})
         assert not r.get("ok"), f"BUG1: lone host could START CAMPAIGN: {r}"
         print("PASS bug1: lone host cannot start the campaign")

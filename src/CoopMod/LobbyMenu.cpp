@@ -116,12 +116,18 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
 	// Playtest B7: detect the "opened mid-game" case BEFORE markLobbyOpen flips the
-	// lobby flag - a live campaign geoscape already sits on the stack underneath
-	// (this lobby is not yet pushed). If so the coop menu must offer a way back to
-	// the running game, not just Disconnect.
-	for (auto* s : _game->getStates())
+	// lobby flag. Two conditions must BOTH hold, or the pre-game campaign lobby (which
+	// also has a paused GeoscapeState underneath, created by NewGameState before the
+	// lobby) would wrongly show RESUME GAME:
+	//   1. the campaign has actually started (sessionLocked) - false in the pre-game
+	//      lobby, true once START/RESUME/campaign_start locked the session; and
+	//   2. a running-game geoscape sits on the stack underneath to return to.
+	if (connectionTCP::session.sessionLocked)
 	{
-		if (dynamic_cast<GeoscapeState*>(s)) { _resumeToGame = true; break; }
+		for (auto* s : _game->getStates())
+		{
+			if (dynamic_cast<GeoscapeState*>(s)) { _resumeToGame = true; break; }
+		}
 	}
 
 	connectionTCP::session.markLobbyOpen();
