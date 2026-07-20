@@ -1421,6 +1421,28 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
+// soldier_rename payload: { soldierId, name }. Playtest B3: soldier renames were
+// local-only; in JOINT they ride the joint_cmd like base_rename (host applies +
+// broadcasts, last-write-wins). ANY player may rename ANY soldier (shared roster,
+// consistent with sack). The soldier is looked up by id at the command's base.
+bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                           int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	int id = payload.get("soldierId", -1).asInt();
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) { cost = 0; return true; }
+	failReason = "soldier not found";
+	return false;
+}
+void soldierRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	int id = payload.get("soldierId", -1).asInt();
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) { s->setName(payload.get("name", s->getName()).asString()); break; }
+}
+
 // base_new payload: { lon, lat, name, liftType, liftX, liftY } (+ host-resolved
 // coopbaseid). Client-originated creation of a SUBSEQUENT base (the initial
 // campaign base is J02's, host-side pre-stream). baseId is -1 (no existing base);
@@ -2487,6 +2509,7 @@ void init()
 	registerCmd("fac_build",     &facBuildValidate,     &facBuildApply);
 	registerCmd("fac_dismantle", &facDismantleValidate, &facDismantleApply);
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
+	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.

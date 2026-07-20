@@ -95,6 +95,8 @@ public:
 	void btnFlagClick(Action *action);
 	/// Handler for clicking the rank.
 	void btnRankClick(Action *action);
+	/// Test automation: rename this soldier via the real edtSoldierChange path.
+	void harnessRename(const std::string &name);
 };
 
 }

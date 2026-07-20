@@ -112,6 +112,7 @@
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/BuildFacilitiesState.h"
 #include "../Basescape/SoldiersState.h"
+#include "../Basescape/SoldierInfoState.h"
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/PurchaseState.h"
@@ -4476,6 +4477,40 @@ std::string TestServer::execute(const std::string& line)
 				BasescapeState* bs = new BasescapeState(target, nullptr);
 				bs->harnessRename(newName);
 				delete bs;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "soldier_rename")
+		{
+			// Playtest B3: drive a soldier rename through the REAL SoldierInfoState
+			// edtSoldierChange path. In JOINT this emits soldier_rename (nothing
+			// authoritative until joint_apply); solo/SEPARATE renames locally.
+			// <soldierId> = Soldier::getId(), <name> = new name, <base> optional.
+			int id = req.get("soldierId", -1).asInt();
+			std::string newName = req.get("name", "").asString();
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			size_t idx = 0;
+			if (_game->getSavedGame())
+				for (auto* base : *_game->getSavedGame()->getBases())
+				{
+					if (base->_coopBase || base->_coopIcon) continue;
+					if (!baseName.empty() && base->getName() != baseName) continue;
+					auto* sols = base->getSoldiers();
+					for (size_t i = 0; i < sols->size(); ++i)
+						if (sols->at(i)->getId() == id) { target = base; idx = i; break; }
+					if (target) break;
+				}
+			if (!target)
+				resp["error"] = "soldier not found";
+			else if (newName.empty())
+				resp["error"] = "empty name";
+			else
+			{
+				SoldierInfoState* si = new SoldierInfoState(target, idx);
+				si->init();               // sets _soldier + _edtSoldier from the roster
+				si->harnessRename(newName); // real edtSoldierChange -> JOINT soldier_rename
+				delete si;
 				resp["ok"] = true;
 			}
 		}

@@ -46,6 +46,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
+#include "../CoopMod/JointEcon.h" // coop (JOINT soldier_rename)
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 
@@ -671,6 +672,33 @@ void SoldierInfoState::setSoldierId(size_t soldier)
 void SoldierInfoState::edtSoldierChange(Action *)
 {
 	_soldier->setName(_edtSoldier->getText());
+
+	// Playtest B3 JOINT: soldier renames ride the soldier_rename joint_cmd (host
+	// applies + broadcasts, last-write-wins), exactly like base_rename. The local
+	// setName above stays for immediate UI feedback; the joint_apply re-asserts the
+	// winning name authoritatively on every machine.
+	if (_base != 0 && _base->_coopBase == false
+		&& _game->getCoopMod()->isJointCampaign())
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if (bases->at(i) == _base) { baseId = (int)i; break; }
+		Json::Value payload;
+		payload["soldierId"] = _soldier->getId();
+		payload["name"] = _edtSoldier->getText();
+		JointEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+	}
+}
+
+/**
+ * Test automation: set the name box and fire the real edtSoldierChange handler
+ * (JOINT -> soldier_rename joint_cmd; solo/SEPARATE -> local setName only).
+ */
+void SoldierInfoState::harnessRename(const std::string &name)
+{
+	_edtSoldier->setText(name);
+	edtSoldierChange(nullptr);
 }
 
 /**
