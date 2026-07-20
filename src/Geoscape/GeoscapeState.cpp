@@ -5572,9 +5572,11 @@ void GeoscapeState::jointReconcileReplicaDogfights()
 		// client (seat >= 1) opens the minimized icon; the commanding client opens full.
 		if (craft && ufo && ufo->getStatus() == Ufo::FLYING && !craft->isInDogfight())
 		{
-			int mySeat = _game->getCoopMod() ? _game->getCoopMod()->localSeat() : -1;
-			bool startMinimized = (m.commandingSeat != mySeat);
-			startJointDogfight(craft, ufo, m.ufoIsAttacking, startMinimized);
+			// Playtest: EVERY player sees the dogfight window in FULL when the craft
+			// reaches the UFO - not just the last seat to command the craft. The old
+			// commandingSeat-based minimize hid the fight from other players and drove
+			// the "dogfight broken for clients" confusion. Always open full.
+			startJointDogfight(craft, ufo, m.ufoIsAttacking, false /*startMinimized*/);
 		}
 	}
 }

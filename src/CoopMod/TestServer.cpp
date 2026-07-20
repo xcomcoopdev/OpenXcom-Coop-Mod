@@ -1898,6 +1898,8 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			resp["buttonText"] = lobby->actionButtonText();
 			resp["buttonVisible"] = lobby->actionButtonVisible();
 			resp["detailsText"] = lobby->detailsText();
+			resp["hostRowName"] = lobby->rowNameById(1);   // playtest: role-correct names
+			resp["clientRowName"] = lobby->rowNameById(2);
 			int idx = 0;
 			for (const auto& n : lobby->rosterNames())
 			{

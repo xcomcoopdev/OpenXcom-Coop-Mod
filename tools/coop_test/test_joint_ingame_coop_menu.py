@@ -56,6 +56,26 @@ def _check_resume(gc, who):
         f"visible={ls.get('buttonVisible')}) (B7)"
     print(f"PASS {who} menu: coop menu shows a visible RESUME GAME button")
 
+    # NAMES: the roster must name the HOST correctly on BOTH machines. getHostName()
+    # is machine-relative, so before the fix the host row showed the local player's
+    # name (wrong on whichever machine's local player is not the host). Read the row
+    # by id (the displayed roster is name-sorted, so row order is not id order).
+    def _named():
+        ls = gc.cmd({"cmd": "lobby_state"})
+        h = (ls.get("hostRowName") or "").strip()
+        return ls if h else None
+
+    gc.wait_for(f"{who} roster names the host correctly",
+                _named, timeout=15, interval=0.3)
+    ls = gc.cmd({"cmd": "lobby_state"})
+    host_row = (ls.get("hostRowName") or "").strip()
+    client_row = (ls.get("clientRowName") or "").strip()
+    assert host_row == "HostPlayer", \
+        f"{who}: host row shows wrong name {host_row!r} (want HostPlayer) - machine-relative getter bug"
+    assert client_row == "ClientPlayer", \
+        f"{who}: client row shows wrong name {client_row!r} (want ClientPlayer)"
+    print(f"PASS {who} names: host row=HostPlayer, client row=ClientPlayer (role-correct)")
+
     # RESUME: clicking it returns to the running geoscape, still connected.
     assert gc.ok({"cmd": "lobby_action"}).get("ok"), f"{who}: lobby_action failed"
     gc.wait_for(f"{who} back on the running geoscape",

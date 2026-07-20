@@ -485,45 +485,48 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_btnMinimize->setVisible(!_ufoIsAttacking);
 
 	_btnStandoff->copy(_window);
-	_btnStandoff->setGroup(&_mode);
+	if (!_isReplicaView) _btnStandoff->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnStandoff->onMousePress((ActionHandler)&DogfightState::btnStandoffPress);
 	_btnStandoff->onMousePress((ActionHandler)&DogfightState::btnStandoffRightPress, SDL_BUTTON_RIGHT);
 	_btnStandoff->setVisible(!_disableStandoff);
 
 	_btnCautious->copy(_window);
-	_btnCautious->setGroup(&_mode);
+	if (!_isReplicaView) _btnCautious->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnCautious->onMousePress((ActionHandler)&DogfightState::btnCautiousPress);
 	_btnCautious->onMousePress((ActionHandler)&DogfightState::btnCautiousRightPress, SDL_BUTTON_RIGHT);
 	_btnCautious->setVisible(!_disableCautious);
 
 	_btnStandard->copy(_window);
-	_btnStandard->setGroup(&_mode);
+	if (!_isReplicaView) _btnStandard->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnStandard->onMousePress((ActionHandler)&DogfightState::btnStandardPress);
 	_btnStandard->onMousePress((ActionHandler)&DogfightState::btnStandardRightPress, SDL_BUTTON_RIGHT);
 	_btnStandard->setVisible(!_disableStandard);
 
 	_btnAggressive->copy(_window);
-	_btnAggressive->setGroup(&_mode);
+	if (!_isReplicaView) _btnAggressive->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnAggressive->onMousePress((ActionHandler)&DogfightState::btnAggressivePress);
 	_btnAggressive->onMousePress((ActionHandler)&DogfightState::btnAggressiveRightPress, SDL_BUTTON_RIGHT);
 	_btnAggressive->setVisible(!_disableAggressive);
-	if (_ufoIsAttacking || _missileCraft)
+	if ((_ufoIsAttacking || _missileCraft) && !_isReplicaView)
 	{
-		btnAggressivePress(0);
+		btnAggressivePress(0); // host only: side effects (dist/reload); a replica adopts the stance from df_state
 	}
 
 	_btnDisengage->copy(_window);
 	_btnDisengage->onMousePress((ActionHandler)&DogfightState::btnDisengagePress);
 	_btnDisengage->onMousePress((ActionHandler)&DogfightState::btnDisengageRightPress, SDL_BUTTON_RIGHT);
-	_btnDisengage->setGroup(&_mode);
+	if (!_isReplicaView) _btnDisengage->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnDisengage->setVisible(!_disableDisengage);
 
 	_btnUfo->copy(_window);
 	_btnUfo->onMouseClick((ActionHandler)&DogfightState::btnUfoClick);
 
-	// Playtest B6: setGroup(&_mode) above inverted whichever button _mode points at;
-	// remember it so a df_state-driven stance change can move the highlight (invert)
-	// itself - mousePress, which normally maintains it, is bypassed on a replica.
+	// Playtest B6/dogfight: track which stance button is drawn inverted so a
+	// df_state-driven stance change can move the highlight itself. On the HOST,
+	// setGroup(&_mode) above already inverted the initial _mode button. On a REPLICA
+	// there is no group (host-authoritative display), so seed that initial invert by
+	// hand to keep the invariant _visInverted == the inverted button.
+	if (_isReplicaView) _mode->invert(_mode->getColor() + 3);
 	_visInverted = _mode;
 
 	_txtDistance->setText("640");
@@ -2249,9 +2252,11 @@ void DogfightState::btnMinimizeClick(Action *)
  */
 void DogfightState::btnStandoffPress(Action *)
 {
-	// PRD-DF02 REPLICA: optimistic echo (set _mode now, pure render) then emit df_cmd;
-	// the next authoritative df_state confirms/corrects _mode.
-	if (_isReplicaView) { _mode = _btnStandoff; emitDfCmd("standoff"); return; }
+	// Playtest: replica buttons are HOST-AUTHORITATIVE. A click only requests the
+	// stance (df_cmd); the button itself never moves optimistically - it follows the
+	// host's df_state (applyFrame). No optimistic echo => no revert flicker, and the
+	// button always shows exactly what the host shows.
+	if (_isReplicaView) { emitDfCmd("standoff"); return; }
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2279,7 +2284,7 @@ void DogfightState::btnStandoffSimulateLeftPress(Action *action)
  */
 void DogfightState::btnCautiousPress(Action *)
 {
-	if (_isReplicaView) { _mode = _btnCautious; emitDfCmd("cautious"); return; } // PRD-DF02: optimistic echo + df_cmd
+	if (_isReplicaView) { emitDfCmd("cautious"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2333,7 +2338,7 @@ void DogfightState::btnCautiousSimulateLeftPress(Action *action)
  */
 void DogfightState::btnStandardPress(Action *)
 {
-	if (_isReplicaView) { _mode = _btnStandard; emitDfCmd("standard"); return; } // PRD-DF02: optimistic echo + df_cmd
+	if (_isReplicaView) { emitDfCmd("standard"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2369,7 +2374,7 @@ void DogfightState::btnStandardSimulateLeftPress(Action *action)
  */
 void DogfightState::btnAggressivePress(Action *)
 {
-	if (_isReplicaView) { _mode = _btnAggressive; emitDfCmd("aggressive"); return; } // PRD-DF02: optimistic echo + df_cmd
+	if (_isReplicaView) { emitDfCmd("aggressive"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2405,7 +2410,7 @@ void DogfightState::btnAggressiveSimulateLeftPress(Action *action)
  */
 void DogfightState::btnDisengagePress(Action *)
 {
-	if (_isReplicaView) { _mode = _btnDisengage; emitDfCmd("disengage"); return; } // PRD-DF02: optimistic echo + df_cmd
+	if (_isReplicaView) { emitDfCmd("disengage"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = true;

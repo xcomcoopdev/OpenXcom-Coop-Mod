@@ -550,6 +550,21 @@ std::vector<std::string> LobbyMenu::rosterNames() const
 	return names;
 }
 
+/// Test automation: the name in a specific roster ROW by player id (unsorted),
+/// since the displayed roster is sorted so row order is not id order. id 1 = the
+/// host row, id 2 = the client row.
+std::string LobbyMenu::rowNameById(int id) const
+{
+	for (const auto &p : _connectedPlayers)
+	{
+		if (p.id == id)
+		{
+			return p.name;
+		}
+	}
+	return "";
+}
+
 std::vector<std::string> LobbyMenu::missingPlayers() const
 {
 	// registered players (minus the host) not currently connected
@@ -1104,7 +1119,14 @@ void LobbyMenu::think()
 		if (itHost == _connectedPlayers.end())
 		{
 
-			_connectedPlayers.push_back(playerInfo({hostId, _game->getCoopMod()->getHostName(), "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
+			// Playtest: the host row must show the HOST's name on BOTH machines.
+			// getHostName() is machine-relative (the LOCAL player's name), so read it
+			// role-relative like the server-name title does - on a client machine the
+			// host's name is the peer, getCurrentClientName().
+			std::string hostRowName = _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+			_connectedPlayers.push_back(playerInfo({hostId, hostRowName, "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
 			itHost = std::prev(_connectedPlayers.end());
 
 		}
@@ -1248,7 +1270,11 @@ void LobbyMenu::think()
 
 		std::string txtDetails = "Funds: " + std::to_string(funds) + " Bases: " + std::to_string(base_count) + " Crafts: " + std::to_string(craft_count);
 
-		itHost->name = _game->getCoopMod()->getHostName() + txtStatus;
+		// role-relative host name (see the host-row insert above): correct on both machines.
+		std::string hostRowName = _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+		itHost->name = hostRowName + txtStatus;
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
 		
@@ -1265,7 +1291,11 @@ void LobbyMenu::think()
 		{
 			const int playerId = 2; // fix later...
 
-			std::string clientName = _game->getCoopMod()->getCurrentClientName();
+			// role-relative client name: the CLIENT player's name on both machines.
+			// On a client machine the local player IS the client, so read getHostName().
+			std::string clientName = _game->getCoopMod()->getServerOwner()
+				? _game->getCoopMod()->getCurrentClientName()
+				: _game->getCoopMod()->getHostName();
 			std::string ping = _game->getCoopMod()->getPing();
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),
