@@ -1067,4 +1067,12 @@ void BasescapeState::harnessRename(const std::string &name)
 	edtBaseChange(nullptr);
 }
 
+/**
+ * Test automation: the funds header string, as last rendered into the label.
+ */
+std::string BasescapeState::harnessFundsText() const
+{
+	return _txtFunds->getText();
+}
+
 }

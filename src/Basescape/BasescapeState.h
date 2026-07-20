@@ -103,6 +103,9 @@ public:
 	void handleKeyPress(Action *action);
 	/// Test automation: rename the displayed base via the real edtBaseChange path.
 	void harnessRename(const std::string &name);
+	/// Test automation: the funds header text (a constructor/init-time cache; only
+	/// changes when the screen is rebuilt, so it proves a live JOINT refresh landed).
+	std::string harnessFundsText() const;
 };
 
 }

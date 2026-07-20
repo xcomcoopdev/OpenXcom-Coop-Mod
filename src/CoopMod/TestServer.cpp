@@ -110,6 +110,7 @@
 #include "PasswordCheckMenu.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
+#include "../Basescape/BuildFacilitiesState.h"
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
@@ -560,6 +561,21 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			_game->pushState(new SoldiersState(target));
 			resp["ok"] = true;
 		}
+		else if (screen == "basescape")
+		{
+			// Playtest B1: the base management screen (funds header + facility grid).
+			_game->pushState(new BasescapeState(target, nullptr));
+			resp["ok"] = true;
+		}
+		else if (screen == "build_facilities")
+		{
+			// Playtest B1: the small "build facilities" popup, ON TOP of a BasescapeState
+			// (so the funds/grid behind it are what a live joint_apply must refresh).
+			BasescapeState* bs = new BasescapeState(target, nullptr);
+			_game->pushState(bs);
+			_game->pushState(new BuildFacilitiesState(target, bs));
+			resp["ok"] = true;
+		}
 		else if (screen == "craft_soldiers")
 		{
 			int craftId = req.get("craft_id", -1).asInt();
@@ -648,7 +664,21 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		else if (dynamic_cast<ManufactureState*>(top)) resp["top"] = "manufacture";
 		else if (dynamic_cast<StoresState*>(top))      resp["top"] = "stores";
 		else if (dynamic_cast<SoldiersState*>(top))    resp["top"] = "soldiers";
-		else if (dynamic_cast<BasescapeState*>(top))   resp["top"] = "basescape";
+		else if (dynamic_cast<BuildFacilitiesState*>(top))
+		{
+			// Playtest B1: the popup itself has no funds label - the stale/refreshed
+			// header lives on the BasescapeState it covers. Dig for it and report its
+			// cached funds string (proves the covered screen rebuilt under the popup).
+			resp["top"] = "build_facilities";
+			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+				if (auto* bs = dynamic_cast<BasescapeState*>(*it))
+				{ resp["funds"] = bs->harnessFundsText(); break; }
+		}
+		else if (auto* bs = dynamic_cast<BasescapeState*>(top))
+		{
+			resp["top"] = "basescape";
+			resp["funds"] = bs->harnessFundsText();
+		}
 		else if (dynamic_cast<GeoscapeState*>(top))    resp["top"] = "geoscape";
 		else if (auto* cd = dynamic_cast<CoopState*>(top))
 		{
