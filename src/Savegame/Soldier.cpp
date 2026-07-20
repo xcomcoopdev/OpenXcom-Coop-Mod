@@ -918,7 +918,7 @@ void Soldier::setOwnerPlayerId(int id)
 	_ownerPlayerId = id;
 }
 
-int Soldier::getOwnerPlayerId()
+int Soldier::getOwnerPlayerId() const
 {
 	return _ownerPlayerId;
 }

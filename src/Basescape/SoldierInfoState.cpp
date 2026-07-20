@@ -744,10 +744,15 @@ void SoldierInfoState::btnGiveUnitPress(Action *)
  */
 void SoldierInfoState::btnPrevClick(Action *)
 {
-	if (_soldierId == 0)
-		_soldierId = _list->size() - 1;
-	else
-		_soldierId--;
+	// Playtest: in JOINT, paging skips the peer's soldiers (own only).
+	size_t n = _list->size();
+	for (size_t i = 0; i < n; ++i)
+	{
+		_soldierId = (_soldierId == 0) ? n - 1 : _soldierId - 1;
+		if (!_game->getCoopMod()->isJointCampaign()
+			|| JointEcon::ownsSoldier(_game, _list->at(_soldierId)))
+			break;
+	}
 	init();
 }
 
@@ -757,9 +762,16 @@ void SoldierInfoState::btnPrevClick(Action *)
  */
 void SoldierInfoState::btnNextClick(Action *)
 {
-	_soldierId++;
-	if (_soldierId >= _list->size())
-		_soldierId = 0;
+	size_t n = _list->size();
+	for (size_t i = 0; i < n; ++i)
+	{
+		_soldierId++;
+		if (_soldierId >= n)
+			_soldierId = 0;
+		if (!_game->getCoopMod()->isJointCampaign()
+			|| JointEcon::ownsSoldier(_game, _list->at(_soldierId)))
+			break;
+	}
 	init();
 }
 

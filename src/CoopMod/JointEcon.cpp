@@ -3011,7 +3011,7 @@ void broadcastLandClose(Game* game, Craft* craft)
 	submitLocalCmd(game, "land_close", craftBaseIndex(game, craft), p);
 }
 
-bool ownsSoldier(Game* game, Soldier* soldier)
+bool ownsSoldier(Game* game, const Soldier* soldier)
 {
 	if (!game || !soldier) return false;
 	connectionTCP* coop = game->getCoopMod();

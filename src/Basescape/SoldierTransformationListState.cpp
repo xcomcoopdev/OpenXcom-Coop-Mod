@@ -36,6 +36,7 @@
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleSoldierTransformation.h"
 #include "../Savegame/Base.h"
+#include "../CoopMod/JointEcon.h" // coop (soldier ownership parity)
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
@@ -249,6 +250,7 @@ void SoldierTransformationListState::initList()
 				// soldiers outside of the base are not eligible
 				continue;
 			}
+			if (!JointEcon::ownsSoldier(_game, soldier)) continue; // JOINT: own only
 			if (soldier->isEligibleForTransformation(transformationRule))
 			{
 				++eligibleSoldiers;

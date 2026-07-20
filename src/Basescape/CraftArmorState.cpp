@@ -190,6 +190,11 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
+			if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+			{
+				initList(_lstSoldiers->getScroll());
+				return;
+			}
 		}
 
 		// if CTRL is pressed, we only want to show the dynamic column, without actual sorting
@@ -271,7 +276,7 @@ void CraftArmorState::init()
 	initList(_savedScrollPosition);
 
 	int row = 0;
-	for (const auto* soldier : *_base->getSoldiers())
+	for (const auto* soldier : _viewSoldiers)
 	{
 		_lstSoldiers->setCellText(row, 2, tr(soldier->getArmor()->getType()));
 		row++;
@@ -302,7 +307,9 @@ void CraftArmorState::initList(size_t scrl)
 
 	Craft *c = _base->getCrafts()->at(_craft);
 	BaseSumDailyRecovery recovery = _base->getSumRecoveryPerDay();
-	for (const auto* soldier : *_base->getSoldiers())
+	// Playtest: JOINT crew-armor list shows only your own soldiers (non-destructive).
+	_viewSoldiers = JointEcon::visibleSoldiers(_game, _base);
+	for (const auto* soldier : _viewSoldiers)
 	{
 		if (_dynGetter != NULL)
 		{
@@ -368,6 +375,7 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
+	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -421,6 +429,7 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
+	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -464,7 +473,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 		return;
 	}
 
-	Soldier *s = _base->getSoldiers()->at(_lstSoldiers->getSelectedRow());
+	Soldier *s = _viewSoldiers[_lstSoldiers->getSelectedRow()];
 	if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
 	{
 		if (_game->isLeftClick(action, true))
@@ -509,7 +518,16 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 			else
 			{
 				_savedScrollPosition = _lstSoldiers->getScroll();
-				_game->pushState(new SoldierArmorState(_base, _lstSoldiers->getSelectedRow(), SA_GEOSCAPE));
+				size_t _row = _lstSoldiers->getSelectedRow();
+				int _baseIdx = (int)_row;
+				if (_row < _viewSoldiers.size())
+				{
+					Soldier* _sel = _viewSoldiers[_row];
+					auto& _all = *_base->getSoldiers();
+					for (size_t _i = 0; _i < _all.size(); ++_i)
+						if (_all[_i] == _sel) { _baseIdx = (int)_i; break; }
+				}
+				_game->pushState(new SoldierArmorState(_base, _baseIdx, SA_GEOSCAPE));
 			}
 		}
 		else if (_game->isRightClick(action, true))
@@ -703,6 +721,14 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 		}
 		row++;
 	}
+}
+
+std::vector<int> CraftArmorState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : _viewSoldiers)
+		ids.push_back(s->getId());
+	return ids;
 }
 
 }

@@ -584,6 +584,20 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			_game->pushState(new BuildFacilitiesState(target, bs));
 			resp["ok"] = true;
 		}
+		else if (screen == "craft_armor")
+		{
+			int craftId = req.get("craft_id", -1).asInt();
+			size_t idx = target->getCrafts()->size();
+			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
+				if (target->getCrafts()->at(i)->getId() == craftId) { idx = i; break; }
+			if (idx >= target->getCrafts()->size())
+				resp["error"] = "craft id not at base";
+			else
+			{
+				_game->pushState(new CraftArmorState(target, idx));
+				resp["ok"] = true;
+			}
+		}
 		else if (screen == "craft_soldiers")
 		{
 			int craftId = req.get("craft_id", -1).asInt();
@@ -679,6 +693,13 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			Json::Value arr(Json::arrayValue);
 			for (const auto& n : nr->harnessProjectNames()) arr.append(n);
 			resp["projects"] = arr;
+		}
+		else if (auto* ca = dynamic_cast<CraftArmorState*>(top))
+		{
+			resp["top"] = "craft_armor";
+			Json::Value arr(Json::arrayValue);
+			for (int id : ca->harnessDisplayedSoldierIds()) arr.append(id);
+			resp["displayed"] = arr;
 		}
 		else if (dynamic_cast<ResearchState*>(top))    resp["top"] = "research";
 		else if (dynamic_cast<ManufactureState*>(top)) resp["top"] = "manufacture";

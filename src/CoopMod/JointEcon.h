@@ -308,7 +308,7 @@ void applyDogfightState(Game* game, const Json::Value& obj);
 /// callers must never mutate base->getSoldiers() in JOINT (checksum/desync).
 std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 /// True if this machine's player owns @a soldier (JOINT owner==localSeat; else true).
-bool ownsSoldier(Game* game, Soldier* soldier);
+bool ownsSoldier(Game* game, const Soldier* soldier);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every

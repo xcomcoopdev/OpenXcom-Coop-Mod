@@ -155,7 +155,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 	{
 		if (_debriefingState) break;
 		// coop
-		if (soldier->getCraft() == 0 && soldier->getCoopBase() == -1)
+		if (soldier->getCraft() == 0 && soldier->getCoopBase() == -1 && JointEcon::ownsSoldier(_game, soldier))
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), (int)(5 * _distance), 1, 0, 0, -4, 0, 0, (int)(5 * _distance) };
 			_items.push_back(row);

@@ -198,7 +198,7 @@ void SellState::delayedInit()
 	for (auto* soldier : *_base->getSoldiers())
 	{
 		if (_debriefingState) break;
-		if (soldier->getCraft() == 0)
+		if (soldier->getCraft() == 0 && JointEcon::ownsSoldier(_game, soldier))
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), 0, 1, 0, 0, -4, 0, 0, 0 };
 			_items.push_back(row);
