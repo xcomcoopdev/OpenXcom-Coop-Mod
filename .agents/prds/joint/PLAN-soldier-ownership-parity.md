@@ -156,7 +156,17 @@ Guards (b) against future ownership regressions. No production change expected.
 
 ---
 
-## 6. Open design decisions (need a call before coding)
+## 6. Design decisions — RESOLVED (user, 2026-07-20)
+
+1. **Counts/capacity: SHARED.** Living quarters, base-info soldier bar,
+   getAvailableSoldiers/getTotalSoldiers stay shared+accurate. Filter only the LISTS.
+   -> No change to Base count methods; base-info shows the shared total.
+2. **Gifting: KEEP** (give-unit transfers ownership; soldier moves to the teammate's
+   list). Add a JOINT gift test validating the ownership move + both lists update.
+3. **Battlescape: identical to SEPARATE** (see all on the map, control only your own on
+   your turn). Already true (§5) -> verify test only, no battle code.
+
+### (original options, for reference)
 
 1. **Soldier COUNT / capacity.** The base is physically shared, so living-quarters
    capacity and `getTotalSoldiers()` are inherently shared. Options:

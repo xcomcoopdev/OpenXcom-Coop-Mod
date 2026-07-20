@@ -3011,6 +3011,29 @@ void broadcastLandClose(Game* game, Craft* craft)
 	submitLocalCmd(game, "land_close", craftBaseIndex(game, craft), p);
 }
 
+bool ownsSoldier(Game* game, Soldier* soldier)
+{
+	if (!game || !soldier) return false;
+	connectionTCP* coop = game->getCoopMod();
+	if (!coop || !coop->isJointCampaign()) return true; // solo/SEPARATE: not owner-gated
+	return soldier->getOwnerPlayerId() == connectionTCP::localSeat();
+}
+
+std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
+{
+	std::vector<Soldier*> out;
+	if (!base) return out;
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	bool joint = coop && coop->isJointCampaign();
+	int seat = joint ? connectionTCP::localSeat() : -1;
+	for (auto* s : *base->getSoldiers())
+	{
+		if (!joint || s->getOwnerPlayerId() == seat)
+			out.push_back(s);
+	}
+	return out;
+}
+
 void hostDayTick(Game* game)
 {
 	if (!jointHost(game)) return;
