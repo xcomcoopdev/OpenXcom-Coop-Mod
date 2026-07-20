@@ -115,6 +115,15 @@ struct comparePlayerLatency
 LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
+	// Playtest B7: detect the "opened mid-game" case BEFORE markLobbyOpen flips the
+	// lobby flag - a live campaign geoscape already sits on the stack underneath
+	// (this lobby is not yet pushed). If so the coop menu must offer a way back to
+	// the running game, not just Disconnect.
+	for (auto* s : _game->getStates())
+	{
+		if (dynamic_cast<GeoscapeState*>(s)) { _resumeToGame = true; break; }
+	}
+
 	connectionTCP::session.markLobbyOpen();
 
 	// coop chat menu
@@ -208,6 +217,14 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		{
 			_btnCancel->setVisible(false);
 		}
+	}
+
+	// Playtest B7: opened mid-game -> RESUME GAME for every player (host and client),
+	// overriding the lobby gating above. think() re-asserts this each tick.
+	if (_resumeToGame)
+	{
+		_btnCancel->setText("RESUME GAME");
+		_btnCancel->setVisible(true);
 	}
 
 	_txtTitle->setBig();
@@ -589,6 +606,24 @@ void LobbyMenu::openStartConfirmDialog()
 	_game->pushState(new ConfirmStartCampaignState(this));
 }
 
+/**
+ * Playtest B7: return from the mid-game coop menu to the running game. The lobby was
+ * opened over a live campaign geoscape; the connection and shared world stay up, so
+ * just pop the coop-menu states (this lobby + the pause menu it came from) back down
+ * to that geoscape. Restores the lobby-closed flag that this menu's ctor cleared.
+ */
+void LobbyMenu::returnToRunningGame()
+{
+	connectionTCP::session.markLobbyClosed();
+	// Pop every state above the running geoscape (bounded by the stack depth).
+	int guard = 0;
+	while (guard++ < 32 && _game->getStates().size() > 1
+		&& !dynamic_cast<GeoscapeState*>(_game->getStates().back()))
+	{
+		_game->popState();
+	}
+}
+
 bool LobbyMenu::clickStartConfirmOk()
 {
 	if (_game->getStates().empty())
@@ -674,6 +709,15 @@ void LobbyMenu::startCampaign()
 
 void LobbyMenu::btnCancelClick(Action*)
 {
+
+	// Playtest B7: opened mid-game -> the button is RESUME GAME. The shared world is
+	// already live on every machine, so just return to it (no re-handshake), for the
+	// host and the client alike. Handled before any lobby-start logic.
+	if (_resumeToGame)
+	{
+		returnToRunningGame();
+		return;
+	}
 
 	// campaign lobby: the button is START/RESUME CAMPAIGN, host only (D3/D4)
 	if (connectionTCP::session.lobbyMode != 0)
@@ -1179,6 +1223,14 @@ void LobbyMenu::think()
 		else
 		{
 			_btnCancel->setText("CANCEL");
+		}
+
+		// Playtest B7: mid-game coop menu -> keep RESUME GAME asserted over whatever
+		// the lobby button logic above chose.
+		if (_resumeToGame)
+		{
+			_btnCancel->setText("RESUME GAME");
+			_btnCancel->setVisible(true);
 		}
 
 		// funds

@@ -1906,6 +1906,27 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		}
 		resp["ok"] = true;
 	}
+	else if (cmd == "open_coop_menu")
+	{
+		// Playtest B7: the in-game coop menu. Reached from the pause screen ->
+		// co-op -> (connected) ServerList redirects to the LobbyMenu. Opened over
+		// a running campaign it must offer RESUME GAME, not only Disconnect.
+		_game->pushState(new LobbyMenu());
+		resp["ok"] = true;
+	}
+	else if (cmd == "lobby_action")
+	{
+		// Playtest B7: click the lobby's single action button (RESUME GAME when
+		// the menu was opened mid-game).
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+			resp["error"] = "no LobbyMenu in state stack";
+		else
+		{
+			lobby->btnCancelClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "load_save_menu")
 	{
 		// load through the real LoadGameState (runs the co-op routing:

@@ -52,6 +52,12 @@ protected:
 	bool _sortable;
 	bool _timerStarted = false;
 	bool _redirected = false; // think() left the lobby after a lost connection
+	/// Playtest B7: this coop menu was opened MID-GAME (a running campaign geoscape
+	/// sits on the stack underneath). The action button becomes RESUME GAME and just
+	/// returns to the live game instead of leaving disconnect as the only option.
+	bool _resumeToGame = false;
+	/// Playtest B7: pop the coop-menu states back down to the running game geoscape.
+	void returnToRunningGame();
 	int _countdown = 30; // seconds
 	void updateArrows();
   public:
