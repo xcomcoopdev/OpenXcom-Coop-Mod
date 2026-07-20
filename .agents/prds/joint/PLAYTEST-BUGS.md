@@ -10,6 +10,29 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (test green)
 
 ---
 
+## Round 2 (2026-07-20, second playtest pass) — all ☑
+
+- **R2-1 soldiers still co-owned** ☑ — the B4 creation split didn't migrate an
+  EXISTING save (owner 999 → co-owned). Added `SavedGame::migrateJointSoldierOwnership`
+  (split 999 by id-parity) on both load paths + creation. Validated END-TO-END:
+  `test_joint_soldier_ownership_battle.py` (bootstrap owners → battle `_coop` split on
+  both machines) + on-load migration (force 999 → reload → re-split). Commit 754c76e60.
+- **R2-2 craft-arrived alerts / dogfight window not shown to all** ☑ — scrapped the
+  last-commander gating. All seats get the landing prompt + the dogfight window (full);
+  host stays battle authority; any seat answers (first-wins, `land_close` closes the
+  rest). `test_joint_landing.py` rewritten to all-seats; dogfight full-for-all in
+  `test_joint_dogfight_shared.py`. Commits 62c9fded1, 2f8457d21.
+- **R2-3 dogfight window broken for clients (buttons revert)** ☑ — replica buttons are
+  now HOST-AUTHORITATIVE (no radio group / no optimistic echo → no revert, no highlight
+  desync); window opens full for all. Extensive `test_joint_dogfight_shared.py` (host-
+  & client-commanded, host-sync, client cmds stick in host order, conflicts, invariant
+  highlight==mode). Commit 2f8457d21.
+- **R2-4 coop menu shows wrong host name** ☑ — roster used machine-relative
+  `getHostName()` for the host row; now role-relative via `getServerOwner()`.
+  `test_joint_ingame_coop_menu.py` asserts host row=HostPlayer on both. Commit 2f8457d21.
+
+---
+
 ## B1 — Client facility build not reflected until menu exit ☑
 Client builds facility in shared base → construction + debited funds NOT shown
 until leaving the "build facilities" menu. Needs live refresh of the open
