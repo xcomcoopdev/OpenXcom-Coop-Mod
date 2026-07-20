@@ -343,6 +343,20 @@ class connectionTCP
 	bool geoMembershipChanged(const Json::Value& root);
 	std::set<int> _lastGeoUfoIds;
 	std::set<int> _lastGeoMissionIds;
+	// Playtest: craft ids whose JOINT landing decision has been resolved (any seat
+	// answered). Every seat is prompted; the losers' broker ConfirmLandingState polls
+	// this in think() and closes itself. Marked by the host resolver / a land_close
+	// broadcast; cleared when a fresh prompt for that craft goes out.
+	std::set<int> _landingResolved;
+	void markLandingResolved(int craftId) { _landingResolved.insert(craftId); }
+	void clearLandingResolved(int craftId) { _landingResolved.erase(craftId); }
+	bool consumeLandingResolved(int craftId)
+	{
+		auto it = _landingResolved.find(craftId);
+		if (it == _landingResolved.end()) return false;
+		_landingResolved.erase(it);
+		return true;
+	}
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);

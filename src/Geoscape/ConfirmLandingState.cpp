@@ -159,6 +159,22 @@ void ConfirmLandingState::init()
 }
 
 /**
+ * Playtest: a brokered landing dialog is shown on every seat. Once ANY seat answers,
+ * the host resolves it and marks/broadcasts the resolution; the remaining copies
+ * close themselves here so no stale "assault?" dialog lingers on the losing seats.
+ */
+void ConfirmLandingState::think()
+{
+	State::think();
+	if (_jointBroker && _craft
+		&& _game->getCoopMod()->consumeLandingResolved(_craft->getId())
+		&& !_game->getStates().empty() && _game->getStates().back() == this)
+	{
+		_game->popState();
+	}
+}
+
+/**
 * Checks the starting condition.
 */
 std::string ConfirmLandingState::checkStartingCondition()

@@ -119,14 +119,16 @@ def main():
             return None
 
         host.wait_for("host brokered the landing prompt", _brokered, timeout=90, interval=0.5)
-        # THE assertion: the host asked someone else instead of asking itself.
-        assert not _has(host, "ConfirmLandingState"), \
-            "host popped its own ConfirmLandingState for a CLIENT-commanded craft"
-        client.wait_for("client got the brokered ConfirmLandingState",
+        # NEW model: EVERY player is alerted - both the host AND the client pop the
+        # landing dialog (not only the commanding seat). The host still tracks the
+        # pending decision and remains the battle authority.
+        host.wait_for("host also got the landing dialog",
+                      lambda: _has(host, "ConfirmLandingState") or None, timeout=30, interval=0.5)
+        client.wait_for("client got the landing dialog",
                         lambda: _has(client, "ConfirmLandingState") or None,
                         timeout=60, interval=0.5)
-        print("PASS route: the host brokered the prompt (none on the host); the "
-              "COMMANDING SEAT holds the ConfirmLandingState")
+        assert _pending(host), "host must track the pending landing decision"
+        print("PASS route: BOTH the host and the client got the landing dialog (all seats alerted)")
 
         # ================================================================
         # 2) RE-ASK: reachedDestination re-enters every ~5 game seconds. The
@@ -148,15 +150,18 @@ def main():
         host.wait_for("host sent the craft home",
                       lambda: (_craft(host, cid)["destKind"] == "base") or None,
                       timeout=60, interval=0.5)
-        assert not _has(client, "ConfirmLandingState"), "client dialog did not close"
-        assert not _has(host, "ConfirmLandingState"), "host popped a dialog on decline"
+        # both dialogs close: the answerer's popped itself, the loser's via land_close.
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{tag} landing dialog closed",
+                        lambda gc=gc: (not _has(gc, "ConfirmLandingState")) or None,
+                        timeout=30, interval=0.5)
         assert host.cmd({"cmd": "ping"}).get("pong"), "host unresponsive after the decline"
         assert client.cmd({"cmd": "ping"}).get("pong"), "client unresponsive after the decline"
         print("PASS decline: the client's NO reached the host, which returned the "
-              "craft to base; no dialog left on either machine")
+              "craft to base; both dialogs closed (land_close)")
 
         # ================================================================
-        # 4) HOST-COMMANDED craft: the vanilla path must be untouched for seat 0.
+        # 4) HOST-COMMANDED craft: ALSO alerts every seat now (no commander gating).
         # ================================================================
         r = host.ok({"cmd": "craft_order", "order": "target", "craft_id": cid,
                      "craft_type": _skyranger(host)["type"], "site_id": site_id})
@@ -172,13 +177,18 @@ def main():
             host.cmd({"cmd": "geo_set_speed", "idx": 2})
             return None
 
-        host.wait_for("host got its OWN landing prompt", _host_prompt, timeout=90, interval=0.5)
-        assert not _pending(host), "a host-commanded craft must not be brokered"
-        assert not _has(client, "ConfirmLandingState"), \
-            "client got a dialog for a HOST-commanded craft"
-        host.ok({"cmd": "decline_landing"})
-        print("PASS seat-0 craft: the host's own order still pops the host's own "
-              "dialog (vanilla path untouched)")
+        host.wait_for("host got the landing prompt", _host_prompt, timeout=90, interval=0.5)
+        assert _pending(host), "host-commanded craft is now brokered to all seats too"
+        client.wait_for("client also alerted for the HOST-commanded craft",
+                        lambda: _has(client, "ConfirmLandingState") or None,
+                        timeout=60, interval=0.5)
+        host.ok({"cmd": "decline_landing"})  # the host answers its OWN dialog
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{tag} dialog closed after host decline",
+                        lambda gc=gc: (not _has(gc, "ConfirmLandingState")) or None,
+                        timeout=30, interval=0.5)
+        print("PASS seat-0 craft: a HOST-commanded craft now alerts EVERY seat too; "
+              "the host's decline closed both dialogs")
 
         # ================================================================
         # 5) CONFIRM: the client answers YES. The HOST - still the battle
@@ -199,10 +209,12 @@ def main():
                       timeout=30, interval=0.5)
         _fly_to_site(host, cid, site_id, blon, blat)
         host.wait_for("host brokered the second prompt", _brokered, timeout=90, interval=0.5)
-        client.wait_for("client got the second brokered dialog",
+        client.wait_for("client got the second landing dialog",
                         lambda: _has(client, "ConfirmLandingState") or None,
                         timeout=60, interval=0.5)
-        assert not _has(host, "ConfirmLandingState"), "host popped its own dialog again"
+        host.wait_for("host also has the second landing dialog",
+                      lambda: _has(host, "ConfirmLandingState") or None,
+                      timeout=30, interval=0.5)
 
         client.ok({"cmd": "confirm_landing"})
         for gc, tag in ((host, "host"), (client, "client")):

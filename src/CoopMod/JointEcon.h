@@ -302,6 +302,9 @@ void applyDogfightState(Game* game, const Json::Value& obj);
 /// joint_apply{land_prompt} so THAT seat gets the confirm dialog. @a shade is the
 /// host's day/night value (the replica's clock may differ by a tick).
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
+/// Playtest: host broadcasts that a craft's landing decision is resolved, so every
+/// other seat's broker ConfirmLandingState closes itself.
+void broadcastLandClose(Game* game, Craft* craft);
 
 /// REPLICA: the commanding seat answered its brokered landing dialog. Reports the
 /// decision to the host (joint_cmd{land_reply}); the host owns the consequence.

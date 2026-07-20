@@ -2000,28 +2000,27 @@ void dfCmdApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 // is untouched - if the seat says yes, the HOST still generates the battle.
 void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
-	if (connectionTCP::getHost()) return; // the host is the one asking
-	if (payload.get("initiatorSeat", -1).asInt() != connectionTCP::localSeat()) return;
+	if (connectionTCP::getHost()) return; // the host pops its own copy directly
+	// Playtest: EVERY player is alerted that a craft reached its target, not only the
+	// seat that commanded it. The host broadcasts land_prompt to all seats; each pops
+	// the broker dialog and any player may answer (first answer wins, host-arbitrated;
+	// a land_close closes the losers).
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	GeoscapeState* gs = findGeoState(game);
 	// The dialog renders the destination's name, so a replica that has not yet
-	// replicated the target (or is not on the geoscape) cannot ask the question.
-	// Decline immediately rather than leave the host's craft waiting forever -
-	// the dogfightStartApply abort pattern.
+	// replicated the target (or is not on the geoscape) simply does not participate.
+	// It must NOT auto-decline any more: that would cancel the landing for everyone
+	// now that all seats are prompted. The host always has the target and its own
+	// dialog, so the decision is never stranded.
 	if (!craft || !craft->getDestination() || !gs)
 	{
-		Json::Value p;
-		p["craftId"] = payload["craftId"];
-		p["craftType"] = payload["craftType"];
-		p["yes"] = false;
-		p["patrol"] = false;
-		submitLocalCmd(game, "land_reply", -1, p);
 		return;
 	}
 	// Textures are null on purpose: this dialog only ASKS. It never runs
 	// checkStartingCondition or the battle generator (its broker branch submits
 	// land_reply instead), and the only thing it draws from the host's world is
 	// the day/night shade, which rides the payload.
+	game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt on this seat
 	gs->popup(new ConfirmLandingState(craft, nullptr, nullptr,
 		payload.get("shade", 0).asInt(), true /*jointBroker*/));
 }
@@ -2037,6 +2036,11 @@ void landReplyApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (!craft || !gs) return;
 	gs->jointLandingReply(craft, payload.get("yes", false).asBool(),
 		payload.get("patrol", false).asBool());
+}
+void landCloseApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host marked itself in jointLandingReply
+	game->getCoopMod()->markLandingResolved(payload.get("craftId", -1).asInt());
 }
 
 // PRD-DF01: the J08 host-applies-reported-result path is GONE. The host now
@@ -2540,6 +2544,7 @@ void init()
 	// initiator-reported answer (host-only applier).
 	registerCmd("land_prompt", &simAccept, &landPromptApply);
 	registerCmd("land_reply",  &simAccept, &landReplyApply);
+	registerCmd("land_close",  &simAccept, &landCloseApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -2992,6 +2997,18 @@ void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)
 	p["yes"] = yes;
 	p["patrol"] = patrol;
 	submitLocalCmd(game, "land_reply", craftBaseIndex(game, craft), p);
+}
+
+// land_close payload: { craftId, craftType }. Host -> all seats: the landing was
+// resolved (any seat answered), so every remaining broker ConfirmLandingState closes
+// itself (ConfirmLandingState::think consumes the resolved mark). Replica-only apply.
+void broadcastLandClose(Game* game, Craft* craft)
+{
+	if (!jointHost(game) || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	submitLocalCmd(game, "land_close", craftBaseIndex(game, craft), p);
 }
 
 void hostDayTick(Game* game)

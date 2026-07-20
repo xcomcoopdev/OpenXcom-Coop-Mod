@@ -5268,16 +5268,19 @@ bool GeoscapeState::brokerJointLanding(Craft* craft, Texture* missionTexture, Te
 {
 	if (!_game->getCoopMod()->isJointCampaign() || !_game->getCoopMod()->getServerOwner())
 		return false;
-	// seat 0 = the host's own order; -1 = never commanded through the protocol
-	// (campaign-start craft). Both are the host's to answer -> vanilla path.
-	int seat = JointEcon::lastCraftOrderSeat(craft);
-	if (seat <= 0)
-		return false;
 	if (_jointLandingPending.find(craft) != _jointLandingPending.end())
 		return true; // already asked; still waiting for the answer
 
+	// Playtest: EVERY player is alerted a craft reached its target - not only the seat
+	// that commanded it. Record the pending decision, broadcast the prompt to all
+	// client seats, and pop the host's OWN copy too (as a broker copy, so its answer
+	// runs through the single host-side resolver jointLandingReply, exactly like a
+	// client's land_reply). First answer from any seat wins; the rest close on the
+	// land_close the resolver broadcasts. Battle authority stays on the host.
 	_jointLandingPending[craft] = JointLandingPrompt{ missionTexture, globeTexture, shade };
-	JointEcon::hostLandingPrompt(_game, craft, seat, shade);
+	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
+	JointEcon::hostLandingPrompt(_game, craft, JointEcon::lastCraftOrderSeat(craft), shade);
+	popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade, true /*jointBroker*/));
 	return true;
 }
 
@@ -5303,6 +5306,20 @@ void GeoscapeState::jointLandingReply(Craft* craft, bool yes, bool patrol)
 	}
 	if (!alive)
 		return;
+
+	// Playtest: the landing was answered by ONE seat. Close every OTHER seat's still-
+	// open broker prompt - mark it resolved locally (the host's own copy) and broadcast
+	// land_close so the clients close theirs (ConfirmLandingState::think consumes it).
+	_game->getCoopMod()->markLandingResolved(craft->getId());
+	JointEcon::broadcastLandClose(_game, craft);
+	// Close the host's OWN broker copy synchronously if it is on top (a client just
+	// answered). If the host answered its own dialog, that copy already popped itself.
+	// Do it before generating the battle so the stale dialog is not left underneath.
+	if (!_game->getStates().empty()
+		&& dynamic_cast<ConfirmLandingState*>(_game->getStates().back()))
+	{
+		_game->popState();
+	}
 
 	if (!yes)
 	{

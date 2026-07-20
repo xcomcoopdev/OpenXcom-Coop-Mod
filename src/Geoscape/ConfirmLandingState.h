@@ -57,6 +57,8 @@ public:
 	~ConfirmLandingState();
 	/// initialize the state, make a sanity check.
 	void init() override;
+	/// Playtest: a brokered copy self-closes once ANOTHER seat resolved the landing.
+	void think() override;
 	/// Handler for clicking the Yes button.
 	void btnYesClick(Action *action);
 	/// Handler for clicking the No button.
