@@ -2516,6 +2516,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 				// PRD-DF02: synced UFO attack-mode marker + replica flag + weapon states.
 				jd["ufoStance"] = df->harnessUfoStance();
 				jd["mode"] = df->harnessMode();
+				jd["highlight"] = df->harnessHighlight(); // playtest B6
 				jd["replica"] = df->isReplicaView();
 				// PRD-DF03: full per-machine frame-agreement fields.
 				jd["isReplicaView"] = df->isReplicaView();

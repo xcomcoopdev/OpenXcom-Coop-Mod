@@ -54,6 +54,12 @@ private:
 	InteractiveSurface *_btnMinimize, *_preview, *_weapon[RuleCraft::WeaponMax];
 	ImageButton *_btnStandoff, *_btnCautious, *_btnStandard, *_btnAggressive, *_btnDisengage, *_btnUfo;
 	ImageButton *_mode;
+	/// Playtest B6: the stance button currently drawn INVERTED (highlighted). The
+	/// ImageButton radio group tracks its pressed look with a persistent invert()
+	/// applied only in mousePress; a replica adopting a peer's stance via df_state
+	/// bypasses mousePress, so we must move the invert ourselves and remember where
+	/// it sits (invariant: _visInverted == _mode). See applyFrame / highlightIndex.
+	ImageButton *_visInverted = nullptr;
 	InteractiveSurface *_btnMinimizedIcon;
 	Text *_txtAmmo[RuleCraft::WeaponMax], *_txtDistance, *_txtStatus, *_txtInterceptionNumber;
 	Text *_txtOceanIndicator;
@@ -95,6 +101,10 @@ private:
 	void updateOceanIndicator();
 	/// PRD-DF01: current mode-button as a wire enum (0..4) for df_state.
 	int modeIndex() const;
+	/// Playtest B6: which stance button is currently INVERTED (highlighted), as the
+	/// same 0..4 wire enum. Post-fix this always equals modeIndex(); a mismatch is
+	/// the "buttons not auto-synced / multiple active" desync.
+	int highlightIndex() const;
 	/// PRD-DF02: re-compose the status line = _statusBase + the synced UFO stance marker.
 	void refreshStatus();
 	/// PRD-DF02 REPLICA: emit a df_cmd (stance/weapon/disengage/selfDestruct) to the host.
@@ -224,6 +234,9 @@ public:
 	int harnessUpdateCount() const { return _updateCount; }
 	/// PRD-DF02: current stance as the df_state wire enum (0=standoff..4=disengage).
 	int harnessMode() const { return modeIndex(); }
+	/// Playtest B6: the currently-highlighted (inverted) stance button as the same
+	/// wire enum. Equals harnessMode() once the highlight tracks the synced stance.
+	int harnessHighlight() const { return highlightIndex(); }
 	/// PRD-DF02: the UFO's synced attack posture for the harness (host reads the live
 	/// UFO; a replica returns the value adopted from df_state).
 	int harnessUfoStance() const;

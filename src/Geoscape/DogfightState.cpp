@@ -521,6 +521,11 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_btnUfo->copy(_window);
 	_btnUfo->onMouseClick((ActionHandler)&DogfightState::btnUfoClick);
 
+	// Playtest B6: setGroup(&_mode) above inverted whichever button _mode points at;
+	// remember it so a df_state-driven stance change can move the highlight (invert)
+	// itself - mousePress, which normally maintains it, is bypassed on a replica.
+	_visInverted = _mode;
+
 	_txtDistance->setText("640");
 	updateOceanIndicator();
 
@@ -3041,6 +3046,17 @@ int DogfightState::modeIndex() const
 	return 0; // standoff (default)
 }
 
+// Playtest B6: which stance button is currently drawn inverted (highlighted). Post-
+// fix this tracks the synced stance; a divergence from modeIndex() is the desync.
+int DogfightState::highlightIndex() const
+{
+	if (_visInverted == _btnCautious)   return 1;
+	if (_visInverted == _btnStandard)   return 2;
+	if (_visInverted == _btnAggressive) return 3;
+	if (_visInverted == _btnDisengage)  return 4;
+	return 0; // standoff (default)
+}
+
 /**
  * PRD-DF01 (HOST): serialize this fight's per-tick render state into ONE df_state
  * frame (the README schema). Read-only over the host's own DogfightState - it
@@ -3124,13 +3140,28 @@ void DogfightState::applyFrame(const Json::Value& frame)
 		_txtDistance->setText(ss.str());
 	}
 
+	ImageButton* newMode = _btnStandoff;
 	switch (frame.get("mode", modeIndex()).asInt())
 	{
-	case 1:  _mode = _btnCautious;   break;
-	case 2:  _mode = _btnStandard;   break;
-	case 3:  _mode = _btnAggressive; break;
-	case 4:  _mode = _btnDisengage;  break;
-	default: _mode = _btnStandoff;   break;
+	case 1:  newMode = _btnCautious;   break;
+	case 2:  newMode = _btnStandard;   break;
+	case 3:  newMode = _btnAggressive; break;
+	case 4:  newMode = _btnDisengage;  break;
+	default: newMode = _btnStandoff;   break;
+	}
+	_mode = newMode;
+	// Playtest B6: the ImageButton radio highlight is a persistent invert() that
+	// mousePress moves on a real click - but a replica adopts the host's stance
+	// through here, never mousePress. So only the group POINTER (_mode) moved and the
+	// highlight stayed on the old button: two buttons looked lit and the next real
+	// click double-inverted. Move the invert exactly as mousePress does (un-invert
+	// the old, invert the new) whenever the highlighted button must change.
+	if (_visInverted != _mode)
+	{
+		if (_visInverted)
+			_visInverted->invert(_visInverted->getColor() + 3);
+		_mode->invert(_mode->getColor() + 3);
+		_visInverted = _mode;
 	}
 
 	_ufoIsAttacking = frame.get("ufoIsAttacking", _ufoIsAttacking).asBool();
