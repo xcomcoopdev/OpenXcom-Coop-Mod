@@ -191,17 +191,11 @@ void NewGameState::btnOkClick(Action *)
 		// _ownerPlayerId 999 ("unowned"), which the battlescape entry treats as
 		// host-side (ConfirmLandingState maps 999 -> coop 0), leaving the client with
 		// no soldiers and both players able to command the whole shared roster. Split
-		// the starting soldiers evenly between the two seats (host=0, client=1) here,
-		// once, on the host that creates the world (the client is a pure replica and
-		// adopts the streamed, already-split roster). Hires thereafter own themselves
-		// (J05 setOwnerPlayerId(seat)); this touches only the newSave starting roster.
-		if (_campaignType == CoopCampaignType::Joint)
-		{
-			int idx = 0;
-			for (auto* base : *save->getBases())
-				for (auto* s : *base->getSoldiers())
-					s->setOwnerPlayerId((idx++) % 2);
-		}
+		// the starting roster between the two seats here, once, on the host that creates
+		// the world (the client is a pure replica and adopts the streamed, already-split
+		// roster). Same deterministic rule as the on-load migration, so a fresh game and
+		// a loaded save agree. Hires thereafter own themselves (J05 setOwnerPlayerId).
+		save->migrateJointSoldierOwnership();
 	}
 	_game->setSavedGame(save);
 

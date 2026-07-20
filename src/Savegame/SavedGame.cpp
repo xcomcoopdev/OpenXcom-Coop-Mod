@@ -574,6 +574,11 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	for (size_t i = 0; i < _bases.size(); ++i)
 		_bases[i]->finishLoading(reader["bases"][i], this);
 
+	// Playtest B4: split any soldier still left unowned (999) between the two seats,
+	// so a JOINT save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside JOINT.
+	migrateJointSoldierOwnership();
+
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())
 	{
@@ -761,6 +766,32 @@ void SavedGame::addFinishedResearchSimple(const RuleResearch* research)
 
 /**
  * Loads a saved game's contents from a YAML file.
+/**
+ * Playtest B4: give every still-unowned soldier (ownerPlayerId 999) a seat, so a
+ * JOINT battle splits control by owner instead of leaving the whole roster
+ * host-controlled / co-owned. Deterministic by soldier id so the host and every
+ * replica agree; a no-op outside JOINT and for soldiers already owned (hires, or a
+ * roster the creation-time split already handled).
+ */
+void SavedGame::migrateJointSoldierOwnership()
+{
+	if (_campaignType != CoopCampaignType::Joint)
+	{
+		return;
+	}
+	for (auto* base : _bases)
+	{
+		for (auto* soldier : *base->getSoldiers())
+		{
+			if (soldier->getOwnerPlayerId() == 999)
+			{
+				soldier->setOwnerPlayerId(soldier->getId() % 2);
+			}
+		}
+	}
+}
+
+/**
  * @note Assumes the saved game is blank.
  * @param filename YAML filename.
  * @param mod Mod for the saved game.
@@ -1173,6 +1204,11 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// Finish loading crafts after bases (more specifically after all crafts) are loaded, because of references between crafts (i.e. friendly escorts)
 	for (size_t i = 0; i < _bases.size(); ++i)
 		_bases[i]->finishLoading(reader["bases"][i], this);
+
+	// Playtest B4: split any soldier still left unowned (999) between the two seats,
+	// so a JOINT save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside JOINT.
+	migrateJointSoldierOwnership();
 
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())

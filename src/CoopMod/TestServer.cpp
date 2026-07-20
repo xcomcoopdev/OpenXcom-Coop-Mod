@@ -1837,6 +1837,37 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "reload_save_roundtrip")
+	{
+		// Playtest B4: prove the ON-LOAD ownership migration without disturbing the
+		// live coop session. Save the current world, load it into a THROWAWAY blank
+		// SavedGame (exactly the path a real resume/load takes -> SavedGame::load ->
+		// migrateJointSoldierOwnership) and report the loaded roster's owners.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+		{
+			resp["error"] = "no save";
+		}
+		else
+		{
+			std::string f = "harness_migrate_roundtrip.sav";
+			sg->save(f, _game->getMod());
+			SavedGame* fresh = new SavedGame();
+			fresh->load(f, _game->getMod(), _game->getLanguage());
+			Json::Value arr(Json::arrayValue);
+			for (auto* b : *fresh->getBases())
+				for (auto* s : *b->getSoldiers())
+				{
+					Json::Value j;
+					j["id"] = s->getId();
+					j["owner"] = s->getOwnerPlayerId();
+					arr.append(j);
+				}
+			resp["soldiers"] = arr;
+			delete fresh;
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "save_game_ui")
 	{
 		// Save through the real SaveGameState funnel (same path as the

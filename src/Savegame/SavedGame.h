@@ -281,6 +281,12 @@ private:
 	/// JOINT/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
+	/// Playtest B4: in a JOINT campaign every soldier needs an explicit owner (seat).
+	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
+	/// fresh game, or a save created before the split existed - is assigned a seat by
+	/// a deterministic, machine-consistent rule (id parity). No-op outside JOINT and
+	/// for already-owned soldiers, so it is safe to call at creation and on every load.
+	void migrateJointSoldierOwnership();
 	/// Locked co-op player list (host first), set at campaign start.
 	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
 	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }
