@@ -667,6 +667,9 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		{
 			resp["top"] = "craft_soldiers";
 			resp["used"] = cs->harnessUsedText();
+			Json::Value arr(Json::arrayValue);
+			for (int id : cs->harnessDisplayedSoldierIds()) arr.append(id);
+			resp["displayed"] = arr;
 		}
 		else if (auto* nr = dynamic_cast<NewResearchListState*>(top))
 		{

@@ -52,6 +52,9 @@ private:
 	size_t _craft;
 	Uint8 _otherCraftColor;
 	std::vector<Soldier *> _origSoldierOrder;
+	/// Playtest: the soldiers this player may SEE at the base (JOINT: own only),
+	/// a non-destructive local copy the list display + row-indexing go through.
+	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
 	/// PRD-J10: live refresh - two players plausibly edit ONE shared squad at once,
@@ -97,6 +100,8 @@ public:
 	/// Harness (PRD-J10): the "SPACE USED" header this screen is showing. It is
 	/// written only by initList, so a change proves the live refresh actually ran.
 	std::string harnessUsedText() const;
+	/// Test automation: soldier ids the craft-crew screen displays (own-only in JOINT).
+	std::vector<int> harnessDisplayedSoldierIds() const;
 };
 
 }
