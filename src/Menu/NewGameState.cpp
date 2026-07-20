@@ -30,6 +30,7 @@
 #include "../Engine/Options.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
 #include "../CoopMod/HostMenu.h"
 
 namespace OpenXcom
@@ -184,6 +185,23 @@ void NewGameState::btnOkClick(Action *)
 		save->setCoopSave(true);
 		// PRD-J01: record the chosen economy model (JOINT/SEPARATE), immutable.
 		save->setCampaignType(_campaignType);
+
+		// Playtest B4: a JOINT campaign shares ONE roster, so every soldier needs an
+		// explicit owner - otherwise the starting soldiers keep the default
+		// _ownerPlayerId 999 ("unowned"), which the battlescape entry treats as
+		// host-side (ConfirmLandingState maps 999 -> coop 0), leaving the client with
+		// no soldiers and both players able to command the whole shared roster. Split
+		// the starting soldiers evenly between the two seats (host=0, client=1) here,
+		// once, on the host that creates the world (the client is a pure replica and
+		// adopts the streamed, already-split roster). Hires thereafter own themselves
+		// (J05 setOwnerPlayerId(seat)); this touches only the newSave starting roster.
+		if (_campaignType == CoopCampaignType::Joint)
+		{
+			int idx = 0;
+			for (auto* base : *save->getBases())
+				for (auto* s : *base->getSoldiers())
+					s->setOwnerPlayerId((idx++) % 2);
+		}
 	}
 	_game->setSavedGame(save);
 
