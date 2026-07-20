@@ -118,6 +118,7 @@
 #include "../Basescape/SellState.h"
 #include "../Basescape/ManageAlienContainmentState.h"
 #include "../Basescape/ResearchState.h"
+#include "../Basescape/NewResearchListState.h"
 #include "../Basescape/ResearchInfoState.h"
 #include "../Basescape/StoresState.h"
 #include "../Basescape/ManufactureState.h"
@@ -546,6 +547,12 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			_game->pushState(new ResearchState(target));
 			resp["ok"] = true;
 		}
+		else if (screen == "new_research")
+		{
+			// Playtest B2: the "NEW RESEARCH PROJECTS" startable-topic list.
+			_game->pushState(new NewResearchListState(target, false));
+			resp["ok"] = true;
+		}
 		else if (screen == "manufacture")
 		{
 			_game->pushState(new ManufactureState(target));
@@ -659,6 +666,15 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		{
 			resp["top"] = "craft_soldiers";
 			resp["used"] = cs->harnessUsedText();
+		}
+		else if (auto* nr = dynamic_cast<NewResearchListState*>(top))
+		{
+			// Playtest B2: the startable-topic list is the constructor/refresh cache;
+			// report it so a test can prove a started topic dropped live.
+			resp["top"] = "new_research";
+			Json::Value arr(Json::arrayValue);
+			for (const auto& n : nr->harnessProjectNames()) arr.append(n);
+			resp["projects"] = arr;
 		}
 		else if (dynamic_cast<ResearchState*>(top))    resp["top"] = "research";
 		else if (dynamic_cast<ManufactureState*>(top)) resp["top"] = "manufacture";

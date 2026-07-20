@@ -136,6 +136,14 @@ NewResearchListState::NewResearchListState(Base *base, bool sortByCost) : _base(
 }
 
 /**
+ * Cleans up the New research list state.
+ */
+NewResearchListState::~NewResearchListState()
+{
+	_jointRefresh.unbind(this);
+}
+
+/**
  * Initializes the screen (fills the list).
  */
 void NewResearchListState::init()
@@ -144,6 +152,37 @@ void NewResearchListState::init()
 	fillProjectList(false);
 
 	touchComponentsRefresh();
+
+	// Playtest B2: listen for the other player's (or our own round-tripping)
+	// res_start applies so a started topic drops from this list live. No-op unless
+	// this is a JOINT campaign.
+	_jointRefresh.bind(_game, this, _base);
+}
+
+/**
+ * Playtest B2: a peer's joint_apply started (or otherwise changed the availability
+ * of) a project while this list is open. Rebuild it so a no-longer-startable topic
+ * disappears instead of staying clickable into a host-rejected duplicate start.
+ */
+void NewResearchListState::think()
+{
+	TouchState::think();
+	if (_jointRefresh.consume())
+	{
+		fillProjectList(false);
+		touchComponentsRefresh();
+	}
+}
+
+/**
+ * Test automation: the topic names currently listed as startable.
+ */
+std::vector<std::string> NewResearchListState::harnessProjectNames() const
+{
+	std::vector<std::string> out;
+	for (const auto* r : _projects)
+		out.push_back(r->getName());
+	return out;
 }
 
 /**

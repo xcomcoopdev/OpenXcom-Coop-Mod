@@ -18,7 +18,9 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
+#include "../CoopMod/JointEcon.h"
 #include <vector>
+#include <string>
 
 namespace OpenXcom
 {
@@ -56,9 +58,16 @@ private:
 	void onToggleProjectStatus(Action *action);
 	void onOpenTechTreeViewer(Action *action);
 	std::vector<RuleResearch *> _projects;
+	/// Playtest B2: the "NEW RESEARCH PROJECTS" list must live-sync so a peer's (or
+	/// this player's just-submitted) res_start drops the topic from the list, rather
+	/// than leaving it clickable -> a duplicate start the host rejects with
+	/// STR_RESEARCH_NOT_AVAILABLE. No-op unless JOINT campaign.
+	JointEcon::ScreenRefresh _jointRefresh;
 public:
 	/// Creates the New research list state.
 	NewResearchListState(Base *base, bool sortByCost);
+	/// Cleans up the New research list state.
+	~NewResearchListState();
 	/// Handler for clicking the OK button.
 	void btnOKClick(Action *action);
 	/// Handlers for Quick Search.
@@ -74,5 +83,9 @@ public:
 	void fillProjectList(bool markAllAsSeen);
 	/// Initializes the state.
 	void init() override;
+	/// Playtest B2: consume a peer's joint_apply and rebuild the list live.
+	void think() override;
+	/// Test automation: the topic names currently listed as startable.
+	std::vector<std::string> harnessProjectNames() const;
 };
 }
