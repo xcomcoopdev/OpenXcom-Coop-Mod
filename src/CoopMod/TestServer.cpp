@@ -2257,6 +2257,33 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "ufo_alert")
+	{
+		// Playtest B5: reproduce a native UFO detection on THIS machine. Building a
+		// UfoDetectedState is exactly what the geoscape sim does when a UFO is first
+		// detected, and its ctor broadcasts the reliable "ufo_popup" packet
+		// (type+race) to the peer - the JOINT host's one shared sim detecting a UFO
+		// must alert every player, not just the host. Picks the first detected UFO
+		// (spawn one first). Construct + delete: the ctor's broadcast is the point.
+		GeoscapeState* gs = findState<GeoscapeState>(_game);
+		SavedGame* sg = _game->getSavedGame();
+		Ufo* u = nullptr;
+		if (sg)
+			for (auto* x : *sg->getUfos())
+				if (x->getDetected()) { u = x; break; }
+		if (!gs)
+			resp["error"] = "no GeoscapeState";
+		else if (!u)
+			resp["error"] = "no detected ufo (spawn_ufo first)";
+		else
+		{
+			UfoDetectedState* ud = new UfoDetectedState(u, gs, true, false, false);
+			delete ud; // ctor already broadcast ufo_popup {type, race}
+			resp["type"] = u->getRules()->getType();
+			resp["race"] = u->getAlienRace();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "spawn_craft")
 	{
 		// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.

@@ -1435,7 +1435,14 @@ void GeoscapeState::think()
 				for (auto &ufo : *_game->getSavedGame()->getUfos())
 				{
 
-					if (ufo->getAlienRace() == _game->getCoopMod()->show_coop_ufo_popup_race && ufo->getRules()->getType() == _game->getCoopMod()->show_coop_ufo_popup_type && ufo->getCoop() == true && ufo->getDetected() == true)
+					// Playtest B5: in a JOINT campaign the host runs the one shared sim and
+					// broadcasts ufo_popup; the client's matching UFO is a byte-faithful
+					// replica of the host's own (getCoop()==false), NOT a SEPARATE mirror
+					// (getCoop()==true). Requiring getCoop()==true swallowed the alert on
+					// every non-host player. Accept the shared replica in JOINT.
+					bool coopMatch = _game->getCoopMod()->isJointCampaign()
+						? true : (ufo->getCoop() == true);
+					if (ufo->getAlienRace() == _game->getCoopMod()->show_coop_ufo_popup_race && ufo->getRules()->getType() == _game->getCoopMod()->show_coop_ufo_popup_type && coopMatch && ufo->getDetected() == true)
 					{
 
 						popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected(), true));
