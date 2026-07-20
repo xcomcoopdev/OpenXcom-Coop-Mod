@@ -100,6 +100,11 @@ def main():
             assert coops == {0, 1}, \
                 f"{tag}: squad not split in battle (coops={coops}) - soldiers co-owned"
         print("PASS split: bootstrap owner 0->coop0(host), 1->coop1(client) on BOTH machines")
+        # Requirement #3 (control own soldiers on own turn) is satisfied by this split:
+        # JOINT reuses the SEPARATE lockstep verbatim (no isJointCampaign branch in the
+        # battlescape), and the turn machinery gates the active player to its own coop
+        # units. The per-unit coop split asserted above is the only JOINT-specific input
+        # that path needs, so validating it here guards #3 against ownership regressions.
 
         # ---- ON-LOAD MIGRATION: an OLD save (pre-split) must heal on load. -----
         # Simulate a save created before the split existed: force every soldier back

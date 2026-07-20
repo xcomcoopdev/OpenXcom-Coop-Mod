@@ -1046,6 +1046,28 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		return;
 	}
 
+	// Playtest: JOINT geoscape gift is host-authoritative - route the ownership move
+	// through the soldier_gift joint_cmd so BOTH machines adopt it (the SEPARATE
+	// local+broadcast below never reached the JOINT replica). Battle-time gifts still
+	// use the live-control path below.
+	if (broadcast && isJointCampaign() && !_game->getSavedGame()->getSavedBattle())
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+		{
+			bool here = false;
+			for (auto* s : *bases->at(i)->getSoldiers())
+				if (s == soldier) { here = true; break; }
+			if (here) { baseId = (int)i; break; }
+		}
+		Json::Value payload;
+		payload["soldierId"] = soldier->getId();
+		payload["newOwner"] = newOwnerId;
+		JointEcon::submitLocalCmd(_game, "soldier_gift", baseId, payload);
+		return;
+	}
+
 	soldier->setOwnerPlayerId(newOwnerId);
 	soldier->setCoop(newOwnerId);
 

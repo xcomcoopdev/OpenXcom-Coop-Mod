@@ -206,7 +206,22 @@ Guards (b) against future ownership regressions. No production change expected.
 
 ---
 
-## 8. Phasing
+## 8. Phasing — STATUS
+
+- **P0 DONE** SoldiersState (base roster) — visibleSoldiers/ownsSoldier helper +
+  filtered display + reorder disabled. test_joint_soldier_visibility.py green.
+- **P1 DONE** CraftSoldiersState (assign own -> mixed crew). test_joint_craft_soldiers_visibility.py.
+- **P2 DONE** SellState, TransferItemsState, CraftPilotSelectState, SoldierMemorialState,
+  SoldierTransformationListState (build-loop ownsSoldier filter), CraftArmorState
+  (full _viewSoldiers), SoldierInfoState prev/next (skip peer). Soldier::getOwnerPlayerId
+  const. test_joint_soldier_views_visibility.py (soldiers/craft_soldiers/craft_armor).
+- **P3** counts/capacity: SHARED per decision -> NO-OP (not needed).
+- **P4 DONE** gift: found+fixed a real gap (SEPARATE gift didn't reach the JOINT
+  replica) -> new soldier_gift joint_cmd, host-authoritative; test_joint_gift.py green
+  (owner moves on both + list moves). Battlescape #3 verified by
+  test_joint_soldier_ownership_battle.py (bootstrap split -> battle coop split on both).
+
+### (original phasing)
 
 - **P0** helper `visibleSoldiers/ownsSoldier` + `SoldiersState` refactor + green test
   (turns `test_joint_soldier_visibility.py` green). Smallest end-to-end slice.

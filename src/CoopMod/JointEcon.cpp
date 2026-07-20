@@ -1443,6 +1443,30 @@ void soldierRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*
 		if (s->getId() == id) { s->setName(payload.get("name", s->getName()).asString()); break; }
 }
 
+// soldier_gift payload: { soldierId, newOwner }. Playtest: gifting (give-unit) a
+// soldier to the other player must be host-authoritative in JOINT (the SEPARATE
+// local+broadcast path never reached the JOINT replica). Host validates + sets the
+// owner, broadcasts joint_apply; replicas adopt. Ownership move only - the soldier
+// stays in the one shared roster.
+bool soldierGiftValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                         int64_t& cost, std::string& failReason)
+{
+	if (!base) { failReason = "base not found"; return false; }
+	int id = payload.get("soldierId", -1).asInt();
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) { cost = 0; return true; }
+	failReason = "soldier not found";
+	return false;
+}
+void soldierGiftApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	int id = payload.get("soldierId", -1).asInt();
+	int newOwner = payload.get("newOwner", 0).asInt();
+	for (auto* s : *base->getSoldiers())
+		if (s->getId() == id) { s->setOwnerPlayerId(newOwner); s->setCoop(newOwner); break; }
+}
+
 // base_new payload: { lon, lat, name, liftType, liftX, liftY } (+ host-resolved
 // coopbaseid). Client-originated creation of a SUBSEQUENT base (the initial
 // campaign base is J02's, host-side pre-stream). baseId is -1 (no existing base);
@@ -2514,6 +2538,7 @@ void init()
 	registerCmd("fac_dismantle", &facDismantleValidate, &facDismantleApply);
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
 	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
+	registerCmd("soldier_gift",   &soldierGiftValidate,   &soldierGiftApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
