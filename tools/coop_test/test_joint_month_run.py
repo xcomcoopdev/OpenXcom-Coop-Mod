@@ -120,8 +120,12 @@ def _roll_month(host, client, tag):
     # same way. So they must be exactly equal at the roll, like funds/maintenance.
     # (Pre-fix this drifted net-vs-gross and was only printed; test_joint_graphs is
     # the focused red/green repro.)
-    assert gh["incomeTail"] == gc_["incomeTail"], \
-        f"{tag}: income tail differs: host={gh['incomeTail']} client={gc_['incomeTail']}"
+    assert gh["incomeTail"] == gc_["incomeTail"], (
+        f"{tag}: income tail differs: host={gh['incomeTail']} client={gc_['incomeTail']} "
+        f"| monthsPassed host={gh['monthsPassed']} client={gc_['monthsPassed']} "
+        f"| funds host={gh['funds']} client={gc_['funds']} "
+        f"| expenditure host={gh['expenditureTail']} client={gc_['expenditureTail']} "
+        f"| maintenance host={gh['maintenanceTail']} client={gc_['maintenanceTail']}")
     assert gh["expenditureTail"] == gc_["expenditureTail"], \
         f"{tag}: expenditure tail differs: host={gh['expenditureTail']} " \
         f"client={gc_['expenditureTail']}"

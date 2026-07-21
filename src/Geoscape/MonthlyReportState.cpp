@@ -619,8 +619,19 @@ void MonthlyReportState::calculateChanges()
 		{
 			root["jointFunds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
 			root["jointMaintenance"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());
-			root["jointIncome"] = Json::Value::Int64(_game->getSavedGame()->getCountryFunding());
-			root["jointExpenditure"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());
+			// GAP-9: send the host's ACTUAL just-settled series values, because that is
+			// exactly what the replica overwrites (_incomes.back()/_expenditures.back()).
+			// getCountryFunding() is NOT that number: calculateChanges() above already ran
+			// country->newMonth(), so it is NEXT month's funding, and whenever a country's
+			// funding actually changed this month the replica adopted a value the host
+			// never had (intermittent Graphs->Finance drift). Likewise expenditures are not
+			// just base maintenance once anything is purchased.
+			const auto& hostIncomes = _game->getSavedGame()->getIncomes();
+			const auto& hostExpenditures = _game->getSavedGame()->getExpenditures();
+			root["jointIncome"] = Json::Value::Int64(
+				hostIncomes.empty() ? 0 : hostIncomes.back());
+			root["jointExpenditure"] = Json::Value::Int64(
+				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["jointResearchScore"] = 0; // new month starts at 0 (matches the roll)
 		}
 
