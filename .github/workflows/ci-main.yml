@@ -7,9 +7,18 @@ name: CI (build + coop tests + publish)
 # OpenXcom-Coop/UFO_Data repo via a read-only deploy key (UFO_DATA_DEPLOY_KEY)
 # and only ever exists in the test job, so it can never leak into a release.
 #
-# Split into build -> coop-tests -> publish jobs so a flaky test can be re-run
-# ("Re-run failed jobs") without repeating the ~1h build, and so per-stage
-# durations show in the run summary graph.
+# Job graph:
+#
+#   meta ─┬─ build ── coop-tests ─┐
+#         ├─ build-winxp ─────────┼─ publish   (all three packages, one release)
+#         └─ build-linux ─────────┘
+#
+# Split into separate jobs so a flaky test can be re-run ("Re-run failed jobs")
+# without repeating the ~13m build, and so per-stage durations show in the run
+# summary graph. `meta` exists so the two cross-builds - which share no artifact
+# with the x64 build - can start immediately instead of waiting on it for the
+# version string; they upload their packages and `publish` attaches all three at
+# once, so a release is never briefly live missing a platform.
 on:
   push:
     branches: [main]        # -> rolling "nightly" prerelease
@@ -20,11 +29,16 @@ concurrency: { group: ci-main, cancel-in-progress: false }   # publishes are ord
 permissions: { contents: read }                              # write only in the publishing jobs
 
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 75
+  # Version/channel for the whole run, computed once so every build job can start
+  # immediately. It used to live inside `build`, and since job outputs only exist
+  # once the job finishes, the WinXP and Linux builds could not start until the
+  # ~13-minute x64 build had finished - even though they share no artifact with it.
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version:    ${{ steps.meta.outputs.version }}
+      gitSuffix:  ${{ steps.meta.outputs.gitSuffix }}
       channel:    ${{ steps.meta.outputs.channel }}
       tag:        ${{ steps.meta.outputs.tag }}
       name:       ${{ steps.meta.outputs.name }}
@@ -34,13 +48,11 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }    # full history: version = git describe
 
-      - uses: microsoft/setup-msbuild@v2
-
-      - name: Compute version + channel, stamp src/version.h
+      - name: Compute version + channel
         id: meta
         shell: pwsh
         run: |
-          $vh = "src\version.h"
+          $vh = "src/version.h"
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             # ---- official release: version = the tag ----
             $v = $env:GITHUB_REF_NAME.TrimStart('v')            # 8.4.3
@@ -70,16 +82,22 @@ jobs:
             "prerelease=true"                 >> $env:GITHUB_OUTPUT
             "latest=false"                    >> $env:GITHUB_OUTPUT
           }
-          "version=$v" >> $env:GITHUB_OUTPUT
-          $p = $v.Split('.')
-          # rewrite version.h at build time (not committed)
-          $c = Get-Content $vh -Raw
-          $c = $c -replace 'OPENXCOM_VERSION_SHORT "[^"]*"',   "OPENXCOM_VERSION_SHORT `"Extended $v`""
-          $c = $c -replace 'OPENXCOM_VERSION_LONG "[^"]*"',    "OPENXCOM_VERSION_LONG `"$v.0`""
-          $c = $c -replace 'OPENXCOM_VERSION_NUMBER [0-9, ]+', "OPENXCOM_VERSION_NUMBER $($p[0]),$($p[1]),$($p[2]),0"
-          $c = $c -replace 'OPENXCOM_VERSION_GIT "[^"]*"',     "OPENXCOM_VERSION_GIT `"$gitSuffix`""
-          Set-Content $vh $c -Encoding ascii
-          Write-Host "Stamped version: $v$gitSuffix"
+          "version=$v"             >> $env:GITHUB_OUTPUT
+          "gitSuffix=$gitSuffix"   >> $env:GITHUB_OUTPUT
+          Write-Host "version: $v$gitSuffix"
+
+  build:
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Stamp src/version.h
+        shell: bash
+        run: sh tools/ci/stamp_version.sh "${{ needs.meta.outputs.version }}" "${{ needs.meta.outputs.gitSuffix }}"
 
       - name: Build x64 Release (serial)
         timeout-minutes: 60
@@ -131,8 +149,13 @@ jobs:
           SDL_AUDIODRIVER: dummy
         run: ./tools/ci/run_coop_suite.ps1
 
+  # The ONLY job that writes to the release, and it does it once with all three
+  # packages attached. It used to create the release with just the x64 zip and let
+  # build-winxp/build-linux append theirs afterwards, which left the nightly briefly
+  # live with a missing platform and serialized two builds that share nothing with
+  # the x64 one behind the whole build -> coop-tests chain.
   publish:
-    needs: [build, coop-tests]
+    needs: [meta, build, coop-tests, build-winxp, build-linux]
     runs-on: windows-latest
     timeout-minutes: 20
     permissions: { contents: write }   # publish releases + move nightly tag
@@ -143,6 +166,13 @@ jobs:
         with:
           name: game-exe
           path: bin/x64/Release
+
+      - name: Download the WinXP + Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: .pkgs
+          merge-multiple: true
 
       - name: Stage packaging inputs (no UFO data in this job)
         shell: pwsh
@@ -171,7 +201,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $v = "${{ needs.build.outputs.version }}"
+          $v = "${{ needs.meta.outputs.version }}"
           $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
           # Stage the exact tree we ship. UFO/TFTD are staged one subdirectory at a
@@ -187,12 +217,24 @@ jobs:
           Copy-Item bin\TFTD\multiplayer "$p\TFTD" -Recurse    # coop art only
           Compress-Archive "$p\*" -DestinationPath $z -Force
           ./tools/ci/assert_package.ps1 $z
+          # The WinXP zip was asserted as a staged tree in its own job; re-assert the
+          # finished archive here, so what actually gets uploaded is what was checked.
+          $xp = Get-ChildItem .pkgs\*winxp*.zip | Select-Object -First 1
+          if (-not $xp) { throw "WinXP package artifact missing" }
+          ./tools/ci/assert_package.ps1 $xp.FullName
+          $tar = Get-ChildItem .pkgs\*linux*.tar.gz | Select-Object -First 1
+          if (-not $tar) { throw "Linux package artifact missing" }
+          # Multi-line env var: GITHUB_ENV needs the delimiter form, and
+          # action-gh-release takes newline-separated paths in `files:`.
+          $assets = @($z, $xp.FullName, $tar.FullName) -join "`n"
+          "ASSETS<<PKGEOF`n$assets`nPKGEOF" >> $env:GITHUB_ENV
+          Write-Host "publishing:`n$assets"
 
       - name: Release notes from CHANGELOG (release only)
-        if: needs.build.outputs.channel == 'release'
+        if: needs.meta.outputs.channel == 'release'
         shell: pwsh
         run: |
-          $v = "${{ needs.build.outputs.version }}"
+          $v = "${{ needs.meta.outputs.version }}"
           $out = "release-notes.md"
           if (-not (Test-Path "CHANGELOG.md")) { throw "CHANGELOG.md missing - add a '## [$v]' section before tagging" }
           # extract the "## [<v>]" section up to the next "## " heading
@@ -208,14 +250,14 @@ jobs:
           Write-Host "Release notes for $v:"; Get-Content $out
 
       - name: Move rolling nightly tag
-        if: needs.build.outputs.channel == 'nightly'
+        if: needs.meta.outputs.channel == 'nightly'
         shell: pwsh
         run: |
           git tag -f nightly
           git push -f origin nightly
 
       - name: Reset rolling nightly release (avoid notes + asset buildup)
-        if: needs.build.outputs.channel == 'nightly'
+        if: needs.meta.outputs.channel == 'nightly'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -231,17 +273,17 @@ jobs:
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:    ${{ needs.build.outputs.tag }}
-          name:        ${{ needs.build.outputs.name }}
-          prerelease:  ${{ needs.build.outputs.prerelease }}
-          make_latest: ${{ needs.build.outputs.latest }}
-          files: ${{ env.ZIP }}
+          tag_name:    ${{ needs.meta.outputs.tag }}
+          name:        ${{ needs.meta.outputs.name }}
+          prerelease:  ${{ needs.meta.outputs.prerelease }}
+          make_latest: ${{ needs.meta.outputs.latest }}
+          files: ${{ env.ASSETS }}      # x64 zip + WinXP zip + Linux tarball, one call
           # release -> curated notes from CHANGELOG.md; nightly -> auto-generated
-          body_path: ${{ needs.build.outputs.channel == 'release' && 'release-notes.md' || '' }}
-          generate_release_notes: ${{ needs.build.outputs.channel != 'release' }}
+          body_path: ${{ needs.meta.outputs.channel == 'release' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ needs.meta.outputs.channel != 'release' }}
 
       - name: Strip auto-generated 'New Contributors' from nightly notes
-        if: needs.build.outputs.channel == 'nightly'
+        if: needs.meta.outputs.channel == 'nightly'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -260,15 +302,15 @@ jobs:
           gh release edit nightly --repo "$env:GITHUB_REPOSITORY" --notes-file nightly-notes.md
           Write-Host "Stripped 'New Contributors' from nightly notes"
 
-  # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Runs after
-  # the publish job creates the release, then attaches its zip as an extra asset.
+  # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Shares no
+  # artifact with the x64 build, so it starts as soon as `meta` has the version and
+  # runs alongside build + coop-tests; `publish` attaches the zip it uploads here.
   # (Folded in from the old build-mxe.yml/build-winxp.yml - one unified CI.)
   build-winxp:
-    needs: [build, publish]
+    needs: meta
     runs-on: ubuntu-latest
     container: ubuntu:20.04
     timeout-minutes: 120
-    permissions: { contents: write }   # attach zip to the release
     defaults:
       run:
         shell: bash
@@ -313,6 +355,9 @@ jobs:
             sdl sdl_net sdl_gfx sdl_mixer sdl_image \
             yaml-cpp jsoncpp libsodium
 
+      - name: Stamp src/version.h
+        run: sh tools/ci/stamp_version.sh "${{ needs.meta.outputs.version }}" "${{ needs.meta.outputs.gitSuffix }}"
+
       - name: Configure + build (WinXP i686 static)
         run: |
           set -euxo pipefail
@@ -348,21 +393,21 @@ jobs:
           sh tools/ci/assert_package_dir.sh build/bin
           cd build/bin
           rm -f libopenxcom.dll.a || true
-          zip -r "$GITHUB_WORKSPACE/openxcom-coop-winxp-${{ needs.build.outputs.version }}-i686.zip" .
+          zip -r "$GITHUB_WORKSPACE/openxcom-coop-winxp-${{ needs.meta.outputs.version }}-i686.zip" .
 
-      - name: Attach WinXP zip to the release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          files: openxcom-coop-winxp-${{ needs.build.outputs.version }}-i686.zip
+          name: pkg-winxp
+          path: openxcom-coop-winxp-${{ needs.meta.outputs.version }}-i686.zip
+          if-no-files-found: error
+          retention-days: 7
 
-  # Native Linux (x86_64) build via GCC. Runs after the publish job creates the
-  # release, then attaches its tarball to the same release.
+  # Native Linux (x86_64) build via GCC. Like the WinXP job it only needs `meta`,
+  # so it runs in parallel with the x64 build; `publish` attaches its tarball.
   build-linux:
-    needs: [build, publish]
+    needs: meta
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions: { contents: write }   # attach tarball to the release
     defaults:
       run:
         shell: bash
@@ -378,6 +423,9 @@ jobs:
 
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, submodules: recursive }
+
+      - name: Stamp src/version.h
+        run: sh tools/ci/stamp_version.sh "${{ needs.meta.outputs.version }}" "${{ needs.meta.outputs.gitSuffix }}"
 
       - name: Configure + build (Linux x86_64)
         run: |
@@ -395,7 +443,7 @@ jobs:
           RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
         run: |
           set -euxo pipefail
-          v="${{ needs.build.outputs.version }}"
+          v="${{ needs.meta.outputs.version }}"
           pkg="openxcom-coop-linux-$v-x86_64"
           mkdir -p "$pkg/UFO" "$pkg/TFTD"
           cp build/bin/openxcom "$pkg/"
@@ -412,8 +460,9 @@ jobs:
           sh tools/ci/assert_package_dir.sh "$pkg"
           tar czf "$pkg.tar.gz" "$pkg"
 
-      - name: Attach Linux tarball to the release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          files: openxcom-coop-linux-${{ needs.build.outputs.version }}-x86_64.tar.gz
+          name: pkg-linux
+          path: openxcom-coop-linux-${{ needs.meta.outputs.version }}-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
