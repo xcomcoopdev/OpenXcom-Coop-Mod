@@ -40,6 +40,7 @@
 #include "../Geoscape/MissionDetectedState.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/CraftPatrolState.h"
+#include "../Savegame/AlienBase.h"
 #include "../Ufopaedia/ArticleState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BattlescapeGame.h"
@@ -2358,9 +2359,10 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		GeoscapeState* gs = findState<GeoscapeState>(_game);
 		SavedGame* sg = _game->getSavedGame();
 		Ufo* u = nullptr;
+		int wantUfo = req.get("ufo_id", -1).asInt();
 		if (sg)
 			for (auto* x : *sg->getUfos())
-				if (x->getDetected()) { u = x; break; }
+				if (x->getDetected() && (wantUfo < 0 || x->getId() == wantUfo)) { u = x; break; }
 		if (!gs)
 			resp["error"] = "no GeoscapeState";
 		else if (!u)
@@ -2371,6 +2373,58 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			delete ud; // ctor already broadcast ufo_popup {type, race}
 			resp["type"] = u->getRules()->getType();
 			resp["race"] = u->getAlienRace();
+			resp["ufo_id"] = u->getId();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_alien_base")
+	{
+		// Create an alien base in the world. Call on BOTH machines so the shared world
+		// holds the same id (the JOINT id counter stays in lock-step).
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg) resp["error"] = "no saved game";
+		else
+		{
+			AlienBase* ab = new AlienBase(_game->getMod()->getDeployment("STR_ALIEN_BASE_ASSAULT", false),
+				sg->getMonthsPassed() < 0 ? 0 : sg->getMonthsPassed());
+			ab->setId(sg->getId("STR_ALIEN_BASE"));
+			ab->setLongitude(req.get("lon", 0.0).asDouble());
+			ab->setLatitude(req.get("lat", 0.0).asDouble());
+			ab->setDiscovered(false);
+			sg->getAlienBases()->push_back(ab);
+			resp["alien_base_id"] = ab->getId();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "alien_base_state")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		Json::Value arr(Json::arrayValue);
+		if (sg)
+			for (auto* ab : *sg->getAlienBases())
+			{
+				Json::Value j;
+				j["id"] = ab->getId();
+				j["discovered"] = ab->isDiscovered();
+				arr.append(j);
+			}
+		resp["alienBases"] = arr;
+		resp["ok"] = true;
+	}
+	else if (cmd == "host_alien_base_found")
+	{
+		// Host-authoritative discovery, exactly as time1Month/time1Day do it.
+		SavedGame* sg = _game->getSavedGame();
+		int id = req.get("alien_base_id", -1).asInt();
+		AlienBase* found = nullptr;
+		if (sg)
+			for (auto* ab : *sg->getAlienBases())
+				if (ab->getId() == id) { found = ab; break; }
+		if (!found) resp["error"] = "alien base id not found";
+		else
+		{
+			found->setDiscovered(true);
+			JointEcon::hostAlienBaseFound(_game, found);
 			resp["ok"] = true;
 		}
 	}

@@ -560,6 +560,15 @@ class connectionTCP
 	std::string show_coop_ufo_popup_race = "";
 	std::string show_coop_ufo_popup_altitude = "";
 
+	// Pending peer UFO-detected alerts. This used to be the single type/race pair above,
+	// which was lossy twice over: a second detection in the same window overwrote the
+	// first (alert silently lost), and matching on type+race alone could pop the dialog
+	// for the WRONG UFO of the same race/type. Queued, and carrying the peer's ufo id so
+	// the match is exact in JOINT (shared world -> identical ids).
+	struct CoopUfoAlert { int ufoId = -1; std::string type; std::string race; };
+	std::vector<CoopUfoAlert> coopUfoAlerts;
+	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
+
 	bool show_coop_monthly_report = false;
 
 	int fundingDiffCoop = -1;

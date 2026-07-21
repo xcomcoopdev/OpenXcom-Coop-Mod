@@ -3451,8 +3451,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string str_type = obj["type"].asString();
 		std::string str_race = obj["race"].asString();
 
+		// Legacy single-slot fields kept for any other reader; the QUEUE is what the
+		// geoscape consumes, so simultaneous detections no longer overwrite each other.
 		show_coop_ufo_popup_type = str_type;
 		show_coop_ufo_popup_race = str_race;
+
+		CoopUfoAlert alert;
+		alert.ufoId = obj.get("ufo_id", -1).asInt();
+		alert.type = str_type;
+		alert.race = str_race;
+		coopUfoAlerts.push_back(alert);
+		while (coopUfoAlerts.size() > kMaxCoopUfoAlerts)
+			coopUfoAlerts.erase(coopUfoAlerts.begin()); // drop oldest, stay bounded
 
 	}
 

@@ -99,6 +99,8 @@
 #include "../Geoscape/NewPossibleFacilityState.h"
 #include "../Geoscape/TrainingFinishedState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Geoscape/AlienBaseState.h"
+#include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
 
@@ -2095,6 +2097,31 @@ void patrolPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	gs->clientCraftReachedWaypoint(craft);
 }
 
+// alien_base_found payload: { alienBaseId }. Host-origin, replica-only apply.
+// X-Com discovering an alien base is a shared-world MUTATION (setDiscovered), not just an
+// alert, so it must not be rolled twice. The replica's time1MonthCoop used to run its OWN
+// RNG::percent(chanceToDetectAlienBaseEachMonth) and pick its own base, so host and client
+// could disagree about which base (if any) was found. The host now rolls alone and names
+// the winner here.
+void alienBaseFoundApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host already applied its own roll
+	SavedGame* save = game->getSavedGame();
+	GeoscapeState* gs = findGeoState(game);
+	if (!save || !gs) return;
+	const int id = payload.get("alienBaseId", -1).asInt();
+	for (auto* ab : *save->getAlienBases())
+	{
+		if (ab->getId() == id)
+		{
+			if (!ab->isDiscovered())
+				ab->setDiscovered(true);
+			gs->popup(new AlienBaseState(ab, gs));
+			return;
+		}
+	}
+}
+
 // ---- generic informational-alert replication --------------------------------
 // In JOINT only the host runs the geoscape sim, so EVERY informational popup it raises
 // (UFO lost, low fuel, items arrived, new research possibilities, training finished, ...)
@@ -2717,6 +2744,9 @@ void init()
 	// frozen replica would otherwise never see (UFO lost, low fuel, items arriving,
 	// new-possibility dialogs, training finished, ...). Replica-only applier.
 	registerCmd("alert", &simAccept, &alertApply);
+	// Host-authoritative alien-base discovery: a shared-world mutation, so the replica
+	// must NOT roll its own (it used to, and the two could disagree).
+	registerCmd("alien_base_found", &simAccept, &alienBaseFoundApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -3173,6 +3203,14 @@ void hostPatrolPrompt(Game* game, Craft* craft)
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	submitLocalCmd(game, "patrol_prompt", craftBaseIndex(game, craft), p);
+}
+
+void hostAlienBaseFound(Game* game, AlienBase* alienBase)
+{
+	if (!jointHost(game) || !alienBase) return;
+	Json::Value p;
+	p["alienBaseId"] = alienBase->getId();
+	submitLocalCmd(game, "alien_base_found", 0, p);
 }
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg,

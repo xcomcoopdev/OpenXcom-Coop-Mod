@@ -34,6 +34,7 @@ class Craft;
 class Ufo;
 class Target;
 class Soldier;
+class AlienBase;
 
 /**
  * PRD-J03: the generic JOINT economy command protocol.
@@ -322,6 +323,11 @@ void hostPatrolPrompt(Game* game, Craft* craft);
 /// rule names rebuild it; the replica-side factory (alertApply) pops the real dialog.
 /// Informational dialogs only - anything that also mutates the shared world needs real
 /// state mirroring. @a msg doubles as the text / rule name depending on @a cls.
+/// Host-authoritative alien-base discovery (HOST -> all seats). Discovering a base is a
+/// shared-world mutation (setDiscovered), not just an alert, so only the host may roll for
+/// it; replicas apply the host's result and pop the same dialog.
+void hostAlienBaseFound(Game* game, AlienBase* alienBase);
+
 void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                Base* base = nullptr, int craftId = -1,
                const std::vector<std::string>& names = {},

@@ -1448,33 +1448,54 @@ void GeoscapeState::think()
 			}
 
 			//  ufo popup
-			if (_game->getCoopMod()->show_coop_ufo_popup_race != "" && _game->getCoopMod()->show_coop_ufo_popup_type != "")
+			// Drain the pending peer alerts. Each entry is matched independently, so two
+			// UFOs detected in the same window both raise their own dialog (the old
+			// single type/race slot silently dropped one and could pop the wrong UFO).
 			{
-
-				for (auto &ufo : *_game->getSavedGame()->getUfos())
+				auto& alerts = _game->getCoopMod()->coopUfoAlerts;
+				for (auto it = alerts.begin(); it != alerts.end(); )
 				{
-
-					// Playtest B5: in a JOINT campaign the host runs the one shared sim and
-					// broadcasts ufo_popup; the client's matching UFO is a byte-faithful
-					// replica of the host's own (getCoop()==false), NOT a SEPARATE mirror
-					// (getCoop()==true). Requiring getCoop()==true swallowed the alert on
-					// every non-host player. Accept the shared replica in JOINT.
-					bool coopMatch = _game->getCoopMod()->isJointCampaign()
-						? true : (ufo->getCoop() == true);
-					if (ufo->getAlienRace() == _game->getCoopMod()->show_coop_ufo_popup_race && ufo->getRules()->getType() == _game->getCoopMod()->show_coop_ufo_popup_type && coopMatch && ufo->getDetected() == true)
+					Ufo* match = nullptr;
+					for (auto* ufo : *_game->getSavedGame()->getUfos())
 					{
-
-						popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected(), true));
-
-						_game->getCoopMod()->show_coop_ufo_popup_race = "";
-						_game->getCoopMod()->show_coop_ufo_popup_type = "";
-
-						break;
-
+						// Playtest B5: in a JOINT campaign the host runs the one shared sim
+						// and broadcasts ufo_popup; the client's matching UFO is a
+						// byte-faithful replica of the host's own (getCoop()==false), NOT a
+						// SEPARATE mirror (getCoop()==true). Requiring getCoop()==true
+						// swallowed the alert on every non-host player.
+						bool coopMatch = _game->getCoopMod()->isJointCampaign()
+							? true : (ufo->getCoop() == true);
+						if (!coopMatch || !ufo->getDetected())
+							continue;
+						// Exact match on the peer's ufo id when it travelled (JOINT shares
+						// one world, so ids are identical); otherwise fall back to the
+						// legacy type+race match.
+						if (it->ufoId >= 0 && _game->getCoopMod()->isJointCampaign())
+						{
+							if (ufo->getId() == it->ufoId) { match = ufo; break; }
+						}
+						else if (ufo->getAlienRace() == it->race
+							&& ufo->getRules()->getType() == it->type)
+						{
+							match = ufo;
+							break;
+						}
 					}
-
+					if (match)
+					{
+						popup(new UfoDetectedState(match, this, true, match->getHyperDetected(), true));
+						it = alerts.erase(it);
+					}
+					else
+					{
+						++it; // the UFO has not replicated yet - retry next think
+					}
 				}
-
+				if (alerts.empty())
+				{
+					_game->getCoopMod()->show_coop_ufo_popup_race = "";
+					_game->getCoopMod()->show_coop_ufo_popup_type = "";
+				}
 			}
 
 			// markers
@@ -4428,6 +4449,8 @@ void GeoscapeState::time1Day()
 					{
 						alienBase->setDiscovered(true);
 						popup(new AlienBaseState(alienBase, this));
+						// JOINT: host-only sim, so replicas need the discovery + dialog.
+						JointEcon::hostAlienBaseFound(_game, alienBase);
 					}
 				}
 			}
@@ -4577,6 +4600,9 @@ void GeoscapeState::time1Month()
 			{
 				ab->setDiscovered(true);
 				popup(new AlienBaseState(ab, this));
+				// JOINT: name the winner so replicas apply the SAME discovery instead of
+				// rolling their own (shared-world mutation, not just an alert).
+				JointEcon::hostAlienBaseFound(_game, ab);
 				break;
 			}
 		}
@@ -4623,6 +4649,7 @@ void GeoscapeState::time1MonthCoop()
 
 	_game->getSavedGame()->monthlyFunding();
 
+	// (alien-base discovery is deliberately NOT rolled here - see below)
 	// PRD-J04 / GAP-9: overwrite the just-rolled tail with the host's authoritative
 	// settlement (carried on the extended monthly_report packet). setFundsRaw moves
 	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
@@ -4650,7 +4677,15 @@ void GeoscapeState::time1MonthCoop()
 	popup(new MonthlyReportState(_globe));
 
 	// Handle Xcom Operatives discovering bases
-	if (!_game->getSavedGame()->getAlienBases()->empty() && RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
+	// JOINT: nobody rolls here. Discovering a base MUTATES the shared world
+	// (setDiscovered), and this handler runs on whichever machine received the peer's
+	// monthly_report - so the replica used to roll its OWN discovery (host/client could
+	// disagree about which base was found) and the host would roll a SECOND time on top of
+	// its authoritative roll in time1Month. The host rolls once in time1Month and names
+	// the winner via alien_base_found; every JOINT machine applies that instead.
+	if (!_game->getCoopMod()->isJointCampaign()
+		&& !_game->getSavedGame()->getAlienBases()->empty()
+		&& RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
 	{
 		for (auto* ab : *_game->getSavedGame()->getAlienBases())
 		{
@@ -4658,6 +4693,7 @@ void GeoscapeState::time1MonthCoop()
 			{
 				ab->setDiscovered(true);
 				popup(new AlienBaseState(ab, this));
+				JointEcon::hostAlienBaseFound(_game, ab);
 				break;
 			}
 		}
