@@ -2074,6 +2074,17 @@ bool Inventory::fitItem(const RuleInventory *newSlot, BattleItem *item, std::str
 }
 
 /**
+ * Test-harness hook: drop @a item into @a slot at (@a x, @a y) through the same
+ * moveItem a mouse drop calls, so the co-op hooks inside it (the coopItems
+ * manifest update and the peer mirror) run exactly as they do for a real drag.
+ */
+void Inventory::harnessMoveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
+{
+	moveItem(item, slot, x, y);
+	drawItems();
+}
+
+/**
  * Checks if two items can be stacked on one another.
  * @param itemA First item.
  * @param itemB Second item.

@@ -1023,6 +1023,19 @@ bool CraftEquipmentState::harnessMove(const std::string& itemType, int change)
 }
 
 /**
+ * Harness: click the Inventory button of this screen, i.e. the real
+ * "Bases > Equip craft > <craft> > Equipment > Inventory" path - the craft-side
+ * twin of SoldiersState::btnInventoryClick. _items is built first because the
+ * alt-management staging loop in btnInventoryClick walks it, and a
+ * harness-pushed state has not had its deferred init() run yet.
+ */
+void CraftEquipmentState::harnessInventory()
+{
+	initList();
+	btnInventoryClick(nullptr);
+}
+
+/**
  * Displays the inventory screen for the soldiers
  * inside the craft.
  * @param action Pointer to an action.

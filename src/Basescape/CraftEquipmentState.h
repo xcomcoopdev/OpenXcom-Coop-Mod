@@ -125,6 +125,8 @@ public:
 	void btnSaveClick(Action *action);
 	/// Harness (PRD-J09 GAP-5): drive the real store-move path for one item.
 	bool harnessMove(const std::string& itemType, int change);
+	/// Harness: open the craft inventory screen ("Equip craft > ... > Inventory").
+	void harnessInventory();
 };
 
 }

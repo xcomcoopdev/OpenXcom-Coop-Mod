@@ -57,6 +57,7 @@
 #include "../Battlescape/Position.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
+#include "../Mod/RuleInventory.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Mod/Unit.h"
 #include "../Savegame/Base.h"
@@ -858,6 +859,67 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			if (!moved) resp["error"] = "item not on craft equipment list: " + item;
 		}
 	}
+	else if (cmd == "open_craft_equipment" || cmd == "craft_equipment_ok" || cmd == "craft_inventory")
+	{
+		// The craft-side twin of open_soldiers / soldiers_ok / soldiers_inventory:
+		//   open_craft_equipment  push the REAL CraftEquipmentState for a base's
+		//                         craft ("Bases > Equip craft > <craft>").
+		//                         Params: base (name) | coop:true (the visited peer
+		//                         base) | neither (the local own base); craft_id
+		//                         (default: the base's first craft).
+		//   craft_inventory       click its Inventory button -> InventoryState, whose
+		//                         ground/carried panes are then read with
+		//                         inventory_ground exactly as for the base screen.
+		//   craft_equipment_ok    close it (runs the real alt-management reconcile).
+		if (cmd == "craft_inventory" || cmd == "craft_equipment_ok")
+		{
+			CraftEquipmentState* ces = findState<CraftEquipmentState>(_game);
+			if (!ces)
+				resp["error"] = "no CraftEquipmentState in state stack";
+			else if (cmd == "craft_equipment_ok")
+			{
+				ces->btnOkClick(nullptr);
+				resp["ok"] = true;
+			}
+			else
+			{
+				ces->harnessInventory();
+				resp["opened"] = (findState<InventoryState>(_game) != nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else
+		{
+			std::string baseName = req.get("base", "").asString();
+			bool wantCoop = req.get("coop", false).asBool();
+			int craftId = req.get("craft_id", -1).asInt();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					bool match;
+					if (wantCoop) match = b->_coopBase;
+					else if (!baseName.empty()) match = (b->getName() == baseName);
+					else match = (b->_coopBase == false && b->_coopIcon == false);
+					if (match) { target = b; break; }
+				}
+			size_t idx = target ? target->getCrafts()->size() : 0;
+			if (target)
+				for (size_t i = 0; i < target->getCrafts()->size(); ++i)
+					if (craftId < 0 || target->getCrafts()->at(i)->getId() == craftId)
+					{ idx = i; break; }
+			if (!target)
+				resp["error"] = "base not found";
+			else if (idx >= target->getCrafts()->size())
+				resp["error"] = "craft not found";
+			else
+			{
+				_game->pushState(new CraftEquipmentState(target, idx));
+				resp["craftId"] = target->getCrafts()->at(idx)->getId();
+				resp["ok"] = true;
+			}
+		}
+	}
 	else if (cmd == "craft_rearm")
 	{
 		// PRD-J09 GAP-5b repro/driver: mount craft-weapon <weapon> ("" = None) in
@@ -1477,8 +1539,9 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		bool wantCoop = req.get("coop", false).asBool();
 		std::string itemName = req.get("item", "").asString();
 		int count = req.get("count", -1).asInt();
-		std::string slotName = req.get("slot", "belt").asString();  // belt|right|left
+		std::string slotName = req.get("slot", "belt").asString();  // belt|right|left|backpack
 		std::string onlyName = req.get("name", "").asString();      // limit to soldiers matching this
+		int qty = req.get("qty", 1).asInt();                        // entries per soldier
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 		{
@@ -1501,20 +1564,54 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			auto* slot = _game->getMod()->getInventoryBelt();
 			if (slotName == "right") slot = _game->getMod()->getInventoryRightHand();
 			else if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
+			else if (slotName == "backpack" || slotName == "back") slot = _game->getMod()->getInventoryBackpack();
 			int dummyId = 0;
-			int given = 0;
+			int given = 0, entries = 0;
 			for (auto* s : *target->getSoldiers())
 			{
 				if (!onlyName.empty() && s->getName().find(onlyName) == std::string::npos) continue;
 				if (count >= 0 && given >= count) break;
-				BattleItem tmp(rule, &dummyId);
-				tmp.setSlot(slot);
-				tmp.setSlotX(0);
-				tmp.setSlotY(0);
-				s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
+				// <qty> entries per soldier, each in the first free cell of the slot
+				// (a hand slot has exactly one cell, so qty>1 there is a no-op past
+				// the first). Occupancy is read off the layout already written, so
+				// repeated give_layout calls stack instead of overlapping.
+				std::vector<RuleSlot> cells;
+				if (slot->getSlots()->empty()) cells.push_back(RuleSlot{0, 0}); // a hand
+				else cells = *slot->getSlots();
+				for (int n = 0; n < qty; ++n)
+				{
+					int px = -1, py = -1;
+					for (const auto& cell : cells)
+					{
+						if (px >= 0) break;
+						int x = cell.x, y = cell.y;
+						if (!slot->fitItemInSlot(rule, x, y)) continue;
+						bool clash = false;
+						for (auto* eli : *s->getEquipmentLayout())
+						{
+							if (eli->getSlot() != slot) continue;
+							const RuleItem* o = eli->getItemType();
+							if (!o) continue;
+							if (x + rule->getInventoryWidth() <= eli->getSlotX()
+								|| eli->getSlotX() + o->getInventoryWidth() <= x
+								|| y + rule->getInventoryHeight() <= eli->getSlotY()
+								|| eli->getSlotY() + o->getInventoryHeight() <= y) continue;
+							clash = true; break;
+						}
+						if (!clash) { px = x; py = y; }
+					}
+					if (px < 0) break; // slot full
+					BattleItem tmp(rule, &dummyId);
+					tmp.setSlot(slot);
+					tmp.setSlotX(px);
+					tmp.setSlotY(py);
+					s->getEquipmentLayout()->push_back(new EquipmentLayoutItem(&tmp));
+					entries++;
+				}
 				given++;
 			}
 			resp["given"] = given;
+			resp["entries"] = entries;
 			resp["ok"] = true;
 		}
 	}
@@ -1552,6 +1649,13 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				{
 					if (base->_coopIcon && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
 				}
+			}
+			// SHARED has no mirror bases - every base in the one shared world is a
+			// real base, so fall back to a plain name match.
+			if (!baseTo && !toBaseName.empty())
+			{
+				for (auto* base : *_game->getSavedGame()->getBases())
+					if (base->getName() == toBaseName && base != baseFrom) { baseTo = base; break; }
 			}
 		}
 		if (!soldier)
@@ -3428,6 +3532,11 @@ std::string TestServer::execute(const std::string& line)
 			// world); the caller then verifies both machines agree after apply.
 			int soldierId = req.get("soldier_id", -1).asInt();
 			int craftId = req.get("craft_id", -1).asInt();
+			// Craft ids are unique per craft TYPE, not per world, so an own base and
+			// a VISITED peer base can both hold a "Skyranger 1". Optional base (name)
+			// / coop:true narrow the search to one base (the base_report selector).
+			std::string caBase = req.get("base", "").asString();
+			bool caCoop = req.get("coop", false).asBool();
 			SavedGame* sg = _game->getSavedGame();
 			Base* base = nullptr;
 			size_t craftIdx = 0;
@@ -3436,6 +3545,8 @@ std::string TestServer::execute(const std::string& line)
 			{
 				for (auto* b : *sg->getBases())
 				{
+					if (caCoop && !b->_coopBase) continue;
+					if (!caBase.empty() && b->getName() != caBase) continue;
 					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
 						if (b->getCrafts()->at(i)->getId() == craftId) { base = b; craftIdx = i; found = true; break; }
 					if (found) break;
@@ -3461,8 +3572,30 @@ std::string TestServer::execute(const std::string& line)
 					CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
 					st->harnessToggle(soldierId);
 					delete st;
+					// The CraftSoldiersState ctor DESTRUCTIVELY swaps the base roster
+					// for a guest-free copy (SEPARATE only) and restores it in
+					// btnOkClick - which a harness-driven state never reaches. Put it
+					// back by hand, or every craft_assign silently drops this base's
+					// co-op guests from the roster for good.
+					if (!base->base_oldsoldiers2.empty())
+					{
+						*base->getSoldiers() = base->base_oldsoldiers2;
+						base->base_oldsoldiers2.clear();
+					}
 				}
-				resp["ok"] = true;
+				// Report what ACTUALLY happened: harnessToggle silently declines a
+				// seat the craft will not accept (no room, soldier not fit), so a
+				// caller that trusts ok=true can end up asserting against a soldier
+				// that was never seated. In SHARED the toggle is a shared_cmd that
+				// the host applies and broadcasts, so the local state only catches
+				// up a moment later - report it as async and let the caller poll.
+				bool shared = coop && coop->isSharedCampaign();
+				resp["craftId"] = sol->getCraft() ? sol->getCraft()->getId() : -1;
+				resp["seated"] = (sol->getCraft() == base->getCrafts()->at(craftIdx));
+				resp["async"] = shared;
+				resp["ok"] = shared || (resp["seated"].asBool() == want);
+				if (!resp["ok"].asBool())
+					resp["error"] = want ? "craft refused the soldier" : "soldier could not be unseated";
 			}
 		}
 		else if (cmd == "confirm_landing")
@@ -3851,6 +3984,9 @@ std::string TestServer::execute(const std::string& line)
 			resp["hostName"] = coop->getHostName();
 			resp["clientName"] = coop->getCurrentClientName();
 			resp["insideCoopBase"] = coop->playerInsideCoopBase;
+			// this machine's SHARED seat - the value Soldier::getOwnerPlayerId() is
+			// compared against, so a test can pick a soldier this player owns.
+			resp["localSeat"] = connectionTCP::localSeat();
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
 			// PRD-J09: post-battle / mission-lifecycle introspection.
@@ -4282,10 +4418,61 @@ std::string TestServer::execute(const std::string& line)
 				resp["coopBaseFlag"] = target->_coopBase;
 				resp["coopBaseId"] = target->_coop_base_id;
 
+				// Living-quarters accounting. A TRANSFERRED soldier keeps its owner
+				// (only a GIFT changes that), so it never joins the receiver's
+				// roster - but it does live at the receiving base, so it must still
+				// consume that base's quarters.
+				resp["usedQuarters"] = target->getUsedQuarters();
+				resp["availableQuarters"] = target->getAvailableQuarters();
+				resp["totalSoldiers"] = target->getTotalSoldiers();
+				resp["coopQuarters"] = target->coop_quarters;
+				resp["coopSoldiers"] = target->coop_soldiers;
+				resp["coopGuests"] = target->coop_guests;
+				// our own soldiers stationed at a PEER base (getCoopBase() != -1)
+				{
+					int away = 0;
+					for (auto* s : *target->getSoldiers())
+						if (s->getCoopBase() != -1) away++;
+					resp["guestsAway"] = away;
+				}
+
 				Json::Value storage(Json::objectValue);
 				for (const auto& pair : *target->getStorageItems()->getContents())
 					storage[pair.first->getType()] = pair.second;
 				resp["storage"] = storage;
+
+				// the base's crafts (id + type + what each holds), so a test can
+				// address one for open_craft_equipment / craft_assign - including
+				// at a VISITED peer base, which geo_state does not enumerate.
+				Json::Value crafts(Json::arrayValue);
+				for (auto* c : *target->getCrafts())
+				{
+					Json::Value cj(Json::objectValue);
+					cj["id"] = c->getId();
+					cj["type"] = c->getRules()->getType();
+					cj["status"] = c->getStatus();
+					cj["soldiers"] = c->getNumTotalSoldiers();
+					Json::Value citems(Json::objectValue);
+					for (const auto& pair : *c->getItems()->getContents())
+						citems[pair.first->getType()] = pair.second;
+					cj["items"] = citems;
+					// the co-op item manifest. BattlescapeGenerator::placeItemByLayout
+					// refuses to auto-place any base-inventory item matching an entry
+					// here, so a colliding entry silently strips a soldier's weapon
+					// from the equip screen.
+					Json::Value cci(Json::arrayValue);
+					for (const auto& ci : c->getCoopItems())
+					{
+						Json::Value e(Json::objectValue);
+						e["id"] = ci.id;
+						e["type"] = ci.type;
+						e["owner"] = ci.owner;
+						cci.append(e);
+					}
+					cj["coopItems"] = cci;
+					crafts.append(cj);
+				}
+				resp["crafts"] = crafts;
 
 				Json::Value reserved(Json::objectValue);
 				Json::Value soldiers(Json::arrayValue);
@@ -4295,6 +4482,12 @@ std::string TestServer::execute(const std::string& line)
 					js["name"] = s->getName();
 					js["owner"] = s->getOwnerPlayerId();
 					js["coopBase"] = s->getCoopBase();
+					// the PERSISTED guest craft seat. CoopState/BasescapeState re-seat a
+					// guest from this when a co-op base is (re)built, so a stale value
+					// silently re-assigns a soldier the player just took off the craft.
+					js["coopCraft"] = s->getCoopCraft();
+					js["coopCraftType"] = s->getCoopCraftType();
+					js["craft"] = s->getCraft() ? s->getCraft()->getId() : -1;
 					js["id"] = s->getId();
 					js["type"] = s->getRules()->getType();
 					// PRD-J05: a compact stats fingerprint so a hire test can assert
@@ -4385,18 +4578,43 @@ std::string TestServer::execute(const std::string& line)
 				}
 				// items carried by player units (on soldiers), to check
 				// conservation: ground + carried should equal what storage had.
+				// `soldiers` additionally breaks the carried pile down PER UNIT and
+				// PER SLOT, so a test can assert that the base soldier-equip screen
+				// and the craft-equip screen put the very same items in the very
+				// same slots on the very same soldier (not merely the same totals).
 				Json::Value carried(Json::objectValue);
+				Json::Value soldierDetail(Json::arrayValue);
 				int carriedTotal = 0, units = 0;
 				for (auto* u : *bg->getUnits())
 				{
 					if (u->getFaction() != FACTION_PLAYER) continue;
 					units++;
+					Json::Value uj(Json::objectValue);
+					Soldier* gs = u->getGeoscapeSoldier();
+					uj["name"] = gs ? gs->getName() : std::string("");
+					uj["id"] = u->getId();
+					Json::Value slots(Json::objectValue);
 					for (auto* bi : *u->getInventory())
 					{
 						std::string t = bi->getRules()->getType();
 						carried[t] = carried.get(t, 0).asInt() + 1;
 						carriedTotal++;
+						std::string slotId = bi->getSlot() ? bi->getSlot()->getId() : std::string("?");
+						Json::Value entry(Json::objectValue);
+						entry["item"] = t;
+						entry["x"] = bi->getSlotX();
+						entry["y"] = bi->getSlotY();
+						Json::Value ammo(Json::arrayValue);
+						for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+						{
+							const BattleItem* am = bi->getAmmoForSlot(a);
+							if (am && am != bi) ammo.append(am->getRules()->getType());
+						}
+						entry["ammo"] = ammo;
+						slots[slotId].append(entry);
 					}
+					uj["slots"] = slots;
+					soldierDetail.append(uj);
 				}
 				// Every BattleItem instance in the inventory battle (ground +
 				// carried + loaded-into-weapon ammo), to detect true duplication
@@ -4414,9 +4632,99 @@ std::string TestServer::execute(const std::string& line)
 				resp["carried"] = carried;
 				resp["carriedTotal"] = carriedTotal;
 				resp["units"] = units;
+				resp["soldiers"] = soldierDetail;
 				resp["all"] = all;
 				resp["allTotal"] = allTotal;
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "inventory_move")
+		{
+			// Drag-and-drop one item inside an OPEN inventory screen, through the
+			// real Inventory::moveItem a mouse drop calls - which is where the
+			// co-op hooks live (moveBaseCoopInventorySave populates the craft's
+			// coopItems manifest, and the move is mirrored to the peer).
+			// Params: name (soldier substring; default = the selected unit),
+			//         item (rule type), slot (right|left|backpack|belt|ground),
+			//         from (ground|unit, default ground).
+			InventoryState* inv = findState<InventoryState>(_game);
+			SavedGame* invSg = _game->getSavedGame();
+			SavedBattleGame* bg = invSg ? invSg->getSavedBattle() : nullptr;
+			Inventory* inventory = inv ? inv->getInventoryForTest() : nullptr;
+			Tile* ground = bg ? bg->getTile(0) : nullptr;
+			if (!inv || !bg || !inventory || !ground)
+			{
+				resp["error"] = "no open inventory (call soldiers_inventory / craft_inventory first)";
+			}
+			else
+			{
+				std::string who = req.get("name", "").asString();
+				BattleUnit* unit = nullptr;
+				for (auto* u : *bg->getUnits())
+				{
+					if (u->getFaction() != FACTION_PLAYER) continue;
+					Soldier* gs = u->getGeoscapeSoldier();
+					if (who.empty() || (gs && gs->getName().find(who) != std::string::npos))
+					{ unit = u; break; }
+				}
+				std::string itemType = req.get("item", "").asString();
+				std::string slotName = req.get("slot", "right").asString();
+				bool fromUnit = (req.get("from", "ground").asString() == "unit");
+				RuleInventory* slot = _game->getMod()->getInventoryRightHand();
+				if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
+				else if (slotName == "belt") slot = _game->getMod()->getInventoryBelt();
+				else if (slotName == "backpack" || slotName == "back") slot = _game->getMod()->getInventoryBackpack();
+				else if (slotName == "ground") slot = _game->getMod()->getInventoryGround();
+
+				BattleItem* found = nullptr;
+				if (fromUnit && unit)
+				{
+					for (auto* bi : *unit->getInventory())
+						if (bi->getRules()->getType() == itemType) { found = bi; break; }
+				}
+				else
+				{
+					for (auto* bi : *ground->getInventory())
+						if (bi->getRules()->getType() == itemType) { found = bi; break; }
+				}
+
+				if (!unit)
+					resp["error"] = "no player unit matching name: " + who;
+				else if (!found)
+					resp["error"] = "no " + itemType + (fromUnit ? " on that soldier" : " on the ground");
+				else
+				{
+					// select the unit exactly as clicking the soldier arrows does,
+					// so moveItem's co-op ownership checks see the right _selUnit
+					bg->setSelectedUnit(unit);
+					inventory->setSelectedUnit(unit, true);
+					inventory->setSelectedItem(found);
+					// fitItem is the normal drop path: it walks the slot's cells,
+					// checks overlap, and calls moveItem for the first free one. A
+					// hand has no cell list, so it lands at 0,0. The GROUND has no
+					// cell list either but is never "full", so fitItem would refuse
+					// it - drop straight through instead, as a real drag does.
+					std::string warning;
+					bool moved;
+					if (slot->getType() == INV_GROUND)
+					{
+						inventory->harnessMoveItem(found, slot, 0, 0);
+						moved = true;
+					}
+					else
+					{
+						moved = inventory->fitItem(slot, found, warning);
+					}
+					inventory->setSelectedItem(nullptr);
+					resp["moved"] = moved;
+					// where the item ACTUALLY ended up - moveItem is a no-op under
+					// several co-op guards (foreign unit, no tile), and it reports
+					// nothing, so read the result back instead of trusting the call.
+					resp["landedSlot"] = found->getSlot() ? found->getSlot()->getId() : std::string("");
+					resp["landedOnUnit"] = (found->getOwner() == unit);
+					if (!warning.empty()) resp["warning"] = warning;
+					resp["ok"] = moved;
+				}
 			}
 		}
 		else if (cmd == "inventory_unload")
