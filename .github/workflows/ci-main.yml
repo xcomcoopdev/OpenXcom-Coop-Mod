@@ -174,16 +174,19 @@ jobs:
           $v = "${{ needs.build.outputs.version }}"
           $z = "openxcom-coop-$v-x64.zip"
           "ZIP=$z" >> $env:GITHUB_ENV
-          Compress-Archive bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\x64\Release\rendezvous.json,bin\common,bin\standard,LICENSE.txt -DestinationPath $z -Force
-          # Guard: assert no licensed retail X-COM data (GEODATA is the canary) is in the
-          # zip. This job never stages UFO data at all, but keep the canary in case the
-          # packaging list is ever changed to a wildcard.
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $z).Path)
-          $bad = @($zip.Entries.FullName | Where-Object { $_ -match 'GEODATA' })
-          $zip.Dispose()
-          if ($bad.Count) { throw "licensed retail data leaked into release zip: $($bad -join ', ')" }
-          Write-Host "package OK ($z); no licensed retail data included"
+          # Stage the exact tree we ship. UFO/TFTD are staged one subdirectory at a
+          # time (never the whole dir): the game needs UFO\multiplayer\base.png at
+          # runtime - Globe's ctor throws and kills "new game" without it - while the
+          # rest of UFO/ is licensed retail data that must never be packaged.
+          $p = "pkg"
+          Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $p, "$p\UFO", "$p\TFTD" | Out-Null
+          Copy-Item bin\x64\Release\OpenXcom.exe,bin\x64\Release\*.dll,bin\x64\Release\rendezvous.json,LICENSE.txt $p
+          Copy-Item bin\common,bin\standard $p -Recurse
+          Copy-Item bin\UFO\multiplayer  "$p\UFO"  -Recurse    # coop art only
+          Copy-Item bin\TFTD\multiplayer "$p\TFTD" -Recurse    # coop art only
+          Compress-Archive "$p\*" -DestinationPath $z -Force
+          ./tools/ci/assert_package.ps1 $z
 
       - name: Release notes from CHANGELOG (release only)
         if: needs.build.outputs.channel == 'release'
@@ -329,6 +332,10 @@ jobs:
 
       - name: Package WinXP zip
         run: |
+          # CMake's post-build step already copied bin/{UFO,TFTD,common,standard}
+          # into build/bin; assert that tree before zipping it (same whitelist +
+          # coop-art checks the x64 and Linux packages get).
+          sh tools/ci/assert_package_dir.sh build/bin
           cd build/bin
           rm -f libopenxcom.dll.a || true
           zip -r "$GITHUB_WORKSPACE/openxcom-coop-winxp-${{ needs.build.outputs.version }}-i686.zip" .
@@ -380,14 +387,19 @@ jobs:
           set -euxo pipefail
           v="${{ needs.build.outputs.version }}"
           pkg="openxcom-coop-linux-$v-x86_64"
-          mkdir -p "$pkg"
+          mkdir -p "$pkg/UFO" "$pkg/TFTD"
           cp build/bin/openxcom "$pkg/"
           cp -r bin/common bin/standard "$pkg/"
+          # coop art only - never the whole UFO/TFTD dir (licensed retail data).
+          # Globe's ctor throws on a missing multiplayer/base.png, killing "new game".
+          cp -r bin/UFO/multiplayer  "$pkg/UFO/"
+          cp -r bin/TFTD/multiplayer "$pkg/TFTD/"
           cp LICENSE.txt "$pkg/" 2>/dev/null || true
           # real rendezvous.json from the secret (same as the x64 release); UFO data is NOT included (licensed)
           if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
           printf '%s' "$RELEASE_RENDEZVOUS_JSON" > "$pkg/rendezvous.json"
           python3 -c "import json; json.load(open('$pkg/rendezvous.json'))" || { echo "rendezvous.json not valid JSON"; exit 1; }
+          sh tools/ci/assert_package_dir.sh "$pkg"
           tar czf "$pkg.tar.gz" "$pkg"
 
       - name: Attach Linux tarball to the release
