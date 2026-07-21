@@ -200,11 +200,12 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports):
+    def __init__(self, tag, ports, mods=()):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
-        self.host_dir = make_user_dir(f"{tag}_host")
-        self.client_dir = make_user_dir(f"{tag}_client")
+        # Both machines get the SAME mods, or their rulesets diverge.
+        self.host_dir = make_user_dir(f"{tag}_host", mods=mods)
+        self.client_dir = make_user_dir(f"{tag}_client", mods=mods)
         self.host = GameClient("host", self.host_port, self.host_dir)
         self.client = GameClient("client", self.client_port, self.client_dir)
 
@@ -243,7 +244,7 @@ class SharedSession:
 
 
 def bring_up(tag, ports, wait_ready=True,
-             host_base="HostBase", client_base="ClientBase"):
+             host_base="HostBase", client_base="ClientBase", mods=()):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -253,7 +254,7 @@ def bring_up(tag, ports, wait_ready=True,
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports)
+    js = SharedSession(tag, ports, mods=mods)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

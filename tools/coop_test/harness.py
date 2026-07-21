@@ -158,17 +158,31 @@ class GameClient:
                 self.proc.kill()
 
 
-def make_user_dir(name, saves=()):
+def make_user_dir(name, saves=(), mods=()):
     """Hermetic, isolated user folder: a freshly written options.cfg pinning
     the stock `xcom1` master (see HERMETIC_OPTIONS) with no external mods and
     no dependence on the machine's real config. `saves` are copied into the
-    master's save subfolder (xcom1/)."""
+    master's save subfolder (xcom1/).
+
+    `mods` are paths to mod folders to install AND activate for this run. They are
+    copied into <userdir>/mods/ - the user mod location; note that the shipped
+    standard/ directory is a protected allowlist and silently rejects anything
+    else ("Invalid standard mod '<name>', skipping."). Both machines in a co-op
+    pair must get the SAME mods or their rulesets diverge."""
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
         shutil.rmtree(d)
     os.makedirs(os.path.join(d, "xcom1"))
+    extra = ""
+    for src in mods:
+        mod_id = os.path.basename(os.path.normpath(src))
+        shutil.copytree(src, os.path.join(d, "mods", mod_id))
+        extra += "  - active: true\n    id: " + mod_id + "\n"
+    opts = HERMETIC_OPTIONS
+    if extra:
+        opts = opts.replace("options:\n", extra + "options:\n", 1)
     with open(os.path.join(d, "options.cfg"), "w", encoding="utf-8") as f:
-        f.write(HERMETIC_OPTIONS)
+        f.write(opts)
     for save in saves:
         shutil.copy(save, os.path.join(d, "xcom1"))
     return d
