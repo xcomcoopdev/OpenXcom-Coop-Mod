@@ -81,13 +81,62 @@ campaign each run.
   equipping soldiers at a base must not appear as free/available equipment to a
   peer visiting that base, nor to the owner when the reserving soldier is a
   stripped co-op guest; checks all four host/client directions.
-- `test_coop_transferred_equipment.py` - vanilla-transferring an equipped
-  soldier to a peer base must not duplicate its equipment: the world-wide item
-  total is unchanged and the client-base equip screen shows the same number of
-  item instances to the visiting host as to the client (conservation).
+- `test_coop_transferred_equipment.py` - two scenarios for a vanilla-transferred
+  equipped soldier. (1) conservation: the transfer must not duplicate the gear -
+  the world-wide item total is unchanged and the client-base equip screen shows
+  the same number of item instances to the visiting host as to the client.
+  (2) the two equip screens must agree: with "Alternate craft equipment
+  management" ON, a soldier equipped with a weapon in each hand + rockets in the
+  backpack is transferred to the peer base and seated on the peer's craft; the
+  co-op trade confirmation must not fail (see below), and
+  `Bases > Soldiers > Inventory` and `Bases > Equip craft > ... > Inventory` must
+  then show the same items in the same slots on the soldier AND the same free
+  items on the ground pane.
+
+  The confirmation check is the regression guard for the double-book bug:
+  `TransferItemsState::completeTransfer()` (the immediate, non-ACK-gated path)
+  applies the funds debit, the source-store removal and the co-op limit
+  decrements locally, then sends the same `"transfer"` packet the ACK-gated
+  `createPendingTransfers()` sends. The peer's `transfer_completed` used to
+  re-apply all of it via `Base::removePendingTransfers()`, whose store
+  re-validation then found nothing left to remove and failed outright - CoopState
+  552 "Failed to remove items from your base." on the sender while the receiver
+  had already added the goods, with the pending-transfer list never cleared. The
+  packet now carries `already_applied`, echoed back in the ACK, and the sender
+  only clears its pending list for that path.
 - `test_coop_transfer_equipment_option.py` - the "Alternate craft equipment
   management" option drives transfer behaviour: OFF strips the soldier's gear
   (empty layout at the peer base), ON keeps its loadout. Runs both modes.
+- `test_coop_quarters_accounting.py` - the base that HOUSES a soldier is the one
+  that pays for it. A transfer keeps the soldier in the SENDER's roster (tagged
+  `coopBase` = the destination) and gives the receiver nothing at all
+  (`Base::syncTrade` drops an incoming TRANSFER_SOLDIER because `soldier_rule`
+  is never written), so the guest used to occupy nobody's living quarters.
+  `Base::getUsedQuarters()` now skips soldiers with `coopBase != -1` on a real
+  own base and adds `coop_guests`, which `connectionTCP::sendGuestCensus()`
+  reports to the peer. Moves THREE soldiers each way - one transfer would not
+  have caught the roster being pruned between moves.
+- `test_coop_peer_equip_screens.py` - a transferred soldier must keep its full
+  loadout on BOTH equip screens at a peer's co-op base. `deployXCOM` numbered
+  item `coopID`s only in its craft branch, so base-inventory items all kept
+  `coopID 0`; the craft's `coopItems` manifest (written from that same screen)
+  was all-zero too, and `BattleUnit::hasCoopItem` collapsed into a TYPE-only
+  match - `placeItemByLayout` then refused a visitor's OWN weapon whenever the
+  peer had ever equipped that item type on that craft. Asserts (a) no deployed
+  soldier's layout items are left on the ground, (b) both screens put the same
+  items in the same slots, (c) both hold the same item instances (`all`), and
+  checks all of it at a plain own base first, so a coop-only divergence fails
+  while stock behaviour is left alone. Deliberately does NOT assert ground-pane
+  equality - the two screens deploy different unit sets (all base soldiers vs.
+  the craft crew) and loose weapons auto-chamber ammo, both of which reproduce
+  with no coop base in sight.
+- `test_coop_guest_craft_seat.py` - taking a guest soldier OFF a craft at a
+  peer's co-op base must stick across a trip to the geoscape. `Soldier::
+  _coopCraft` is the persisted guest seat and a co-op base is rebuilt from it on
+  every entry, but `SoldiersState`/`CraftInfoState`/`CoopState` only ever wrote
+  it inside `if (soldier->getCraft())` - so an unassign left a stale craft id and
+  the next rebuild re-seated the soldier. Runs both directions (host visiting the
+  client's base and vice versa).
 - `test_coop_transfer_equipment_counts.py` - with the option ON the gear's item
   counts actually move, immediately (0-hour transfer, matching the instant
   soldier move): the sending base's stored count drops and the receiving base's
@@ -138,6 +187,7 @@ finally:
 | `test_joint_deploy.py`, `test_joint_battle.py` | mixed-owner squads: control split follows soldier ownership; post-battle worlds identical |
 | `test_joint_landing.py` | the landing broker asks the seat that gave the order |
 | `test_joint_refresh.py`, `test_joint_resync.py` | live screen refresh on apply; desync detect -> auto-repair |
+| `test_shared_equip_transfer.py` | equipping + moving soldiers around a SHARED world: real drag-drop equipping, both equip screens agree, a craft seat sticks when cleared, a second base built, then an intra-world `transfer` shared_cmd - the soldier arrives at the right base **unassigned from any craft**, with its layout intact and its **owner unchanged** (only a gift changes ownership), identically on both machines |
 | `test_joint_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
@@ -201,10 +251,21 @@ JOINT bring-up + world equality on top of it.
   `open_gift_dialog`, `rename_soldier`, `open_soldiers`, `soldiers_ok`,
   `soldiers_inventory` (right-click-equip a base's soldiers), `inventory_ground`
   (read the open inventory's ground pane: `items`=ground, `carried`=on units,
-  `all`=every instance incl. loaded ammo), `base_report` (storage + per-soldier
-  reserved layout items; `coop:true` picks the visited base), `give_layout`
-  (reserve an `item` on a base's soldiers, optional `slot`=belt|right|left and
-  `name` filter), `set_coop_base` (force a soldier's coopBase, e.g. to make it a
+  `all`=every instance incl. loaded ammo, `soldiers`=per-unit per-slot loadout
+  with x/y and loaded ammo - use this to compare two equip screens item for
+  item), `open_craft_equipment` / `craft_inventory` / `craft_equipment_ok` (the
+  craft-side twins of open_soldiers/soldiers_inventory/soldiers_ok: the real
+  `Bases > Equip craft > <craft> > Equipment > Inventory` path; select the base
+  with `base`=name or `coop:true`, and the craft with `craft_id`), `base_report`
+  (storage + `crafts` + per-soldier reserved layout items; `coop:true` picks the
+  visited base), `give_layout` (reserve an `item` on a base's soldiers, optional
+  `slot`=belt|right|left|backpack, `qty` entries per soldier, and a `name`
+  filter), `inventory_move` (drag one item inside an OPEN inventory screen via
+  the real `Inventory::fitItem`/`moveItem`, which is what writes the craft's
+  `coopItems` manifest: `name`=soldier, `item`, `slot`=right|left|backpack|belt|
+  ground, `from`=ground|unit; reports `landedSlot`/`landedOnUnit` because
+  `moveItem` silently no-ops under several co-op guards),
+  `set_coop_base` (force a soldier's coopBase, e.g. to make it a
   stripped guest), `transfer_to_coop_base` (vanilla base->base transfer of a
   soldier to a peer base, no ownership change), `incoming_transfers` (a base's
   pending incoming item/soldier transfers), `visit_coop_base`, `leave_base`,
