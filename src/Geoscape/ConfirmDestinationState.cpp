@@ -47,7 +47,7 @@
 #include "../Engine/Sound.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -69,10 +69,10 @@ ConfirmDestinationState::ConfirmDestinationState(std::vector<Craft*> crafts, Tar
 	if (_crafts.size() == 1)
 	{
 		transferAvailable = (Options::canTransferCraftsWhileAirborne && base != 0 && base != _crafts.front()->getBase() && _crafts.front()->arePilotsOnboard(_game->getMod()));
-		// PRD-J08 JOINT: airborne craft transfer mutates two bases directly and
+		// PRD-J08 SHARED: airborne craft transfer mutates two bases directly and
 		// is not one of the J08 craft-order commands - hide it (the base
 		// Transfer screen, which rides the J05 "transfer" command, covers it).
-		if (_game->getCoopMod()->isJointCampaign())
+		if (_game->getCoopMod()->isSharedCampaign())
 		{
 			transferAvailable = false;
 		}
@@ -364,13 +364,13 @@ void ConfirmDestinationState::btnOkClick(Action *)
 		}
 	}
 
-	// PRD-J08 JOINT: launch/retarget are commands to the host - nothing is
+	// PRD-J08 SHARED: launch/retarget are commands to the host - nothing is
 	// mutated locally. The pre-checks above stay as the initiator's immediate
 	// UX; the host re-validates the same vanilla rules on the live world and
 	// applies orders in arrival order (last-command-wins). A fresh waypoint
 	// (id 0) travels as a lon/lat "point"; the applier creates the shared
 	// waypoint on host + replicas so the id counter stays in lock-step.
-	if (_game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod()->isSharedCampaign())
 	{
 		Waypoint* wj = dynamic_cast<Waypoint*>(_target);
 		for (auto* craft : _crafts)
@@ -383,11 +383,11 @@ void ConfirmDestinationState::btnOkClick(Action *)
 			}
 			if (tgt == _target && wj != 0 && wj->getId() == 0)
 			{
-				JointEcon::submitCraftPoint(_game, craft, wj->getLongitude(), wj->getLatitude());
+				SharedEcon::submitCraftPoint(_game, craft, wj->getLongitude(), wj->getLatitude());
 			}
 			else
 			{
-				JointEcon::submitCraftTarget(_game, craft, tgt);
+				SharedEcon::submitCraftTarget(_game, craft, tgt);
 			}
 		}
 		if (wj != 0 && wj->getId() == 0)

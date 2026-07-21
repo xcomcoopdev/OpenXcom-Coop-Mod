@@ -52,7 +52,7 @@
 #include "../Savegame/Vehicle.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
-#include "../CoopMod/JointEcon.h" // coop (soldier ownership parity)
+#include "../CoopMod/SharedEcon.h" // coop (soldier ownership parity)
 
 namespace OpenXcom
 {
@@ -254,7 +254,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -280,7 +280,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
  */
 SoldiersState::~SoldiersState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -393,9 +393,9 @@ void SoldiersState::init()
 	_base->prepareSoldierStatsWithBonuses(); // refresh stats for sorting
 	initList(0);
 
-	// PRD-J10: silent live refresh. In JOINT this roster is shared, so the peer's
+	// PRD-J10: silent live refresh. In SHARED this roster is shared, so the peer's
 	// sack / craft_assign / arriving hire belongs on THIS list, live.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress: wound recovery*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress: wound recovery*/);
 }
 
 /**
@@ -405,9 +405,9 @@ void SoldiersState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
-		if (JointEcon::baseIndex(_game, _base) < 0)
+		if (SharedEcon::baseIndex(_game, _base) < 0)
 		{
 			_game->popState(); // this base is gone
 			return;
@@ -438,9 +438,9 @@ void SoldiersState::initList(size_t scrl)
 	{
 		_lstSoldiers->setArrowColumn(188, ARROW_VERTICAL);
 
-		// Playtest: JOINT shows only the local player's own soldiers (non-destructive:
+		// Playtest: SHARED shows only the local player's own soldiers (non-destructive:
 		// filter a LOCAL copy, never mutate the shared roster). SEPARATE/solo unchanged.
-		_filteredListOfSoldiers = JointEcon::visibleSoldiers(_game, _base);
+		_filteredListOfSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	}
 	else
 	{
@@ -564,8 +564,8 @@ void SoldiersState::lstItemsLeftArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	// Playtest: JOINT must not reorder the shared roster (diverges from the host).
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
+	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -619,7 +619,7 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -781,7 +781,7 @@ void SoldiersState::btnOkClick(Action *)
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isSharedCampaign())
 	{
 		// coop
 		_filteredListOfSoldiers = _base->base_oldsoldiers;
@@ -976,7 +976,7 @@ void SoldiersState::lstSoldiersClick(Action *action)
 		}
 		else
 		{
-			// Playtest: the list is owner-filtered in JOINT, so the display row is NOT the
+			// Playtest: the list is owner-filtered in SHARED, so the display row is NOT the
 			// base-roster index SoldierInfoState expects. Map it back to the real index.
 			size_t _row = _lstSoldiers->getSelectedRow();
 			int _baseIdx = (int)_row;

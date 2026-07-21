@@ -85,10 +85,10 @@ enum GameEnding { END_NONE, END_WIN, END_LOSE };
 
 /**
  * Co-op campaign economy model, chosen at campaign creation and immutable
- * afterwards (PRD-J01). Separate = today's two mirrored economies; Joint =
+ * afterwards (PRD-J01). Separate = today's two mirrored economies; Shared =
  * one host-authoritative shared world. Serialized as int key coopCampaignType.
  */
-enum class CoopCampaignType : int { Separate = 0, Joint = 1 };
+enum class CoopCampaignType : int { Separate = 0, Shared = 1 };
 
 /**
  * Container for savegame info displayed on listings.
@@ -174,7 +174,7 @@ private:
 	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
 	// is the locked player list (host first).
 	bool _coop;
-	// JOINT vs SEPARATE economy model (PRD-J01); immutable after campaign start.
+	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
 	GameTime *_time;
@@ -278,15 +278,15 @@ private:
 	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
 	bool isCoopSave() const { return _coop; }
 	void setCoopSave(bool coop) { _coop = coop; }
-	/// JOINT/SEPARATE campaign economy model (PRD-J01). Immutable after start.
+	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
-	/// Playtest B4: in a JOINT campaign every soldier needs an explicit owner (seat).
+	/// Playtest B4: in a SHARED campaign every soldier needs an explicit owner (seat).
 	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
 	/// fresh game, or a save created before the split existed - is assigned a seat by
-	/// a deterministic, machine-consistent rule (id parity). No-op outside JOINT and
+	/// a deterministic, machine-consistent rule (id parity). No-op outside SHARED and
 	/// for already-owned soldiers, so it is safe to call at creation and on every load.
-	void migrateJointSoldierOwnership();
+	void migrateSharedSoldierOwnership();
 	/// Locked co-op player list (host first), set at campaign start.
 	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
 	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }
@@ -304,8 +304,8 @@ private:
 	/// Sets new funds.
 	void setFunds(int64_t funds);
 	/// Sets new funds WITHOUT booking the delta into the income/expenditure
-	/// graph series (JOINT replica adopts host-authoritative funds + series
-	/// separately; see JointEcon processApply / GAP-9). HOST/SEPARATE unaffected.
+	/// graph series (SHARED replica adopts host-authoritative funds + series
+	/// separately; see SharedEcon processApply / GAP-9). HOST/SEPARATE unaffected.
 	void setFundsRaw(int64_t funds);
 	/// Gets the current globe longitude.
 	double getGlobeLongitude() const;

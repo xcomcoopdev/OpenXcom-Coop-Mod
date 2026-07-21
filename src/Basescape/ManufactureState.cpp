@@ -132,7 +132,7 @@ ManufactureState::ManufactureState(Base *base) : _base(base)
  */
 ManufactureState::~ManufactureState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -146,7 +146,7 @@ void ManufactureState::init()
 
 	// PRD-J10: silent live refresh - see ResearchState::init. day_tick included:
 	// it is what moves this screen's "days left" / progress columns on a replica.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress*/);
 
 	if (Options::oxceManufactureScrollSpeed > 0 || Options::oxceManufactureScrollSpeedWithCtrl > 0)
 	{
@@ -166,9 +166,9 @@ void ManufactureState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
-		if (JointEcon::baseIndex(_game, _base) < 0)
+		if (SharedEcon::baseIndex(_game, _base) < 0)
 		{
 			_game->popState(); // this base is gone
 			return;
@@ -287,10 +287,10 @@ void ManufactureState::lstManufactureClickMiddle(Action *)
  */
 void ManufactureState::lstManufactureMousePress(Action *action)
 {
-	// PRD-J06 (JOINT): the mouse-wheel shortcut re-allocates engineers by directly
-	// mutating the shared world - disabled in JOINT, where allocation is host-
+	// PRD-J06 (SHARED): the mouse-wheel shortcut re-allocates engineers by directly
+	// mutating the shared world - disabled in SHARED, where allocation is host-
 	// authoritative (open the production and use OK -> man_alloc). SEPARATE untouched.
-	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 	{
 		return;
 	}

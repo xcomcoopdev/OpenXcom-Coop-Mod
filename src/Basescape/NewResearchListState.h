@@ -18,7 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -61,8 +61,8 @@ private:
 	/// Playtest B2: the "NEW RESEARCH PROJECTS" list must live-sync so a peer's (or
 	/// this player's just-submitted) res_start drops the topic from the list, rather
 	/// than leaving it clickable -> a duplicate start the host rejects with
-	/// STR_RESEARCH_NOT_AVAILABLE. No-op unless JOINT campaign.
-	JointEcon::ScreenRefresh _jointRefresh;
+	/// STR_RESEARCH_NOT_AVAILABLE. No-op unless SHARED campaign.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 public:
 	/// Creates the New research list state.
 	NewResearchListState(Base *base, bool sortByCost);
@@ -83,7 +83,7 @@ public:
 	void fillProjectList(bool markAllAsSeen);
 	/// Initializes the state.
 	void init() override;
-	/// Playtest B2: consume a peer's joint_apply and rebuild the list live.
+	/// Playtest B2: consume a peer's shared_apply and rebuild the list live.
 	void think() override;
 	/// Test automation: the topic names currently listed as startable.
 	std::vector<std::string> harnessProjectNames() const;

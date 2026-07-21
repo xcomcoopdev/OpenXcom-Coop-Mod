@@ -36,7 +36,7 @@
 #include "../Menu/ErrorMessageState.h"
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -54,9 +54,9 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 			_game->popState();
 			return;
 		}
-		else if (!_game->getCoopMod()->isJointCampaign())
+		else if (!_game->getCoopMod()->isSharedCampaign())
 		{
-			// SEPARATE mirror: broadcast the peer's base removal. JOINT instead
+			// SEPARATE mirror: broadcast the peer's base removal. SHARED instead
 			// broadcasts base_destroyed from btnOkClick (when the host actually
 			// removes the base) so host + replica erase the same index in lock-step.
 			Json::Value root;
@@ -70,7 +70,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 
 	_screen = false;
 
-	// JOINT: a replica may raise this dialog from a host broadcast without holding the
+	// SHARED: a replica may raise this dialog from a host broadcast without holding the
 	// attacking UFO (it can already be gone from the shared world), so ufo may be null.
 	int soundId = ufo ? ufo->getRules()->getHitSound() : (int)Mod::NO_SOUND;
 	if (soundId != Mod::NO_SOUND)
@@ -200,17 +200,17 @@ void BaseDestroyedState::btnOkClick(Action *)
 		Base* xbase = bases->at(i);
 		if (xbase == _base)
 		{
-			// PRD-J07 JOINT: mirror the retaliation removal to replicas so every
+			// PRD-J07 SHARED: mirror the retaliation removal to replicas so every
 			// machine erases the same base index (keeps baseId routing in lock-step).
 			// Capture index + name BEFORE erasing; hostBaseDestroyed is a no-op
-			// unless this machine is the JOINT host.
+			// unless this machine is the SHARED host.
 			std::string destroyedName = xbase->getName();
 			int baseId = (int)i;
 			_game->getSavedGame()->stopHuntingXcomCrafts(xbase); // destroyed together with the base
 			delete xbase;
 			bases->erase(bases->begin() + i);
 			// carry the CAUSE so the replica shows the same message the host does
-			JointEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
+			SharedEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			break;
 		}
 	}

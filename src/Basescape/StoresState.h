@@ -18,7 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 
 namespace OpenXcom
@@ -82,7 +82,7 @@ private:
 	/// PRD-J10: live refresh. A list view holds no pending user input, so it
 	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick
 	/// too - the progress columns it draws are exactly what day_tick carries.
-	JointEcon::ScreenRefresh _jointRefresh;
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	void initList();
 	ItemSort _itemOrder;
 	void updateArrows();

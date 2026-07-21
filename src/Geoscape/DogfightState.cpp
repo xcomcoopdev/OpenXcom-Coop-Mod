@@ -53,7 +53,7 @@
 #include "DogfightErrorState.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/Mod.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -252,11 +252,11 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_delayedRecolorDone(false), _isReplicaView(false), _ufoStance(0)
 {
 	_screen = false;
-	// PRD-DF01: on a JOINT replica this window renders a host-simulated fight from
+	// PRD-DF01: on a SHARED replica this window renders a host-simulated fight from
 	// the df_state stream and never runs the sim body (see update()). The host owns
 	// every dogfight; a replica never has a non-replica instance and vice versa.
 	_isReplicaView = _game->getCoopMod()
-		&& _game->getCoopMod()->isJointCampaign()
+		&& _game->getCoopMod()->isSharedCampaign()
 		&& !_game->getCoopMod()->getServerOwner();
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
@@ -790,7 +790,7 @@ void DogfightState::think()
 		update();
 		_craftDamageAnimTimer->think(this, 0);
 	}
-	// PRD-DF01: on a JOINT replica this auto-end heuristic reads replica craft state
+	// PRD-DF01: on a SHARED replica this auto-end heuristic reads replica craft state
 	// (isInDogfight / getDestination) that the host's sim owns - the window's
 	// lifecycle is instead driven by df_open/df_close (host membership). Skip it.
 	if (!_isReplicaView && (!_ufoIsAttacking || _ufo->getStatus() == Ufo::LANDED))
@@ -983,14 +983,14 @@ void DogfightState::update()
 {
 	++_updateCount; // test instrumentation (PRD-J08)
 
-	// PRD-DF01 JOINT replica: render-only. The freshest df_state frame was already
+	// PRD-DF01 SHARED replica: render-only. The freshest df_state frame was already
 	// adopted by the transport (applyFrame, at df_state consume time); here we only
 	// re-render. The ENTIRE sim body below - Ufo/Craft mutation, every RNG site,
 	// projectile movement, end detection, retaliation + score - is the HOST's alone.
 	// Because handleDogfightExperience() (GAP-7 pilot XP) and _craft->setDestination
 	// / returnToBase (GAP-8 _dest + waypoints) both live in that body, a replica
 	// never reaches them: both gaps close for free. Window lifecycle + world outcome
-	// arrive out-of-band (df_open/df_close membership + the joint position snapshot).
+	// arrive out-of-band (df_open/df_close membership + the shared position snapshot).
 	if (_isReplicaView)
 	{
 		if (!_minimized)
@@ -1673,12 +1673,12 @@ void DogfightState::update()
 				AlienRace *race = _game->getMod()->getAlienRace(_ufo->getAlienRace());
 				AlienMission *mission = _ufo->getMission();
 				mission->ufoShotDown(*_ufo);
-				// PRD-J08: on a JOINT replica this dogfight runs against replica
+				// PRD-J08: on a SHARED replica this dogfight runs against replica
 				// data; mission consequences (retaliation roll + spawn) are
 				// HOST-authoritative and are rolled by the host when it applies
 				// the reported dogfight_result - never here (a replica-side roll
 				// would spawn a mission the host's world does not have).
-				if (_game->getCoopMod()->isJointReplica())
+				if (_game->getCoopMod()->isSharedReplica())
 				{
 					// skip the retaliation roll block below
 				}
@@ -1750,7 +1750,7 @@ void DogfightState::update()
 						}
 					}
 				}
-				} // end of the JOINT-replica retaliation fence (PRD-J08)
+				} // end of the SHARED-replica retaliation fence (PRD-J08)
 			}
 
 			if (_ufo->isDestroyed())
@@ -2110,7 +2110,7 @@ void DogfightState::refreshStatus()
 }
 
 /**
- * PRD-DF02 REPLICA: emit a df_cmd on the reliable FIFO joint_cmd lane. The host
+ * PRD-DF02 REPLICA: emit a df_cmd on the reliable FIFO shared_cmd lane. The host
  * validates membership (epoch guard) and applies it to the authoritative sim in
  * receive-order; the result surfaces to every replica on the next df_state frame.
  */
@@ -2122,7 +2122,7 @@ void DogfightState::emitDfCmd(const std::string& action, int arg)
 	p["ufoId"] = _ufo ? _ufo->getId() : -1;
 	p["action"] = action;
 	p["arg"] = arg;
-	JointEcon::submitLocalCmd(_game, "df_cmd", -1, p);
+	SharedEcon::submitLocalCmd(_game, "df_cmd", -1, p);
 }
 
 /**
@@ -2945,7 +2945,7 @@ void DogfightState::endDogfight()
 	if (_endDogfight)
 		return;
 	// PRD-DF01: the J08 initiator-reports-result path is gone. The host simulates
-	// every JOINT dogfight (host instance) and mutates its own authoritative world
+	// every SHARED dogfight (host instance) and mutates its own authoritative world
 	// here / in update(); a replica reaches endDogfight() only to drop its
 	// render-only window (its update() never rolled anything). No result is
 	// reported back - the geo position snapshot carries the outcome to replicas.

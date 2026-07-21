@@ -178,7 +178,7 @@ StoresState::StoresState(Base *base) : _base(base)
  */
 StoresState::~StoresState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -342,7 +342,7 @@ void StoresState::init()
 
 	// PRD-J10: silent live refresh - a peer's buy/sell/transfer/production moves
 	// this base's stores, and this screen is nothing but a view of them.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress*/);
 }
 
 /**
@@ -352,9 +352,9 @@ void StoresState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
-		if (JointEcon::baseIndex(_game, _base) < 0)
+		if (SharedEcon::baseIndex(_game, _base) < 0)
 		{
 			_game->popState(); // this base is gone
 			return;

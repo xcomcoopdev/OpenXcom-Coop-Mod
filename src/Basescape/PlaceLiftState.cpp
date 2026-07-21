@@ -37,7 +37,7 @@
 #include "../Geoscape/Globe.h"
 #include "../Mod/RuleGlobe.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -148,14 +148,14 @@ PlaceLiftState::~PlaceLiftState()
  */
 void PlaceLiftState::viewClick(Action *)
 {
-	// PRD-J07 JOINT: a SUBSEQUENT base is created host-authoritatively. Instead of
+	// PRD-J07 SHARED: a SUBSEQUENT base is created host-authoritatively. Instead of
 	// mutating the floating _base + pushing markers, submit ONE base_new command
 	// carrying lon/lat/name/lift so the host builds the whole base atomically
 	// (same coopbaseid, name, lift position, funds debited once) and broadcasts it.
 	// The initial campaign base (_first) is J02's and stays the local/streamed path.
-	if (_game->getCoopMod()->isJointCampaign() && !_first)
+	if (_game->getCoopMod()->isSharedCampaign() && !_first)
 	{
-		submitJointNewBase(_view->getGridX(), _view->getGridY());
+		submitSharedNewBase(_view->getGridX(), _view->getGridY());
 		delete _base; // floating UI scratch base, never added to getBases()
 		_game->popState();
 		return;
@@ -178,8 +178,8 @@ void PlaceLiftState::viewClick(Action *)
 		_game->pushState(new SelectStartFacilityState(_base, bState, _globe));
 	}
 
-	// coop (SEPARATE mirror markers only; JOINT rides the base_new joint_cmd above)
-	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign())
+	// coop (SEPARATE mirror markers only; SHARED rides the base_new shared_cmd above)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		// BASE
@@ -242,12 +242,12 @@ void PlaceLiftState::lstAccessLiftsClick(Action *action)
 }
 
 /**
- * PRD-J07 JOINT: emit the base_new joint_cmd for a subsequent base. baseId = -1
+ * PRD-J07 SHARED: emit the base_new shared_cmd for a subsequent base. baseId = -1
  * (no existing base); the host validates funds + region, creates the base (minting
  * a coopbaseid it serializes into the broadcast), places the access lift, debits
  * the region cost once, and appends the base at the same index on every machine.
  */
-void PlaceLiftState::submitJointNewBase(int x, int y)
+void PlaceLiftState::submitSharedNewBase(int x, int y)
 {
 	if (!_lift)
 		_lift = _accessLifts.empty() ? nullptr : _accessLifts.front();
@@ -260,12 +260,12 @@ void PlaceLiftState::submitJointNewBase(int x, int y)
 	payload["liftType"] = _lift->getType();
 	payload["liftX"] = x;
 	payload["liftY"] = y;
-	JointEcon::submitLocalCmd(_game, "base_new", -1, payload);
+	SharedEcon::submitLocalCmd(_game, "base_new", -1, payload);
 }
 
 /**
  * Test automation: pick the (front) access lift and place it at grid (x,y) via
- * the REAL viewClick path (JOINT -> base_new joint_cmd + pop this state;
+ * the REAL viewClick path (SHARED -> base_new shared_cmd + pop this state;
  * SEPARATE/solo -> local build). Returns false if no access lift is available.
  */
 bool PlaceLiftState::harnessPlaceLift(int x, int y)

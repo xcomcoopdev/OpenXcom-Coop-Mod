@@ -135,7 +135,7 @@
 #include "../Basescape/SoldierArmorState.h"
 #include "../Basescape/CraftArmorState.h"
 #include "../Mod/Armor.h"
-#include "JointEcon.h"
+#include "SharedEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
@@ -368,7 +368,7 @@ void TestServer::pump()
 /**
  * PRD-J11: the rule name a pending Transfer carries, for the geo_state dump. Items
  * and crafts name their rule; a soldier transfer names its RuleSoldier type (the
- * key JointEcon's transferArrivedApply matches on); scientists/engineers are
+ * key SharedEcon's transferArrivedApply matches on); scientists/engineers are
  * anonymous headcount and have none.
  */
 static std::string transferRuleName(Transfer* t)
@@ -464,15 +464,15 @@ static Json::Value soldierToJson(Soldier* s)
  * new commands go here rather than deepening it. Returns true if @a cmd was one of
  * ours (and @a resp was filled).
  */
-bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
 
-	if (cmd == "joint_resync_stats")
+	if (cmd == "shared_resync_stats")
 	{
 		// PRD-J10: auto-resync bookkeeping (replica: mismatches seen + repairs
 		// asked for; host: repairs served).
-		JointEcon::ResyncStats rs = JointEcon::resyncStats();
+		SharedEcon::ResyncStats rs = SharedEcon::resyncStats();
 		resp["mismatches"] = Json::Value::UInt64(rs.mismatches);
 		resp["requests"] = Json::Value::UInt64(rs.requests);
 		resp["pending"] = rs.pending;
@@ -480,39 +480,39 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		resp["lastGameMin"] = Json::Value::Int64(rs.lastGameMin);
 		resp["ok"] = true;
 	}
-	else if (cmd == "joint_reset_resync_stats")
+	else if (cmd == "shared_reset_resync_stats")
 	{
-		JointEcon::resetResyncStats();
+		SharedEcon::resetResyncStats();
 		resp["ok"] = true;
 	}
-	else if (cmd == "joint_checksum")
+	else if (cmd == "shared_checksum")
 	{
 		// PRD-J11: this machine's world checksum, exactly as the host stamps it onto
 		// the geoscape `time` heartbeat (chkFunds / chkBases / chkResearch plus the
 		// GAP-4 chkItems / chkSoldiers / chkTransfers / chkProduction counts). Lets a
 		// test read what the desync detector compares WITHOUT waiting for a
 		// heartbeat, and makes the checksum's coverage visible to the suite.
-		JointEcon::attachWorldChecksum(_game, resp);
+		SharedEcon::attachWorldChecksum(_game, resp);
 		resp["ok"] = true;
 	}
 	else if (cmd == "force_resync")
 	{
 		// PRD-J10 debug hook: force the desync repair without waiting for a
-		// checksum mismatch. On a REPLICA it sends joint_resync_request past the
+		// checksum mismatch. On a REPLICA it sends shared_resync_request past the
 		// throttle; on the HOST it pushes the authoritative world down the same
 		// lane the request would have triggered.
-		if (!coop->isJointCampaign())
-			resp["error"] = "not a JOINT campaign";
+		if (!coop->isSharedCampaign())
+			resp["error"] = "not a SHARED campaign";
 		else if (connectionTCP::getServerOwner())
 		{
-			coop->jointResyncStream();
+			coop->sharedResyncStream();
 			resp["role"] = "host";
 			resp["ok"] = true;
 		}
 		else
 		{
 			resp["role"] = "replica";
-			resp["sent"] = JointEcon::requestResync(_game, "harness force_resync", true);
+			resp["sent"] = SharedEcon::requestResync(_game, "harness force_resync", true);
 			resp["ok"] = true;
 		}
 	}
@@ -520,7 +520,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	{
 		// PRD-J10: push a base screen and LEAVE IT OPEN (unlike buy/sell, which
 		// drive the OK handler and pop). This is how the refresh tests put a real
-		// screen in front of an incoming joint_apply. <base> optional (default:
+		// screen in front of an incoming shared_apply. <base> optional (default:
 		// first real base); <craft_id> for craft_soldiers.
 		std::string screen = req.get("screen", "").asString();
 		std::string baseName = req.get("base", "").asString();
@@ -580,7 +580,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		else if (screen == "build_facilities")
 		{
 			// Playtest B1: the small "build facilities" popup, ON TOP of a BasescapeState
-			// (so the funds/grid behind it are what a live joint_apply must refresh).
+			// (so the funds/grid behind it are what a live shared_apply must refresh).
 			BasescapeState* bs = new BasescapeState(target, nullptr);
 			_game->pushState(bs);
 			_game->pushState(new BuildFacilitiesState(target, bs));
@@ -619,7 +619,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			resp["error"] = "unknown screen: " + screen;
 		}
 	}
-	else if (cmd == "joint_landing_state")
+	else if (cmd == "shared_landing_state")
 	{
 		// PRD-J10 landing broker introspection (HOST): is a landing decision
 		// outstanding with another seat? Non-zero means the host brokered the
@@ -629,7 +629,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			resp["error"] = "no GeoscapeState";
 		else
 		{
-			resp["pending"] = gs->hasJointLandingPending();
+			resp["pending"] = gs->hasSharedLandingPending();
 			resp["ok"] = true;
 		}
 	}
@@ -684,7 +684,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 			resp["top"] = "craft_soldiers";
 			resp["used"] = cs->harnessUsedText();
 			resp["usedNum"] = cs->harnessSpaceUsed();        // combined (all owners)
-			resp["availableNum"] = cs->harnessSpaceAvailable(); // full max - used (JOINT: not halved)
+			resp["availableNum"] = cs->harnessSpaceAvailable(); // full max - used (SHARED: not halved)
 			resp["maxUnits"] = cs->harnessMaxUnits();
 			Json::Value arr(Json::arrayValue);
 			for (int id : cs->harnessDisplayedSoldierIds()) arr.append(id);
@@ -711,7 +711,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		else if (dynamic_cast<StoresState*>(top))      resp["top"] = "stores";
 		else if (auto* ss = dynamic_cast<SoldiersState*>(top))
 		{
-			// Playtest: what the soldier-list SCREEN actually displays. In JOINT each
+			// Playtest: what the soldier-list SCREEN actually displays. In SHARED each
 			// player should see only their own half of the shared roster.
 			resp["top"] = "soldiers";
 			Json::Value arr(Json::arrayValue);
@@ -748,7 +748,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		// Base defense is a SEPARATE geoscape entry point from the craft-landing
 		// flow (GeoscapeState::handleBaseDefense, NOT ConfirmLandingState), so it
 		// needs its own hook. Seeds the given UFO (from a prior spawn_ufo) over the
-		// first real base and calls the REAL handler, which in JOINT stamps the
+		// first real base and calls the REAL handler, which in SHARED stamps the
 		// ownership control split and ships "battlehost" exactly as a live alien
 		// retaliation strike would. Host-only (the replica's sim never reaches it).
 		GeoscapeState* gs = findState<GeoscapeState>(_game);
@@ -823,8 +823,8 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	{
 		// PRD-J09 GAP-5 repro/driver: move <count> of item <item> onto (count>0)
 		// or off (count<0) the base's craft, through the REAL CraftEquipmentState
-		// store path a player uses. In JOINT (after the fix) this routes a
-		// craft_equip joint_cmd host-side; before it, it mutates THIS machine's
+		// store path a player uses. In SHARED (after the fix) this routes a
+		// craft_equip shared_cmd host-side; before it, it mutates THIS machine's
 		// base stores locally - the pre-battle store drift GAP-5 closes. Lives in
 		// this (shallow) dispatcher, not the main if-chain at the C1061 limit.
 		// Params: item, count, optional base + craft_id (default: first craft).
@@ -863,8 +863,8 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		// PRD-J09 GAP-5b repro/driver: mount craft-weapon <weapon> ("" = None) in
 		// weapon <slot> of the base's craft, through the REAL CraftWeaponsState
 		// store path a player uses (arm/rearm moves the launcher + clips against
-		// the shared base stores). In JOINT (after the fix) this routes a
-		// craft_rearm joint_cmd host-side; before it, it mutates THIS machine's
+		// the shared base stores). In SHARED (after the fix) this routes a
+		// craft_rearm shared_cmd host-side; before it, it mutates THIS machine's
 		// base stores locally - the pre-battle store drift GAP-5b closes.
 		// Params: weapon, slot (default 0), optional base + craft_id.
 		std::string weapon = req.get("weapon", "").asString();
@@ -900,8 +900,8 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	{
 		// PRD-J09 GAP-5b repro/driver: set soldier <soldier_id>'s armor to <armor>
 		// through the REAL SoldierArmorState store path (returns the old armor's
-		// store item, consumes the new one). In JOINT (after the fix) this routes a
-		// soldier_armor joint_cmd; before it, it mutates THIS machine's base stores.
+		// store item, consumes the new one). In SHARED (after the fix) this routes a
+		// soldier_armor shared_cmd; before it, it mutates THIS machine's base stores.
 		// Params: soldier_id, armor, optional base.
 		std::string armor = req.get("armor", "").asString();
 		int soldierId = req.get("soldier_id", -1).asInt();
@@ -936,7 +936,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		// PRD-J09 GAP-5b repro/driver: de-equip ALL base soldiers to their default
 		// armor through the REAL CraftArmorState path (btnDeequipAllArmorClick),
 		// which returns each replaced armor's store item to the shared base stores.
-		// In JOINT (after the fix) this routes one soldier_armor joint_cmd per
+		// In SHARED (after the fix) this routes one soldier_armor shared_cmd per
 		// soldier; before it, it mutates THIS machine's base stores locally.
 		// Params: optional base (any craft on the base is used as the screen anchor).
 		std::string baseName = req.get("base", "").asString();
@@ -987,7 +987,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "assign_crew")
 	{
 		// PRD-DF03 GAP-7 scaffolding: directly seat soldier <soldier_id> on craft
-		// <craft_id> on THIS machine (Soldier::setCraft), no JOINT route - call on BOTH
+		// <craft_id> on THIS machine (Soldier::setCraft), no SHARED route - call on BOTH
 		// machines identically (the spawn_craft idiom) to seat a pilot lock-step for the
 		// dogfight-XP test. Keeps the shared world equal (same soldier on the same craft id).
 		SavedGame* sg = _game->getSavedGame();
@@ -1058,7 +1058,7 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
  * commands onto it, so the back half of the chain lives here. Returns true if
  * @a cmd was one of ours (and @a resp was filled).
  */
-bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
 
@@ -1066,14 +1066,14 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	{
 		// PRD-J07: drive the FULL subsequent-base flow end-to-end through the
 		// real states: BuildNewBaseState (globe pick at <lon>,<lat>) ->
-		// ConfirmNewBaseState (cost gate; JOINT debits nothing locally) ->
+		// ConfirmNewBaseState (cost gate; SHARED debits nothing locally) ->
 		// BaseNameState (<name>) -> PlaceLiftState (lift at <liftX>,<liftY>).
-		// In JOINT the lift click submits ONE base_new joint_cmd; the base
-		// materializes on both machines via joint_apply. Response carries the
+		// In SHARED the lift click submits ONE base_new shared_cmd; the base
+		// materializes on both machines via shared_apply. Response carries the
 		// region base <cost> so the test can assert the exact single debit.
 		double lon = req.get("lon", 0.0).asDouble();
 		double lat = req.get("lat", 0.0).asDouble();
-		std::string name = req.get("name", "Joint Base").asString();
+		std::string name = req.get("name", "Shared Base").asString();
 		int liftX = req.get("liftX", 2).asInt();
 		int liftY = req.get("liftY", 2).asInt();
 		GeoscapeState* gs = findState<GeoscapeState>(_game);
@@ -1099,7 +1099,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 				{
 					resp["cost"] = conf->harnessCost();
 					resp["affordable"] = conf->harnessConfirm();
-					conf->btnOkClick(nullptr); // JOINT: no debit, pushes BaseNameState
+					conf->btnOkClick(nullptr); // SHARED: no debit, pushes BaseNameState
 					BaseNameState* nameState = findState<BaseNameState>(_game);
 					if (!nameState)
 						resp["error"] = "no BaseNameState (not enough money?)";
@@ -1111,7 +1111,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 							resp["error"] = "no PlaceLiftState";
 						else
 						{
-							bool ok = lift->harnessPlaceLift(liftX, liftY); // JOINT: base_new + pop
+							bool ok = lift->harnessPlaceLift(liftX, liftY); // SHARED: base_new + pop
 							resp["ok"] = ok;
 							if (!ok) resp["error"] = "no access lift available";
 						}
@@ -1120,39 +1120,39 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			}
 		}
 	}
-	else if (cmd == "joint_cmd")
+	else if (cmd == "shared_cmd")
 	{
-		// PRD-J03: submit an arbitrary joint_cmd through the protocol (used to
+		// PRD-J03: submit an arbitrary shared_cmd through the protocol (used to
 		// exercise the unknown-command path). <jcmd> = command string,
 		// <baseId> = base index, <payload> = optional JSON object.
 		std::string jcmd = req.get("jcmd", "").asString();
 		int baseId = req.get("baseId", 0).asInt();
 		Json::Value payload = req.get("payload", Json::Value(Json::objectValue));
-		JointEcon::submitLocalCmd(_game, jcmd, baseId, payload);
+		SharedEcon::submitLocalCmd(_game, jcmd, baseId, payload);
 		resp["ok"] = true;
 	}
-	else if (cmd == "joint_stats")
+	else if (cmd == "shared_stats")
 	{
-		// PRD-J03: read this machine's JointEcon protocol counters + the most
-		// recent joint_fail reason surfaced here.
-		JointEcon::Stats st = JointEcon::stats();
+		// PRD-J03: read this machine's SharedEcon protocol counters + the most
+		// recent shared_fail reason surfaced here.
+		SharedEcon::Stats st = SharedEcon::stats();
 		resp["cmd"] = Json::Value::UInt64(st.cmd);
 		resp["okCount"] = Json::Value::UInt64(st.ok);
 		resp["failCount"] = Json::Value::UInt64(st.fail);
 		resp["applyCount"] = Json::Value::UInt64(st.apply);
 		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
-		resp["lastFail"] = JointEcon::lastFailReason();
+		resp["lastFail"] = SharedEcon::lastFailReason();
 		resp["ok"] = true;
 	}
-	else if (cmd == "joint_reset_stats")
+	else if (cmd == "shared_reset_stats")
 	{
-		JointEcon::resetStats();
+		SharedEcon::resetStats();
 		resp["ok"] = true;
 	}
 	else if (cmd == "set_funds")
 	{
 		// PRD-J03 test helper: force this world's funds (host-authoritative in
-		// JOINT). Used to set up the insufficient-funds rejection path cleanly
+		// SHARED). Used to set up the insufficient-funds rejection path cleanly
 		// without also tripping storage/space limits.
 		if (!_game->getSavedGame())
 			resp["error"] = "no saved game";
@@ -1168,7 +1168,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	{
 		// PRD-J04 test helper: force-start a research project at the first real
 		// base on THIS machine (vanilla has no naturally-available research at
-		// game start). Low cost -> finishes in ~1 game day. In JOINT the host
+		// game start). Low cost -> finishes in ~1 game day. In SHARED the host
 		// ticks it to completion and broadcasts research_done; a replica that
 		// also started it here gets its project removed + scientists freed on
 		// apply, matching the host.
@@ -1328,8 +1328,8 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "research_start")
 	{
 		// PRD-J06: drive the REAL ResearchInfoState "start project" OK path. In
-		// JOINT this emits res_start (+ res_alloc when scientists>0); nothing is
-		// applied until the joint_apply round-trip. Proves the UI submit path.
+		// SHARED this emits res_start (+ res_alloc when scientists>0); nothing is
+		// applied until the shared_apply round-trip. Proves the UI submit path.
 		std::string topic = req.get("topic", "").asString();
 		int scientists = req.get("scientists", 0).asInt();
 		std::string baseName = req.get("base", "").asString();
@@ -1356,7 +1356,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "manufacture_start")
 	{
 		// PRD-J06: drive the REAL ManufactureInfoState "start production" OK path
-		// (JOINT -> man_start). A parent ManufactureState is pushed first because
+		// (SHARED -> man_start). A parent ManufactureState is pushed first because
 		// ManufactureInfoState::exitState pops TWO states for a new production.
 		std::string item = req.get("item", "").asString();
 		int engineers = req.get("engineers", 0).asInt();
@@ -1386,7 +1386,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "set_facility_build_time")
 	{
 		// PRD-J04 test helper: set a base facility's buildTime on THIS machine.
-		// A JOINT replica's time1Day must NOT decrement it; only fac_done (host
+		// A SHARED replica's time1Day must NOT decrement it; only fac_done (host
 		// completion broadcast) may drive it to 0.
 		SavedGame* sg = _game->getSavedGame();
 		int baseId = req.get("baseId", 0).asInt();
@@ -1439,7 +1439,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "fly_craft")
 	{
 		// PRD-J04 test helper: launch the first ready craft at the first real
-		// base toward a distant waypoint, so the host moves it and the JOINT
+		// base toward a distant waypoint, so the host moves it and the SHARED
 		// position snapshot carries the motion to the (frozen) replica.
 		SavedGame* sg = _game->getSavedGame();
 		Base* base = nullptr; Craft* craft = nullptr;
@@ -1879,7 +1879,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		// Playtest B4: prove the ON-LOAD ownership migration without disturbing the
 		// live coop session. Save the current world, load it into a THROWAWAY blank
 		// SavedGame (exactly the path a real resume/load takes -> SavedGame::load ->
-		// migrateJointSoldierOwnership) and report the loaded roster's owners.
+		// migrateSharedSoldierOwnership) and report the loaded roster's owners.
 		SavedGame* sg = _game->getSavedGame();
 		if (!sg)
 		{
@@ -2110,7 +2110,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			{
 				resp["coopPlayers"][idx++] = p;
 			}
-			// PRD-J01: campaign economy model (0 = Separate, 1 = Joint).
+			// PRD-J01: campaign economy model (0 = Separate, 1 = Shared).
 			resp["campaignType"] = static_cast<int>(_game->getSavedGame()->getCampaignType());
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 			resp["ok"] = true;
@@ -2410,7 +2410,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "host_base_damaged")
 	{
 		// Drive the MISSILE-bombardment outcome (facilities lost, base survives, NO
-		// battle) and its JOINT broadcast. Base::damageFacilities() only does anything
+		// battle) and its SHARED broadcast. Base::damageFacilities() only does anything
 		// for a UFO with missilePower > 0, and no vanilla ruleset defines one, so the
 		// damage itself is simulated here; what is under test is that the host's
 		// resulting layout reaches the replica.
@@ -2434,7 +2434,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 				++removed;
 			}
 			target->cleanupDefenses(true);
-			JointEcon::hostBaseDamaged(_game, target, nullptr);
+			SharedEcon::hostBaseDamaged(_game, target, nullptr);
 			resp["removed"] = removed;
 			resp["facilities"] = (int)facs->size();
 			resp["ok"] = true;
@@ -2445,7 +2445,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		// Playtest B5: reproduce a native UFO detection on THIS machine. Building a
 		// UfoDetectedState is exactly what the geoscape sim does when a UFO is first
 		// detected, and its ctor broadcasts the reliable "ufo_popup" packet
-		// (type+race) to the peer - the JOINT host's one shared sim detecting a UFO
+		// (type+race) to the peer - the SHARED host's one shared sim detecting a UFO
 		// must alert every player, not just the host. Picks the first detected UFO
 		// (spawn one first). Construct + delete: the ctor's broadcast is the point.
 		GeoscapeState* gs = findState<GeoscapeState>(_game);
@@ -2472,7 +2472,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "spawn_alien_base")
 	{
 		// Create an alien base in the world. Call on BOTH machines so the shared world
-		// holds the same id (the JOINT id counter stays in lock-step).
+		// holds the same id (the SHARED id counter stays in lock-step).
 		SavedGame* sg = _game->getSavedGame();
 		if (!sg) resp["error"] = "no saved game";
 		else
@@ -2516,22 +2516,22 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		else
 		{
 			found->setDiscovered(true);
-			JointEcon::hostAlienBaseFound(_game, found);
+			SharedEcon::hostAlienBaseFound(_game, found);
 			resp["ok"] = true;
 		}
 	}
 	else if (cmd == "main_menu_new_game")
 	{
-		// Open the New Game mode popup (SOLO / CO-OP JOINT / CO-OP SEPARATE) exactly as
+		// Open the New Game mode popup (SOLO / CO-OP SHARED / CO-OP SEPARATE) exactly as
 		// clicking the main menu's New Game button does, for layout screenshots.
 		MainMenuState* mm = findState<MainMenuState>(_game);
 		if (!mm) resp["error"] = "no MainMenuState";
 		else { mm->btnNewGameClick(nullptr); resp["ok"] = true; }
 	}
-	else if (cmd == "joint_alert")
+	else if (cmd == "shared_alert")
 	{
-		// Drive the generic JOINT alert lane exactly as the host's geoscape sim does
-		// (JointEcon::hostAlert). Only the host runs that sim, so this is how a test proves
+		// Drive the generic SHARED alert lane exactly as the host's geoscape sim does
+		// (SharedEcon::hostAlert). Only the host runs that sim, so this is how a test proves
 		// an informational popup actually reaches the frozen replica.
 		// Params: cls (dialog class), msg, craft_id, names[], ids[], flag.
 		std::vector<std::string> alertNames;
@@ -2542,7 +2542,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
 				if (!b->_coopBase && !b->_coopIcon) { alertBase = b; break; }
-		JointEcon::hostAlert(_game, req.get("cls", "").asString(),
+		SharedEcon::hostAlert(_game, req.get("cls", "").asString(),
 			req.get("msg", "").asString(), alertBase,
 			req.get("craft_id", -1).asInt(), alertNames, alertIds,
 			req.get("flag", false).asBool());
@@ -2682,8 +2682,8 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	}
 	else if (cmd == "craft_order")
 	{
-		// PRD-J08: drive the REAL craft-command screens - in a JOINT campaign
-		// their branches submit joint_cmds (craft_launch/craft_retarget/
+		// PRD-J08: drive the REAL craft-command screens - in a SHARED campaign
+		// their branches submit shared_cmds (craft_launch/craft_retarget/
 		// craft_return/craft_patrol); SEPARATE/solo take the vanilla paths.
 		// Params: order = "target" (with ufo_id | site_id | lon+lat) |
 		// "return" | "patrol"; craft_id (+ optional craft_type).
@@ -2759,7 +2759,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "dogfight_state")
 	{
 		// PRD-J08: introspect the live dogfight list (which machine holds the
-		// interactive UI - in JOINT only the initiating seat may).
+		// interactive UI - in SHARED only the initiating seat may).
 		GeoscapeState* geo = findState<GeoscapeState>(_game);
 		if (!geo) resp["error"] = "no geoscape";
 		else
@@ -2832,7 +2832,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 	else if (cmd == "intercept_list")
 	{
 		// PRD-J08 AC3: the REAL InterceptState's rows - every shared base's
-		// crafts must list for every player in JOINT.
+		// crafts must list for every player in SHARED.
 		GeoscapeState* geo = findState<GeoscapeState>(_game);
 		if (!geo) resp["error"] = "no geoscape";
 		else
@@ -2965,7 +2965,7 @@ std::string TestServer::execute(const std::string& line)
 		std::string cmd = req.get("cmd", "").asString();
 		connectionTCP* coop = _game->getCoopMod();
 
-		if (executeJoint10(cmd, req, resp))
+		if (executeShared10(cmd, req, resp))
 		{
 			// handled by the PRD-J10 dispatcher above
 		}
@@ -3100,7 +3100,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
 				resp["monthsPassed"] = sg->getMonthsPassed();
 				// PRD-J11: campaign model + discovered tech, so ONE geo_state call is a
-				// self-contained world dump for the joint_fixture equality helper (both
+				// self-contained world dump for the shared_fixture equality helper (both
 				// are world-checksum fields; the helper must not need a second command).
 				resp["campaignType"] = static_cast<int>(sg->getCampaignType());
 				{
@@ -3113,7 +3113,7 @@ std::string TestServer::execute(const std::string& line)
 						jt.append(t);
 					resp["discoveredResearch"] = jt;
 				}
-				// PRD-J04: monthly settlement tails, so a JOINT month-end sync test
+				// PRD-J04: monthly settlement tails, so a SHARED month-end sync test
 				// can assert the replica's funds/maintenance equal the host's. The
 				// just-ended month's maintenance lives at [size-2] after the roll.
 				{
@@ -3130,14 +3130,14 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value jb;
 					jb["name"] = b->getName(_game->getLanguage());
-					// PRD-J02: coordinates + mirror flag, so a JOINT bootstrap/resume
+					// PRD-J02: coordinates + mirror flag, so a SHARED bootstrap/resume
 					// test can assert the client replica holds the SAME real base
 					// (not a _coopBase/_coopIcon mirror).
 					jb["lon"] = b->getLongitude();
 					jb["lat"] = b->getLatitude();
 					jb["coopBase"] = b->_coopBase;
 					jb["coopIcon"] = b->_coopIcon;
-					// PRD-J11: the base's coop id. In JOINT, base_new mints it host-side
+					// PRD-J11: the base's coop id. In SHARED, base_new mints it host-side
 					// and it rides the payload, so it must be EQUAL on every machine -
 					// unlike SEPARATE, where each side rolls its own.
 					jb["coopBaseId"] = b->_coop_base_id;
@@ -3196,7 +3196,7 @@ std::string TestServer::execute(const std::string& line)
 						research.append(jr);
 					}
 					jb["research"] = research;
-					// PRD-J06: running productions (engineers/qty/progress) so a JOINT
+					// PRD-J06: running productions (engineers/qty/progress) so a SHARED
 					// research/manufacture test can assert host and replica agree.
 					Json::Value productions(Json::arrayValue);
 					for (auto* prod : b->getProductions())
@@ -3212,7 +3212,7 @@ std::string TestServer::execute(const std::string& line)
 						productions.append(jp);
 					}
 					jb["productions"] = productions;
-					// PRD-J04: facilities (buildTime + grid position) so a JOINT
+					// PRD-J04: facilities (buildTime + grid position) so a SHARED
 					// replica-freeze test can prove construction days-left change only
 					// via fac_done, never locally.
 					Json::Value facilities(Json::arrayValue);
@@ -3290,7 +3290,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["missionSites"] = sites;
 
 				// Waypoint markers (the geoscape flag dots). A craft that reached its
-				// patrol waypoint must drop it: on a JOINT replica the frozen sim never
+				// patrol waypoint must drop it: on a SHARED replica the frozen sim never
 				// pruned it, so this list is how the waypoint-cleanup fix is asserted.
 				Json::Value waypoints(Json::arrayValue);
 				for (auto* wp : *sg->getWaypoints())
@@ -3408,7 +3408,7 @@ std::string TestServer::execute(const std::string& line)
 			// PRD-J09 scaffolding: stamp a soldier's ownerPlayerId (seat) by id.
 			// Call on BOTH machines to build a deterministic mixed-owner squad
 			// (the shared world stays byte-identical), standing in for a real hire
-			// until a JOINT battle exercises ownership end to end.
+			// until a SHARED battle exercises ownership end to end.
 			int sid = req.get("soldier_id", -1).asInt();
 			int owner = req.get("owner", 999).asInt();
 			bool found = false;
@@ -3423,7 +3423,7 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// PRD-J09: mixed-owner squad assembly. Toggle a soldier (host's OR
 			// client's, by stable id) on/off a base craft via the REAL
-			// CraftSoldiersState path. In JOINT this submits craft_assign (shared
+			// CraftSoldiersState path. In SHARED this submits craft_assign (shared
 			// world); the caller then verifies both machines agree after apply.
 			int soldierId = req.get("soldier_id", -1).asInt();
 			int craftId = req.get("craft_id", -1).asInt();
@@ -3600,7 +3600,7 @@ std::string TestServer::execute(const std::string& line)
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
-					// 1 = client-controlled; in JOINT it is derived from the owning
+					// 1 = client-controlled; in SHARED it is derived from the owning
 					// soldier's ownerPlayerId (seat) at mission start.
 					ju["coop"] = u->getCoop();
 					// The REAL in-battle control gate this machine applies (coop + getHost
@@ -3856,7 +3856,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["coopMissionEnd"] = coop->coopMissionEnd;
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
 			resp["isLoadProgress"] = coop->_isLoadProgress;
-			resp["joint"] = coop->isJointCampaign();
+			resp["shared"] = coop->isSharedCampaign();
 			{
 				CoopState* top = findState<CoopState>(_game);
 				resp["coopDialog"] = top ? top->getStateCode() : -1;
@@ -4089,12 +4089,12 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "open_new_game")
 		{
 			// mode: "solo" (default), "coop"/"coop_separate" or
-			// "coop_joint"/"joint" - mirrors the New Game dropdown (D1; PRD-J01).
+			// "coop_shared"/"shared" - mirrors the New Game dropdown (D1; PRD-J01).
 			std::string mode = req.get("mode", "solo").asString();
 			bool coop = (mode == "coop" || mode == "coop_separate"
-				|| mode == "coop_joint" || mode == "joint");
-			CoopCampaignType ct = (mode == "coop_joint" || mode == "joint")
-				? CoopCampaignType::Joint : CoopCampaignType::Separate;
+				|| mode == "coop_shared" || mode == "shared");
+			CoopCampaignType ct = (mode == "coop_shared" || mode == "shared")
+				? CoopCampaignType::Shared : CoopCampaignType::Separate;
 			_game->pushState(new NewGameState(coop, ct));
 			resp["ok"] = true;
 		}
@@ -4553,9 +4553,9 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// PRD-J03: drive a purchase through the real PurchaseState OK path.
 			// <item> = item ruleset type, <count> = quantity, <base> = target base
-			// name (default: first real, non-mirror base). In a JOINT campaign this
-			// emits a joint_cmd (client) or queues a local command (host); nothing
-			// is applied until the joint_apply round-trip completes.
+			// name (default: first real, non-mirror base). In a SHARED campaign this
+			// emits a shared_cmd (client) or queues a local command (host); nothing
+			// is applied until the shared_apply round-trip completes.
 			std::string itemType = req.get("item", "").asString();
 			int count = req.get("count", 1).asInt();
 			std::string baseName = req.get("base", "").asString();
@@ -4570,7 +4570,7 @@ std::string TestServer::execute(const std::string& line)
 				}
 			}
 			// <kind> "item" (default) or "soldier": PRD-J05 hires spend shared funds
-			// and the host generates + serializes the soldier into joint_apply.
+			// and the host generates + serializes the soldier into shared_apply.
 			std::string kind = req.get("kind", "item").asString();
 			if (!target)
 				resp["error"] = "base not found";
@@ -4589,8 +4589,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "sell")
 		{
 			// PRD-J05: drive a SELL of <count> of ITEM <item> through the real
-			// SellState OK path. In JOINT this emits a "sell" joint_cmd (nothing is
-			// removed until the joint_apply round-trip). <base> optional.
+			// SellState OK path. In SHARED this emits a "sell" shared_cmd (nothing is
+			// removed until the shared_apply round-trip). <base> optional.
 			std::string itemType = req.get("item", "").asString();
 			int count = req.get("count", 1).asInt();
 			std::string baseName = req.get("base", "").asString();
@@ -4612,11 +4612,11 @@ std::string TestServer::execute(const std::string& line)
 				if (!ok) resp["error"] = "no sellable row for item: " + itemType;
 			}
 		}
-		else if (cmd == "joint_transfer")
+		else if (cmd == "shared_transfer")
 		{
 			// PRD-J05: drive a base->base transfer of <count> of ITEM <item> from
-			// <fromBase> to <toBase> through TransferItemsState -> submitJointTransfer
-			// (the JOINT "transfer" joint_cmd). Bases matched by name.
+			// <fromBase> to <toBase> through TransferItemsState -> submitSharedTransfer
+			// (the SHARED "transfer" shared_cmd). Bases matched by name.
 			std::string itemType = req.get("item", "").asString();
 			int count = req.get("count", 1).asInt();
 			std::string fromName = req.get("fromBase", "").asString();
@@ -4635,7 +4635,7 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				TransferItemsState* st = new TransferItemsState(from, to, nullptr);
-				bool ok = st->harnessTransferItem(itemType, count); // submitJointTransfer
+				bool ok = st->harnessTransferItem(itemType, count); // submitSharedTransfer
 				delete st;
 				resp["sent"] = ok;
 				resp["ok"] = ok;
@@ -4645,8 +4645,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "containment")
 		{
 			// PRD-J05: remove <count> live aliens of type <item> from a base's
-			// containment via the real ManageAlienContainmentState path (JOINT ->
-			// "containment" joint_cmd). <sell>=true sells, false executes.
+			// containment via the real ManageAlienContainmentState path (SHARED ->
+			// "containment" shared_cmd). <sell>=true sells, false executes.
 			std::string alienType = req.get("item", "").asString();
 			int count = req.get("count", 1).asInt();
 			bool sell = req.get("sell", true).asBool();
@@ -4706,7 +4706,7 @@ std::string TestServer::execute(const std::string& line)
 			// no facilities) to THIS machine's world. Call on host AND client
 			// identically so both hold the same base list in the same order
 			// (baseId = index resolves equally). Stands in for J07's proper
-			// joint_apply base creation - test scaffolding only; a JOINT test that
+			// shared_apply base creation - test scaffolding only; a SHARED test that
 			// wants a REAL shared base must use `build_new_base` (base_new).
 			//
 			// PRD-J11: <coopbaseid> is forced to a fixed default because Base's ctor
@@ -4735,8 +4735,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "fac_build")
 		{
 			// PRD-J07: drive a facility build through the REAL PlaceFacilityState
-			// viewClick path at grid (<x>,<y>). In JOINT this emits a fac_build
-			// joint_cmd (nothing applied until joint_apply); solo/SEPARATE builds
+			// viewClick path at grid (<x>,<y>). In SHARED this emits a fac_build
+			// shared_cmd (nothing applied until shared_apply); solo/SEPARATE builds
 			// locally. <facility> = ruleset type, <base> = name (default first real).
 			std::string facType = req.get("facility", "").asString();
 			int x = req.get("x", -1).asInt();
@@ -4757,15 +4757,15 @@ std::string TestServer::execute(const std::string& line)
 			{
 				PlaceFacilityState* pf = new PlaceFacilityState(target, rule);
 				_game->pushState(pf);
-				pf->harnessBuild(x, y); // real viewClick -> JOINT fac_build + popState
+				pf->harnessBuild(x, y); // real viewClick -> SHARED fac_build + popState
 				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "fac_dismantle")
 		{
 			// PRD-J07: drive a dismantle through the REAL DismantleFacilityState OK
-			// path for the facility at grid (<x>,<y>). JOINT-only harness lane: the
-			// JOINT branch emits fac_dismantle + pops before ever touching the view
+			// path for the facility at grid (<x>,<y>). SHARED-only harness lane: the
+			// SHARED branch emits fac_dismantle + pops before ever touching the view
 			// (passed null here; the SEPARATE/solo path needs a live BaseView).
 			int x = req.get("x", -1).asInt();
 			int y = req.get("y", -1).asInt();
@@ -4784,13 +4784,13 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "base not found";
 			else if (!fac)
 				resp["error"] = "no facility at grid";
-			else if (!_game->getCoopMod()->isJointCampaign())
-				resp["error"] = "fac_dismantle hook is JOINT-only";
+			else if (!_game->getCoopMod()->isSharedCampaign())
+				resp["error"] = "fac_dismantle hook is SHARED-only";
 			else
 			{
 				DismantleFacilityState* ds = new DismantleFacilityState(target, nullptr, fac);
 				_game->pushState(ds);
-				ds->harnessDismantle(); // real btnOkClick -> JOINT fac_dismantle + popState
+				ds->harnessDismantle(); // real btnOkClick -> SHARED fac_dismantle + popState
 				resp["ok"] = true;
 			}
 		}
@@ -4798,7 +4798,7 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// PRD-J07: drive a sack through the REAL SackSoldierState OK path.
 			// <soldierId> = the soldier's stable getId() (resolved to a roster index
-			// here). In JOINT this emits a sack joint_cmd (any player may sack any
+			// here). In SHARED this emits a sack shared_cmd (any player may sack any
 			// soldier); solo/SEPARATE runs the vanilla local path.
 			int soldierId = req.get("soldierId", -1).asInt();
 			std::string baseName = req.get("base", "").asString();
@@ -4820,14 +4820,14 @@ std::string TestServer::execute(const std::string& line)
 			{
 				SackSoldierState* ss = new SackSoldierState(target, (size_t)idx);
 				_game->pushState(ss);
-				ss->harnessSack(); // real btnOkClick -> JOINT sack + popState
+				ss->harnessSack(); // real btnOkClick -> SHARED sack + popState
 				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "base_rename")
 		{
 			// PRD-J07: rename a base through the REAL BasescapeState edtBaseChange
-			// path (JOINT -> base_rename joint_cmd; SEPARATE -> changeBaseName).
+			// path (SHARED -> base_rename shared_cmd; SEPARATE -> changeBaseName).
 			// The state is constructed transiently (never pushed; the handler does
 			// not pop), matching the TransferItemsState harness idiom.
 			std::string baseName = req.get("base", "").asString();
@@ -4853,8 +4853,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "soldier_rename")
 		{
 			// Playtest B3: drive a soldier rename through the REAL SoldierInfoState
-			// edtSoldierChange path. In JOINT this emits soldier_rename (nothing
-			// authoritative until joint_apply); solo/SEPARATE renames locally.
+			// edtSoldierChange path. In SHARED this emits soldier_rename (nothing
+			// authoritative until shared_apply); solo/SEPARATE renames locally.
 			// <soldierId> = Soldier::getId(), <name> = new name, <base> optional.
 			int id = req.get("soldierId", -1).asInt();
 			std::string newName = req.get("name", "").asString();
@@ -4879,15 +4879,15 @@ std::string TestServer::execute(const std::string& line)
 			{
 				SoldierInfoState* si = new SoldierInfoState(target, idx);
 				si->init();               // sets _soldier + _edtSoldier from the roster
-				si->harnessRename(newName); // real edtSoldierChange -> JOINT soldier_rename
+				si->harnessRename(newName); // real edtSoldierChange -> SHARED soldier_rename
 				delete si;
 				resp["ok"] = true;
 			}
 		}
-		else if (executeJoint11(cmd, req, resp))
+		else if (executeShared11(cmd, req, resp))
 		{
-			// handled by the second sub-dispatcher (executeJoint11), split off to
-			// stay under MSVC's C1061 nested-block limit (same reason as executeJoint10).
+			// handled by the second sub-dispatcher (executeShared11), split off to
+			// stay under MSVC's C1061 nested-block limit (same reason as executeShared10).
 		}
 		else
 		{

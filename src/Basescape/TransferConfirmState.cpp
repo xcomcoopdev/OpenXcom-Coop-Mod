@@ -113,14 +113,14 @@ void TransferConfirmState::btnCancelClick(Action *)
 void TransferConfirmState::btnOkClick(Action *)
 {
 
-	// COOP JOINT (PRD-J05): intra-world base->base move routed through the
-	// "transfer" joint_cmd. Neither the SEPARATE createPendingTransfers path nor
+	// COOP SHARED (PRD-J05): intra-world base->base move routed through the
+	// "transfer" shared_cmd. Neither the SEPARATE createPendingTransfers path nor
 	// the local completeTransfer runs; the host applies + broadcasts. This gate
 	// fires before the SEPARATE _coopBase check so the SEPARATE machinery never
-	// runs in JOINT.
-	if (_game->getCoopMod()->isJointCampaign())
+	// runs in SHARED.
+	if (_game->getCoopMod()->isSharedCampaign())
 	{
-		_state->submitJointTransfer();
+		_state->submitSharedTransfer();
 		_game->popState();
 		_game->popState();
 		_game->popState();

@@ -47,11 +47,11 @@ TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingStat
 {
 
 	// coop (SEPARATE only): swap in the peer's mirror bases so the destination
-	// list can include them. In JOINT every base is already a real shared base in
+	// list can include them. In SHARED every base is already a real shared base in
 	// getBases(), so the list below (all bases minus source) is already correct -
 	// this swap must NOT run (PRD-J05).
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
-		&& !_game->getCoopMod()->isJointCampaign())
+		&& !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		*_game->getSavedGame()->getBases() = _base->old_bases;
@@ -144,9 +144,9 @@ void TransferBaseState::btnCancelClick(Action *)
 {
 
 	// coop (SEPARATE only): restore the real base list after the mirror swap above.
-	// Not done in JOINT (no swap happened there).
+	// Not done in SHARED (no swap happened there).
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
-		&& !_game->getCoopMod()->isJointCampaign())
+		&& !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		// coop

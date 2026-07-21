@@ -19,7 +19,7 @@
  */
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -65,8 +65,8 @@ private:
 	std::map<int, int> _iPrisonQty;
 	Uint8 _ammoColor;
 	Timer *_timerInc, *_timerDec;
-	/// PRD-J10: live refresh when another player's joint_apply moves this base.
-	JointEcon::ScreenRefresh _jointRefresh;
+	/// PRD-J10: live refresh when another player's shared_apply moves this base.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
 	/// Determines if the current selection belongs to a given category.
@@ -124,12 +124,12 @@ public:
 	/// Handler for changing the category filter.
 	void cbxCategoryChange(Action *action);
 	/// Test-harness hook (PRD-J03): set the buy quantity for ITEM <itemType> to
-	/// <count> and invoke the real OK handler (JOINT -> emits a joint_cmd;
+	/// <count> and invoke the real OK handler (SHARED -> emits a shared_cmd;
 	/// SEPARATE/solo -> the vanilla local buy). Returns false if no purchasable
 	/// ITEM row matches. Main thread only; not used by normal gameplay.
 	bool harnessBuyItem(const std::string& itemType, int count);
 	/// Test-harness hook (PRD-J05): set the hire quantity for SOLDIER <soldierType>
-	/// to <count> and invoke the real OK handler (JOINT -> emits a "buy" joint_cmd
+	/// to <count> and invoke the real OK handler (SHARED -> emits a "buy" shared_cmd
 	/// carrying the soldier rows the host generates + serializes at apply). Returns
 	/// false if no purchasable SOLDIER row matches. Main thread only.
 	bool harnessBuySoldier(const std::string& soldierType, int count);

@@ -46,7 +46,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
-#include "../CoopMod/JointEcon.h" // coop (JOINT soldier_rename)
+#include "../CoopMod/SharedEcon.h" // coop (SHARED soldier_rename)
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 
@@ -673,12 +673,12 @@ void SoldierInfoState::edtSoldierChange(Action *)
 {
 	_soldier->setName(_edtSoldier->getText());
 
-	// Playtest B3 JOINT: soldier renames ride the soldier_rename joint_cmd (host
+	// Playtest B3 SHARED: soldier renames ride the soldier_rename shared_cmd (host
 	// applies + broadcasts, last-write-wins), exactly like base_rename. The local
-	// setName above stays for immediate UI feedback; the joint_apply re-asserts the
+	// setName above stays for immediate UI feedback; the shared_apply re-asserts the
 	// winning name authoritatively on every machine.
 	if (_base != 0 && _base->_coopBase == false
-		&& _game->getCoopMod()->isJointCampaign())
+		&& _game->getCoopMod()->isSharedCampaign())
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -687,13 +687,13 @@ void SoldierInfoState::edtSoldierChange(Action *)
 		Json::Value payload;
 		payload["soldierId"] = _soldier->getId();
 		payload["name"] = _edtSoldier->getText();
-		JointEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+		SharedEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
 	}
 }
 
 /**
  * Test automation: set the name box and fire the real edtSoldierChange handler
- * (JOINT -> soldier_rename joint_cmd; solo/SEPARATE -> local setName only).
+ * (SHARED -> soldier_rename shared_cmd; solo/SEPARATE -> local setName only).
  */
 void SoldierInfoState::harnessRename(const std::string &name)
 {
@@ -744,13 +744,13 @@ void SoldierInfoState::btnGiveUnitPress(Action *)
  */
 void SoldierInfoState::btnPrevClick(Action *)
 {
-	// Playtest: in JOINT, paging skips the peer's soldiers (own only).
+	// Playtest: in SHARED, paging skips the peer's soldiers (own only).
 	size_t n = _list->size();
 	for (size_t i = 0; i < n; ++i)
 	{
 		_soldierId = (_soldierId == 0) ? n - 1 : _soldierId - 1;
-		if (!_game->getCoopMod()->isJointCampaign()
-			|| JointEcon::ownsSoldier(_game, _list->at(_soldierId)))
+		if (!_game->getCoopMod()->isSharedCampaign()
+			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}
 	init();
@@ -768,8 +768,8 @@ void SoldierInfoState::btnNextClick(Action *)
 		_soldierId++;
 		if (_soldierId >= n)
 			_soldierId = 0;
-		if (!_game->getCoopMod()->isJointCampaign()
-			|| JointEcon::ownsSoldier(_game, _list->at(_soldierId)))
+		if (!_game->getCoopMod()->isSharedCampaign()
+			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}
 	init();

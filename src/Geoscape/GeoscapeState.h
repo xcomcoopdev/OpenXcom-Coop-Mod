@@ -78,7 +78,7 @@ private:
 	size_t _minimizedDogfights;
 	int _slowdownCounter;
 
-	// PRD-DF01 shared/replicated JOINT dogfights.
+	// PRD-DF01 shared/replicated SHARED dogfights.
 	// HOST emission bookkeeping: a monotonically increasing membership epoch and the
 	// signature of the last-broadcast membership set (so df_open fires only on a real
 	// change). REPLICA: the epoch of the last df_open applied (guards df_state against
@@ -99,20 +99,20 @@ private:
 	// so host and replica agree regardless of a replica's per-machine minimize choice.
 	bool _dfHostAnyOpen = true;
 	/// HOST: emit df_open on a membership change + one df_state frame per tick.
-	void jointBroadcastDogfights();
+	void sharedBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
-	void jointReconcileReplicaDogfights();
+	void sharedReconcileReplicaDogfights();
 
 	// PRD-J10 landing broker (HOST only). A craft another seat commanded reached a
 	// landable target: instead of popping ConfirmLandingState here, we ask THAT
 	// seat and park the craft until it answers. This map is both the "already
 	// asked, do not ask again every tick" guard and the stash of the world data the
 	// dialog needs, which only the host's globe can compute.
-	struct JointLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
-	std::map<Craft*, JointLandingPrompt> _jointLandingPending;
+	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
+	std::map<Craft*, SharedLandingPrompt> _sharedLandingPending;
 	/// PRD-J10: broker this landing to the commanding seat instead of asking here.
 	/// True = brokered (the caller must NOT pop its own dialog).
-	bool brokerJointLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
+	bool brokerSharedLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
 	/// Update list of active crafts.
 	const std::vector<Craft*>* updateActiveCrafts();
@@ -232,33 +232,33 @@ public:
 	int minimizedDogfightsCount();
 	/// Starts a new dogfight.
 	void startDogfight();
-	/// PRD-DF01 JOINT: open a render-only replica dogfight window for a craft/UFO
+	/// PRD-DF01 SHARED: open a render-only replica dogfight window for a craft/UFO
 	/// pair on THIS (replica) machine - mirrors the vanilla start block. @a
 	/// ufoIsAttacking carries the HK flag from df_open so the ctor derives the same
 	/// static-per-fight fields (disable flags, initial mode) as the host.
 	/// PRD-DF02: @a startMinimized opens the replica window as a minimized icon (the
 	/// presentation policy: only the commanding seat gets the full window).
-	void startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
+	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
 	/// PRD-DF01 REPLICA: adopt a df_open membership set (opens/closes windows).
-	void jointApplyDogfightMembership(const Json::Value& dogfights, int epoch);
+	void sharedApplyDogfightMembership(const Json::Value& dogfights, int epoch);
 	/// PRD-DF01 REPLICA: adopt a df_state frame set (epoch-guarded; routes each
 	/// frame to the matching render-only window by (craftId,ufoId)).
-	void jointApplyDogfightState(const Json::Value& root);
+	void sharedApplyDogfightState(const Json::Value& root);
 	/// PRD-DF02 (HOST): apply a replicated df_cmd to the authoritative DogfightState
 	/// for (craftId,craftType,ufoId). Returns false if no such live fight exists
 	/// (stale/reshuffled membership -> the caller drops + logs once).
-	bool jointApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+	bool sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
 	                           const std::string& action, int arg);
-	/// PRD-J10 JOINT (HOST): the commanding seat answered a brokered landing
+	/// PRD-J10 SHARED (HOST): the commanding seat answered a brokered landing
 	/// prompt. @a yes -> generate the battle exactly as the host's own
 	/// ConfirmLandingState would; otherwise patrol here / return to base.
-	void jointLandingReply(Craft* craft, bool yes, bool patrol);
-	/// JOINT replica: a craft reached its patrol waypoint on the host (patrol_prompt).
+	void sharedLandingReply(Craft* craft, bool yes, bool patrol);
+	/// SHARED replica: a craft reached its patrol waypoint on the host (patrol_prompt).
 	/// Pops the "reached destination" alert and clears the stale destination line +
 	/// orphan waypoint marker the client's frozen sim never would.
 	void clientCraftReachedWaypoint(Craft* craft);
 	/// Test-harness: is a brokered landing decision outstanding on this host?
-	bool hasJointLandingPending() const { return !_jointLandingPending.empty(); }
+	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
 	/// Test-harness: dogfights queued but not yet started.

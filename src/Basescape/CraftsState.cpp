@@ -112,7 +112,7 @@ CraftsState::CraftsState(Base *base) : _base(base)
  */
 CraftsState::~CraftsState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -127,7 +127,7 @@ void CraftsState::init()
 
 	// PRD-J10: silent live refresh - the peer's craft_assign / craft orders / buy
 	// change the crew counts and statuses this list draws.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress*/);
 }
 
 /**
@@ -137,9 +137,9 @@ void CraftsState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
-		if (JointEcon::baseIndex(_game, _base) < 0)
+		if (SharedEcon::baseIndex(_game, _base) < 0)
 		{
 			_game->popState(); // this base is gone
 			return;

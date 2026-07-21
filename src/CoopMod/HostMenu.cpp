@@ -121,7 +121,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	std::string hostTitle = tr("HOST");
 	if (_game->getSavedGame() && _game->getSavedGame()->isCoopSave())
 	{
-		hostTitle += (_game->getSavedGame()->getCampaignType() == CoopCampaignType::Joint)
+		hostTitle += (_game->getSavedGame()->getCampaignType() == CoopCampaignType::Shared)
 			? "  [SHARED]" : "  [SEPARATE]";
 	}
 	_txtTitle->setText(hostTitle);

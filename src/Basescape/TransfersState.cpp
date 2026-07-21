@@ -99,7 +99,7 @@ TransfersState::TransfersState(Base *base) : _base(base)
  */
 TransfersState::~TransfersState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -111,7 +111,7 @@ void TransfersState::init()
 
 	// A peer's buy/transfer adds rows here and the host's transfer_arrived removes
 	// them; day_tick included, because the arrival-hours column moves with it.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress*/);
 }
 
 /**
@@ -122,10 +122,10 @@ void TransfersState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
 		_game->popState();
-		if (JointEcon::baseIndex(_game, _base) >= 0)
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
 			_game->pushState(new TransfersState(_base));
 		}

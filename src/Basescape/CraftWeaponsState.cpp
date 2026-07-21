@@ -37,7 +37,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/SavedGame.h"
 #include "../Ufopaedia/Ufopaedia.h"
-#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -283,7 +283,7 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
  * Mounts @a selRule (0 = dismount) in this screen's weapon slot, moving the
  * launcher + loaded clips against the base stores.
  *
- * JOINT (PRD-J09 GAP-5b): the base stores are shared + host-authoritative (they
+ * SHARED (PRD-J09 GAP-5b): the base stores are shared + host-authoritative (they
  * are exactly what the GAP-4 chkItems sums), so a replica must NOT add/remove the
  * launcher + clips locally - that silently drifts chkItems from the host. Route
  * the mount as an absolute end-state (which weapon type in this slot) through
@@ -292,9 +292,9 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
  */
 void CraftWeaponsState::equipSelectedWeapon(RuleCraftWeapon* selRule)
 {
-	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 	{
-		JointEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
+		SharedEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
 		return;
 	}
 

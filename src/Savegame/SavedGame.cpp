@@ -327,7 +327,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
-	// PRD-J01: JOINT/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	// PRD-J01: SHARED/SEPARATE economy model (int). Beside coop; SEPARATE default.
 	{
 		int coopCampaignTypeInt = 0;
 		header.tryRead("coopCampaignType", coopCampaignTypeInt);
@@ -575,9 +575,9 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		_bases[i]->finishLoading(reader["bases"][i], this);
 
 	// Playtest B4: split any soldier still left unowned (999) between the two seats,
-	// so a JOINT save - including one created before the ownership split existed - is
-	// not left with the whole roster co-owned in battle. No-op outside JOINT.
-	migrateJointSoldierOwnership();
+	// so a SHARED save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside SHARED.
+	migrateSharedSoldierOwnership();
 
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())
@@ -768,14 +768,14 @@ void SavedGame::addFinishedResearchSimple(const RuleResearch* research)
  * Loads a saved game's contents from a YAML file.
 /**
  * Playtest B4: give every still-unowned soldier (ownerPlayerId 999) a seat, so a
- * JOINT battle splits control by owner instead of leaving the whole roster
+ * SHARED battle splits control by owner instead of leaving the whole roster
  * host-controlled / co-owned. Deterministic by soldier id so the host and every
- * replica agree; a no-op outside JOINT and for soldiers already owned (hires, or a
+ * replica agree; a no-op outside SHARED and for soldiers already owned (hires, or a
  * roster the creation-time split already handled).
  */
-void SavedGame::migrateJointSoldierOwnership()
+void SavedGame::migrateSharedSoldierOwnership()
 {
-	if (_campaignType != CoopCampaignType::Joint)
+	if (_campaignType != CoopCampaignType::Shared)
 	{
 		return;
 	}
@@ -810,7 +810,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
-	// PRD-J01: JOINT/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	// PRD-J01: SHARED/SEPARATE economy model (int). Beside coop; SEPARATE default.
 	{
 		int coopCampaignTypeInt = 0;
 		header.tryRead("coopCampaignType", coopCampaignTypeInt);
@@ -1206,9 +1206,9 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_bases[i]->finishLoading(reader["bases"][i], this);
 
 	// Playtest B4: split any soldier still left unowned (999) between the two seats,
-	// so a JOINT save - including one created before the ownership split existed - is
-	// not left with the whole roster co-owned in battle. No-op outside JOINT.
-	migrateJointSoldierOwnership();
+	// so a SHARED save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside SHARED.
+	migrateSharedSoldierOwnership();
 
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())
@@ -1668,11 +1668,11 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
 	// campaign's save with another campaign's blobs).
 	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
-	// PRD-J02: a JOINT save is already the single authoritative world for every
+	// PRD-J02: a SHARED save is already the single authoritative world for every
 	// player - there are no separate client worlds to embed. Skip the
 	// coopClientSaves sequence entirely (SEPARATE keeps embedding as before).
-	bool jointSave = (_campaignType == CoopCampaignType::Joint);
-	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !jointSave)
+	bool sharedSave = (_campaignType == CoopCampaignType::Shared);
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !sharedSave)
 	{
 		// Blob identity comes from the locked roster (host at [0], clients after),
 		// NOT from reverse-parsing map keys: each client's world lives under
@@ -2014,10 +2014,10 @@ void SavedGame::setFunds(int64_t funds)
  * Changes the player's funds WITHOUT booking the delta into the income/
  * expenditure graph series.
  * setFunds() infers income-vs-expenditure from the net delta, which is correct
- * for a single local transaction but WRONG for a JOINT replica adopting the
- * host's authoritative funds once per joint_apply: the host reached that value
+ * for a single local transaction but WRONG for a SHARED replica adopting the
+ * host's authoritative funds once per shared_apply: the host reached that value
  * through many gross income AND expenditure events, so net-inference on the
- * replica drifts the Graphs->Finance series (GAP-9). The JOINT apply layer calls
+ * replica drifts the Graphs->Finance series (GAP-9). The SHARED apply layer calls
  * this and then copies the host's authoritative _incomes/_expenditures tails
  * verbatim, keeping the replica's series exactly the host's. Never used by the
  * HOST or by SEPARATE campaigns (setFunds is unchanged there).

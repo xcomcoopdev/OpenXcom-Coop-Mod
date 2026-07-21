@@ -119,7 +119,7 @@ ResearchState::ResearchState(Base *base) : _base(base)
  */
 ResearchState::~ResearchState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -180,10 +180,10 @@ void ResearchState::onOpenTechTreeViewer(Action *action)
  */
 void ResearchState::lstResearchMousePress(Action *action)
 {
-	// PRD-J06 (JOINT): the mouse-wheel shortcut re-allocates scientists by directly
-	// mutating the shared world - disabled in JOINT, where allocation is host-
+	// PRD-J06 (SHARED): the mouse-wheel shortcut re-allocates scientists by directly
+	// mutating the shared world - disabled in SHARED, where allocation is host-
 	// authoritative (open the project and use OK -> res_alloc). SEPARATE untouched.
-	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 	{
 		return;
 	}
@@ -241,7 +241,7 @@ void ResearchState::init()
 	// PRD-J10: silent live refresh. A peer's res_start/res_alloc/res_cancel (or the
 	// host's research_done / day_tick progress) lands straight in this base's
 	// project list, so refill it in place instead of waiting for re-entry.
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress: the "days left" column*/);
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress: the "days left" column*/);
 
 	if (Options::oxceResearchScrollSpeed > 0 || Options::oxceResearchScrollSpeedWithCtrl > 0)
 	{
@@ -261,9 +261,9 @@ void ResearchState::think()
 {
 	State::think();
 
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
-		if (JointEcon::baseIndex(_game, _base) < 0)
+		if (SharedEcon::baseIndex(_game, _base) < 0)
 		{
 			_game->popState(); // this base is gone
 			return;

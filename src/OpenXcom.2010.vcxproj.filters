@@ -1242,7 +1242,7 @@
     <ClCompile Include="CoopMod\TestServer.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
-    <ClCompile Include="CoopMod\JointEcon.cpp">
+    <ClCompile Include="CoopMod\SharedEcon.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
   </ItemGroup>
@@ -2743,7 +2743,7 @@
     <ClInclude Include="CoopMod\TestServer.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
-    <ClInclude Include="CoopMod\JointEcon.h">
+    <ClInclude Include="CoopMod\SharedEcon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
   </ItemGroup>

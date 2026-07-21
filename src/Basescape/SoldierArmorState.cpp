@@ -40,7 +40,7 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleSoldier.h"
 #include "../Ufopaedia/Ufopaedia.h"
-#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -313,7 +313,7 @@ void SoldierArmorState::lstArmorClick(Action *)
  * Applies @a next armor to this screen's soldier, moving the old/new armor store
  * items against the base stores.
  *
- * JOINT (PRD-J09 GAP-5b): the base stores are shared + host-authoritative, so a
+ * SHARED (PRD-J09 GAP-5b): the base stores are shared + host-authoritative, so a
  * replica must NOT return the old armor's store item / consume the new one locally
  * (that drifts chkItems from the host). Route the change as an absolute end-state
  * (which armor this soldier wears) through soldier_armor; the host validates +
@@ -322,9 +322,9 @@ void SoldierArmorState::lstArmorClick(Action *)
 void SoldierArmorState::applyArmorSelection(Armor* next)
 {
 	Soldier *soldier = _base->getSoldiers()->at(_soldier);
-	if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 	{
-		JointEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
+		SharedEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
 		return;
 	}
 	Armor *prev = soldier->getArmor();

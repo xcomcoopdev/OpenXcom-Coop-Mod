@@ -45,7 +45,7 @@ def new_campaign(host, client, port="47900",
     """Bring up a fresh co-op campaign through the redesigned flow.
 
     campaign_mode selects the New Game dropdown choice: "coop" (SEPARATE,
-    the default, unchanged) or "joint" (PRD-J01 JOINT economy).
+    the default, unchanged) or "shared" (PRD-J01 SHARED economy).
     """
 
     # host: New Game -> Co-op -> difficulty OK (world created, HostMenu opens)
@@ -75,8 +75,8 @@ def new_campaign(host, client, port="47900",
     if not r.get("ok"):
         host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": host_base})
 
-    if campaign_mode == "joint":
-        # PRD-J02: a JOINT client never builds its own world - it waits for the
+    if campaign_mode == "shared":
+        # PRD-J02: a SHARED client never builds its own world - it waits for the
         # host to stream the authoritative world after the host's base is placed.
         # The host holds in COOP_DLG_RESUME_ACK_WAIT until the client acks the
         # streamed world loaded, then BEGIN releases both.

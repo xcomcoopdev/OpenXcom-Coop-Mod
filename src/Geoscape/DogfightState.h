@@ -81,15 +81,15 @@ private:
 	int _pilotAccuracyBonus, _pilotDodgeBonus, _pilotApproachSpeedModifier, _craftAccelerationBonus;
 	bool _firedAtLeastOnce, _experienceAwarded;
 	bool _delayedRecolorDone;
-	// PRD-DF02 JOINT: the UFO's synced attack posture (Ufo::getHuntBehavior()), carried
+	// PRD-DF02 SHARED: the UFO's synced attack posture (Ufo::getHuntBehavior()), carried
 	// per-tick in df_state so every player renders the same marker. On the host it is
 	// refreshed from the live UFO in animate(); on a replica it is adopted from the frame.
 	int _ufoStance;
 	// PRD-DF02: the status line WITHOUT the stance marker, so the marker can be
 	// re-composed each frame (refreshStatus) and the streamed statusText stays marker-free.
 	std::string _statusBase;
-	// PRD-DF01 JOINT: a render-only replica of a host-simulated dogfight. Set in the
-	// ctor = isJointCampaign() && !host. On a replica update() applies the latest
+	// PRD-DF01 SHARED: a render-only replica of a host-simulated dogfight. Set in the
+	// ctor = isSharedCampaign() && !host. On a replica update() applies the latest
 	// df_state frame + animate()s and returns - the entire sim body is skipped, no
 	// RNG, no world mutation; the host is the sole authority. Host instances = false.
 	bool _isReplicaView;
@@ -207,7 +207,7 @@ public:
 	bool getWaitForAltitude() const;
 	/// Award experience to the pilots.
 	void awardExperienceToPilots();
-	/// PRD-DF01: is this a render-only JOINT replica (renders df_state, never sims)?
+	/// PRD-DF01: is this a render-only SHARED replica (renders df_state, never sims)?
 	bool isReplicaView() const { return _isReplicaView; }
 	/// PRD-DF01 REPLICA: force this render-only window to close (host membership
 	/// dropped it); handleDogfights() erases it on the next tick.

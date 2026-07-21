@@ -610,15 +610,15 @@ void MonthlyReportState::calculateChanges()
 		for (const auto& s : _cancelPactList)
 			root["cancelPactList"].append(s);
 
-		// PRD-J04: in JOINT, carry the host's authoritative monthly settlement so
+		// PRD-J04: in SHARED, carry the host's authoritative monthly settlement so
 		// the replica overwrites its own recomputed tails and never drifts. This
 		// state is constructed AFTER SavedGame::monthlyFunding(), so getFunds() is
 		// the settled value and getBaseMaintenance()/getCountryFunding() equal the
 		// just-ended month's expenditure/income (bases/countries unchanged since).
-		if (_game->getCoopMod()->isJointCampaign())
+		if (_game->getCoopMod()->isSharedCampaign())
 		{
-			root["jointFunds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
-			root["jointMaintenance"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());
+			root["sharedFunds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
+			root["sharedMaintenance"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());
 			// GAP-9: send the host's ACTUAL just-settled series values, because that is
 			// exactly what the replica overwrites (_incomes.back()/_expenditures.back()).
 			// getCountryFunding() is NOT that number: calculateChanges() above already ran
@@ -628,11 +628,11 @@ void MonthlyReportState::calculateChanges()
 			// just base maintenance once anything is purchased.
 			const auto& hostIncomes = _game->getSavedGame()->getIncomes();
 			const auto& hostExpenditures = _game->getSavedGame()->getExpenditures();
-			root["jointIncome"] = Json::Value::Int64(
+			root["sharedIncome"] = Json::Value::Int64(
 				hostIncomes.empty() ? 0 : hostIncomes.back());
-			root["jointExpenditure"] = Json::Value::Int64(
+			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
-			root["jointResearchScore"] = 0; // new month starts at 0 (matches the roll)
+			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
 		}
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

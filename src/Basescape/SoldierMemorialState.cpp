@@ -28,7 +28,7 @@
 #include "../Interface/TextEdit.h"
 #include "../Interface/TextList.h"
 #include "../Savegame/SavedGame.h"
-#include "../CoopMod/JointEcon.h" // coop (soldier ownership parity)
+#include "../CoopMod/SharedEcon.h" // coop (soldier ownership parity)
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/SoldierDeath.h"
@@ -221,8 +221,8 @@ void SoldierMemorialState::fillMemorialList()
 			}
 		}
 
-		// Playtest: JOINT shows only your own dead soldiers in the memorial.
-		if (!JointEcon::ownsSoldier(_game, deadSoldier)) continue;
+		// Playtest: SHARED shows only your own dead soldiers in the memorial.
+		if (!SharedEcon::ownsSoldier(_game, deadSoldier)) continue;
 
 		const SoldierDeath *death = deadSoldier->getDeath();
 

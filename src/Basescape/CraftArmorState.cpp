@@ -41,7 +41,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
-#include "../CoopMod/JointEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
 
 namespace OpenXcom
 {
@@ -190,7 +190,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
-			if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 			{
 				initList(_lstSoldiers->getScroll());
 				return;
@@ -307,8 +307,8 @@ void CraftArmorState::initList(size_t scrl)
 
 	Craft *c = _base->getCrafts()->at(_craft);
 	BaseSumDailyRecovery recovery = _base->getSumRecoveryPerDay();
-	// Playtest: JOINT crew-armor list shows only your own soldiers (non-destructive).
-	_viewSoldiers = JointEcon::visibleSoldiers(_game, _base);
+	// Playtest: SHARED crew-armor list shows only your own soldiers (non-destructive).
+	_viewSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	for (const auto* soldier : _viewSoldiers)
 	{
 		if (_dynGetter != NULL)
@@ -375,7 +375,7 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -429,7 +429,7 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false) return;
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -558,13 +558,13 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 			{
 				if (save->getMonthsPassed() != -1)
 				{
-					// JOINT (PRD-J09 GAP-5b): the base stores are shared +
+					// SHARED (PRD-J09 GAP-5b): the base stores are shared +
 					// host-authoritative - route the armor change as an absolute
 					// end-state via soldier_armor instead of moving the store items
 					// on this replica (which drifts chkItems from the host).
-					if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+					if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 					{
-						JointEcon::submitSoldierArmor(_game, _base, s, a->getType());
+						SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
 					}
 					else if (a->getStoreItem() == nullptr ||
 						a->getStoreItem() == s->getArmor()->getStoreItem() ||
@@ -649,13 +649,13 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 				row++;
 				continue;
 			}
-			// JOINT (PRD-J09 GAP-5b): route each soldier's armor reset through the
+			// SHARED (PRD-J09 GAP-5b): route each soldier's armor reset through the
 			// shared host-authoritative path; the replica mutates nothing. Each
 			// soldier is an INDEPENDENT absolute end-state (its own default armor),
 			// so a per-soldier command has no ordering dependency - no local batch.
-			if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 			{
-				JointEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+				SharedEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
@@ -697,11 +697,11 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 				row++;
 				continue;
 			}
-			// JOINT (PRD-J09 GAP-5b): route through the shared host-authoritative
+			// SHARED (PRD-J09 GAP-5b): route through the shared host-authoritative
 			// path (see btnDeequipAllArmorClick); the replica mutates nothing.
-			if (_game->getCoopMod() && _game->getCoopMod()->isJointCampaign())
+			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
 			{
-				JointEcon::submitSoldierArmor(_game, _base, s, a->getType());
+				SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{

@@ -32,7 +32,7 @@
 #include "../Mod/RuleBaseFacility.h"
 #include "../Savegame/SavedGame.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -129,13 +129,13 @@ DismantleFacilityState::~DismantleFacilityState()
  */
 void DismantleFacilityState::btnOkClick(Action *)
 {
-	// PRD-J07 JOINT: shared world is host-authoritative. Emit a fac_dismantle
-	// joint_cmd (keyed by the facility's grid position) and mutate NOTHING locally;
+	// PRD-J07 SHARED: shared world is host-authoritative. Emit a fac_dismantle
+	// shared_cmd (keyed by the facility's grid position) and mutate NOTHING locally;
 	// the host re-validates (facility exists, not in use per vanilla), applies the
 	// refund + removal (or removes the whole base if this is the access lift), and
-	// broadcasts joint_apply. Replaces the SEPARATE dismantle_facility/delete_base
+	// broadcasts shared_apply. Replaces the SEPARATE dismantle_facility/delete_base
 	// packets below.
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -144,7 +144,7 @@ void DismantleFacilityState::btnOkClick(Action *)
 		Json::Value payload;
 		payload["x"] = _fac->getX();
 		payload["y"] = _fac->getY();
-		JointEcon::submitLocalCmd(_game, "fac_dismantle", baseId, payload);
+		SharedEcon::submitLocalCmd(_game, "fac_dismantle", baseId, payload);
 		_game->popState();
 		return;
 	}
@@ -183,8 +183,8 @@ void DismantleFacilityState::btnOkClick(Action *)
 			if (*facIt == _fac)
 			{
 
-				// COOP (SEPARATE mirror only; JOINT rides fac_dismantle above)
-				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+				// COOP (SEPARATE mirror only; SHARED rides fac_dismantle above)
+				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
 				{
 
 					Json::Value root;
@@ -278,8 +278,8 @@ void DismantleFacilityState::btnOkClick(Action *)
 			if (*xbaseIt == _base)
 			{
 
-				// coop (SEPARATE mirror only; JOINT rides fac_dismantle above)
-				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isJointCampaign())
+				// coop (SEPARATE mirror only; SHARED rides fac_dismantle above)
+				if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
 				{
 
 					Json::Value root;

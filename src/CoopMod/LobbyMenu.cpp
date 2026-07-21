@@ -253,7 +253,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		{
 			ct = static_cast<int>(_game->getSavedGame()->getCampaignType());
 		}
-		lobby_title += (ct == static_cast<int>(CoopCampaignType::Joint)) ? "  [SHARED]" : "  [SEPARATE]";
+		lobby_title += (ct == static_cast<int>(CoopCampaignType::Shared)) ? "  [SHARED]" : "  [SEPARATE]";
 	}
 
 	_txtTitle->setText(lobby_title);
@@ -596,12 +596,12 @@ void LobbyMenu::resumeCampaign()
 
 	// Serve the connected client its world: stored blob if we have one,
 	// otherwise a fresh world + base building (registered-no-blob, D6).
-	// PRD-J02: JOINT has no per-client stored blob - there is a single
+	// PRD-J02: SHARED has no per-client stored blob - there is a single
 	// authoritative world. Always take the campaign_resume path: the client's
 	// request_load_progress makes the host serialize the CURRENT world fresh and
-	// stream it (streamJointWorldToClient). Never build a fresh client world.
+	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
-	if (_game->getCoopMod()->isJointCampaign()
+	if (_game->getCoopMod()->isSharedCampaign()
 		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
 	{
 		Json::Value root;

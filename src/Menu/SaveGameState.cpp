@@ -200,11 +200,11 @@ void SaveGameState::think()
 				_game->setState(new MainMenuState);
 				_game->setSavedGame(0);
 			}
-			// PRD-J02: a JOINT replica must never write to disk. Autosaves stay
+			// PRD-J02: a SHARED replica must never write to disk. Autosaves stay
 			// silent (they fire automatically), but a user-initiated save gets an
 			// explicit refusal popup (same UX as the PauseState "cannot save"
 			// dialog) so the player understands nothing was written.
-			else if (_game->getCoopMod()->isJointReplica()
+			else if (_game->getCoopMod()->isSharedReplica()
 				&& _type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
 			{
 				_game->pushState(new CoopState(123));

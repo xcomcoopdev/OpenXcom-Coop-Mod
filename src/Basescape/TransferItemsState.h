@@ -19,7 +19,7 @@
  */
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -59,8 +59,8 @@ private:
 	size_t _vanillaCategories;
 	size_t _sel;
 	int _total, _pQty, _cQty, _aQty;
-	/// PRD-J10: live refresh when a peer's joint_apply moves either base.
-	JointEcon::ScreenRefresh _jointRefresh;
+	/// PRD-J10: live refresh when a peer's shared_apply moves either base.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	double _iQty;
 	double _distance;
 	Uint8 _ammoColor;
@@ -98,12 +98,12 @@ public:
 	void completeTransfer();
 	/// Builds the pending-transfer list and serializes it for coop sync.
 	void createPendingTransfers();
-	/// COOP JOINT (PRD-J05): emit the intra-world base->base "transfer" joint_cmd
+	/// COOP SHARED (PRD-J05): emit the intra-world base->base "transfer" shared_cmd
 	/// from the current selection and mutate NOTHING locally. The host validates
 	/// space + funds, creates the Transfers on the destination, and broadcasts.
-	void submitJointTransfer();
+	void submitSharedTransfer();
 	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
-	/// <count> then submit the JOINT transfer. Returns false if no matching row.
+	/// <count> then submit the SHARED transfer. Returns false if no matching row.
 	bool harnessTransferItem(const std::string& itemType, int count);
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if

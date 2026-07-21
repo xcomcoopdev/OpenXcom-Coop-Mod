@@ -58,7 +58,7 @@
 #include "../Menu/ErrorMessageState.h"
 #include "../Engine/Sound.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -198,7 +198,7 @@ void SellState::delayedInit()
 	for (auto* soldier : *_base->getSoldiers())
 	{
 		if (_debriefingState) break;
-		if (soldier->getCraft() == 0 && JointEcon::ownsSoldier(_game, soldier))
+		if (soldier->getCraft() == 0 && SharedEcon::ownsSoldier(_game, soldier))
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), 0, 1, 0, 0, -4, 0, 0, 0 };
 			_items.push_back(row);
@@ -364,7 +364,7 @@ void SellState::delayedInit()
  */
 SellState::~SellState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -387,12 +387,12 @@ void SellState::init()
 	touchComponentsRefresh();
 
 	// PRD-J10: rows, sell values, stock and funds are all constructor snapshots -
-	// rebuild when a peer's joint_apply moves this base. The post-battle
+	// rebuild when a peer's shared_apply moves this base. The post-battle
 	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
 	// and the J09 world restream heals it wholesale.
 	if (!_debriefingState)
 	{
-		_jointRefresh.bind(_game, this, _base);
+		_sharedRefresh.bind(_game, this, _base);
 	}
 }
 
@@ -405,10 +405,10 @@ void SellState::think()
 
 	// PRD-J10: same pop-and-rebuild the _reset path above already uses (this screen
 	// treats "construct again" as its refresh).
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
 		_game->popState();
-		if (JointEcon::baseIndex(_game, _base) >= 0)
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
 			_game->pushState(new SellState(_base, _debriefingState, _origin));
 		}
@@ -676,13 +676,13 @@ void SellState::updateList()
  */
 void SellState::btnOkClick(Action *)
 {
-	// COOP JOINT (PRD-J05): a JOINT campaign is one host-authoritative world.
-	// Route the whole sell through the "sell" joint_cmd and mutate NOTHING
+	// COOP SHARED (PRD-J05): a SHARED campaign is one host-authoritative world.
+	// Route the whole sell through the "sell" shared_cmd and mutate NOTHING
 	// locally - funds and stores are settled by the host and arrive via
-	// joint_apply. The command is atomic (host re-prices + re-checks quantities;
+	// shared_apply. The command is atomic (host re-prices + re-checks quantities;
 	// a partial availability rejects the whole thing, matching vanilla's single
 	// OK button). SEPARATE/solo path below is untouched.
-	if (_game->getCoopMod()->isJointCampaign())
+	if (_game->getCoopMod()->isSharedCampaign())
 	{
 		Json::Value items(Json::arrayValue);
 		Json::Value soldiers(Json::arrayValue);
@@ -730,7 +730,7 @@ void SellState::btnOkClick(Action *)
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
-			JointEcon::submitLocalCmd(_game, "sell", baseId, payload);
+			SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
 		}
 		_game->popState();
 		return;
@@ -955,7 +955,7 @@ void SellState::btnCancelClick(Action *)
 /**
  * Test-harness hook (PRD-J05): sell <count> of ITEM <itemType> through the real
  * OK path. Sets the matching row's amount, keeps the running total consistent
- * (harmless for the JOINT branch, which reprices host-side), and calls
+ * (harmless for the SHARED branch, which reprices host-side), and calls
  * btnOkClick - which pops this state. Returns false if no sellable ITEM row
  * matches.
  */

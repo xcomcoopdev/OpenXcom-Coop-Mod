@@ -88,13 +88,13 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	}
 
 	// COOP
-	// PRD-J04: fence the SEPARATE peer-research mirror in JOINT. A JOINT host
-	// broadcasts research completions over the JointEcon channel (research_done)
+	// PRD-J04: fence the SEPARATE peer-research mirror in SHARED. A SHARED host
+	// broadcasts research completions over the SharedEcon channel (research_done)
 	// instead; the replica pops this state with coop=true, so it never re-enters
 	// here. (This also avoids the newResearch->getName() null-deref below when the
 	// host completes an already-seen lookup.)
 	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false
-		&& !_game->getCoopMod()->isJointCampaign())
+		&& !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		Json::Value root;

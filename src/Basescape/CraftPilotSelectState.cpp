@@ -27,7 +27,7 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h"
 #include "../Savegame/Base.h"
-#include "../CoopMod/JointEcon.h" // coop (soldier ownership parity)
+#include "../CoopMod/SharedEcon.h" // coop (soldier ownership parity)
 #include "../Savegame/Craft.h"
 #include "../Savegame/Soldier.h"
 #include "../Mod/RuleSoldier.h"
@@ -96,7 +96,7 @@ CraftPilotSelectState::CraftPilotSelectState(Base *base, size_t craft) : _base(b
 	for (const auto* soldier : *_base->getSoldiers())
 	{
 		// must be on board & able to drive
-		if (soldier->getCraft() == c && soldier->hasAllPilotingRequirements() && JointEcon::ownsSoldier(_game, soldier))
+		if (soldier->getCraft() == c && soldier->hasAllPilotingRequirements() && SharedEcon::ownsSoldier(_game, soldier))
 		{
 			// is not assigned yet
 			if (!c->isPilot(soldier->getId()))

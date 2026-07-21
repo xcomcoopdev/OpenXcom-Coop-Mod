@@ -33,7 +33,7 @@
 #include "../Menu/SaveGameState.h"
 #include "../Savegame/SavedGame.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -111,11 +111,11 @@ void SackSoldierState::btnOkClick(Action *)
 
 	Soldier* soldier = _base->getSoldiers()->at(_soldierId);
 
-	// PRD-J07 JOINT: any player may sack any soldier (shared roster). Emit a sack
-	// joint_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
-	// validates + removes + broadcasts joint_apply (replaces all the SEPARATE
+	// PRD-J07 SHARED: any player may sack any soldier (shared roster). Emit a sack
+	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
+	// validates + removes + broadcasts shared_apply (replaces all the SEPARATE
 	// peer-base save juggling below).
-	if (_game->getCoopMod()->isJointCampaign() && _base->_coopBase == false)
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -123,7 +123,7 @@ void SackSoldierState::btnOkClick(Action *)
 			if (bases->at(i) == _base) { baseId = (int)i; break; }
 		Json::Value payload;
 		payload["soldierId"] = soldier->getId();
-		JointEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		SharedEcon::submitLocalCmd(_game, "sack", baseId, payload);
 		_game->popState();
 		return;
 	}

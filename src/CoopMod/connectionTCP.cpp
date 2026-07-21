@@ -59,7 +59,7 @@
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
 #include "GiftNoticeState.h"
-#include "JointEcon.h"
+#include "SharedEcon.h"
 #include "connectionUDP/connection_udp_glue.h"
 
 #include "../Savegame/BaseFacility.h"
@@ -145,7 +145,7 @@ int connectionTCP::_coopGamemode = 0;
 
 int connectionTCP::coop_save_owner_player_id = 0; 
 
-// PRD-J01: economy model shown in the lobby to a joining client (0=Sep,1=Joint).
+// PRD-J01: economy model shown in the lobby to a joining client (0=Sep,1=Shared).
 int connectionTCP::_lobbyCampaignType = 0;
 
 // PRD-J01: set once in the ctor; lets the static seat accessors reach the roster.
@@ -196,7 +196,7 @@ bool connectionTCP::saveError = false;
 CoopSession connectionTCP::session;
 
 std::string connectionTCP::joinRefusalReason = "";
-std::string connectionTCP::jointFailReason = "";
+std::string connectionTCP::sharedFailReason = "";
 
 // --- CoopSession transitions: every lifecycle change is logged. The mirrored
 // --- booleans ARE the encoding (PRD-12 S4 deleted the write-only phase enum);
@@ -392,8 +392,8 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 {
 	// PRD-J01: publish the process-single Game for the static seat accessors.
 	_staticGame = game;
-	// PRD-J03: register the JOINT economy command handlers (idempotent).
-	JointEcon::init();
+	// PRD-J03: register the SHARED economy command handlers (idempotent).
+	SharedEcon::init();
 }
 
 connectionTCP::~connectionTCP()
@@ -1046,11 +1046,11 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		return;
 	}
 
-	// Playtest: JOINT geoscape gift is host-authoritative - route the ownership move
-	// through the soldier_gift joint_cmd so BOTH machines adopt it (the SEPARATE
-	// local+broadcast below never reached the JOINT replica). Battle-time gifts still
+	// Playtest: SHARED geoscape gift is host-authoritative - route the ownership move
+	// through the soldier_gift shared_cmd so BOTH machines adopt it (the SEPARATE
+	// local+broadcast below never reached the SHARED replica). Battle-time gifts still
 	// use the live-control path below.
-	if (broadcast && isJointCampaign() && !_game->getSavedGame()->getSavedBattle())
+	if (broadcast && isSharedCampaign() && !_game->getSavedGame()->getSavedBattle())
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -1064,7 +1064,7 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		Json::Value payload;
 		payload["soldierId"] = soldier->getId();
 		payload["newOwner"] = newOwnerId;
-		JointEcon::submitLocalCmd(_game, "soldier_gift", baseId, payload);
+		SharedEcon::submitLocalCmd(_game, "soldier_gift", baseId, payload);
 		return;
 	}
 
@@ -1314,9 +1314,9 @@ void connectionTCP::pushProgressToHostSilently()
 	{
 		return;
 	}
-	// PRD-J02: a JOINT replica has no world of its own to push - the host's
+	// PRD-J02: a SHARED replica has no world of its own to push - the host's
 	// single authoritative save is the whole truth. No-op.
-	if (isJointReplica())
+	if (isSharedReplica())
 	{
 		return;
 	}
@@ -1678,10 +1678,10 @@ void connectionTCP::updateCoopTask()
 		waitedTrades = newWaitedTrades;
 	}
 
-	// PRD-J03: drain the JOINT economy protocol queues at the same controlled
+	// PRD-J03: drain the SHARED economy protocol queues at the same controlled
 	// main-thread point as waitedTrades (host validates+applies+broadcasts queued
-	// joint_cmd; replicas apply queued joint_apply and surface joint_fail).
-	JointEcon::update(_game);
+	// shared_cmd; replicas apply queued shared_apply and surface shared_fail).
+	SharedEcon::update(_game);
 
 	// wrong password
 	if (onConnect == -5)
@@ -2762,10 +2762,10 @@ long long connectionTCP::getDateTimeCoop() const
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
-	// PRD-J03: single early hook routing the joint_* economy protocol into the
-	// JointEcon dispatch table (the anti-if-chain requirement). If JointEcon
+	// PRD-J03: single early hook routing the shared_* economy protocol into the
+	// SharedEcon dispatch table (the anti-if-chain requirement). If SharedEcon
 	// consumes the message, it never falls through to the if-chain below.
-	if (JointEcon::onMessage(_game, stateString, obj))
+	if (SharedEcon::onMessage(_game, stateString, obj))
 		return;
 
 	if (stateString == "kick_player")
@@ -2908,12 +2908,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopCampaignType campaignType =
 			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
 
-		if (campaignType == CoopCampaignType::Joint)
+		if (campaignType == CoopCampaignType::Shared)
 		{
-			// PRD-J02: a JOINT client is a replica - it never builds its own
+			// PRD-J02: a SHARED client is a replica - it never builds its own
 			// world. Do NOT run beginInitialBasePlacement. Hold the wait dialog
 			// until the host finishes placing its first base and streams the
-			// authoritative world (streamJointWorldToClient ->
+			// authoritative world (streamSharedWorldToClient ->
 			// MAP_RESULT_LOAD_PROGRESS), which the client then adopts exactly
 			// like a resume. The roster/type ride the streamed save's header.
 			connectionTCP::session.markLobbyClosed();
@@ -2997,7 +2997,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			connectionTCP::session.resumeAck = true;
 
-			// PRD-J09 / PRD-J10: an AUTOMATIC JOINT world restream just landed on
+			// PRD-J09 / PRD-J10: an AUTOMATIC SHARED world restream just landed on
 			// the client - post-battle (J09) or desync repair (J10). Adopting a
 			// streamed world always parks the client in
 			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) until the host
@@ -3005,19 +3005,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// BEGIN click (campaign_begun). Neither of these restreams has a
 			// click behind it, so release the hold here: the replica now holds
 			// the authoritative world and the session is already live.
-			if ((jointPostBattleRestream || jointResyncRestream)
-				&& isJointCampaign() && getServerOwner())
+			if ((sharedPostBattleRestream || sharedResyncRestream)
+				&& isSharedCampaign() && getServerOwner())
 			{
-				const char* why = jointPostBattleRestream ? "post-battle" : "resync";
-				jointPostBattleRestream = false;
-				jointResyncRestream = false;
+				const char* why = sharedPostBattleRestream ? "post-battle" : "resync";
+				sharedPostBattleRestream = false;
+				sharedResyncRestream = false;
 				connectionTCP::session.sessionLive();
 
 				Json::Value begun;
 				begun["state"] = "campaign_begun";
 				sendTCPPacketData(begun.toStyledString());
 
-				Log(LOG_INFO) << "[coop-joint] " << why << " restream adopted; released the client hold";
+				Log(LOG_INFO) << "[coop-shared] " << why << " restream adopted; released the client hold";
 			}
 		}
 
@@ -3478,11 +3478,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// delete_base
 	if (stateString == "delete_base")
 	{
-		// PRD-J07: SEPARATE-only mirror machinery. In JOINT base removal rides the
-		// fac_dismantle / base_destroyed joint_apply (keeps base indices in
+		// PRD-J07: SEPARATE-only mirror machinery. In SHARED base removal rides the
+		// fac_dismantle / base_destroyed shared_apply (keeps base indices in
 		// lock-step); a stray delete_base would match a REAL base's random
 		// _coop_base_id and desync every index-routed command.
-		if (isJointCampaign())
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -3579,15 +3579,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "request_load_progress")
 	{
 
-		if (_game->getSavedGame() && !sendFileClient && isJointCampaign())
+		if (_game->getSavedGame() && !sendFileClient && isSharedCampaign())
 		{
 
-			// PRD-J02: JOINT resume/bootstrap. There is exactly one authoritative
+			// PRD-J02: SHARED resume/bootstrap. There is exactly one authoritative
 			// world (the host's) and no per-client stored blob - serialize the
 			// CURRENT world fresh and stream it as the client's replica. The
 			// client adopts it via the same MAP_RESULT_LOAD_PROGRESS path a
 			// SEPARATE resume uses. Battlescape resume stays 2-player/out of scope.
-			streamJointWorldToClient();
+			streamSharedWorldToClient();
 			if (!sendFileClient)
 			{
 				// serialization refused (unplaced base etc.): let the client retry
@@ -3867,8 +3867,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "changeBaseName")
 	{
 		// PRD-J07: SEPARATE-only (renames a _coopIcon mirror + the basehost memory
-		// blob). JOINT renames ride the base_rename joint_apply.
-		if (isJointCampaign())
+		// blob). SHARED renames ride the base_rename shared_apply.
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -4116,8 +4116,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			// PRD-J04: verify the host's world checksum piggybacked on this
 			// heartbeat (funds + base count + research count). Log-only detect;
-			// repair is J10. No-op unless the host stamped a JOINT checksum.
-			JointEcon::verifyWorldChecksum(_game, obj);
+			// repair is J10. No-op unless the host stamped a SHARED checksum.
+			SharedEcon::verifyWorldChecksum(_game, obj);
 
 		}
 
@@ -4659,8 +4659,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "place_facility")
 	{
-		// PRD-J07: SEPARATE-only mirror markers; JOINT builds ride fac_build.
-		if (playerInsideCoopBase == true && !isJointCampaign())
+		// PRD-J07: SEPARATE-only mirror markers; SHARED builds ride fac_build.
+		if (playerInsideCoopBase == true && !isSharedCampaign())
 		{
 
 			_coopFacility.append(obj);
@@ -4671,8 +4671,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "dismantle_facility")
 	{
-		// PRD-J07: SEPARATE-only mirror markers; JOINT rides fac_dismantle.
-		if (playerInsideCoopBase == true && !isJointCampaign())
+		// PRD-J07: SEPARATE-only mirror markers; SHARED rides fac_dismantle.
+		if (playerInsideCoopBase == true && !isSharedCampaign())
 		{
 
 			_deleteCoopFacility.append(obj);
@@ -6080,16 +6080,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			 }
 		 }
 
-		// PRD-J04: authoritative monthly settlement (JOINT). Stored here; applied to
+		// PRD-J04: authoritative monthly settlement (SHARED). Stored here; applied to
 		// the replica's tails in time1MonthCoop after its own monthlyFunding roll.
-		if (obj.isMember("jointFunds"))
+		if (obj.isMember("sharedFunds"))
 		{
-			jointMonthlyFunds = obj["jointFunds"].asInt64();
-			jointMonthlyMaintenance = obj.get("jointMaintenance", 0).asInt64();
-			jointMonthlyIncome = obj.get("jointIncome", 0).asInt64();
-			jointMonthlyExpenditure = obj.get("jointExpenditure", 0).asInt64();
-			jointMonthlyResearchScore = obj.get("jointResearchScore", 0).asInt();
-			jointMonthlyPending = true;
+			sharedMonthlyFunds = obj["sharedFunds"].asInt64();
+			sharedMonthlyMaintenance = obj.get("sharedMaintenance", 0).asInt64();
+			sharedMonthlyIncome = obj.get("sharedIncome", 0).asInt64();
+			sharedMonthlyExpenditure = obj.get("sharedExpenditure", 0).asInt64();
+			sharedMonthlyResearchScore = obj.get("sharedResearchScore", 0).asInt();
+			sharedMonthlyPending = true;
 		}
 
 		_game->getCoopMod()->show_coop_monthly_report = true;
@@ -6103,20 +6103,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// DogfightState windows (epoch-guarded); the host ignores its own stream.
 	if (stateString == "df_state")
 	{
-		JointEcon::applyDogfightState(_game, obj);
+		SharedEcon::applyDogfightState(_game, obj);
 	}
 
 	// target positions
 	if (stateString == "target_positions")
 	{
 
-		// PRD-J04: JOINT position snapshot (`joint:true`). The replica is
+		// PRD-J04: SHARED position snapshot (`shared:true`). The replica is
 		// simulation-frozen, so it applies the HOST's real object positions here
 		// (matched by REAL id, not a _coop mirror id) so it still SEES crafts/UFOs
-		// move. This is the JOINT counterpart of the SEPARATE mirror below; the two
-		// are mutually exclusive (JOINT never sends the SEPARATE snapshot and the
-		// SEPARATE block is fenced with !isJointCampaign()).
-		if (obj.get("joint", false).asBool() && isJointReplica() && _game->getSavedGame())
+		// move. This is the SHARED counterpart of the SEPARATE mirror below; the two
+		// are mutually exclusive (SHARED never sends the SEPARATE snapshot and the
+		// SEPARATE block is fenced with !isSharedCampaign()).
+		if (obj.get("shared", false).asBool() && isSharedReplica() && _game->getSavedGame())
 		{
 			SavedGame* sg = _game->getSavedGame();
 
@@ -6243,10 +6243,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
-		// PRD-J02: SEPARATE-only peer economy/craft mirror. A JOINT replica already
+		// PRD-J02: SEPARATE-only peer economy/craft mirror. A SHARED replica already
 		// holds every base/craft/fund as real data in the streamed world, so
 		// consuming the mirror snapshot would duplicate them. Fence it off.
-		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isJointCampaign())
+		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isSharedCampaign())
 		{
 
 			// funds
@@ -8267,8 +8267,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		// PRD-J02: SEPARATE-only mirror-base machinery (creates _coopIcon peer
-		// bases). JOINT has one shared world with real bases - never mirror.
-		if (isJointCampaign())
+		// bases). SHARED has one shared world with real bases - never mirror.
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -8436,9 +8436,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "new_base")
 	{
 		// PRD-J07 (extending the J02 fence list): SEPARATE-only mirror machinery -
-		// creates a _coopIcon marker base. JOINT base creation rides the base_new
-		// joint_apply, which appends the REAL base on every machine.
-		if (isJointCampaign())
+		// creates a _coopIcon marker base. SHARED base creation rides the base_new
+		// shared_apply, which appends the REAL base on every machine.
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -8500,10 +8500,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "baseRequest")
 	{
 
-		// PRD-J02: SEPARATE-only mirror machinery; never in JOINT. Also guard the
-		// save deref: a JOINT replica can receive stray packets before its world
+		// PRD-J02: SEPARATE-only mirror machinery; never in SHARED. Also guard the
+		// save deref: a SHARED replica can receive stray packets before its world
 		// exists, and the loop below dereferences the SavedGame.
-		if (isJointCampaign() || !_game->getSavedGame())
+		if (isSharedCampaign() || !_game->getSavedGame())
 		{
 			return;
 		}
@@ -8603,8 +8603,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "coopBase2" && onTcpHost == false)
 	{
 
-		// PRD-J02: SEPARATE-only mirror-base machinery. Never in JOINT.
-		if (isJointCampaign())
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in SHARED.
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -8715,8 +8715,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "coopBase3" && getHost() == true)
 	{
 
-		// PRD-J02: SEPARATE-only mirror-base machinery. Never in JOINT.
-		if (isJointCampaign())
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in SHARED.
+		if (isSharedCampaign())
 		{
 			return;
 		}
@@ -9074,29 +9074,29 @@ bool connectionTCP::getCoopCampaign()
 	return _coopCampaign;
 }
 
-// PRD-J01: true only when the active save is a JOINT co-op campaign.
-bool connectionTCP::isJointCampaign()
+// PRD-J01: true only when the active save is a SHARED co-op campaign.
+bool connectionTCP::isSharedCampaign()
 {
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
 	return save && save->isCoopSave()
-		&& save->getCampaignType() == CoopCampaignType::Joint;
+		&& save->getCampaignType() == CoopCampaignType::Shared;
 }
 
-// Static mirror of isJointCampaign() for engine-level callers that hold no CoopMod
+// Static mirror of isSharedCampaign() for engine-level callers that hold no CoopMod
 // instance (e.g. Craft capacity accounting). Reads the same authoritative save via the
 // static Game pointer.
-bool connectionTCP::isJointCampaignStatic()
+bool connectionTCP::isSharedCampaignStatic()
 {
 	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
 	return save && save->isCoopSave()
-		&& save->getCampaignType() == CoopCampaignType::Joint;
+		&& save->getCampaignType() == CoopCampaignType::Shared;
 }
 
-// PRD-J02: a JOINT client holds a replica of the host's single authoritative
+// PRD-J02: a SHARED client holds a replica of the host's single authoritative
 // world. Host = seat 0 owns the world; every other seat is a replica.
-bool connectionTCP::isJointReplica()
+bool connectionTCP::isSharedReplica()
 {
-	return isJointCampaign() && !getHost();
+	return isSharedCampaign() && !getHost();
 }
 
 // PRD-J02: hand the host's authoritative world to the single-client streamer.
@@ -9105,14 +9105,14 @@ bool connectionTCP::isJointReplica()
 // (streamer sendProgressLoadBlob path -> MAP_RESULT_LOAD_PROGRESS ->
 // CoopState(555) -> LoadGameState). Reuses the existing file-transfer chunking;
 // no second chunk protocol. Host only; caller must ensure the streamer is idle.
-void connectionTCP::streamJointWorldToClient()
+void connectionTCP::streamSharedWorldToClient()
 {
 	if (!getServerOwner() || !_game->getSavedGame())
 	{
 		return;
 	}
 
-	const std::string key = "joint_world";
+	const std::string key = "shared_world";
 	connectionTCP::saveError = false;
 	_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
 
@@ -9128,7 +9128,7 @@ void connectionTCP::streamJointWorldToClient()
 
 	if (blob.empty())
 	{
-		Log(LOG_ERROR) << "[coop-joint] streamJointWorldToClient: no world blob"
+		Log(LOG_ERROR) << "[coop-shared] streamSharedWorldToClient: no world blob"
 		               << " (saveError=" << connectionTCP::saveError << ")";
 		return;
 	}
@@ -9138,7 +9138,7 @@ void connectionTCP::streamJointWorldToClient()
 	sendProgressLoadFileToClient = key;
 	sendFileClient = true;
 
-	Log(LOG_INFO) << "[coop-joint] streaming authoritative world to client ("
+	Log(LOG_INFO) << "[coop-shared] streaming authoritative world to client ("
 	              << blob.size() << " bytes)";
 }
 
@@ -9148,9 +9148,9 @@ void connectionTCP::streamJointWorldToClient()
 // world in COOP_DLG_CLIENT_RESUME_HOLD until a campaign_begun arrives, and
 // mid-session there is no operator BEGIN click to send one (PRD-J09 learned this
 // the hard way after battles). resume_ack releases it when this flag is set.
-void connectionTCP::jointResyncStream()
+void connectionTCP::sharedResyncStream()
 {
-	if (!getServerOwner() || !isJointCampaign() || !_game->getSavedGame())
+	if (!getServerOwner() || !isSharedCampaign() || !_game->getSavedGame())
 	{
 		return;
 	}
@@ -9159,18 +9159,18 @@ void connectionTCP::jointResyncStream()
 		// The streamer is single-slot and already busy (bootstrap/resume/post-battle
 		// transfer in flight). Drop this request rather than corrupt that transfer -
 		// the replica's next mismatching checksum re-asks once its guard expires.
-		Log(LOG_WARNING) << "[coop-joint] resync request dropped: streamer busy";
+		Log(LOG_WARNING) << "[coop-shared] resync request dropped: streamer busy";
 		return;
 	}
 
-	jointResyncRestream = true;
-	streamJointWorldToClient();
+	sharedResyncRestream = true;
+	streamSharedWorldToClient();
 	if (!sendFileClient)
 	{
 		// serialization refused: nothing is in flight, so do not leave the
 		// auto-release armed for an unrelated future stream.
-		jointResyncRestream = false;
-		Log(LOG_ERROR) << "[coop-joint] resync restream failed to serialize the world";
+		sharedResyncRestream = false;
+		Log(LOG_ERROR) << "[coop-shared] resync restream failed to serialize the world";
 	}
 }
 
@@ -9803,7 +9803,7 @@ void connectionTCP::setPathLock(int lock)
 // assign the client soldiers to the host's craft
 void connectionTCP::setClientSoldiers()
 {
-	// JOINT has ONE shared world: the roster/craft are already shared, so there is no
+	// SHARED has ONE shared world: the roster/craft are already shared, so there is no
 	// "assign the client's soldiers to the host's craft" merge to do (PRD-J09 skips the
 	// SEPARATE two-world dance), and there is no "battleclient" blob to load. Running it
 	// anyway re-entered ConfirmLandingState::startCoopMission below, which calls
@@ -9811,7 +9811,7 @@ void connectionTCP::setClientSoldiers()
 	// the client had already loaded the first one. Result: host and client standing on
 	// two entirely different maps (soldiers on open ground, no craft). The host already
 	// generated and shipped the authoritative battle in btnYesClick; never regenerate.
-	if (isJointCampaign())
+	if (isSharedCampaign())
 	{
 		return;
 	}

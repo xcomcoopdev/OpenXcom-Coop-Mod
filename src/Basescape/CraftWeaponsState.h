@@ -47,8 +47,8 @@ private:
 	Text *_txtTitle, *_txtArmament, *_txtQuantity, *_txtAmmunition, *_txtCurrentWeapon;
 	TextList *_lstWeapons;
 	std::vector<RuleCraftWeapon*> _weapons;
-	/// JOINT (PRD-J09 GAP-5b): mount @a selRule (0 = dismount) in this slot -
-	/// routes craft_rearm in JOINT, mutates the shared stores locally in SEPARATE.
+	/// SHARED (PRD-J09 GAP-5b): mount @a selRule (0 = dismount) in this slot -
+	/// routes craft_rearm in SHARED, mutates the shared stores locally in SEPARATE.
 	void equipSelectedWeapon(RuleCraftWeapon* selRule);
 public:
 	/// Creates the Craft Weapons state.

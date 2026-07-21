@@ -47,7 +47,7 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/CoopMenu.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -59,7 +59,7 @@ namespace OpenXcom
  * @param globeTexture Globe texture of the landing site.
  * @param shade Shade of the landing site.
  */
-ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool jointBroker) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade), _jointBroker(jointBroker)
+ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade), _sharedBroker(sharedBroker)
 {
 	_screen = false;
 
@@ -166,7 +166,7 @@ void ConfirmLandingState::init()
 void ConfirmLandingState::think()
 {
 	State::think();
-	if (_jointBroker && _craft
+	if (_sharedBroker && _craft
 		&& _game->getCoopMod()->consumeLandingResolved(_craft->getId())
 		&& !_game->getStates().empty() && _game->getStates().back() == this)
 	{
@@ -268,9 +268,9 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// PRD-J10 landing broker: this is the copy shown on the commanding seat's
 	// machine, which is a REPLICA - it cannot generate the battle and must not
 	// touch the shared world. Report the answer; the host does the rest.
-	if (_jointBroker)
+	if (_sharedBroker)
 	{
-		JointEcon::submitLandReply(_game, _craft, true, false);
+		SharedEcon::submitLandReply(_game, _craft, true, false);
 		_game->popState();
 		return;
 	}
@@ -278,15 +278,15 @@ void ConfirmLandingState::btnYesClick(Action *)
 	if (connectionTCP::getCoopStatic() == true)
 	{
 
-		// PRD-J09: JOINT battle entry. The world is shared - the craft already
+		// PRD-J09: SHARED battle entry. The world is shared - the craft already
 		// carries the full mixed-owner squad - and the HOST (which ran the
 		// geoscape sim that popped this dialog) is the battle authority. Stamp the
 		// in-battle control split from soldier ownership (seat 0/unknown -> host
 		// control, any other seat -> client), then generate the battle host-side
 		// and ship "battlehost" to the client via the existing coop path. This
 		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
-		// JOINT would duplicate the already-shared soldiers.
-		if (_game->getCoopMod()->isJointCampaign())
+		// SHARED would duplicate the already-shared soldiers.
+		if (_game->getCoopMod()->isSharedCampaign())
 		{
 			_game->getCoopMod()->setSelectedCraft(_craft);
 			_game->getCoopMod()->setConfirmLandingState(this);
@@ -415,11 +415,11 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 void ConfirmLandingState::startCoopMission()
 {
-	// JOINT: the host generates the authoritative battle exactly ONCE and ships it. A
+	// SHARED: the host generates the authoritative battle exactly ONCE and ships it. A
 	// second call here would run bgen.run() again and replace the world with a NEW random
 	// map, stranding the client (which already loaded the first) on a different map. If a
 	// battle already exists, this is a re-entry - do nothing.
-	if (_game->getCoopMod()->isJointCampaign() && _game->getSavedGame()
+	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
 	{
 		return;
@@ -503,9 +503,9 @@ void ConfirmLandingState::btnNoClick(Action *)
 {
 	// PRD-J10 landing broker: same as btnYesClick - report, mutate nothing. CTRL
 	// still means "patrol here" rather than "return to base"; the host applies it.
-	if (_jointBroker)
+	if (_sharedBroker)
 	{
-		JointEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
 		_game->popState();
 		return;
 	}

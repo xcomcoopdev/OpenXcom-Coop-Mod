@@ -183,10 +183,10 @@ void NewGameState::btnOkClick(Action *)
 	{
 		// permanent solo/co-op distinction (D1)
 		save->setCoopSave(true);
-		// PRD-J01: record the chosen economy model (JOINT/SEPARATE), immutable.
+		// PRD-J01: record the chosen economy model (SHARED/SEPARATE), immutable.
 		save->setCampaignType(_campaignType);
 
-		// Playtest B4: a JOINT campaign shares ONE roster, so every soldier needs an
+		// Playtest B4: a SHARED campaign shares ONE roster, so every soldier needs an
 		// explicit owner - otherwise the starting soldiers keep the default
 		// _ownerPlayerId 999 ("unowned"), which the battlescape entry treats as
 		// host-side (ConfirmLandingState maps 999 -> coop 0), leaving the client with
@@ -195,7 +195,7 @@ void NewGameState::btnOkClick(Action *)
 		// the world (the client is a pure replica and adopts the streamed, already-split
 		// roster). Same deterministic rule as the on-load migration, so a fresh game and
 		// a loaded save agree. Hires thereafter own themselves (J05 setOwnerPlayerId).
-		save->migrateJointSoldierOwnership();
+		save->migrateSharedSoldierOwnership();
 	}
 	_game->setSavedGame(save);
 

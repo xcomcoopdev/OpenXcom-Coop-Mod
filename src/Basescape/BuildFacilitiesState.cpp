@@ -89,7 +89,7 @@ BuildFacilitiesState::BuildFacilitiesState(Base *base, State *state) : _base(bas
  */
 BuildFacilitiesState::~BuildFacilitiesState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -199,12 +199,12 @@ void BuildFacilitiesState::init()
 	populateBuildList();
 
 	// PRD-J10 / playtest B1: listen for the other player's facility/funds applies so
-	// the base screen this popup covers refreshes live (no-op unless JOINT campaign).
-	_jointRefresh.bind(_game, this, _base, true /*wantProgress*/);
+	// the base screen this popup covers refreshes live (no-op unless SHARED campaign).
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress*/);
 }
 
 /**
- * PRD-J10 / playtest B1: a peer's joint_apply changed this base's funds/facilities
+ * PRD-J10 / playtest B1: a peer's shared_apply changed this base's funds/facilities
  * while this popup is on top. The covered BasescapeState never gets think(), so its
  * funds header + facility grid (both visible around this small window) would stay
  * stale until the popup closes. Rebuild them live, and repopulate our own list (a
@@ -213,7 +213,7 @@ void BuildFacilitiesState::init()
 void BuildFacilitiesState::think()
 {
 	State::think();
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
 		if (_state)
 			_state->init();

@@ -177,7 +177,7 @@ int BaseView::getGridY() const
 }
 
 /**
- * Sets the grid square directly (JOINT co-op): the host validates/applies a
+ * Sets the grid square directly (SHARED co-op): the host validates/applies a
  * client-originated facility placement (fac_build) without a mouse, on a
  * transient BaseView, so getPlacementError()/isQueuedBuilding() work exactly as
  * the interactive path. No rendering is involved.

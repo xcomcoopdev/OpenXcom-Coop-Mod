@@ -343,7 +343,7 @@ class connectionTCP
 	bool geoMembershipChanged(const Json::Value& root);
 	std::set<int> _lastGeoUfoIds;
 	std::set<int> _lastGeoMissionIds;
-	// Playtest: craft ids whose JOINT landing decision has been resolved (any seat
+	// Playtest: craft ids whose SHARED landing decision has been resolved (any seat
 	// answered). Every seat is prompted; the losers' broker ConfirmLandingState polls
 	// this in think() and closes itself. Marked by the host resolver / a land_close
 	// broadcast; cleared when a fresh prompt for that craft goes out.
@@ -374,39 +374,39 @@ class connectionTCP
 	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
 	// PRD-J01: campaign economy model carried to a joining client during the
 	// lobby handshake (before its save exists) so the type label can render.
-	// 0 = Separate, 1 = Joint. Mirrors SavedGame::getCampaignType().
+	// 0 = Separate, 1 = Shared. Mirrors SavedGame::getCampaignType().
 	static int _lobbyCampaignType;
 	bool getCoopCampaign();
-	// PRD-J01: true when the ACTIVE save is a JOINT co-op campaign. Every later
-	// JOINT-gated behavior tests this; SEPARATE/solo return false.
-	bool isJointCampaign();
+	// PRD-J01: true when the ACTIVE save is a SHARED co-op campaign. Every later
+	// SHARED-gated behavior tests this; SEPARATE/solo return false.
+	bool isSharedCampaign();
 	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
-	static bool isJointCampaignStatic();
-	// PRD-J02: true for a JOINT client - a world replica the host streams. A
+	static bool isSharedCampaignStatic();
+	// PRD-J02: true for a SHARED client - a world replica the host streams. A
 	// replica never builds its own world, never saves to disk, and never runs
-	// the SEPARATE mirror machinery. (isJointCampaign() && !host)
-	bool isJointReplica();
+	// the SEPARATE mirror machinery. (isSharedCampaign() && !host)
+	bool isSharedReplica();
 	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
 	// streamer (single-client resume-blob lane) so the connected client adopts
-	// it as its replica. Host only; used at JOINT campaign start and resume.
-	void streamJointWorldToClient();
+	// it as its replica. Host only; used at SHARED campaign start and resume.
+	void streamSharedWorldToClient();
 	// PRD-J09: set while a POST-BATTLE world restream is in flight. The client
 	// adopting a streamed world always sends resume_ack and then HOLDS in
 	// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) waiting for the host to
 	// "resume" - at bootstrap/resume the operator's BEGIN sends campaign_begun.
 	// After a battle there is no such click, so the resume_ack handler releases
 	// the hold automatically when this flag is set.
-	bool jointPostBattleRestream = false;
+	bool sharedPostBattleRestream = false;
 	// PRD-J10: same shape, different trigger - set while a DESYNC-REPAIR world
 	// restream is in flight (the replica's world checksum diverged and it asked for
 	// a fresh one). Mid-session nobody clicks BEGIN either, so the resume_ack
 	// handler must release the client's hold for this restream too, or the client
 	// parks in COOP_DLG_CLIENT_RESUME_HOLD forever with a perfectly good world.
-	bool jointResyncRestream = false;
-	// PRD-J10: serve a replica's joint_resync_request - mark the restream
+	bool sharedResyncRestream = false;
+	// PRD-J10: serve a replica's shared_resync_request - mark the restream
 	// auto-releasing and stream the authoritative world. No-op (the replica re-asks
 	// on its next mismatching checksum) if the single-slot streamer is busy.
-	void jointResyncStream();
+	void sharedResyncStream();
 	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
 	static int localSeat();                 // this machine's seat
 	static int seatCount();                 // active roster size
@@ -564,7 +564,7 @@ class connectionTCP
 	// which was lossy twice over: a second detection in the same window overwrote the
 	// first (alert silently lost), and matching on type+race alone could pop the dialog
 	// for the WRONG UFO of the same race/type. Queued, and carrying the peer's ufo id so
-	// the match is exact in JOINT (shared world -> identical ids).
+	// the match is exact in SHARED (shared world -> identical ids).
 	struct CoopUfoAlert { int ufoId = -1; std::string type; std::string race; };
 	std::vector<CoopUfoAlert> coopUfoAlerts;
 	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
@@ -576,14 +576,14 @@ class connectionTCP
 	int lastMonthsRatingCoop = -1;
 
 	// PRD-J04: authoritative monthly settlement carried on the extended
-	// monthly_report packet (JOINT). A replica overwrites its own recomputed tails
+	// monthly_report packet (SHARED). A replica overwrites its own recomputed tails
 	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
-	bool jointMonthlyPending = false;
-	int64_t jointMonthlyFunds = 0;
-	int64_t jointMonthlyMaintenance = 0;
-	int64_t jointMonthlyIncome = 0;
-	int64_t jointMonthlyExpenditure = 0;
-	int jointMonthlyResearchScore = 0;
+	bool sharedMonthlyPending = false;
+	int64_t sharedMonthlyFunds = 0;
+	int64_t sharedMonthlyMaintenance = 0;
+	int64_t sharedMonthlyIncome = 0;
+	int64_t sharedMonthlyExpenditure = 0;
+	int sharedMonthlyResearchScore = 0;
 
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
@@ -695,10 +695,10 @@ class connectionTCP
 	// dialog (CoopState 63).
 	static std::string joinRefusalReason;
 
-	// PRD-J10: already-translated text of the last rejected JOINT command, shown by
-	// the single failure dialog (CoopState COOP_DLG_JOINT_FAIL). Written only by
-	// JointEcon::showFail - same idiom as joinRefusalReason above.
-	static std::string jointFailReason;
+	// PRD-J10: already-translated text of the last rejected SHARED command, shown by
+	// the single failure dialog (CoopState COOP_DLG_SHARED_FAIL). Written only by
+	// SharedEcon::showFail - same idiom as joinRefusalReason above.
+	static std::string sharedFailReason;
 
 	// save
 	static bool saveError;

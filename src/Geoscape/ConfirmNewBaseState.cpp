@@ -106,14 +106,14 @@ ConfirmNewBaseState::~ConfirmNewBaseState()
  */
 void ConfirmNewBaseState::btnOkClick(Action *)
 {
-	// PRD-J07 JOINT: the shared world is host-authoritative. Do NOT debit funds or
+	// PRD-J07 SHARED: the shared world is host-authoritative. Do NOT debit funds or
 	// push the base to getBases() here - both happen host-side in the base_new
 	// command that PlaceLiftState submits once the lift is placed. This screen only
 	// gates on cost (pre-check against the replica's authoritative funds) and, if
 	// affordable, proceeds to name + lift. The floating _base is a UI scratch object
 	// that carries lon/lat/name/lift into base_new; the authoritative base arrives
-	// via joint_apply.
-	if (_game->getCoopMod()->isJointCampaign())
+	// via shared_apply.
+	if (_game->getCoopMod()->isSharedCampaign())
 	{
 		if (_game->getSavedGame()->getFunds() >= _cost)
 		{
@@ -140,7 +140,7 @@ void ConfirmNewBaseState::btnOkClick(Action *)
 
 /**
  * Test automation: report whether the shared funds can afford this base
- * (mirrors the JOINT btnOkClick cost gate; no side effects).
+ * (mirrors the SHARED btnOkClick cost gate; no side effects).
  */
 bool ConfirmNewBaseState::harnessConfirm() const
 {

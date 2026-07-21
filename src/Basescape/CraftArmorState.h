@@ -49,7 +49,7 @@ private:
 	Base *_base;
 	size_t _craft, _savedScrollPosition;
 	std::vector<Soldier *> _origSoldierOrder;
-	/// Playtest: soldiers this player may SEE (JOINT: own only), non-destructive copy.
+	/// Playtest: soldiers this player may SEE (SHARED: own only), non-destructive copy.
 	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
@@ -58,7 +58,7 @@ private:
 public:
 	/// Creates the Craft Armor state.
 	CraftArmorState(Base *base, size_t craft);
-	/// Test automation: soldier ids the crew-armor screen displays (own-only in JOINT).
+	/// Test automation: soldier ids the crew-armor screen displays (own-only in SHARED).
 	std::vector<int> harnessDisplayedSoldierIds() const;
 	/// Cleans up the Craft Armor state.
 	~CraftArmorState();

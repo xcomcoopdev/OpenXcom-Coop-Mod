@@ -38,7 +38,7 @@
 #include "StatisticsState.h"
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -210,24 +210,24 @@ void LoadGameState::think()
 				s->loadCoopSaveFromMemory(_filename, _game->getMod(), _game->getLanguage(), _coopKey);
 			}
 
-			// PRD-J02: a JOINT save carries the host's single authoritative world
+			// PRD-J02: a SHARED save carries the host's single authoritative world
 			// and cannot be opened as a plain single-player game. On a build
-			// without JOINT support the type key is unknown and the whole feature
+			// without SHARED support the type key is unknown and the whole feature
 			// is absent; on this build we refuse the one reachable downgrade - a
-			// JOINT-typed save that is not co-op-marked (e.g. hand-edited).
-			if (s->getCampaignType() == CoopCampaignType::Joint && !s->isCoopSave())
+			// SHARED-typed save that is not co-op-marked (e.g. hand-edited).
+			if (s->getCampaignType() == CoopCampaignType::Shared && !s->isCoopSave())
 			{
-				throw Exception("This is a JOINT co-op campaign save and cannot be opened as a single-player game.");
+				throw Exception("This is a SHARED co-op campaign save and cannot be opened as a single-player game.");
 			}
 
 			_game->setSavedGame(s);
 
-			// PRD-J02: a JOINT client just adopted the host's world as its replica.
+			// PRD-J02: a SHARED client just adopted the host's world as its replica.
 			// The streamed save carries the HOST's coop_save_owner_player_id (0);
 			// re-assert this machine's own seat so localSeat() reflects the client,
 			// not the host. (2-player transport: client seat = 1.)
 			if (!_coopKey.empty()
-				&& s->getCampaignType() == CoopCampaignType::Joint
+				&& s->getCampaignType() == CoopCampaignType::Shared
 				&& _game->getCoopMod()->getServerOwner() == false)
 			{
 				connectionTCP::coop_save_owner_player_id = 1;
@@ -236,7 +236,7 @@ void LoadGameState::think()
 				// desync repair completes. Clear the resync in-flight guard so a
 				// later drift can be repaired again (and so the "give up" latch is
 				// re-armed for the next window).
-				JointEcon::notifyWorldAdopted();
+				SharedEcon::notifyWorldAdopted();
 			}
 			if (_game->getSavedGame()->getEnding() != END_NONE)
 			{

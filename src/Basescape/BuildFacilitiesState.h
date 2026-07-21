@@ -19,7 +19,7 @@
  */
 #include <vector>
 #include "../Engine/State.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -43,10 +43,10 @@ protected:
 	std::vector<RuleBaseFacility*> _facilities, _disabledFacilities;
 	size_t _lstScroll;
 	/// PRD-J10 / playtest B1: this popup covers the BasescapeState funds header +
-	/// facility grid (both visible around the small window). A peer's joint_apply
+	/// facility grid (both visible around the small window). A peer's shared_apply
 	/// lands under it; without a live refresh the funds/construction behind stay
 	/// stale until the popup closes and _state->init() runs. Bind + rebuild live.
-	JointEcon::ScreenRefresh _jointRefresh;
+	SharedEcon::ScreenRefresh _sharedRefresh;
 
 	TextButton *_btnOk;
 	Window *_window;
@@ -61,7 +61,7 @@ public:
 	virtual void populateBuildList();
 	/// Updates the base stats.
 	void init() override;
-	/// PRD-J10 / playtest B1: consume a peer's joint_apply and rebuild the covered
+	/// PRD-J10 / playtest B1: consume a peer's shared_apply and rebuild the covered
 	/// base screen + this list live (no need to close the popup first).
 	void think() override;
 	/// Handler for clicking the OK button.

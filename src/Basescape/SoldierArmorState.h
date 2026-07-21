@@ -76,8 +76,8 @@ private:
 	std::vector<int> _indices;
 	ArmorSort _armorOrder;
 	void updateArrows();
-	/// JOINT (PRD-J09 GAP-5b): set the soldier's armor to @a next - routes
-	/// soldier_armor in JOINT, mutates the shared stores locally in SEPARATE.
+	/// SHARED (PRD-J09 GAP-5b): set the soldier's armor to @a next - routes
+	/// soldier_armor in SHARED, mutates the shared stores locally in SEPARATE.
 	void applyArmorSelection(Armor* next);
 public:
 	/// Creates the Soldier Armor state.

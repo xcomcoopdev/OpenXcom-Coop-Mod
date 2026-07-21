@@ -53,7 +53,7 @@ private:
 	// true = creating a co-op campaign: world is created, base placement is
 	// deferred, and the flow continues into the host window + lobby
 	bool _coopCampaign;
-	// PRD-J01: JOINT/SEPARATE economy model, applied to the new save on OK.
+	// PRD-J01: SHARED/SEPARATE economy model, applied to the new save on OK.
 	CoopCampaignType _campaignType;
 public:
 	/// Creates the New Game state.

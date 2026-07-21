@@ -78,7 +78,7 @@ public:
 	int getGridX() const;
 	/// Gets the Y position of the currently selected square.
 	int getGridY() const;
-	/// Sets the grid square (JOINT: host-side/headless placement validation, no mouse).
+	/// Sets the grid square (SHARED: host-side/headless placement validation, no mouse).
 	void setGridPosition(int x, int y);
 	/// Sets whether the base view is selectable.
 	void setSelectable(int sizeX, int sizeY);

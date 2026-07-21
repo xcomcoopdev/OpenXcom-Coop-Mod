@@ -49,8 +49,8 @@ class NewGameModeState : public State
 {
 private:
 	Window *_window;
-	TextButton *_btnSolo, *_btnCoopSeparate, *_btnCoopJoint;
-	Text *_txtSolo, *_txtCoopSeparate, *_txtCoopJoint;
+	TextButton *_btnSolo, *_btnCoopSeparate, *_btnCoopShared;
+	Text *_txtSolo, *_txtCoopSeparate, *_txtCoopShared;
 public:
 	NewGameModeState()
 	{
@@ -65,23 +65,23 @@ public:
 		// The three mode buttons sit exactly where New Game / Load Game / Mods are,
 		// so the block reads as an in-place replacement of that column.
 		_btnSolo = new TextButton(92, 20, 64, 90);
-		_btnCoopJoint = new TextButton(92, 20, 64, 118);
+		_btnCoopShared = new TextButton(92, 20, 64, 118);
 		_btnCoopSeparate = new TextButton(92, 20, 64, 146);
 
 		// One description per mode, in the right-hand column (where New Battle /
 		// Options / Quit are), each aligned with its own button.
 		_txtSolo = new Text(92, 20, 164, 90);
-		_txtCoopJoint = new Text(92, 20, 164, 118);
+		_txtCoopShared = new Text(92, 20, 164, 118);
 		_txtCoopSeparate = new Text(92, 20, 164, 146);
 
 		setInterface("mainMenu");
 
 		add(_window, "window", "mainMenu");
 		add(_btnSolo, "button", "mainMenu");
-		add(_btnCoopJoint, "button", "mainMenu");
+		add(_btnCoopShared, "button", "mainMenu");
 		add(_btnCoopSeparate, "button", "mainMenu");
 		add(_txtSolo, "text", "mainMenu");
-		add(_txtCoopJoint, "text", "mainMenu");
+		add(_txtCoopShared, "text", "mainMenu");
 		add(_txtCoopSeparate, "text", "mainMenu");
 
 		centerAllSurfaces();
@@ -93,20 +93,20 @@ public:
 		// listed FIRST, SEPARATE = the older mirrored-economies model (PRD-J01).
 		_btnSolo->setText("Solo");
 		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
-		_btnCoopJoint->setText("Co-op (Shared)");
-		_btnCoopJoint->onMouseClick((ActionHandler)&NewGameModeState::btnCoopJointClick);
+		_btnCoopShared->setText("Co-op (Shared)");
+		_btnCoopShared->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSharedClick);
 		_btnCoopSeparate->setText("Co-op (Separate)");
 		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
 		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
 
-		for (Text* t : { _txtSolo, _txtCoopJoint, _txtCoopSeparate })
+		for (Text* t : { _txtSolo, _txtCoopShared, _txtCoopSeparate })
 		{
 			t->setSmall();
 			t->setWordWrap(true);
 			t->setVerticalAlign(ALIGN_MIDDLE);
 		}
 		_txtSolo->setText("Single player. Co-op is turned off.");
-		_txtCoopJoint->setText("Co-op. Players share bases.");
+		_txtCoopShared->setText("Co-op. Players share bases.");
 		_txtCoopSeparate->setText("Co-op. Each player has own base.");
 	}
 
@@ -122,10 +122,10 @@ public:
 		_game->pushState(new NewGameState(true, CoopCampaignType::Separate));
 	}
 
-	void btnCoopJointClick(Action *)
+	void btnCoopSharedClick(Action *)
 	{
 		_game->popState();
-		_game->pushState(new NewGameState(true, CoopCampaignType::Joint));
+		_game->pushState(new NewGameState(true, CoopCampaignType::Shared));
 	}
 
 	void btnCancelClick(Action *)

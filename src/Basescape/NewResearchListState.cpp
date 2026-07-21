@@ -140,7 +140,7 @@ NewResearchListState::NewResearchListState(Base *base, bool sortByCost) : _base(
  */
 NewResearchListState::~NewResearchListState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -155,19 +155,19 @@ void NewResearchListState::init()
 
 	// Playtest B2: listen for the other player's (or our own round-tripping)
 	// res_start applies so a started topic drops from this list live. No-op unless
-	// this is a JOINT campaign.
-	_jointRefresh.bind(_game, this, _base);
+	// this is a SHARED campaign.
+	_sharedRefresh.bind(_game, this, _base);
 }
 
 /**
- * Playtest B2: a peer's joint_apply started (or otherwise changed the availability
+ * Playtest B2: a peer's shared_apply started (or otherwise changed the availability
  * of) a project while this list is open. Rebuild it so a no-longer-startable topic
  * disappears instead of staying clickable into a host-rejected duplicate start.
  */
 void NewResearchListState::think()
 {
 	TouchState::think();
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
 		fillProjectList(false);
 		touchComponentsRefresh();

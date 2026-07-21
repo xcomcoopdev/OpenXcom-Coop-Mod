@@ -1674,9 +1674,9 @@ void BattlescapeState::think()
 				_battleGame->cancelAllActions();
 		
 				// Read the co-op save owner player ID to check whether the current player is the host
-				if (_game->getCoopMod()->isJointCampaign())
+				if (_game->getCoopMod()->isSharedCampaign())
 				{
-					// JOINT: the server owner (host machine = seat 0) is ALWAYS the battle
+					// SHARED: the server owner (host machine = seat 0) is ALWAYS the battle
 					// host and controls coop==0 soldiers; the client controls coop==1. The
 					// generic save-owner logic below misfires here because
 					// coop_save_owner_player_id is machine-LOCAL (0 on host, 1 on client),

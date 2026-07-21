@@ -53,7 +53,7 @@
 #include "../Battlescape/DebriefingState.h"
 #include "../Mod/RuleCraft.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -155,7 +155,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 	{
 		if (_debriefingState) break;
 		// coop
-		if (soldier->getCraft() == 0 && soldier->getCoopBase() == -1 && JointEcon::ownsSoldier(_game, soldier))
+		if (soldier->getCraft() == 0 && soldier->getCoopBase() == -1 && SharedEcon::ownsSoldier(_game, soldier))
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), (int)(5 * _distance), 1, 0, 0, -4, 0, 0, (int)(5 * _distance) };
 			_items.push_back(row);
@@ -294,7 +294,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
  */
 TransferItemsState::~TransferItemsState()
 {
-	_jointRefresh.unbind(this);
+	_sharedRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -314,7 +314,7 @@ void TransferItemsState::init()
 	// (debriefing) variant keeps its own lifecycle.
 	if (!_debriefingState)
 	{
-		_jointRefresh.bind(_game, this, nullptr);
+		_sharedRefresh.bind(_game, this, nullptr);
 	}
 }
 
@@ -328,11 +328,11 @@ void TransferItemsState::think()
 	// PRD-J10: pop-and-rebuild - the constructor is this screen's refresh. Both
 	// bases must still exist; if either went away there is nothing to transfer
 	// between, so just leave.
-	if (_jointRefresh.consume())
+	if (_sharedRefresh.consume())
 	{
 		_game->popState();
-		if (JointEcon::baseIndex(_game, _baseFrom) >= 0
-			&& JointEcon::baseIndex(_game, _baseTo) >= 0)
+		if (SharedEcon::baseIndex(_game, _baseFrom) >= 0
+			&& SharedEcon::baseIndex(_game, _baseTo) >= 0)
 		{
 			_game->pushState(new TransferItemsState(_baseFrom, _baseTo, _debriefingState));
 		}
@@ -729,14 +729,14 @@ void TransferItemsState::createPendingTransfers()
 }
 
 /**
- * COOP JOINT (PRD-J05): emit the intra-world base->base "transfer" joint_cmd from
+ * COOP SHARED (PRD-J05): emit the intra-world base->base "transfer" shared_cmd from
  * the current selection. Mutates NOTHING locally - the host validates space +
- * funds, creates the destination Transfers, and broadcasts joint_apply (which
+ * funds, creates the destination Transfers, and broadcasts shared_apply (which
  * reconstructs them on every replica, and later delivers via transfer_arrived).
- * This is the JOINT replacement for completeTransfer()/createPendingTransfers()
+ * This is the SHARED replacement for completeTransfer()/createPendingTransfers()
  * (the SEPARATE cross-player syncTrade flow) and must not run those.
  */
-void TransferItemsState::submitJointTransfer()
+void TransferItemsState::submitSharedTransfer()
 {
 	Json::Value items(Json::arrayValue);
 	Json::Value soldiers(Json::arrayValue);
@@ -788,12 +788,12 @@ void TransferItemsState::submitJointTransfer()
 	payload["crafts"] = crafts;
 	payload["scientists"] = scientists;
 	payload["engineers"] = engineers;
-	JointEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
 }
 
 /**
  * Test-harness hook (PRD-J05): transfer <count> of ITEM <itemType> A->B via the
- * JOINT submission path. Returns false if no matching row.
+ * SHARED submission path. Returns false if no matching row.
  */
 bool TransferItemsState::harnessTransferItem(const std::string& itemType, int count)
 {
@@ -803,7 +803,7 @@ bool TransferItemsState::harnessTransferItem(const std::string& itemType, int co
 			&& ((RuleItem*)row.rule)->getType() == itemType)
 		{
 			row.amount = count;
-			submitJointTransfer();
+			submitSharedTransfer();
 			return true;
 		}
 	}

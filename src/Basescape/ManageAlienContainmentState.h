@@ -19,7 +19,7 @@
  */
 #include "../Engine/TouchState.h"
 #include "../Menu/OptionsBaseState.h"
-#include "../CoopMod/JointEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -54,8 +54,8 @@ private:
 	int _aliensSold;
 	int64_t _total;
 	bool _doNotReset, _threeButtons;
-	/// PRD-J10: live refresh when another player's joint_apply moves this base.
-	JointEcon::ScreenRefresh _jointRefresh;
+	/// PRD-J10: live refresh when another player's shared_apply moves this base.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 
 	/// Gets selected quantity.
 	int getQuantity();
@@ -109,8 +109,8 @@ public:
 	/// Updates the quantity-strings of the selected alien.
 	void updateStrings();
 	/// Test-harness hook (PRD-J05): set the removal quantity for alien <alienType>
-	/// to <count> then run the real deal handler (JOINT -> emits a "containment"
-	/// joint_cmd; @a sell chooses sell-vs-execute). Returns false if no matching
+	/// to <count> then run the real deal handler (SHARED -> emits a "containment"
+	/// shared_cmd; @a sell chooses sell-vs-execute). Returns false if no matching
 	/// alien row. Main thread only.
 	bool harnessRemovePrisoner(const std::string& alienType, int count, bool sell);
 };
