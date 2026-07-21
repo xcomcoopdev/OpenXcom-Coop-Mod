@@ -39,6 +39,7 @@
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
 #include "../Geoscape/ConfirmLandingState.h"
+#include "../Geoscape/CraftPatrolState.h"
 #include "../Ufopaedia/ArticleState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BattlescapeGame.h"
@@ -681,6 +682,9 @@ bool TestServer::executeJoint10(const std::string& cmd, const Json::Value& req, 
 		{
 			resp["top"] = "craft_soldiers";
 			resp["used"] = cs->harnessUsedText();
+			resp["usedNum"] = cs->harnessSpaceUsed();        // combined (all owners)
+			resp["availableNum"] = cs->harnessSpaceAvailable(); // full max - used (JOINT: not halved)
+			resp["maxUnits"] = cs->harnessMaxUnits();
 			Json::Value arr(Json::arrayValue);
 			for (int id : cs->harnessDisplayedSoldierIds()) arr.append(id);
 			resp["displayed"] = arr;
@@ -2370,6 +2374,26 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "joint_alert")
+	{
+		// Drive the generic JOINT alert lane exactly as the host's geoscape sim does
+		// (JointEcon::hostAlert). Only the host runs that sim, so this is how a test proves
+		// an informational popup actually reaches the frozen replica.
+		// Params: cls (dialog class), msg, craft_id, names[], ids[], flag.
+		std::vector<std::string> alertNames;
+		for (const auto& n : req["names"]) alertNames.push_back(n.asString());
+		std::vector<int> alertIds;
+		for (const auto& i : req["ids"]) alertIds.push_back(i.asInt());
+		Base* alertBase = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (!b->_coopBase && !b->_coopIcon) { alertBase = b; break; }
+		JointEcon::hostAlert(_game, req.get("cls", "").asString(),
+			req.get("msg", "").asString(), alertBase,
+			req.get("craft_id", -1).asInt(), alertNames, alertIds,
+			req.get("flag", false).asBool());
+		resp["ok"] = true;
+	}
 	else if (cmd == "spawn_craft")
 	{
 		// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.
@@ -2603,6 +2627,7 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 				jd["ufoStance"] = df->harnessUfoStance();
 				jd["mode"] = df->harnessMode();
 				jd["highlight"] = df->harnessHighlight(); // playtest B6
+				jd["litStances"] = df->harnessLitStanceCount(); // ground-truth #buttons lit
 				jd["replica"] = df->isReplicaView();
 				// PRD-DF03: full per-machine frame-agreement fields.
 				jd["isReplicaView"] = df->isReplicaView();
@@ -3109,6 +3134,21 @@ std::string TestServer::execute(const std::string& line)
 					sites.append(jm);
 				}
 				resp["missionSites"] = sites;
+
+				// Waypoint markers (the geoscape flag dots). A craft that reached its
+				// patrol waypoint must drop it: on a JOINT replica the frozen sim never
+				// pruned it, so this list is how the waypoint-cleanup fix is asserted.
+				Json::Value waypoints(Json::arrayValue);
+				for (auto* wp : *sg->getWaypoints())
+				{
+					Json::Value jw;
+					jw["id"] = wp->getId();
+					jw["lon"] = wp->getLongitude();
+					jw["lat"] = wp->getLatitude();
+					jw["followers"] = (int)wp->getFollowers()->size();
+					waypoints.append(jw);
+				}
+				resp["waypoints"] = waypoints;
 				resp["ok"] = true;
 			}
 		}
@@ -3339,7 +3379,57 @@ std::string TestServer::execute(const std::string& line)
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
 				resp["missionType"] = bg->getMissionType();
+				// Map fingerprint: a cheap content hash + object-tile count so a test can
+				// tell whether host and client loaded the SAME battle map (e.g. whether the
+				// player's craft mapblock actually spawned on both).
+				{
+					long long fp = 0; int objTiles = 0; int discFloor = 0;
+					int n = bg->getMapSizeXYZ();
+					const TilePart parts[4] = { O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT };
+					for (int i = 0; i < n; ++i)
+					{
+						Tile* t = bg->getTile(i);
+						if (!t) continue;
+						if (t->isDiscovered(O_FLOOR)) ++discFloor;
+						for (int p = 0; p < 4; ++p)
+						{
+							int did = -1, dsid = -1;
+							t->getMapData(&did, &dsid, parts[p]);
+							if (did >= 0)
+							{
+								fp = fp * 131 + (long long)(did + 1) * 17 + (dsid + 1);
+								if (parts[p] == O_OBJECT) ++objTiles;
+							}
+						}
+					}
+					resp["mapFingerprint"] = (double)fp;
+					resp["mapObjTiles"] = objTiles;
+					resp["mapDiscoveredFloor"] = discFloor;
+					resp["mapSizeXYZ"] = n;
+				}
 				resp["coopTurn"] = BattlescapeGame::isYourTurn;  // 2 = my active turn
+				// This machine's battle role: host controls coop==0 units, client coop==1
+				// (BattlescapeGame.cpp select gate). Exposed so a test can prove the two
+				// machines control DISJOINT unit sets - the real "both command same team"
+				// symptom is invisible to a coop-value-only check.
+				resp["host"] = _game->getCoopMod()->getHost();
+				// Coop turn-init flags: isSelectable() only splits control when the coop
+				// battle actually initialized. If _battleInit is false the gate falls
+				// through to vanilla "all player units selectable" on BOTH machines.
+				resp["battleInit"] = connectionTCP::_battleInit;
+				resp["coopSession"] = _game->getCoopMod()->isCoopSession();
+				resp["coopStatic"] = connectionTCP::getCoopStatic();
+				resp["coopInventory"] = connectionTCP::coopInventory;
+				resp["playerTurn"] = _game->getCoopMod()->getPlayerTurn();
+				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
+				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
+				// test can see exactly which one blocks _battleInit from ever being set.
+				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
+				resp["panicHandled"] = bg->getBattleGame() ? bg->getBattleGame()->getPanicHandled() : false;
+				resp["isPreview"] = bg->isPreview();
+				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
+				resp["serverOwner"] = connectionTCP::getServerOwner();
+				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
 				Json::Value units(Json::arrayValue);
@@ -3359,6 +3449,10 @@ std::string TestServer::execute(const std::string& line)
 					// 1 = client-controlled; in JOINT it is derived from the owning
 					// soldier's ownerPlayerId (seat) at mission start.
 					ju["coop"] = u->getCoop();
+					// The REAL in-battle control gate this machine applies (coop + getHost
+					// + isYourTurn), so a test sees exactly which units THIS player can
+					// command right now - not a Python re-derivation of the rule.
+					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
 					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
@@ -3548,6 +3642,14 @@ std::string TestServer::execute(const std::string& line)
 			{
 				db->btnOkClick(nullptr);
 				resp["handled"] = "DebriefingState";
+				resp["ok"] = true;
+			}
+			else if (dynamic_cast<CraftPatrolState*>(top))
+			{
+				// "Craft reached destination / now patrolling" alert. OK just pops
+				// (keep patrolling); btnOkClick is protected, so pop it directly.
+				_game->popState();
+				resp["handled"] = "CraftPatrolState";
 				resp["ok"] = true;
 			}
 			else if (!top || dynamic_cast<GeoscapeState*>(top))

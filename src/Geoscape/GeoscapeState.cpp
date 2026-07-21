@@ -146,6 +146,25 @@
 namespace OpenXcom
 {
 
+// ---- JOINT alert replication helpers ---------------------------------------
+// In JOINT only the host runs the geoscape sim, so every informational popup it raises is
+// invisible to the frozen replicas. Each popup below is mirrored with one generic
+// JointEcon::hostAlert(); these map the dialog's rule/soldier arguments to the ids and
+// names the replica-side factory (alertApply) needs to rebuild it.
+static std::vector<std::string> jointAlertNames(const std::vector<RuleResearch*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getName()); return o; }
+static std::vector<std::string> jointAlertNames(const std::vector<RuleManufacture*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getName()); return o; }
+static std::vector<std::string> jointAlertNames(const std::vector<RuleItem*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<std::string> jointAlertNames(const std::vector<RuleCraft*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<std::string> jointAlertNames(const std::vector<RuleBaseFacility*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<int> jointAlertSoldierIds(const std::vector<Soldier*>& v)
+{ std::vector<int> o; for (auto* s : v) if (s) o.push_back(s->getId()); return o; }
+
+
 // coop
 Ufo* temp_ufo = 0;
 
@@ -2455,6 +2474,7 @@ void GeoscapeState::time5Seconds()
 				{
 					std::string msg = tr("STR_UFO_HAS_LANDED").arg(ufo->getName(_game->getLanguage()));
 					popup(new CraftErrorState(this, msg, true, ufo));
+					JointEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
@@ -2462,6 +2482,7 @@ void GeoscapeState::time5Seconds()
 					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
 					{
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+						JointEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 					}
 				
 				}
@@ -2532,6 +2553,7 @@ void GeoscapeState::time5Seconds()
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+					JointEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 				}
 			}
 			break;
@@ -2758,12 +2780,14 @@ void GeoscapeState::time5Seconds()
 								if (xcraft->getRules()->isWaterOnly() && u->getAltitudeInt() > xcraft->getRules()->getMaxAltitude())
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
+									JointEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
 								else if (xcraft->getRules()->isWaterOnly() && !_globe->insideLand(xcraft->getLongitude(), xcraft->getLatitude()))
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
+									JointEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
 								}
@@ -2813,6 +2837,13 @@ void GeoscapeState::time5Seconds()
 					{
 						popup(new CraftPatrolState(xcraft, _globe));
 					}
+					// JOINT: the host runs the only geoscape sim, so the clients' frozen
+					// time5Seconds never reaches this arrival handler - alert them so they
+					// pop the same popup and clear the stale destination line + waypoint
+					// marker (Bug: the "reached destination" alert and marker cleanup never
+					// reached the clients). Redirect rides the existing craft_order lane.
+					if (_game->getCoopMod()->isJointCampaign() && _game->getCoopMod()->getServerOwner())
+						JointEcon::hostPatrolPrompt(_game, xcraft);
 					xcraft->setDestination(0);
 				}
 				else if (m != 0)
@@ -3001,6 +3032,7 @@ void GeoscapeState::time10Minutes()
 					if (!xcraft->getIsAutoPatrolling())
 					{
 						popup(new LowFuelState(xcraft, this));
+						JointEcon::hostAlert(_game, "LowFuelState", "", nullptr, xcraft->getId());
 					}
 				}
 
@@ -3129,6 +3161,7 @@ void GeoscapeState::ufoHuntingAndEscorting()
 							.arg(ufo->getName(_game->getLanguage()))
 							.arg(newTarget->getName(_game->getLanguage()));
 						popup(new CraftErrorState(this, msg));
+						JointEcon::hostAlert(_game, "CraftErrorState", msg);
 					}
 				}
 			}
@@ -3262,6 +3295,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			if (!noFollowers)
 			{
 				popup(new UfoLostState(site->getName(_game->getLanguage())));
+				JointEcon::hostAlert(_game, "UfoLostState", site->getName(_game->getLanguage()));
 			}
 		}
 		else
@@ -3291,6 +3325,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		{
 			timerReset();
 			popup(new GeoscapeEventState(*eventRules));
+			JointEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
 		}
 	}
 
@@ -3416,6 +3451,7 @@ void GeoscapeState::time30Minutes()
 					{
 						std::string msg = tr("STR_CRAFT_IS_READY").arg(xcraft->getName(_game->getLanguage())).arg(xbase->getName());
 						popup(new CraftErrorState(this, msg));
+						JointEcon::hostAlert(_game, "CraftErrorState", msg);
 					}
 					// auto-patrol
 					if (xcraft->getStatus() == "STR_READY" && xcraft->getRules()->canAutoPatrol())
@@ -3442,6 +3478,7 @@ void GeoscapeState::time30Minutes()
 										.arg(xcraft->getName(_game->getLanguage()))
 										.arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
+					JointEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 			}
 		}
@@ -3546,6 +3583,7 @@ void GeoscapeState::time30Minutes()
 			{
 				timerReset();
 				popup(new GeoscapeEventState(ge->getRules()));
+				JointEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
 			}
 		}
 	}
@@ -3620,6 +3658,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+				JointEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 			}
 		}
 	}
@@ -3672,6 +3711,7 @@ void GeoscapeState::time1Hour()
 									   .arg(xcraft->getName(_game->getLanguage()))
 									   .arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
+					JointEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -3695,6 +3735,7 @@ void GeoscapeState::time1Hour()
 					.arg(tr(facility->getRules()->getType()))
 					.arg(xbase->getName());
 				popup(new CraftErrorState(this, msg));
+				JointEcon::hostAlert(_game, "CraftErrorState", msg);
 			}
 		}
 	}
@@ -3736,6 +3777,7 @@ void GeoscapeState::time1Hour()
 	if (window)
 	{
 		popup(new ItemsArrivingState(this));
+		JointEcon::hostAlert(_game, "ItemsArrivingState");
 	}
 	// Handle Production
 	for (auto* xbase : *_game->getSavedGame()->getBases())
@@ -4139,6 +4181,7 @@ void GeoscapeState::time1Day()
 						if (std::find_if(req.begin(), req.end(), [&](const RuleResearch* r){ return r->getName() == ammo->getType(); }) != req.end() && !saveGame->isResearched(req, true))
 						{
 							popup(new ResearchRequiredState(item));
+							JointEcon::hostAlert(_game, "ResearchRequiredState", item->getType());
 						}
 					}
 				}
@@ -4149,6 +4192,7 @@ void GeoscapeState::time1Day()
 			std::vector<RuleResearch *> newPossibleResearch;
 			saveGame->getNewlyAvailableResearchProjects(before, after, newPossibleResearch);
 			popup(new NewPossibleResearchState(xbase, newPossibleResearch));
+			JointEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, jointAlertNames(newPossibleResearch));
 			// 3i. inform about new possible manufacture, purchase, craft and facilities
 			std::vector<RuleManufacture *> newPossibleManufacture;
 			saveGame->getDependableManufacture(newPossibleManufacture, research, mod, xbase);
@@ -4161,6 +4205,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleManufacture);
 				Collections::sortVectorMakeUnique(newPossibleManufacture);
 				popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
+				JointEcon::hostAlert(_game, "NewPossibleManufactureState", "", xbase, -1, jointAlertNames(newPossibleManufacture));
 			}
 			std::vector<RuleItem *> newPossiblePurchase;
 			_game->getSavedGame()->getDependablePurchase(newPossiblePurchase, research, _game->getMod());
@@ -4173,6 +4218,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossiblePurchase);
 				Collections::sortVectorMakeUnique(newPossiblePurchase);
 				popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
+				JointEcon::hostAlert(_game, "NewPossiblePurchaseState", "", xbase, -1, jointAlertNames(newPossiblePurchase));
 			}
 			std::vector<RuleCraft *> newPossibleCraft;
 			_game->getSavedGame()->getDependableCraft(newPossibleCraft, research, _game->getMod());
@@ -4185,6 +4231,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleCraft);
 				Collections::sortVectorMakeUnique(newPossibleCraft);
 				popup(new NewPossibleCraftState(xbase, newPossibleCraft));
+				JointEcon::hostAlert(_game, "NewPossibleCraftState", "", xbase, -1, jointAlertNames(newPossibleCraft));
 			}
 			std::vector<RuleBaseFacility *> newPossibleFacilities;
 			_game->getSavedGame()->getDependableFacilities(newPossibleFacilities, research, _game->getMod());
@@ -4197,6 +4244,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleFacilities);
 				Collections::sortVectorMakeUnique(newPossibleFacilities);
 				popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
+				JointEcon::hostAlert(_game, "NewPossibleFacilityState", "", xbase, -1, jointAlertNames(newPossibleFacilities));
 			}
 
 			topicsToCheck.push_back(research);
@@ -4249,6 +4297,7 @@ void GeoscapeState::time1Day()
 		if (!trainingFinishedList.empty())
 		{
 			popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
+			JointEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, jointAlertSoldierIds(trainingFinishedList), false);
 		}
 		// Handle psionic training
 		if (xbase->getAvailablePsiLabs() > 0 && Options::anytimePsiTraining)
@@ -4267,6 +4316,7 @@ void GeoscapeState::time1Day()
 			if (!psiTrainingFinishedList.empty())
 			{
 				popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
+				JointEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, jointAlertSoldierIds(psiTrainingFinishedList), true);
 			}
 		}
 	}
@@ -4447,6 +4497,7 @@ void GeoscapeState::time1Day()
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
 			popup(new CraftErrorState(this, msg, false));
+			JointEcon::hostAlert(_game, "CraftErrorState", msg);
 		}
 	}
 
@@ -5340,6 +5391,34 @@ void GeoscapeState::jointLandingReply(Craft* craft, bool yes, bool patrol)
 		prompt.globeTexture, prompt.shade);
 	_game->pushState(cls);
 	cls->btnYesClick(nullptr);
+}
+
+/**
+ * JOINT replica: a craft reached its patrol waypoint on the host (patrol_prompt). The
+ * client's frozen time5Seconds never ran the arrival handler, so replicate its effects
+ * here: pop the "reached destination" alert and clear the stale destination line +
+ * orphan waypoint marker (which would otherwise render forever on the client).
+ */
+void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
+{
+	if (!craft) return;
+	Target* dest = craft->getDestination();
+	Waypoint* wp = dynamic_cast<Waypoint*>(dest);
+	// Pop the same alert the host shows. Its ctor reads the destination name, so pop
+	// BEFORE clearing _dest; skip while auto-patrolling, matching the host's gate.
+	if (dest && !craft->getIsAutoPatrolling())
+		popup(new CraftPatrolState(craft, _globe));
+	craft->setDestination(0);
+	// Prune the now-orphan waypoint (its last follower just left), mirroring the host's
+	// unused-waypoint sweep. Other en-route craft keep their still-followed waypoints.
+	if (wp && wp->getFollowers()->empty())
+	{
+		SavedGame* save = _game->getSavedGame();
+		for (auto it = save->getWaypoints()->begin(); it != save->getWaypoints()->end(); ++it)
+		{
+			if (*it == wp) { delete *it; save->getWaypoints()->erase(it); break; }
+		}
+	}
 }
 
 void GeoscapeState::startJointDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized)

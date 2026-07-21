@@ -84,6 +84,22 @@
 #include "../Geoscape/Globe.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/ProductionCompleteState.h"
+// Generic JOINT alert replication (see alertApply): every informational geoscape popup
+// the host-only sim raises has to be rebuilt on the replica from ids / rule names.
+#include "../Geoscape/UfoLostState.h"
+#include "../Geoscape/LowFuelState.h"
+#include "../Geoscape/CraftErrorState.h"
+#include "../Geoscape/DogfightErrorState.h"
+#include "../Geoscape/ItemsArrivingState.h"
+#include "../Geoscape/ResearchRequiredState.h"
+#include "../Geoscape/NewPossibleResearchState.h"
+#include "../Geoscape/NewPossibleManufactureState.h"
+#include "../Geoscape/NewPossiblePurchaseState.h"
+#include "../Geoscape/NewPossibleCraftState.h"
+#include "../Geoscape/NewPossibleFacilityState.h"
+#include "../Geoscape/TrainingFinishedState.h"
+#include "../Geoscape/GeoscapeEventState.h"
+#include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
 
 #include "connectionTCP.h"
@@ -2067,6 +2083,130 @@ void landCloseApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat
 	game->getCoopMod()->markLandingResolved(payload.get("craftId", -1).asInt());
 }
 
+// patrol_prompt: a craft reached a plain patrol waypoint on the host. Replica-only: the
+// client's frozen sim never ran the arrival handler, so pop the "reached destination"
+// alert and clear the now-stale destination line + orphan waypoint marker.
+void patrolPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host handled its own copy in time5Seconds
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	GeoscapeState* gs = findGeoState(game);
+	if (!craft || !gs) return;
+	gs->clientCraftReachedWaypoint(craft);
+}
+
+// ---- generic informational-alert replication --------------------------------
+// In JOINT only the host runs the geoscape sim, so EVERY informational popup it raises
+// (UFO lost, low fuel, items arrived, new research possibilities, training finished, ...)
+// is invisible to the clients. Rather than a bespoke joint_cmd per dialog, the host
+// broadcasts ONE `alert` command naming the dialog class plus the ids/rule names needed to
+// rebuild it, and this replica-only applier reconstructs and pops the real dialog.
+// payload: { cls, msg, craftId, baseIdx, names[], ids[], flag }
+//
+// Only informational dialogs belong here - anything that also MUTATES the shared world
+// (base defense, alien base spawns) needs real state mirroring, not just a popup.
+static Craft* alertCraft(Game* game, int craftId)
+{
+	if (craftId < 0 || !game->getSavedGame()) return nullptr;
+	for (auto* b : *game->getSavedGame()->getBases())
+		for (auto* c : *b->getCrafts())
+			if (c->getId() == craftId) return c;
+	return nullptr;
+}
+
+void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host already popped its own copy
+	GeoscapeState* gs = findGeoState(game);
+	if (!gs || !game->getSavedGame()) return;
+	Mod* mod = game->getMod();
+	const std::string cls = payload.get("cls", "").asString();
+	const std::string msg = payload.get("msg", "").asString();
+
+	std::vector<std::string> names;
+	const Json::Value& jn = payload["names"];
+	for (Json::ArrayIndex i = 0; i < jn.size(); ++i) names.push_back(jn[i].asString());
+
+	// `base` is routed by baseIdx already; fall back to the first base for dialogs that
+	// need one but were raised without a meaningful index.
+	if (!base && !game->getSavedGame()->getBases()->empty())
+		base = game->getSavedGame()->getBases()->front();
+
+	if (cls == "UfoLostState")
+	{
+		gs->popup(new UfoLostState(msg));
+	}
+	else if (cls == "CraftErrorState")
+	{
+		gs->popup(new CraftErrorState(gs, msg));
+	}
+	else if (cls == "DogfightErrorState")
+	{
+		Craft* c = alertCraft(game, payload.get("craftId", -1).asInt());
+		if (c) gs->popup(new DogfightErrorState(c, msg));
+	}
+	else if (cls == "LowFuelState")
+	{
+		Craft* c = alertCraft(game, payload.get("craftId", -1).asInt());
+		if (c) gs->popup(new LowFuelState(c, gs));
+	}
+	else if (cls == "ItemsArrivingState")
+	{
+		gs->popup(new ItemsArrivingState(gs));
+	}
+	else if (cls == "ResearchRequiredState")
+	{
+		if (RuleItem* it = mod->getItem(msg, false)) gs->popup(new ResearchRequiredState(it));
+	}
+	else if (cls == "GeoscapeEventState")
+	{
+		if (const RuleEvent* ev = mod->getEvent(msg, false)) gs->popup(new GeoscapeEventState(*ev));
+	}
+	else if (cls == "NewPossibleResearchState")
+	{
+		std::vector<RuleResearch*> v;
+		for (const auto& n : names) if (auto* r = mod->getResearch(n, false)) v.push_back(r);
+		if (base) gs->popup(new NewPossibleResearchState(base, v));
+	}
+	else if (cls == "NewPossibleManufactureState")
+	{
+		std::vector<RuleManufacture*> v;
+		for (const auto& n : names) if (auto* r = mod->getManufacture(n, false)) v.push_back(r);
+		if (base) gs->popup(new NewPossibleManufactureState(base, v));
+	}
+	else if (cls == "NewPossiblePurchaseState")
+	{
+		std::vector<RuleItem*> v;
+		for (const auto& n : names) if (auto* r = mod->getItem(n, false)) v.push_back(r);
+		if (base) gs->popup(new NewPossiblePurchaseState(base, v));
+	}
+	else if (cls == "NewPossibleCraftState")
+	{
+		std::vector<RuleCraft*> v;
+		for (const auto& n : names) if (auto* r = mod->getCraft(n, false)) v.push_back(r);
+		if (base) gs->popup(new NewPossibleCraftState(base, v));
+	}
+	else if (cls == "NewPossibleFacilityState")
+	{
+		std::vector<RuleBaseFacility*> v;
+		for (const auto& n : names) if (auto* r = mod->getBaseFacility(n, false)) v.push_back(r);
+		if (base) gs->popup(new NewPossibleFacilityState(base, gs->getGlobe(), v));
+	}
+	else if (cls == "TrainingFinishedState")
+	{
+		std::vector<Soldier*> v;
+		const Json::Value& ids = payload["ids"];
+		if (base)
+		{
+			for (Json::ArrayIndex i = 0; i < ids.size(); ++i)
+				for (auto* s : *base->getSoldiers())
+					if (s->getId() == ids[i].asInt()) v.push_back(s);
+			if (!v.empty())
+				gs->popup(new TrainingFinishedState(base, v, payload.get("flag", false).asBool()));
+		}
+	}
+}
+
 // PRD-DF01: the J08 host-applies-reported-result path is GONE. The host now
 // simulates every JOINT dogfight in its own DogfightState::update, which is the
 // SINGLE home for the UFO-downed consequences (country/region score + the
@@ -2570,6 +2710,13 @@ void init()
 	registerCmd("land_prompt", &simAccept, &landPromptApply);
 	registerCmd("land_reply",  &simAccept, &landReplyApply);
 	registerCmd("land_close",  &simAccept, &landCloseApply);
+	// Playtest (waypoint arrival): host-origin alert so replicas pop the "reached
+	// destination" popup and clear the stale destination line + orphan waypoint marker.
+	registerCmd("patrol_prompt", &simAccept, &patrolPromptApply);
+	// Generic informational-alert replication: ONE command for every host-sim popup the
+	// frozen replica would otherwise never see (UFO lost, low fuel, items arriving,
+	// new-possibility dialogs, training finished, ...). Replica-only applier.
+	registerCmd("alert", &simAccept, &alertApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -3011,6 +3158,40 @@ void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
 	Log(LOG_INFO) << "[JOINT] landing prompt brokered to seat " << seat
 		<< " for " << craftKey(craft);
 	submitLocalCmd(game, "land_prompt", craftBaseIndex(game, craft), p);
+}
+
+// patrol_prompt payload: { craftId, craftType }. Host-origin (simAccept; applier
+// replica-only). A craft reached a plain patrol WAYPOINT. The host runs the only sim,
+// so without this the alert + waypoint cleanup never reach the clients (the client's
+// craft keeps a stale _dest -> the destination line and waypoint marker render forever,
+// and no "reached destination" popup appears). Mirrors land_prompt, but patrol needs no
+// host-authoritative resolver: OK is a local no-op and Redirect rides the craft_order lane.
+void hostPatrolPrompt(Game* game, Craft* craft)
+{
+	if (!jointHost(game) || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	submitLocalCmd(game, "patrol_prompt", craftBaseIndex(game, craft), p);
+}
+
+void hostAlert(Game* game, const std::string& cls, const std::string& msg,
+               Base* base, int craftId, const std::vector<std::string>& names,
+               const std::vector<int>& ids, bool flag)
+{
+	if (!jointHost(game)) return;
+	Json::Value p;
+	p["cls"] = cls;
+	p["msg"] = msg;
+	p["craftId"] = craftId;
+	p["flag"] = flag;
+	Json::Value jn(Json::arrayValue);
+	for (const auto& n : names) jn.append(n);
+	p["names"] = jn;
+	Json::Value ji(Json::arrayValue);
+	for (int i : ids) ji.append(i);
+	p["ids"] = ji;
+	submitLocalCmd(game, "alert", base ? baseIndex(game, base) : 0, p);
 }
 
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)

@@ -253,6 +253,10 @@ public:
 	/// prompt. @a yes -> generate the battle exactly as the host's own
 	/// ConfirmLandingState would; otherwise patrol here / return to base.
 	void jointLandingReply(Craft* craft, bool yes, bool patrol);
+	/// JOINT replica: a craft reached its patrol waypoint on the host (patrol_prompt).
+	/// Pops the "reached destination" alert and clears the stale destination line +
+	/// orphan waypoint marker the client's frozen sim never would.
+	void clientCraftReachedWaypoint(Craft* craft);
 	/// Test-harness: is a brokered landing decision outstanding on this host?
 	bool hasJointLandingPending() const { return !_jointLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.

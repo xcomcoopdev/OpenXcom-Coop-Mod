@@ -2133,14 +2133,37 @@ void DogfightState::emitDfCmd(const std::string& action, int arg)
  */
 void DogfightState::hostApplyStance(int stanceIdx)
 {
+	ImageButton* newMode = nullptr;
 	switch (stanceIdx)
 	{
-	case 0: _mode = _btnStandoff;   btnStandoffPress(nullptr);   break;
-	case 1: _mode = _btnCautious;   btnCautiousPress(nullptr);   break;
-	case 2: _mode = _btnStandard;   btnStandardPress(nullptr);   break;
-	case 3: _mode = _btnAggressive; btnAggressivePress(nullptr); break;
-	case 4: _mode = _btnDisengage;  btnDisengagePress(nullptr);  break;
-	default: break;
+	case 0: newMode = _btnStandoff;   break;
+	case 1: newMode = _btnCautious;   break;
+	case 2: newMode = _btnStandard;   break;
+	case 3: newMode = _btnAggressive; break;
+	case 4: newMode = _btnDisengage;  break;
+	default: return;
+	}
+	// Playtest: a client-driven stance arrives here, NOT through ImageButton::mousePress,
+	// so the radio-group highlight (a persistent invert()) is never moved - only the group
+	// pointer _mode was reassigned. That left the old button lit AND, because the new _mode
+	// was un-inverted, a later real host click double-inverted it: several buttons lit at
+	// once. Move the highlight exactly as mousePress does (un-invert old, invert new). On
+	// the host the currently-inverted button is always the old _mode (the group invariant);
+	// mirror _visInverted too for the replica-view invariant.
+	if (_mode != newMode)
+	{
+		if (_mode) _mode->invert(_mode->getColor() + 3);
+		newMode->invert(newMode->getColor() + 3);
+	}
+	_mode = newMode;
+	_visInverted = newMode;
+	switch (stanceIdx)
+	{
+	case 0: btnStandoffPress(nullptr);   break;
+	case 1: btnCautiousPress(nullptr);   break;
+	case 2: btnStandardPress(nullptr);   break;
+	case 3: btnAggressivePress(nullptr); break;
+	case 4: btnDisengagePress(nullptr);  break;
 	}
 }
 
@@ -3055,11 +3078,21 @@ int DogfightState::modeIndex() const
 // fix this tracks the synced stance; a divergence from modeIndex() is the desync.
 int DogfightState::highlightIndex() const
 {
-	if (_visInverted == _btnCautious)   return 1;
-	if (_visInverted == _btnStandard)   return 2;
-	if (_visInverted == _btnAggressive) return 3;
-	if (_visInverted == _btnDisengage)  return 4;
+	// Ground truth = which stance button is actually drawn inverted. (A real host
+	// mousePress moves the highlight but not the _visInverted bookkeeping var, so read
+	// the pixel-parity flag instead - it is always accurate for both click and sync.)
+	if (_btnCautious && _btnCautious->isVisiblyInverted())     return 1;
+	if (_btnStandard && _btnStandard->isVisiblyInverted())     return 2;
+	if (_btnAggressive && _btnAggressive->isVisiblyInverted()) return 3;
+	if (_btnDisengage && _btnDisengage->isVisiblyInverted())   return 4;
 	return 0; // standoff (default)
+}
+int DogfightState::harnessLitStanceCount() const
+{
+	int n = 0;
+	for (ImageButton* b : {_btnStandoff, _btnCautious, _btnStandard, _btnAggressive, _btnDisengage})
+		if (b && b->isVisiblyInverted()) ++n;
+	return n;
 }
 
 /**

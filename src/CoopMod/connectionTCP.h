@@ -380,6 +380,8 @@ class connectionTCP
 	// PRD-J01: true when the ACTIVE save is a JOINT co-op campaign. Every later
 	// JOINT-gated behavior tests this; SEPARATE/solo return false.
 	bool isJointCampaign();
+	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
+	static bool isJointCampaignStatic();
 	// PRD-J02: true for a JOINT client - a world replica the host streams. A
 	// replica never builds its own world, never saves to disk, and never runs
 	// the SEPARATE mirror machinery. (isJointCampaign() && !host)
@@ -445,6 +447,7 @@ class connectionTCP
 	static bool _battleInit; // when both have joined and are ready for battle, initialize
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
+	int getPlayerTurn() const { return _playerTurn; }
 	void sendFile();
 	// is the player actually connected?
 	int isConnected();

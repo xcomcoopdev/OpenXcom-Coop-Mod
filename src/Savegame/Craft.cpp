@@ -1636,6 +1636,16 @@ bool Craft::isDestroyed() const
 int Craft::getSpaceAvailable() const
 {
 
+	// JOINT: ONE shared physical craft with a single real capacity N. Both players load
+	// the same craft, so available = full N minus the COMBINED used (getSpaceUsed already
+	// sums every owner's aboard soldiers) - NOT the SEPARATE per-player half/-4 split,
+	// which locked each seat to a fixed sub-count. The combined used is host-authoritative
+	// and identical on both machines because the shared roster + craft_assign are synced.
+	if (connectionTCP::isJointCampaignStatic())
+	{
+		return getMaxUnitsClamped() - getSpaceUsed();
+	}
+
 	// coop
 	if (connectionTCP::_unbalanced_craft_soldiers_limit == true && connectionTCP::getCoopStatic() == true)
 	{

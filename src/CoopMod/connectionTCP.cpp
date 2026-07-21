@@ -9072,6 +9072,16 @@ bool connectionTCP::isJointCampaign()
 		&& save->getCampaignType() == CoopCampaignType::Joint;
 }
 
+// Static mirror of isJointCampaign() for engine-level callers that hold no CoopMod
+// instance (e.g. Craft capacity accounting). Reads the same authoritative save via the
+// static Game pointer.
+bool connectionTCP::isJointCampaignStatic()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Joint;
+}
+
 // PRD-J02: a JOINT client holds a replica of the host's single authoritative
 // world. Host = seat 0 owns the world; every other seat is a replica.
 bool connectionTCP::isJointReplica()
@@ -9783,6 +9793,18 @@ void connectionTCP::setPathLock(int lock)
 // assign the client soldiers to the host's craft
 void connectionTCP::setClientSoldiers()
 {
+	// JOINT has ONE shared world: the roster/craft are already shared, so there is no
+	// "assign the client's soldiers to the host's craft" merge to do (PRD-J09 skips the
+	// SEPARATE two-world dance), and there is no "battleclient" blob to load. Running it
+	// anyway re-entered ConfirmLandingState::startCoopMission below, which calls
+	// bgen.run() a SECOND time and generates a brand-new RANDOM map on the host - while
+	// the client had already loaded the first one. Result: host and client standing on
+	// two entirely different maps (soldiers on open ground, no craft). The host already
+	// generated and shipped the authoritative battle in btnYesClick; never regenerate.
+	if (isJointCampaign())
+	{
+		return;
+	}
 
 	// STARTING COOP MISSION
 	CoopState* coop = new CoopState(111);

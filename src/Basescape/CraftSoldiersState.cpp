@@ -507,6 +507,21 @@ std::vector<int> CraftSoldiersState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+int CraftSoldiersState::harnessSpaceUsed() const
+{
+	return _base->getCrafts()->at(_craft)->getSpaceUsed();
+}
+
+int CraftSoldiersState::harnessSpaceAvailable() const
+{
+	return _base->getCrafts()->at(_craft)->getSpaceAvailable();
+}
+
+int CraftSoldiersState::harnessMaxUnits() const
+{
+	return _base->getCrafts()->at(_craft)->getMaxUnitsClamped();
+}
+
 /**
  * Applies a pending live refresh (PRD-J10).
  */

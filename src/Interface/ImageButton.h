@@ -35,6 +35,10 @@ protected:
 	Uint8 _color;
 	ImageButton **_group;
 	bool _inverted;
+	/// Playtest: ground-truth parity of the pixel inversion, flipped on every invert()
+	/// call (real click, group move, or a synced stance move). Independent of the radio
+	/// bookkeeping (_group/_inverted), so a test can detect two buttons lit at once.
+	bool _visiblyInverted = false;
 public:
 	/// Creates a new image button with the specified size and position.
 	ImageButton(int width, int height, int x = 0, int y = 0);
@@ -52,6 +56,10 @@ public:
 	void mouseRelease(Action *action, State *state) override;
 	/// Invert a button explicitly either ON or OFF.
 	void toggle(bool invert);
+	/// Inverts the button's colors, tracking ground-truth parity (shadows Surface::invert).
+	void invert(Uint8 mid);
+	/// Playtest test hook: is this button's graphic currently drawn inverted (lit)?
+	bool isVisiblyInverted() const { return _visiblyInverted; }
 };
 
 }

@@ -124,4 +124,17 @@ void ImageButton::toggle(bool press)
 	}
 }
 
+/**
+ * Inverts the button's colors while tracking ground-truth parity, so a test can tell
+ * whether the graphic is currently drawn inverted regardless of the radio bookkeeping.
+ * Shadows the non-virtual Surface::invert; every call site holds an ImageButton static
+ * type, so all of them route through here.
+ * @param mid Middle color of the inversion.
+ */
+void ImageButton::invert(Uint8 mid)
+{
+	_visiblyInverted = !_visiblyInverted;
+	Surface::invert(mid);
+}
+
 }

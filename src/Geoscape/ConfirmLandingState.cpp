@@ -415,6 +415,15 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 void ConfirmLandingState::startCoopMission()
 {
+	// JOINT: the host generates the authoritative battle exactly ONCE and ships it. A
+	// second call here would run bgen.run() again and replace the world with a NEW random
+	// map, stranding the client (which already loaded the first) on a different map. If a
+	// battle already exists, this is a re-entry - do nothing.
+	if (_game->getCoopMod()->isJointCampaign() && _game->getSavedGame()
+		&& _game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
 
 	_game->getCoopMod()->coopInventory = true;
 

@@ -237,6 +237,10 @@ public:
 	/// Playtest B6: the currently-highlighted (inverted) stance button as the same
 	/// wire enum. Equals harnessMode() once the highlight tracks the synced stance.
 	int harnessHighlight() const { return highlightIndex(); }
+	/// Playtest: ground-truth count of stance buttons currently drawn inverted (lit).
+	/// A correct radio group has exactly 1; >1 is the "several buttons active at once"
+	/// desync (a client-driven stance that never moved the old highlight).
+	int harnessLitStanceCount() const;
 	/// PRD-DF02: the UFO's synced attack posture for the harness (host reads the live
 	/// UFO; a replica returns the value adopted from df_state).
 	int harnessUfoStance() const;

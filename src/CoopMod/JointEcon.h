@@ -311,6 +311,21 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 bool ownsSoldier(Game* game, const Soldier* soldier);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
+/// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft
+/// reached its patrol waypoint so every replica pops the "reached destination" alert and
+/// clears the now-stale destination + orphan waypoint marker (its frozen sim never would).
+void hostPatrolPrompt(Game* game, Craft* craft);
+
+/// Generic informational-alert replication (HOST -> all seats). In JOINT only the host
+/// runs the geoscape sim, so every popup it raises is invisible to the frozen replicas.
+/// Instead of a bespoke joint_cmd per dialog, name the dialog class plus whatever ids /
+/// rule names rebuild it; the replica-side factory (alertApply) pops the real dialog.
+/// Informational dialogs only - anything that also mutates the shared world needs real
+/// state mirroring. @a msg doubles as the text / rule name depending on @a cls.
+void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
+               Base* base = nullptr, int craftId = -1,
+               const std::vector<std::string>& names = {},
+               const std::vector<int>& ids = {}, bool flag = false);
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
 /// other seat's broker ConfirmLandingState closes itself.
 void broadcastLandClose(Game* game, Craft* craft);

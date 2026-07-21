@@ -102,6 +102,12 @@ public:
 	std::string harnessUsedText() const;
 	/// Test automation: soldier ids the craft-crew screen displays (own-only in JOINT).
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation (JOINT capacity): numeric shared-craft space, so a test can assert
+	/// both seats agree and the ship is NOT halved. used = combined (all owners aboard),
+	/// available = full max - used, max = the craft's real unit capacity.
+	int harnessSpaceUsed() const;
+	int harnessSpaceAvailable() const;
+	int harnessMaxUnits() const;
 };
 
 }
