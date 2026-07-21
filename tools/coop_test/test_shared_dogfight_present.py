@@ -1,19 +1,25 @@
-"""PRD-DF02 §3b (window presentation policy): the commanding seat gets the FULL
-window; every other player gets a MINIMIZED icon.
+"""Window presentation policy: EVERY player opens the fight FULL, and the local
+minimize state never gates the command lane.
 
-The commanding seat = lastCraftOrderSeat(craft), carried per-dogfight in df_open. When
-the HOST commands the craft (seat <= 0), the host is the commander, so ALL clients open
-the fight minimized (an icon they can click to spectate/command). The host always opens
-full (it is the sim / vanilla path). The initial minimize is a per-machine VIEW choice
-only - it never drives the world clock (the host's authoritative hostAnyOpen does), and
-a minimized replica can still issue df_cmd to the host.
+PRD-DF02 §3b originally gave the commanding seat (lastCraftOrderSeat(craft), carried
+per-dogfight in df_open) the full window and every other player a minimized icon. That
+policy was DROPPED in 2f8457d21 after the playtest report "dogfight totally broken for
+clients": a host-commanded craft opened as a mute icon on every client, which read as
+the fight being missing. GeoscapeState::sharedReconcileReplicaDogfights now always
+passes startMinimized=false, so both machines open full whoever commanded.
+
+Minimize survives as a per-machine VIEW choice the player makes themselves. It never
+drives the world clock (the host's authoritative hostAnyOpen does), and a minimized
+replica can still issue df_cmd to the host - which is what this test pins down for the
+HOST-commanded case (test_shared_dogfight_control AC5 covers the client-commanded one).
 
 Acceptance:
-  * host-commanded intercept -> HOST window FULL, CLIENT window MINIMIZED (asserted via
-    the dogfight_state `minimized` field on each machine);
-  * a minimized (non-commanding) client can still command the host: it issues
+  * host-commanded intercept -> BOTH windows open FULL (asserted via the
+    dogfight_state `minimized` field on each machine);
+  * after the client minimizes its own window, it can still command the host: it issues
     aggressive and the host's authoritative _mode changes, proving the command lane is
-    independent of the local minimize/presentation state.
+    independent of the local minimize/presentation state, and the client stays minimized
+    (commanding does not force the view back open).
 
 Run:  python tools/coop_test/test_shared_dogfight_present.py
 """
@@ -81,7 +87,8 @@ def main():
         ufo_id = ufo["ufo_id"]
 
         # Materialise the UFO on the client, then the HOST commands the intercept ->
-        # commanding seat <= 0 (host) -> every client opens minimized.
+        # commanding seat <= 0 (host). The client is NOT the commanding seat, which is
+        # exactly the case that used to open minimized.
         deadline = time.time() + 45
         while time.time() < deadline and _ufo(client, ufo_id) is None:
             _pump(host, client, 1)
@@ -104,13 +111,24 @@ def main():
         cd = _df_for(client, avenger_id, ufo_id)
         assert hd and cd, "the host-commanded intercept did not open on BOTH machines"
 
-        # Presentation policy: host FULL, client MINIMIZED.
+        # Presentation policy: FULL on both, whoever commanded.
         assert not hd["minimized"], "host (sim) must open FULL"
-        assert cd["minimized"], (
-            "PRD-DF02 §3b FAILED: a non-commanding client must open MINIMIZED for a "
-            "host-commanded craft")
-        print("PASS: presentation policy - host FULL, client MINIMIZED "
-              "(host is the commanding seat)")
+        assert not cd["minimized"], (
+            "presentation policy FAILED: a non-commanding client must open FULL for a "
+            "host-commanded craft (the PRD-DF02 §3b minimize was dropped in 2f8457d21)")
+        print("PASS: presentation policy - BOTH windows FULL "
+              "(host commanded; the client is not the commanding seat)")
+
+        # The client minimizes its OWN window - a per-machine view choice.
+        client.ok({"cmd": "dogfight_action", "action": "minimize"})
+        _pump(host, client, 2)
+        cd = _df_for(client, avenger_id, ufo_id)
+        hd = _df_for(host, avenger_id, ufo_id)
+        assert cd and cd["minimized"], "client view did not minimize"
+        assert hd and not hd["minimized"], (
+            "a client-local minimize must not minimize the host window (view state is "
+            "per-machine)")
+        print("PASS: client-local minimize is view-only; the host window stays FULL")
 
         # A minimized (non-commanding) client can STILL command the host: aggressive.
         client.ok({"cmd": "dogfight_action", "action": "aggressive"})
