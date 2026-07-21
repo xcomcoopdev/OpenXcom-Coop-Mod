@@ -1261,7 +1261,7 @@ void DogfightState::update()
 							setStatus("STR_UFO_HIT");
 					}
 				}
-				_game->getMod()->getSound("GEO.CAT", Mod::UFO_HIT)->play();
+				playDfSound(Mod::UFO_HIT);
 			}
 		}
 
@@ -1363,7 +1363,7 @@ void DogfightState::update()
 							}
 						}
 
-						_game->getMod()->getSound("GEO.CAT", Mod::UFO_HIT)->play();
+						playDfSound(Mod::UFO_HIT);
 						p->remove();
 					}
 					// Missed.
@@ -1435,7 +1435,7 @@ void DogfightState::update()
 								setStatus("STR_MISSILE_DAMAGED");
 							else
 								setStatus("STR_INTERCEPTOR_DAMAGED");
-							_game->getMod()->getSound("GEO.CAT", Mod::INTERCEPTOR_HIT)->play(); //10
+							playDfSound(Mod::INTERCEPTOR_HIT); //10
 							if (_mode == _btnCautious && _craft->getDamagePercentage() >= 50 && !_ufoIsAttacking)
 							{
 								_targetDist = STANDOFF_DIST;
@@ -1652,7 +1652,7 @@ void DogfightState::update()
 				//_craft->evacuateCrew(_game->getMod());
 			}
 			_timeout += 30;
-			_game->getMod()->getSound("GEO.CAT", Mod::INTERCEPTOR_EXPLODE)->play();
+			playDfSound(Mod::INTERCEPTOR_EXPLODE);
 			finalRun = true;
 			_destroyCraft = true;
 			_endCraftHandled = true;
@@ -1780,7 +1780,7 @@ void DogfightState::update()
 					}
 
 					setStatus("STR_UFO_DESTROYED");
-					_game->getMod()->getSound("GEO.CAT", Mod::UFO_EXPLODE)->play(); //11
+					playDfSound(Mod::UFO_EXPLODE); //11
 				}
 				_destroyUfo = true;
 			}
@@ -1789,7 +1789,7 @@ void DogfightState::update()
 				if (_ufo->getShotDownByCraftId() == _craft->getUniqueId())
 				{
 					setStatus("STR_UFO_CRASH_LANDS");
-					_game->getMod()->getSound("GEO.CAT", Mod::UFO_CRASH)->play(); //10
+					playDfSound(Mod::UFO_CRASH); //10
 
 					// coop
 					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -1963,7 +1963,7 @@ void DogfightState::fireWeapon(int i)
 		p->setHorizontalPosition((i % 2 ? HP_RIGHT : HP_LEFT) * (1 + 2 * (i / 2)));
 		_projectiles.push_back(p);
 
-		_game->getMod()->getSound("GEO.CAT", w1->getRules()->getSound())->play();
+		playDfSound(w1->getRules()->getSound());
 		_firedAtLeastOnce = true;
 	}
 }
@@ -2002,11 +2002,11 @@ void DogfightState::ufoFireWeapon()
 
 	if (_ufo->getRules()->getFireSound() == -1)
 	{
-		_game->getMod()->getSound("GEO.CAT", Mod::UFO_FIRE)->play();
+		playDfSound(Mod::UFO_FIRE);
 	}
 	else
 	{
-		_game->getMod()->getSound("GEO.CAT", _ufo->getRules()->getFireSound())->play();
+		playDfSound(_ufo->getRules()->getFireSound());
 	}
 }
 
@@ -3154,6 +3154,14 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 		projs.append(jp);
 	}
 	frame["projectiles"] = projs;
+
+	// SFX raised by the sim since the last frame. Drained here: each frame carries the
+	// sounds since the previous one, so a replica hears the fight instead of watching it
+	// in silence.
+	Json::Value sounds(Json::arrayValue);
+	for (int s : _frameSounds) sounds.append(s);
+	frame["sounds"] = sounds;
+	_frameSounds.clear();
 }
 
 /**
@@ -3163,6 +3171,25 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
  * the projectile draw set. Never mutates the shared world beyond those local
  * render bits; the window's lifecycle is owned by df_open/df_close.
  */
+/**
+ * Play a GEO.CAT dogfight sound, and on the host remember it for the next df_state frame.
+ * Every in-combat SFX is raised from the sim body, which only the host runs, so replicas
+ * heard nothing at all; they now play what the frame carries (see applyFrame).
+ */
+void DogfightState::playDfSound(int soundId)
+{
+	if (soundId == Mod::NO_SOUND) return;
+	// Count the DECISION to play, not the playback: the harness runs muted / on the SDL
+	// dummy driver where getSound() can return null, and what a test needs to know is
+	// whether this machine's dogfight raised the SFX at all.
+	++_soundsPlayed;
+	if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
+		s->play();
+	// A replica only ever plays frame-driven sounds, so it must not re-broadcast them.
+	if (!_isReplicaView && _game->getCoopMod()->isSharedCampaign())
+		_frameSounds.push_back(soundId);
+}
+
 void DogfightState::applyFrame(const Json::Value& frame)
 {
 	_currentDist = frame.get("currentDist", _currentDist).asInt();
@@ -3200,6 +3227,19 @@ void DogfightState::applyFrame(const Json::Value& frame)
 			_visInverted->invert(_visInverted->getColor() + 3);
 		_mode->invert(_mode->getColor() + 3);
 		_visInverted = _mode;
+	}
+
+	// Play the SFX the host's sim raised for this frame (the replica never runs the sim,
+	// so this is the only way it hears the fight). A minimized window still plays them:
+	// that matches the host, where a minimized dogfight is still audible.
+	const Json::Value& sounds = frame["sounds"];
+	for (Json::ArrayIndex i = 0; i < sounds.size(); ++i)
+	{
+		const int soundId = sounds[i].asInt();
+		if (soundId == Mod::NO_SOUND) continue;
+		++_soundsPlayed;
+		if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
+			s->play();
 	}
 
 	_ufoIsAttacking = frame.get("ufoIsAttacking", _ufoIsAttacking).asBool();

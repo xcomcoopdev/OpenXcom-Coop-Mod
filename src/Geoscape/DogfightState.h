@@ -60,6 +60,12 @@ private:
 	/// bypasses mousePress, so we must move the invert ourselves and remember where
 	/// it sits (invariant: _visInverted == _mode). See applyFrame / highlightIndex.
 	ImageButton *_visInverted = nullptr;
+	/// GEO.CAT sound ids raised by the sim since the last df_state frame was built, so
+	/// replicas can play the same SFX. Mutable: buildStateFrame() is const and drains it.
+	mutable std::vector<int> _frameSounds;
+	/// How many dogfight SFX this machine has raised (host: from the sim; replica: from
+	/// df_state frames). A replica stuck at 0 during a live fight means it is silent.
+	int _soundsPlayed = 0;
 	InteractiveSurface *_btnMinimizedIcon;
 	Text *_txtAmmo[RuleCraft::WeaponMax], *_txtDistance, *_txtStatus, *_txtInterceptionNumber;
 	Text *_txtOceanIndicator;
@@ -219,6 +225,12 @@ public:
 	/// UFO render bits the geo snapshot does not carry (shield/hitFrame), craft ammo,
 	/// the end flags, and a rebuilt projectile draw set.
 	void applyFrame(const Json::Value& frame);
+	/// Play a GEO.CAT dogfight sound. Every in-combat SFX (weapon fire, hits, explosions)
+	/// is raised from the sim body, which ONLY the host runs - so a replica was silent.
+	/// On the host this also records the sound so the next df_state frame carries it and
+	/// replicas play the same thing. Best-effort: df_state rides the conflation slot, so a
+	/// dropped frame drops its sounds (acceptable for SFX, never for state).
+	void playDfSound(int soundId);
 	/// PRD-DF02 (HOST): apply a replicated stance command (0=standoff..4=disengage) by
 	/// setting _mode + running the vanilla Press body (the Simulate*LeftPress lane, but
 	/// visibility-independent so a host-minimized window still obeys a client command).
@@ -241,6 +253,8 @@ public:
 	/// A correct radio group has exactly 1; >1 is the "several buttons active at once"
 	/// desync (a client-driven stance that never moved the old highlight).
 	int harnessLitStanceCount() const;
+	/// Test hook: dogfight SFX raised on THIS machine (see _soundsPlayed).
+	int harnessSoundsPlayed() const { return _soundsPlayed; }
 	/// PRD-DF02: the UFO's synced attack posture for the harness (host reads the live
 	/// UFO; a replica returns the value adopted from df_state).
 	int harnessUfoStance() const;

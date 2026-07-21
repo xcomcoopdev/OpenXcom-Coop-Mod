@@ -2782,6 +2782,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				jd["mode"] = df->harnessMode();
 				jd["highlight"] = df->harnessHighlight(); // playtest B6
 				jd["litStances"] = df->harnessLitStanceCount(); // ground-truth #buttons lit
+				jd["soundsPlayed"] = df->harnessSoundsPlayed(); // SFX raised on this machine
 				jd["replica"] = df->isReplicaView();
 				// PRD-DF03: full per-machine frame-agreement fields.
 				jd["isReplicaView"] = df->isReplicaView();
