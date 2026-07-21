@@ -117,10 +117,35 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  coop-tests:   # release gate
-    needs: build
+  # Splits the suite into 4 runtime-balanced shards, ONCE, from the previous run's
+  # measured durations (Actions cache; tools/ci/test_weights.json on a cold cache).
+  # Every shard consumes this one plan, so a cache refresh mid-run cannot make two
+  # shards disagree about who runs what.
+  shard-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ci_timings
+          key: coop-timings-${{ github.run_id }}       # never hits; restore-keys does the work
+          restore-keys: coop-timings-                  # newest cache from this branch, else main
+
+      - shell: pwsh
+        run: ./tools/ci/plan_shards.ps1 -Of 4 -Timings .ci_timings/timings.json -Out shard-plan.json
+
+      - uses: actions/upload-artifact@v4
+        with: { name: shard-plan, path: shard-plan.json, if-no-files-found: error, retention-days: 7 }
+
+  coop-shard:
+    needs: [build, shard-plan]
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false          # one shard's failure must not hide the others' results
+      matrix: { shard: [1, 2, 3, 4] }
     steps:
       - uses: actions/checkout@v4    # shallow: only needs bin data + tools/, not history
 
@@ -128,6 +153,9 @@ jobs:
         with:
           name: game-exe
           path: bin/x64/Release
+
+      - uses: actions/download-artifact@v4
+        with: { name: shard-plan }
 
       - name: Fetch UFO data (private, licensed)
         uses: actions/checkout@v4
@@ -141,13 +169,67 @@ jobs:
         shell: pwsh
         run: ./tools/ci/stage_data.ps1
 
-      - name: Coop test suite (headless)
-        timeout-minutes: 40
+      - name: Coop test suite (headless, shard ${{ matrix.shard }}/4)
+        timeout-minutes: 25
         shell: pwsh
         env:
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
-        run: ./tools/ci/run_coop_suite.ps1
+        run: >-
+          ./tools/ci/run_coop_suite.ps1 -PlanFile shard-plan.json
+          -Shard ${{ matrix.shard }} -TimingsOut timings-${{ matrix.shard }}.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()               # a failed shard still measured everything before it
+        with:
+          name: timings-${{ matrix.shard }}
+          path: timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Release gate + aggregation. Keeps the name `coop-tests` because main's branch
+  # protection requires that check by name - a matrix job would publish as
+  # "coop-shard (1)" and the required check would never report.
+  coop-tests:
+    needs: coop-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # A matrix job's aggregate result is 'success' only when every leg passed.
+      # 'skipped' means an upstream job failed - that already blocks publish, and
+      # failing here too would just add noise.
+      - name: Gate on every shard
+        if: needs.coop-shard.result == 'failure' || needs.coop-shard.result == 'cancelled'
+        run: |
+          echo "::error::coop-shard: ${{ needs.coop-shard.result }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with: { pattern: timings-*, path: .ci_new, merge-multiple: false }
+        continue-on-error: true
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ci_timings
+          key: coop-timings-${{ github.run_id }}
+          restore-keys: coop-timings-
+        continue-on-error: true
+
+      - name: Merge shard timings for the next run's plan
+        shell: pwsh
+        continue-on-error: true    # balance is an optimization; never fail the gate on it
+        run: |
+          New-Item -ItemType Directory -Force .ci_timings | Out-Null
+          ./tools/ci/merge_timings.ps1 -In .ci_new -Prev .ci_timings/timings.json -Out .ci_timings/timings.json
+
+      - uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .ci_timings
+          key: coop-timings-${{ github.run_id }}
 
   # The ONLY job that writes to the release, and it does it once with all three
   # packages attached. It used to create the release with just the x64 zip and let
