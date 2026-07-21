@@ -308,7 +308,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	}
 
 	_txtDetails->setWordWrap(true);
-	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
+	_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 
 	_sortName->setX(_sortName->getX() + _txtName->getTextWidth() + 5);
 	_sortName->onMouseClick((ActionHandler)&LobbyMenu::sortNameClick);
@@ -931,6 +931,33 @@ void LobbyMenu::btnChatClick(Action* action)
 }
 
 /**
+ * The "waiting" details line for the CURRENT lobby mode. Resuming a saved co-op campaign
+ * (lobbyMode 2) knows its roster, so it names who is still missing; a NEW game has no
+ * roster yet and stays generic. Centralised so the mouse-over/out handlers below cannot
+ * overwrite the named form with the generic one.
+ */
+std::string LobbyMenu::waitingText() const
+{
+	if (connectionTCP::session.lobbyMode == 2)
+	{
+		std::vector<std::string> missing = missingPlayers();
+		if (!missing.empty())
+		{
+			std::string wait = "Waiting for ";
+			for (size_t i = 0; i < missing.size(); ++i)
+			{
+				if (i > 0) wait += ", ";
+				wait += missing[i];
+			}
+			wait += " on port " + std::to_string(tcp_port);
+			return wait;
+		}
+		return "All players connected";
+	}
+	return "Waiting for players on port " + std::to_string(tcp_port);
+}
+
+/**
  * Shows the details of the currently hovered save.
  * @param action Pointer to an action.
  */
@@ -943,7 +970,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
 		wstr = _connectedPlayers[sel].details;
 	}
 	if (wstr.empty())
-		wstr = "Waiting for players on port " + std::to_string(tcp_port);
+		wstr = waitingText();
 	_txtDetails->setText(tr("STR_DETAILS").arg(wstr));
 }
 
@@ -953,7 +980,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
  */
 void LobbyMenu::lstSavesMouseOut(Action*)
 {
-	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
+	_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 }
 
 /**
@@ -1183,19 +1210,9 @@ void LobbyMenu::think()
 					else
 					{
 						_btnCancel->setVisible(false);
-						// merged form: names AND port (the ctor's generic
-						// "Waiting for players on port X" covers the no-names case)
-						std::string wait = "Waiting for ";
-						for (size_t i = 0; i < missing.size(); ++i)
-						{
-							if (i > 0)
-							{
-								wait += ", ";
-							}
-							wait += missing[i];
-						}
-						wait += " on port " + std::to_string(tcp_port);
-						_txtDetails->setText(tr("STR_DETAILS").arg(wait));
+						// merged form: names AND port (waitingText() owns the wording so
+						// a mouse-over/out cannot replace it with the generic line)
+						_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 					}
 				}
 			}

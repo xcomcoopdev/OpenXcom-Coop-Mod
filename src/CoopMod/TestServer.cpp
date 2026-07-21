@@ -1976,6 +1976,15 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 		}
 		resp["ok"] = true;
 	}
+	else if (cmd == "lobby_mouse_out")
+	{
+		// Fire the save-list mouse-out handler. It used to overwrite the details line
+		// with the generic "Waiting for players on port N", losing the named form that a
+		// RESUME lobby shows; it now re-renders whatever waitingText() says for the mode.
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby) resp["error"] = "no LobbyMenu in state stack";
+		else { lobby->lstSavesMouseOut(nullptr); resp["ok"] = true; }
+	}
 	else if (cmd == "open_coop_menu")
 	{
 		// Playtest B7: the in-game coop menu. Reached from the pause screen ->
@@ -2427,6 +2436,14 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			JointEcon::hostAlienBaseFound(_game, found);
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "main_menu_new_game")
+	{
+		// Open the New Game mode popup (SOLO / CO-OP JOINT / CO-OP SEPARATE) exactly as
+		// clicking the main menu's New Game button does, for layout screenshots.
+		MainMenuState* mm = findState<MainMenuState>(_game);
+		if (!mm) resp["error"] = "no MainMenuState";
+		else { mm->btnNewGameClick(nullptr); resp["ok"] = true; }
 	}
 	else if (cmd == "joint_alert")
 	{

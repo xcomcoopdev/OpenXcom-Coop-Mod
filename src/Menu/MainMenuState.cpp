@@ -50,39 +50,64 @@ class NewGameModeState : public State
 private:
 	Window *_window;
 	TextButton *_btnSolo, *_btnCoopSeparate, *_btnCoopJoint;
+	Text *_txtSolo, *_txtCoopSeparate, *_txtCoopJoint;
 public:
 	NewGameModeState()
 	{
 		_screen = false;
 
-		// anchored directly under the New Game button (64,90 / 92x20). PRD-J01
-		// adds a third choice, so the popup and button stack grow by one row.
-		_window = new Window(this, 100, 74, 60, 88, POPUP_VERTICAL);
-		_btnSolo = new TextButton(92, 20, 64, 92);
-		_btnCoopSeparate = new TextButton(92, 20, 64, 114);
-		_btnCoopJoint = new TextButton(92, 20, 64, 136);
+		// The popup's INTERIOR covers exactly the same area as the main menu's six
+		// buttons: they occupy x 64..256 (two 92-wide columns at x=64 and x=164) and
+		// y 90..166 (three 20-tall rows at y=90/118/146), i.e. 192x76 at (64,90).
+		// Window borders are 5px, so the frame is 10px larger and offset by 5.
+		_window = new Window(this, 202, 86, 59, 85, POPUP_VERTICAL);
+
+		// The three mode buttons sit exactly where New Game / Load Game / Mods are,
+		// so the block reads as an in-place replacement of that column.
+		_btnSolo = new TextButton(92, 20, 64, 90);
+		_btnCoopJoint = new TextButton(92, 20, 64, 118);
+		_btnCoopSeparate = new TextButton(92, 20, 64, 146);
+
+		// One description per mode, in the right-hand column (where New Battle /
+		// Options / Quit are), each aligned with its own button.
+		_txtSolo = new Text(92, 20, 164, 90);
+		_txtCoopJoint = new Text(92, 20, 164, 118);
+		_txtCoopSeparate = new Text(92, 20, 164, 146);
 
 		setInterface("mainMenu");
 
 		add(_window, "window", "mainMenu");
 		add(_btnSolo, "button", "mainMenu");
-		add(_btnCoopSeparate, "button", "mainMenu");
 		add(_btnCoopJoint, "button", "mainMenu");
+		add(_btnCoopSeparate, "button", "mainMenu");
+		add(_txtSolo, "text", "mainMenu");
+		add(_txtCoopJoint, "text", "mainMenu");
+		add(_txtCoopSeparate, "text", "mainMenu");
 
 		centerAllSurfaces();
 
 		setWindowBackground(_window, "mainMenu");
 
 		// Literal button text matches the fork's coop-UI convention (no STR_COOP
-		// translation keys exist); SEPARATE = today's mirrored economies, JOINT =
-		// one shared host-authoritative world (PRD-J01).
+		// translation keys exist); JOINT = one shared host-authoritative world and is
+		// listed FIRST, SEPARATE = the older mirrored-economies model (PRD-J01).
 		_btnSolo->setText("SOLO");
 		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
-		_btnCoopSeparate->setText("CO-OP (SEPARATE)");
-		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
 		_btnCoopJoint->setText("CO-OP (JOINT)");
 		_btnCoopJoint->onMouseClick((ActionHandler)&NewGameModeState::btnCoopJointClick);
+		_btnCoopSeparate->setText("CO-OP (SEPARATE)");
+		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
 		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
+
+		for (Text* t : { _txtSolo, _txtCoopJoint, _txtCoopSeparate })
+		{
+			t->setSmall();
+			t->setWordWrap(true);
+			t->setVerticalAlign(ALIGN_MIDDLE);
+		}
+		_txtSolo->setText("Single player. Co-op is turned off.");
+		_txtCoopJoint->setText("Co-op. Players share bases.");
+		_txtCoopSeparate->setText("Co-op. Each player has own base.");
 	}
 
 	void btnSoloClick(Action *)

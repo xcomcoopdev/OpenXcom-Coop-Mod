@@ -104,6 +104,12 @@ protected:
 	bool clickStartConfirmOk();
 	/// Registered players not yet in the lobby (resume mode, F3).
 	std::vector<std::string> missingPlayers() const;
+	/// The "waiting" details line for the CURRENT lobby mode. Resuming a saved co-op
+	/// campaign names the players still missing ("Waiting for A, B on port N") because the
+	/// roster is known; starting a NEW game has no roster yet, so it is the generic
+	/// "Waiting for players on port N". Used everywhere the line is (re)written, so a
+	/// mouse-over/out no longer overwrites the named form with the generic one.
+	std::string waitingText() const;
 	/// Serves every resuming player its world and waits for acks (F3).
 	void resumeCampaign();
 	/// Introspection for the test harness.
