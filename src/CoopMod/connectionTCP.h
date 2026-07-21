@@ -788,6 +788,12 @@ class connectionTCP
 	// after a save load - stale in-memory state must never outlive the save
 	// that is now the authority.
 	void resetGiftSessionState();
+	// COOP living quarters: a soldier TRANSFERRED to a peer's base is never
+	// erased from this machine's roster (it stays tagged with getCoopBase() =
+	// that base's id), so the peer has no object to count. Report the headcount
+	// per peer base so the base that HOUSES a soldier is the one that pays for
+	// it. Sends only when the tally actually changed; call freely.
+	void sendGuestCensus(bool force = false);
 };
 
 }

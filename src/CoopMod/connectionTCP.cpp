@@ -20,6 +20,7 @@
 
 #include "connectionTCP.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -44,6 +45,7 @@
 #include "../Savegame/Region.h"
 
 #include "../Mod/RuleCraftWeapon.h"
+#include "../Savegame/Craft.h"
 #include "../Savegame/CraftWeapon.h"
 
 #include "../Menu/NewGameState.h"
@@ -1416,6 +1418,65 @@ void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::s
 
 }
 
+// Last census actually put on the wire, so an unchanged tally costs nothing.
+static std::string _lastGuestCensus;
+
+/**
+ * COOP living quarters: tell the peer how many of OUR soldiers are stationed at
+ * each of THEIR bases.
+ *
+ * A soldier transferred to a peer base keeps living in this machine's roster
+ * (TransferItemsState::completeTransfer deliberately skips the erase when the
+ * destination is a co-op base) and tags itself with getCoopBase() = that base's
+ * id. The peer therefore has no Soldier object for it at all - its syncTrade
+ * drops the incoming TRANSFER_SOLDIER outright - so without this report the
+ * guest occupies nobody's living quarters. Base::getUsedQuarters() subtracts
+ * these guests here and adds the peer's census as coop_guests there, so the
+ * base that HOUSES a soldier is the one that pays for it.
+ */
+void connectionTCP::sendGuestCensus(bool force)
+{
+	if (!getCoopStatic() || !getCoopCampaign() || !_game->getSavedGame())
+		return;
+	// SHARED has one world: a transfer really moves the soldier, and
+	// getTotalSoldiers() already counts it at the destination while it is in
+	// transit. Nothing to report.
+	if (isSharedCampaign())
+		return;
+
+	std::map<int, int> guests; // peer base coop id -> headcount
+	for (auto* base : *_game->getSavedGame()->getBases())
+	{
+		// only OUR real bases hold our soldiers; a visited peer base is a
+		// swapped-in copy and would double-count them
+		if (base->_coopBase || base->_coopIcon)
+			continue;
+		for (auto* soldier : *base->getSoldiers())
+		{
+			if (soldier->getCoopBase() != -1)
+				guests[soldier->getCoopBase()]++;
+		}
+	}
+
+	Json::Value root;
+	root["state"] = "guest_census";
+	Json::Value list(Json::arrayValue);
+	for (const auto& entry : guests)
+	{
+		Json::Value e;
+		e["base_id"] = entry.first;
+		e["guests"] = entry.second;
+		list.append(e);
+	}
+	root["bases"] = list;
+
+	std::string payload = root.toStyledString();
+	if (!force && payload == _lastGuestCensus)
+		return;
+	_lastGuestCensus = payload;
+	sendTCPPacketData(payload);
+}
+
 void connectionTCP::resetGiftSessionState()
 {
 
@@ -1580,6 +1641,12 @@ void connectionTCP::updateCoopTask()
 	// active (fallback for the client, which may not run the host's
 	// coopMissionEnd path in GeoscapeState).
 	processPendingSoldierGifts();
+
+	// COOP living quarters: re-report our guest headcount whenever it changes.
+	// Driven from here rather than from each mutation site (transfer, gift,
+	// sack, base loss) so no path can forget it; sendGuestCensus is a cheap
+	// tally and only touches the wire when the result actually differs.
+	sendGuestCensus();
 
 	if (connectionTCP::saveError == true)
 	{
@@ -3953,16 +4020,55 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		if (baseFrom && baseTo)
 		{
+			// TransferItemsState has two senders for this same "transfer" packet:
+			//   createPendingTransfers() - ACK-gated. Nothing left the source base;
+			//     this ACK is what applies the funds debit, the store removal and
+			//     the co-op limit decrements (via removePendingTransfers()).
+			//   completeTransfer()       - immediate. All of that already happened
+			//     locally when the trade was made, so re-applying it here debits
+			//     everything twice; the store re-validation inside
+			//     removePendingTransfers() then finds nothing left to remove and
+			//     fails, leaving the trade half-applied (the peer has the goods,
+			//     this base keeps them AND keeps a stale pending list that the next
+			//     trade would re-send).
+			// The flag rides the packet and comes back untouched in this ACK.
+			bool alreadyApplied = obj.get("already_applied", false).asBool();
 
-			if (baseFrom->removePendingTransfers(baseTo->getTransfers()))
+			if (alreadyApplied || baseFrom->removePendingTransfers(baseTo->getTransfers()))
 			{
 
-				_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - total_funds);
+				if (!alreadyApplied)
+				{
+					_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - total_funds);
 
-				baseTo->decreaseCoopTransferLimits();
+					baseTo->decreaseCoopTransferLimits();
+				}
 
 				for (Transfer* transfer : *baseTo->getTransfers())
 				{
+					// ~Transfer deletes the soldier/craft it carries. Neither path
+					// removes a transferred SOLDIER from the source base (it stays
+					// on as a guest of the peer base, see completeTransfer()), and
+					// removePendingTransfers() keeps crew soldiers too - so hand the
+					// object back before freeing the Transfer, or the base is left
+					// holding a dangling pointer.
+					if (transfer)
+					{
+						Soldier* keptSoldier = transfer->getSoldier();
+						if (keptSoldier
+							&& std::find(baseFrom->getSoldiers()->begin(), baseFrom->getSoldiers()->end(),
+								keptSoldier) != baseFrom->getSoldiers()->end())
+						{
+							transfer->setSoldier(nullptr);
+						}
+						Craft* keptCraft = transfer->getCraft();
+						if (keptCraft
+							&& std::find(baseFrom->getCrafts()->begin(), baseFrom->getCrafts()->end(),
+								keptCraft) != baseFrom->getCrafts()->end())
+						{
+							transfer->setCraft(nullptr);
+						}
+					}
 					delete transfer;
 				}
 				baseTo->getTransfers()->clear();
@@ -3996,6 +4102,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 
 	// Transfer and purchase
+	// COOP living quarters: the peer reports how many of ITS soldiers are
+	// stationed at each of OUR bases (see sendGuestCensus). We hold no Soldier
+	// object for them, so this headcount is the only way they can occupy the
+	// living quarters of the base they actually live in. Absent bases are reset,
+	// so the census is always a full replacement, never a delta.
+	if (stateString == "guest_census")
+	{
+		if (_game->getSavedGame())
+		{
+			std::map<int, int> reported;
+			const Json::Value& list = obj["bases"];
+			if (list.isArray())
+			{
+				for (const auto& e : list)
+					reported[e.get("base_id", 0).asInt()] = e.get("guests", 0).asInt();
+			}
+			for (auto* base : *_game->getSavedGame()->getBases())
+			{
+				if (base->_coopBase || base->_coopIcon)
+					continue;
+				auto it = reported.find(base->_coop_base_id);
+				base->coop_guests = (it != reported.end()) ? it->second : 0;
+			}
+		}
+	}
+
 	if (stateString == "purchase" || stateString == "transfer")
 	{
 
@@ -4034,6 +4166,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				obj2["base_to_id"] = obj.get("base_to_id", 0);
 				obj2["base_from_id"] = obj.get("base_from_id", 0);
 				obj2["total_funds"] = obj.get("total_funds", 0);
+				// echoed straight back so the sender can tell its own immediate
+				// (already-applied) trades from the ACK-gated ones
+				obj2["already_applied"] = obj.get("already_applied", false);
 				sendTCPPacketData(obj2.toStyledString());
 			}
 			else

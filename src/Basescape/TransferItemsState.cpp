@@ -774,6 +774,48 @@ void TransferItemsState::submitSharedTransfer()
 	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers)
 		return;
 
+	// A transferred soldier's gear travels with it when "alternate craft equipment
+	// management" is on, the same as the SEPARATE path - but as ordinary rows on
+	// THIS transfer, so it ships on the soldier's own clock and arrives with it.
+	// (SEPARATE deliberately keeps its 0-hour immediate arrival; SHARED is an
+	// intra-world move, so it follows the vanilla "everything travels" rule.)
+	// Items the source base does not actually have are skipped, so a partly
+	// stocked loadout still ships what it can.
+	if (Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty())
+	{
+		// what this transfer already claims, so gear cannot double-book stock
+		std::map<const RuleItem*, int> claimed;
+		for (const auto& row : _items)
+		{
+			if (row.type == TRANSFER_ITEM && row.amount > 0)
+				claimed[(RuleItem*)row.rule] += row.amount;
+		}
+		std::map<const RuleItem*, int> gear;
+		auto take = [&](const RuleItem* rule)
+		{
+			if (!rule) return;
+			if (claimed[rule] + gear[rule] < _baseFrom->getStorageItems()->getItem(rule))
+				gear[rule]++;
+		};
+		for (const auto& row : _items)
+		{
+			if (row.amount <= 0 || row.type != TRANSFER_SOLDIER) continue;
+			for (auto* layoutItem : *((Soldier*)row.rule)->getEquipmentLayout())
+			{
+				take(layoutItem->getItemType());
+				for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
+					take(layoutItem->getAmmoItemForSlot(ammoSlot));
+			}
+		}
+		for (const auto& entry : gear)
+		{
+			Json::Value e;
+			e["rule"] = entry.first->getType();
+			e["qty"] = entry.second;
+			items.append(e);
+		}
+	}
+
 	auto* bases = _game->getSavedGame()->getBases();
 	int fromId = 0, toId = 0;
 	for (size_t i = 0; i < bases->size(); ++i)
@@ -812,6 +854,11 @@ bool TransferItemsState::harnessTransferItem(const std::string& itemType, int co
 
 /**
  * Completes the transfer between bases.
+ *
+ * Routes the same way TransferConfirmState::btnOkClick does: in SHARED the move
+ * is one intra-world "transfer" shared_cmd and NOTHING may be mutated locally
+ * (see submitSharedTransfer) - running completeTransfer there would apply the
+ * SEPARATE cross-player machinery to a shared world and desync it.
  */
 bool TransferItemsState::transferSoldierNow(Soldier* soldier)
 {
@@ -820,7 +867,14 @@ bool TransferItemsState::transferSoldierNow(Soldier* soldier)
 		if (row.type == TRANSFER_SOLDIER && row.rule == (const void*)soldier)
 		{
 			row.amount = 1;
-			completeTransfer();
+			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			{
+				submitSharedTransfer();
+			}
+			else
+			{
+				completeTransfer();
+			}
 			return true;
 		}
 	}
@@ -1015,6 +1069,16 @@ void TransferItemsState::completeTransfer()
 		root["base_to_id"] = _baseTo->_coop_base_id;
 		root["base_from_id"] = _baseFrom->_coop_base_id;
 		root["total_funds"] = _total;
+		// This is the IMMEDIATE path: the funds debit (top of this method), the
+		// source-store removal and the co-op limit decrements below have all
+		// already been applied locally. The ACK-gated path (createPendingTransfers)
+		// applies none of them and relies on the peer's "transfer_completed" to do
+		// it via Base::removePendingTransfers(). Both send this same "transfer"
+		// packet, so the flag is what tells the two apart when the ACK comes back -
+		// without it the peer's ACK re-applies everything, the store re-validation
+		// inside removePendingTransfers() finds nothing left to remove and the whole
+		// confirmation fails (CoopState 552), leaving the trade half-applied.
+		root["already_applied"] = true;
 
 		int index = 0;
 		for (auto trade : *_baseTo->getTransfers())

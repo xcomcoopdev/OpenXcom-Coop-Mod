@@ -729,6 +729,12 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			storeAddTo += (double)qty * r->getSize();
 		}
 
+	// Living quarters: the base that HOUSES a soldier pays for it, and the
+	// destination reserves the space the moment the transfer is sent
+	// (Base::getTotalSoldiers already counts personnel en route). Refuse a move
+	// the destination cannot house, the same way the store limit is enforced.
+	int incomingPersonnel = 0;
+
 	const Json::Value& soldiers = payload["soldiers"];
 	if (soldiers.isArray())
 		for (const auto& sid : soldiers)
@@ -739,6 +745,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 				if (s->getId() == id && s->getCraft() == 0) { found = true; break; }
 			if (!found) { failReason = "soldier not transferable"; return false; }
 			total += soldierCost;
+			incomingPersonnel++;
 		}
 
 	const Json::Value& crafts = payload["crafts"];
@@ -748,6 +755,9 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			Craft* c = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
 			if (!c) { failReason = "craft not transferable"; return false; }
 			total += craftCost;
+			// the crew rides along (see transferApply) and must be housed too
+			for (auto* s : *fromBase->getSoldiers())
+				if (s->getCraft() == c) incomingPersonnel++;
 		}
 
 	int sci = payload.get("scientists", 0).asInt();
@@ -757,9 +767,14 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	total += (int64_t)sci * sciCost;
 	total += (int64_t)eng * engCost;
 
+	incomingPersonnel += sci + eng;
+
 	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
 	if (Options::storageLimitsEnforced && toBase->storesOverfull(storeAddTo))
 		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+	if (incomingPersonnel > 0
+		&& toBase->getAvailableQuarters() - toBase->getUsedQuarters() < incomingPersonnel)
+		{ failReason = "STR_NO_FREE_ACCOMODATION"; return false; }
 
 	cost = total; // positive debit
 	return true;
