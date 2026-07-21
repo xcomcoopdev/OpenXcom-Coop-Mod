@@ -1,0 +1,13 @@
+# TEST AID - see metadata.yml.
+#
+# missilePower > 0  => the UFO bombards the base: Base::damageFacilities() destroys or
+#                      replaces facilities, the base SURVIVES, and NO battlescape happens.
+# missilePower < 0  => nuke: the base is destroyed outright.
+#
+# In a JOINT co-op campaign that whole path runs host-side only, so the fix broadcasts the
+# resulting facility layout (base_damaged) to the clients' copy of the one shared base.
+ufos:
+  - type: STR_BATTLESHIP
+    missilePower: 400
+  - type: STR_TERROR_SHIP
+    missilePower: 200

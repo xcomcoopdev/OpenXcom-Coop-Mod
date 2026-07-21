@@ -1,0 +1,9 @@
+#
+# metadata.yml for Coop Missile UFO Test
+
+name: "Coop: Missile UFO (test)"
+version: 1.0
+description: "TEST AID for the co-op mod. Gives retaliation Battleships/Terror Ships a missile payload (missilePower) so they BOMBARD an X-Com base from the geoscape instead of landing for a base-defence battle. That is the only way to reach the 'partial destruction' path (facilities destroyed, base survives, no battle) - no vanilla UFO defines missilePower. Enable only to test that path."
+author: XComCoopTeam
+
+master: xcom1

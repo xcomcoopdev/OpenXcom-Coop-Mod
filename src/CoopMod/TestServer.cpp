@@ -2357,6 +2357,89 @@ bool TestServer::executeJoint11(const std::string& cmd, const Json::Value& req, 
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "spawn_base_assault")
+	{
+		// Spawn a retaliation UFO that is ASSAULTING an X-Com base: its destination is the
+		// Base itself, which is what GeoscapeState's arrival handler dynamic_casts on to
+		// run the base-defence path (turrets -> battle / damage / destruction).
+		// Params: base (name, default first real base), mission, trajectory, race, hours.
+		SavedGame* sg = _game->getSavedGame();
+		Mod* mod = _game->getMod();
+		const RuleUfo* ufoRule = mod->getUfo(req.get("type", "STR_BATTLESHIP").asString(), false);
+		const RuleAlienMission* missionRule = mod->getAlienMission(
+			req.get("mission", "STR_ALIEN_RETALIATION").asString(), false);
+		const UfoTrajectory* traj = mod->getUfoTrajectory(
+			req.get("trajectory", UfoTrajectory::RETALIATION_ASSAULT_RUN).asString(), false);
+		std::string baseName = req.get("base", "").asString();
+		Base* target = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon
+					&& (baseName.empty() || b->getName() == baseName)) { target = b; break; }
+		if (!sg) resp["error"] = "no saved game";
+		else if (!ufoRule) resp["error"] = "unknown ufo rule";
+		else if (!missionRule) resp["error"] = "unknown mission rule";
+		else if (!traj) resp["error"] = "unknown trajectory";
+		else if (!target) resp["error"] = "no target base";
+		else
+		{
+			AlienMission* m = new AlienMission(*missionRule);
+			m->setRace(req.get("race", "STR_SECTOID").asString());
+			m->setRegion(req.get("region", "STR_NORTH_AMERICA").asString(), *mod);
+			m->setId(sg->getId("STR_ALIEN_MISSIONS"));
+			sg->getAlienMissions().push_back(m);
+
+			Ufo* u = new Ufo(ufoRule, sg->getId("STR_UFO_UNIQUE"));
+			u->setMissionInfo(m, traj);
+			u->setId(sg->getId("STR_UFO"));
+			// sitting on the base, already heading for it -> arrival fires immediately
+			u->setLongitude(target->getLongitude());
+			u->setLatitude(target->getLatitude());
+			u->setAltitude("STR_VERY_LOW");
+			u->setDetected(true);
+			u->setStatus(Ufo::FLYING);
+			u->setSpeed(req.get("speed", 1).asInt());
+			u->setDestination(target);
+			target->setRetaliationTarget(true);
+			sg->getUfos()->push_back(u);
+			resp["ufo_id"] = u->getId();
+			resp["base"] = target->getName();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "host_base_damaged")
+	{
+		// Drive the MISSILE-bombardment outcome (facilities lost, base survives, NO
+		// battle) and its JOINT broadcast. Base::damageFacilities() only does anything
+		// for a UFO with missilePower > 0, and no vanilla ruleset defines one, so the
+		// damage itself is simulated here; what is under test is that the host's
+		// resulting layout reaches the replica.
+		SavedGame* sg = _game->getSavedGame();
+		Base* target = nullptr;
+		if (sg)
+			for (auto* b : *sg->getBases())
+				if (!b->_coopBase && !b->_coopIcon) { target = b; break; }
+		if (!target) resp["error"] = "no target base";
+		else
+		{
+			int want = req.get("count", 1).asInt();
+			int removed = 0;
+			auto* facs = target->getFacilities();
+			for (auto it = facs->end(); it != facs->begin() && removed < want; )
+			{
+				--it;
+				if ((*it)->getRules()->isLift()) continue;
+				delete *it;
+				it = facs->erase(it);
+				++removed;
+			}
+			target->cleanupDefenses(true);
+			JointEcon::hostBaseDamaged(_game, target, nullptr);
+			resp["removed"] = removed;
+			resp["facilities"] = (int)facs->size();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "ufo_alert")
 	{
 		// Playtest B5: reproduce a native UFO detection on THIS machine. Building a

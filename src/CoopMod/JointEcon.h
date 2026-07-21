@@ -233,7 +233,7 @@ void hostDayTick(Game* game);
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed
 /// the base in BaseDestroyedState). Mirror the removal to replicas (they erase the
 /// same base index + pop a popup). @a baseId = the destroyed base's index.
-void hostBaseDestroyed(Game* game, int baseId, const std::string& name);
+void hostBaseDestroyed(Game* game, int baseId, const std::string& name, bool missiles = false);
 
 // ---- PRD-J08: shared craft command --------------------------------------------
 // Any player commands any craft; orders ride joint_cmd (craft_launch /
@@ -326,6 +326,12 @@ void hostPatrolPrompt(Game* game, Craft* craft);
 /// Host-authoritative alien-base discovery (HOST -> all seats). Discovering a base is a
 /// shared-world mutation (setDiscovered), not just an alert, so only the host may roll for
 /// it; replicas apply the host's result and pop the same dialog.
+/// A missile-armed UFO bombarded @a base (facilities destroyed/replaced, base survives).
+/// Only the host reaches that code and the roll is RNG-driven, so it broadcasts the
+/// resulting facility layout as an absolute end-state for replicas to adopt, plus the
+/// "damaged but survived" dialog. No battle is involved in this path.
+void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo);
+
 void hostAlienBaseFound(Game* game, AlienBase* alienBase);
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",

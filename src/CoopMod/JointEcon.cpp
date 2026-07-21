@@ -100,6 +100,7 @@
 #include "../Geoscape/TrainingFinishedState.h"
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../Geoscape/AlienBaseState.h"
+#include "../Geoscape/BaseDestroyedState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
@@ -1555,9 +1556,17 @@ void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat
 	auto* bases = save->getBases();
 	for (auto it = bases->begin(); it != bases->end(); ++it)
 		if (*it == base) { save->stopHuntingXcomCrafts(base); bases->erase(it); delete base; break; }
+	// Match the host's wording: an alien MISSILE strike reads differently from an
+	// undefended base being overrun. (The base is erased immediately rather than when
+	// the player dismisses a dialog, so that every machine drops the same base INDEX at
+	// the same moment - baseId is the protocol's routing key - which is why this is a
+	// message rather than the full BaseDestroyedState dialog.)
+	const std::string msgKey = payload.get("missiles", false).asBool()
+		? "STR_ALIEN_MISSILES_HAVE_DESTROYED_OUR_BASE"
+		: "STR_THE_ALIENS_HAVE_DESTROYED_THE_UNDEFENDED_BASE";
 	auto* itf = game->getMod()->getInterface("geoscape");
 	game->pushState(new ErrorMessageState(
-		game->getLanguage()->getString("STR_THE_ALIENS_HAVE_DESTROYED_THE_UNDEFENDED_BASE").arg(name),
+		game->getLanguage()->getString(msgKey).arg(name),
 		game->getScreen()->getPalette(),
 		itf->getElement("genericWindow")->color, "BACK01.SCR", itf->getElement("palette")->color));
 }
@@ -2095,6 +2104,56 @@ void patrolPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	GeoscapeState* gs = findGeoState(game);
 	if (!craft || !gs) return;
 	gs->clientCraftReachedWaypoint(craft);
+}
+
+// base_damaged payload: { ufoId, missileHit, facilities:[{type,x,y,buildTime}] }.
+// Host-origin, replica-only apply.
+//
+// A missile-armed UFO that survives the base's defences bombards the base instead of
+// landing: Base::damageFacilities() destroys/replaces facilities and the base SURVIVES
+// (no battle at all). That runs in handleBaseDefense, which only the host reaches (the
+// replica's geoscape sim is frozen), and BaseDestroyedState::btnOkClick returns early for
+// a partial destruction - so nothing was ever broadcast and the client's copy of the ONE
+// shared base kept the facilities the host had just lost.
+//
+// damageFacilities() is RNG-driven (WeightedOptions::choose), so a replica cannot re-roll
+// it; the host sends the resulting layout as an ABSOLUTE end-state and the replica adopts
+// it verbatim (same idiom as the GAP-5 equip commands).
+void baseDamagedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host already applied its own roll
+	if (!base) return;
+	Mod* mod = game->getMod();
+	SavedGame* save = game->getSavedGame();
+	if (!mod || !save) return;
+
+	// Adopt the host's post-damage facility layout wholesale.
+	auto* facs = base->getFacilities();
+	for (auto* f : *facs) delete f;
+	facs->clear();
+	const Json::Value& jf = payload["facilities"];
+	for (Json::ArrayIndex i = 0; i < jf.size(); ++i)
+	{
+		RuleBaseFacility* rule = mod->getBaseFacility(jf[i].get("type", "").asString(), false);
+		if (!rule) continue;
+		BaseFacility* f = new BaseFacility(rule, base);
+		f->setX(jf[i].get("x", 0).asInt());
+		f->setY(jf[i].get("y", 0).asInt());
+		f->setBuildTime(jf[i].get("buildTime", 0).asInt());
+		facs->push_back(f);
+	}
+	save->stopHuntingXcomCrafts(base);
+	base->cleanupDefenses(true);
+
+	// Same "base damaged but survived" dialog the host shows. Safe to pop the real one:
+	// its OK handler returns early for a partial destruction and never erases the base.
+	GeoscapeState* gs = findGeoState(game);
+	if (!gs) return;
+	Ufo* ufo = nullptr;
+	const int ufoId = payload.get("ufoId", -1).asInt();
+	for (auto* u : *save->getUfos())
+		if (u->getId() == ufoId) { ufo = u; break; }
+	gs->popup(new BaseDestroyedState(base, ufo, true, true));
 }
 
 // alien_base_found payload: { alienBaseId }. Host-origin, replica-only apply.
@@ -2747,6 +2806,9 @@ void init()
 	// Host-authoritative alien-base discovery: a shared-world mutation, so the replica
 	// must NOT roll its own (it used to, and the two could disagree).
 	registerCmd("alien_base_found", &simAccept, &alienBaseFoundApply);
+	// Missile-UFO base bombardment: facilities lost host-side must reach the replica
+	// (shared world), and the "damaged but survived" dialog with it.
+	registerCmd("base_damaged", &simAccept, &baseDamagedApply);
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
@@ -3012,11 +3074,12 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived)
 	submitLocalCmd(game, "transfer_arrived", baseId, p);
 }
 
-void hostBaseDestroyed(Game* game, int baseId, const std::string& name)
+void hostBaseDestroyed(Game* game, int baseId, const std::string& name, bool missiles)
 {
 	if (!jointHost(game)) return;
 	Json::Value p;
 	p["name"] = name;
+	p["missiles"] = missiles;
 	submitLocalCmd(game, "base_destroyed", baseId, p);
 }
 
@@ -3203,6 +3266,25 @@ void hostPatrolPrompt(Game* game, Craft* craft)
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	submitLocalCmd(game, "patrol_prompt", craftBaseIndex(game, craft), p);
+}
+
+void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo)
+{
+	if (!jointHost(game) || !base) return;
+	Json::Value p;
+	p["ufoId"] = ufo ? ufo->getId() : -1;
+	Json::Value facs(Json::arrayValue);
+	for (const auto* f : *base->getFacilities())
+	{
+		Json::Value j;
+		j["type"] = f->getRules()->getType();
+		j["x"] = f->getX();
+		j["y"] = f->getY();
+		j["buildTime"] = f->getBuildTime();
+		facs.append(j);
+	}
+	p["facilities"] = facs;
+	submitLocalCmd(game, "base_damaged", baseIndex(game, base), p);
 }
 
 void hostAlienBaseFound(Game* game, AlienBase* alienBase)

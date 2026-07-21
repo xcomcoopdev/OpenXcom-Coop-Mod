@@ -70,7 +70,9 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 
 	_screen = false;
 
-	int soundId = ufo->getRules()->getHitSound();
+	// JOINT: a replica may raise this dialog from a host broadcast without holding the
+	// attacking UFO (it can already be gone from the shared world), so ufo may be null.
+	int soundId = ufo ? ufo->getRules()->getHitSound() : (int)Mod::NO_SOUND;
 	if (soundId != Mod::NO_SOUND)
 	{
 		_customSound = _game->getMod()->getSound("GEO.CAT", soundId);
@@ -93,7 +95,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 	centerAllSurfaces();
 
 	// Set up objects
-	if (ufo->getRules()->getHitImage().empty())
+	if (!ufo || ufo->getRules()->getHitImage().empty())
 	{
 		setWindowBackground(_window, "baseDestroyed");
 	}
@@ -207,7 +209,8 @@ void BaseDestroyedState::btnOkClick(Action *)
 			_game->getSavedGame()->stopHuntingXcomCrafts(xbase); // destroyed together with the base
 			delete xbase;
 			bases->erase(bases->begin() + i);
-			JointEcon::hostBaseDestroyed(_game, baseId, destroyedName);
+			// carry the CAUSE so the replica shows the same message the host does
+			JointEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			break;
 		}
 	}

@@ -2527,6 +2527,15 @@ void GeoscapeState::time5Seconds()
 					ufo->setDestination(0);
 					base->setupDefenses(mission);
 					timerReset();
+					// JOINT: the base under attack is the ONE shared base, but only the
+					// host's sim reaches this handler, so tell every other seat. The
+					// turret sequence itself stays host-only ON PURPOSE: its OK handler
+					// runs handleBaseDefense + retaliation-mission RNG, so a replica copy
+					// would double-apply the consequences. The client gets the alert, and
+					// then the outcome - the battle (battlehost), base_damaged, or
+					// base_destroyed - through its own replicated path.
+					JointEcon::hostAlert(_game, "CraftErrorState",
+						tr("STR_BASE_UNDER_ATTACK").arg(base->getName()), base);
 					if (!base->getDefenses()->empty() && !ufo->getMission()->getRules().ignoreBaseDefenses())
 					{
 						bool instaHyper = ufo->getRules()->isInstaHyper() || mission->getRules().isInstaHyper();
@@ -5842,6 +5851,10 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 
 			// let the player know that some facilities were destroyed, but the base survived
 			popup(new BaseDestroyedState(base, ufo, true, true));
+			// JOINT: this is the ONE shared base and the damage roll is host-only RNG, so
+			// hand the replicas the resulting layout - otherwise their copy of the base
+			// keeps the facilities the host just lost (silent, permanent divergence).
+			JointEcon::hostBaseDamaged(_game, base, ufo);
 		}
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())
