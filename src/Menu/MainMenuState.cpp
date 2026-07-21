@@ -89,13 +89,13 @@ public:
 		setWindowBackground(_window, "mainMenu");
 
 		// Literal button text matches the fork's coop-UI convention (no STR_COOP
-		// translation keys exist); JOINT = one shared host-authoritative world and is
+		// translation keys exist); SHARED = one shared host-authoritative world and is
 		// listed FIRST, SEPARATE = the older mirrored-economies model (PRD-J01).
-		_btnSolo->setText("SOLO");
+		_btnSolo->setText("Solo");
 		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
-		_btnCoopJoint->setText("CO-OP (JOINT)");
+		_btnCoopJoint->setText("Co-op (Shared)");
 		_btnCoopJoint->onMouseClick((ActionHandler)&NewGameModeState::btnCoopJointClick);
-		_btnCoopSeparate->setText("CO-OP (SEPARATE)");
+		_btnCoopSeparate->setText("Co-op (Separate)");
 		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
 		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
 

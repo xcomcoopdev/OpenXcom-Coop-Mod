@@ -1,8 +1,17 @@
 # Coop: Missile UFO (test aid)
 
-Optional, **disabled by default**. Install by copying this folder into
-`bin/x64/Release/standard/Coop_Missile_UFO_Test/`, then enable it in
-*Options -> Mods*.
+Optional, **disabled by default**. Install by copying this folder into your OpenXcom
+**user** mods directory, then enable it in *Options -> Mods*:
+
+    <user dir>/mods/Coop_Missile_UFO_Test/
+
+On this machine that is
+`C:\Users\bentl\OneDrive\Documents\OpenXcom\mods\Coop_Missile_UFO_Test\`
+(the folder that already holds `XComFiles`).
+
+Do **not** put it in `bin/x64/Release/standard/` - that is a protected location with a
+hardcoded allowlist of the mods shipped with OXCE; anything else there is rejected with
+`Invalid standard mod '<name>', skipping.` in `openxcom.log`.
 
 ## Why it exists
 

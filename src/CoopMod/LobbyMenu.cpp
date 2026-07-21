@@ -253,7 +253,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		{
 			ct = static_cast<int>(_game->getSavedGame()->getCampaignType());
 		}
-		lobby_title += (ct == static_cast<int>(CoopCampaignType::Joint)) ? "  [JOINT]" : "  [SEPARATE]";
+		lobby_title += (ct == static_cast<int>(CoopCampaignType::Joint)) ? "  [SHARED]" : "  [SEPARATE]";
 	}
 
 	_txtTitle->setText(lobby_title);
