@@ -427,6 +427,11 @@ CoopState::CoopState(int state)
 				{
 
 					soldier->setCoopBase(-1);
+					// clear the persisted seat too, or a soldier taken off the craft is
+					// re-seated from the stale id when the co-op base is next rebuilt
+					// (the sibling block below already does this).
+					soldier->setCoopCraft(-1);
+					soldier->setCoopCraftType("");
 				}
 			}
 		}

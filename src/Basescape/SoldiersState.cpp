@@ -717,6 +717,16 @@ void SoldiersState::btnOkClick(Action *)
 					soldier->setCoopCraft(soldier->getCraft()->getId());
 					soldier->setCoopCraftType(soldier->getCraft()->getType());
 				}
+				else
+				{
+					// A guest taken OFF the craft must have its persisted seat cleared
+					// too. CoopState/BasescapeState rebuild a co-op base by re-seating
+					// every guest whose CoopCraft matches a craft there, so leaving a
+					// stale id here silently puts the soldier back on the craft the
+					// moment the player leaves and re-enters the base.
+					soldier->setCoopCraft(-1);
+					soldier->setCoopCraftType("");
+				}
 
 				soldier->setCoopBase(_base->_coop_base_id);
 				soldier->setCoopName(soldier->getName());
