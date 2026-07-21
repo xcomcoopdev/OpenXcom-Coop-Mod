@@ -331,10 +331,20 @@ jobs:
           make -j"$(nproc)"
 
       - name: Package WinXP zip
+        env:
+          RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
         run: |
-          # CMake's post-build step already copied bin/{UFO,TFTD,common,standard}
-          # into build/bin; assert that tree before zipping it (same whitelist +
-          # coop-art checks the x64 and Linux packages get).
+          set -euxo pipefail
+          # CMake's post-build step copies bin/{UFO,TFTD,common,standard} into
+          # build/bin, and this job used to just zip that - which is why it got the
+          # data dirs right and the non-build-output files wrong: it shipped no
+          # rendezvous.json (Official server list comes up empty, see
+          # rendezvous_config.cpp) and no LICENSE.txt. Inject both, exactly like the
+          # x64 and Linux packages do, then assert the tree before zipping it.
+          if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
+          printf '%s' "$RELEASE_RENDEZVOUS_JSON" > build/bin/rendezvous.json
+          grep -q '"servers"' build/bin/rendezvous.json || { echo "rendezvous.json has no servers array"; exit 1; }
+          cp LICENSE.txt build/bin/
           sh tools/ci/assert_package_dir.sh build/bin
           cd build/bin
           rm -f libopenxcom.dll.a || true
@@ -394,7 +404,7 @@ jobs:
           # Globe's ctor throws on a missing multiplayer/base.png, killing "new game".
           cp -r bin/UFO/multiplayer  "$pkg/UFO/"
           cp -r bin/TFTD/multiplayer "$pkg/TFTD/"
-          cp LICENSE.txt "$pkg/" 2>/dev/null || true
+          cp LICENSE.txt "$pkg/"      # required by assert_package_dir.sh; fail loudly if it moves
           # real rendezvous.json from the secret (same as the x64 release); UFO data is NOT included (licensed)
           if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
           printf '%s' "$RELEASE_RENDEZVOUS_JSON" > "$pkg/rendezvous.json"
