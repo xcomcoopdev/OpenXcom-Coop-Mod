@@ -150,6 +150,7 @@ set(coopmod_src
   CoopMod/PasswordCheckMenu.cpp
   CoopMod/Profile.cpp
   CoopMod/ServerList.cpp
+  CoopMod/SharedEcon.cpp
 
   CoopMod/connectionUDP/connection_lan_discovery.cpp
   CoopMod/connectionUDP/connection_rendezvous_glue.cpp
