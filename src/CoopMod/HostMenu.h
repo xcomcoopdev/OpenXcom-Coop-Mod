@@ -115,6 +115,9 @@ class HostMenu : public State
 	void cbxRegionChange(Action* action);
 	/// Test hooks: drive the host window like a user would.
 	void testHostWithVisibility(int comboIndex);
+	/// Test hook: fill the host window's fields, then press START HOST.
+	void testHostWithFields(int comboIndex, const std::string& server,
+							const std::string& port, const std::string& password);
 	bool hostControlsVisible() const;
 };
 

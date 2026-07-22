@@ -94,6 +94,7 @@
 #include "../Mod/RuleManufacture.h"
 #include "../Mod/RuleUfo.h"
 #include "../Menu/NewGameState.h"
+#include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
 #include "../Menu/StartState.h"
@@ -3122,6 +3123,54 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "newbattle_ok")
+		{
+			// OK on the skirmish setup screen: for a co-op host this is the real
+			// START (it releases the client from the lobby and generates the map).
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				nb->btnOkClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "coop_connecting_dialogs")
+		{
+			// Count "Connecting..." wait dialogs (CoopState 15) ANYWHERE in the
+			// stack. coop_dialog_info only reports the top one, but the bug this
+			// guards is precisely a dialog left lurking UNDERNEATH something.
+			int count = 0;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && cs->getStateCode() == 15)
+				{
+					count++;
+				}
+			}
+			resp["count"] = count;
+			resp["ok"] = true;
+		}
+		else if (cmd == "server_list_host")
+		{
+			// Press "Host" in the server browser -> HostMenu. This is the real
+			// route into the skirmish lobby (NEW BATTLE > COOP opens the browser,
+			// see connectionTCP::createCoopMenu).
+			ServerList* browser = findState<ServerList>(_game);
+			if (!browser)
+			{
+				resp["error"] = "no ServerList in state stack";
+			}
+			else
+			{
+				browser->btnHostClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "server_combo")
 		{
 			// Dump the rendezvous-server combobox state for assertions.
@@ -4085,7 +4134,18 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				hm->testHostWithVisibility(req.get("visibility", 0).asInt());
+				// the host window reads the local player name from the coop
+				// state, not from a field of its own
+				if (req.isMember("player"))
+				{
+					coop->setHostName(req["player"].asString());
+				}
+				// server/port/password are optional: omitted means "leave the
+				// window's own defaults alone" (old callers behave unchanged).
+				hm->testHostWithFields(req.get("visibility", 0).asInt(),
+									   req.get("server", "").asString(),
+									   req.get("port", "").asString(),
+									   req.get("password", "").asString());
 				resp["ok"] = true;
 			}
 		}
@@ -4106,6 +4166,28 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				hm->btnCancelClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		// --- NEW BATTLE (skirmish) co-op entry points -------------------------
+		// The skirmish lobby (session.lobbyMode 0) is reachable ONLY from
+		// Main Menu > NEW BATTLE > COOP; the New Game dropdown always yields a
+		// campaign lobby. These drive that real UI path.
+		else if (cmd == "open_new_battle")
+		{
+			_game->pushState(new NewBattleState);
+			resp["ok"] = true;
+		}
+		else if (cmd == "newbattle_coop")
+		{
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				nb->btnCoopClick(nullptr);
 				resp["ok"] = true;
 			}
 		}

@@ -46,6 +46,12 @@ def main():
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47900", "player": "ClientPlayer"})
         client.wait_for("client lobby", lambda: session._has_state(client, "LobbyMenu"))
 
+        # the join popup sits over the lobby; while it does, the lobby is not the
+        # top state and gets no think() tick, so its roster stays empty. Dismiss
+        # it the way a player would before reading the roster.
+        client.wait_for("join popup", lambda: session._has_state(client, "Profile"))
+        client.ok({"cmd": "profile_ok"})
+
         client.wait_for(
             "host visible in client roster",
             lambda: any("HostPlayer" in p for p in client.ok({"cmd": "lobby_state"}).get("players", [])) or None,
@@ -79,6 +85,12 @@ def main():
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47901", "player": "ClientPlayer"})
         client.wait_for("client lobby over browser", lambda: session._has_state(client, "LobbyMenu"))
 
+        # both machines announce the join with a popup over the lobby; dismiss
+        # them so each lobby is the top state again
+        for gc in (host, client):
+            gc.wait_for("join popup", lambda gc=gc: session._has_state(gc, "Profile"))
+            gc.ok({"cmd": "profile_ok"})
+
         # host tears the session down while the client sits in the lobby
         host.ok({"cmd": "lobby_disconnect"})
         time.sleep(4)  # give the client's lobby think() time to misbehave
@@ -99,6 +111,9 @@ def main():
         host.wait_for("host lobby again", lambda: session._has_state(host, "LobbyMenu"))
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47902", "player": "ClientPlayer"})
         client.wait_for("client lobby again", lambda: session._has_state(client, "LobbyMenu"))
+        for gc in (host, client):
+            gc.wait_for("join popup", lambda gc=gc: session._has_state(gc, "Profile"))
+            gc.ok({"cmd": "profile_ok"})
         client.ok({"cmd": "lobby_disconnect"})
         time.sleep(4)
         st = session.states(client)

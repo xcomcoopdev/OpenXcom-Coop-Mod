@@ -117,6 +117,11 @@ def main():
         host.wait_for("rejoined client acked the streamed world",
                       lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
                       timeout=120)
+        # a rejoin now announces itself on the host ("<player> has joined the
+        # game") over the freeze dialog; dismiss it so the hold dialog is on top
+        if session.has_state(host, "Profile"):
+            host.ok({"cmd": "profile_ok"})
+            time.sleep(0.5)
         host.ok({"cmd": "coop_dialog_back"})   # the host's RESUME releases the hold
         client.wait_for(
             "rejoined client live on the geoscape",

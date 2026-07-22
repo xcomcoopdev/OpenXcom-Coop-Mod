@@ -34,6 +34,7 @@
 #include "../Interface/TextEdit.h"
 #include <algorithm>
 #include "../Interface/Window.h"
+#include "LobbyMenu.h"
 
 namespace OpenXcom
 {
@@ -107,8 +108,30 @@ void Profile::buttonOK(Action *)
 {
 	_game->popState();
 
+	// The popup now also appears over a lobby and over the rejoin load-wait
+	// dialog, where the world is either not wanted yet (the host starts the
+	// session) or already being fetched by the join handshake. Only the classic
+	// bare join still asks for the world from here; asking again in the other
+	// cases would stack a second load-wait and double-request the world.
+	bool worldAlreadyHandled = false;
+	for (State* st : _game->getStates())
+	{
+		if (dynamic_cast<LobbyMenu*>(st) != nullptr)
+		{
+			worldAlreadyHandled = true;
+			break;
+		}
+		CoopState* cs = dynamic_cast<CoopState*>(st);
+		if (cs && cs->getStateCode() == COOP_DLG_CLIENT_LOAD_WAIT)
+		{
+			worldAlreadyHandled = true;
+			break;
+		}
+	}
+
 	// save progress
-	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::saveID != 0)
+	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::saveID != 0
+		&& !worldAlreadyHandled)
 	{
 
 		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));

@@ -660,6 +660,19 @@ void NewBattleState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
 	{
 
+		// Skirmish co-op: OK here is the real START. The client is still sitting
+		// in the lobby (the host stepped out to these settings via the lobby's
+		// BATTLE SETTINGS button), so release it to follow us into the battle and
+		// lock the roster/teams now that the session is actually starting.
+		if (_game->getCoopMod()->getServerOwner() == true && connectionTCP::session.lobbyMode == 0)
+		{
+			connectionTCP::session.campaignStarted();
+
+			Json::Value lobbyDone;
+			lobbyDone["state"] = "lobby_ready";
+			_game->getCoopMod()->sendTCPPacketData(lobbyDone.toStyledString());
+		}
+
 		if (_game->getCoopMod()->getHost() == true)
 		{
 			_game->getCoopMod()->setSelectedCraft(_craft);
