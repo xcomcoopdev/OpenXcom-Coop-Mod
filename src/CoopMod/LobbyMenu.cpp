@@ -210,8 +210,9 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	_btnCancel->onMouseClick((ActionHandler)&LobbyMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&LobbyMenu::btnCancelClick, Options::keyCancel);
 
-	// Campaign lobbies are host-driven: clients have no ready/start button
-	// at all (flow-redesign D4)
+	// Every lobby is host-driven: only the host gets an action button
+	// (flow-redesign D4). Campaign lobbies start/resume a campaign; the
+	// skirmish lobby (mode 0, NEW BATTLE > COOP) starts the battle.
 	if (connectionTCP::session.lobbyMode != 0)
 	{
 		if (_game->getCoopMod()->getServerOwner() == true)
@@ -221,6 +222,19 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		}
 		else
 		{
+			_btnCancel->setVisible(false);
+		}
+	}
+	else
+	{
+		if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_btnCancel->setText("BATTLE SETTINGS");
+			_btnCancel->setVisible(false); // shown once the peer is in (think())
+		}
+		else
+		{
+			// the client is not in charge of the session
 			_btnCancel->setVisible(false);
 		}
 	}
@@ -760,40 +774,18 @@ void LobbyMenu::btnCancelClick(Action*)
 		return;
 	}
 
-	connectionTCP::isPlayerReady = !connectionTCP::isPlayerReady;
-
-	if (connectionTCP::session.sessionLocked == false && _game->getCoopMod()->getCoopStatic() == true)
+	// Skirmish lobby (NEW BATTLE > COOP): the button is START BATTLE and only
+	// the host has one, so nothing to do unless we are the host with a peer in.
+	if (connectionTCP::session.sessionLocked == false)
 	{
-
-		if (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true)
+		if (_game->getCoopMod()->getServerOwner() == true && startEligible())
 		{
-
-			_countdown = 30;
-
-			if (connectionTCP::isPlayerReady == true)
-			{
-				_timerStarted = true;
-			}
-			else
-			{
-				_timerStarted = false;
-			}
-	
+			openBattleSettings();
 		}
-
-		Json::Value root;
-		root["state"] = "coop_session_locked";
-		root["isPlayerReady"] = connectionTCP::isPlayerReady;
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-		if (connectionTCP::isPlayerReady == true && connectionTCP::isPlayersReady == true)
-		{
-			connectionTCP::session.campaignStarted();
-		}
-
+		return;
 	}
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
+
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
 		connectionTCP::session.markLobbyClosed();
 		_game->popState();
@@ -860,6 +852,24 @@ void LobbyMenu::pushServerListUnlessPresent()
 		}
 	}
 	_game->pushState(new ServerList());
+}
+
+/**
+ * Host pressed BATTLE SETTINGS in the skirmish lobby (mode 0).
+ *
+ * Steps back to the NEW BATTLE setup screen sitting underneath so the host can
+ * finalise craft, equipment, enemy types and so on. The CLIENT deliberately
+ * stays in the lobby: the session is live but nothing has started yet. The host
+ * can bounce between the two freely - the setup screen's COOP button re-opens
+ * this lobby - and the battle only begins when the host presses OK there, which
+ * is what releases the client from the lobby (NewBattleState::btnOkClick).
+ *
+ * Deliberately does NOT lock the session: locking happens when the battle
+ * actually starts, so a return trip to the lobby still offers BATTLE SETTINGS.
+ */
+void LobbyMenu::openBattleSettings()
+{
+	closeLobby();
 }
 
 void LobbyMenu::closeLobby()
@@ -1219,55 +1229,27 @@ void LobbyMenu::think()
 		}
 		else if (connectionTCP::session.sessionLocked == false)
 		{
-
-			std::string txtTimer = "";
-
-			// timer
-			if (_timerStarted == true && _game->getCoopMod()->getServerOwner() == true)
+			// Skirmish lobby (NEW BATTLE > COOP): host-driven like the campaign
+			// lobbies. The host steps out to BATTLE SETTINGS once the peer is
+			// in; the client has no action button. This replaced a mutual READY
+			// dance plus a 30s countdown that neither player controlled.
+			if (_game->getCoopMod()->getServerOwner() == true)
 			{
-				_countdown--;
-				txtTimer = " (" + std::to_string(_countdown) + "s)";
-
-				Json::Value root;
-				root["state"] = "lobby_timer";
-				root["timer"] = _countdown;
-
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-			}
-
-			if (connectionTCP::lobby_timer != -1)
-			{
-				txtTimer = " (" + std::to_string(connectionTCP::lobby_timer) + "s)";
-			}
-
-			if (_countdown <= 0 && _game->getCoopMod()->getServerOwner() == true)
-			{
-				_timerStarted = false;
-
-				// Do something after one minute
-				Json::Value root;
-				root["state"] = "lobby_ready";
-				connectionTCP::session.campaignStarted();
-
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-			}
-
-			if (connectionTCP::isPlayerReady == true)
-			{
-				txtStatus = " (READY)";
-				_btnCancel->setText("NOT READY" + txtTimer);
+				_btnCancel->setText("BATTLE SETTINGS");
+				_btnCancel->setVisible(startEligible());
 			}
 			else
 			{
-				txtStatus = " (NOT READY)";
-				_btnCancel->setText("READY" + txtTimer);
+				_btnCancel->setVisible(false);
 			}
+		}
+		else if (_game->getCoopMod()->getServerOwner() == true)
+		{
+			_btnCancel->setText("CANCEL");
 		}
 		else
 		{
-			_btnCancel->setText("CANCEL");
+			_btnCancel->setVisible(false);
 		}
 
 		// Playtest B7: mid-game coop menu -> keep RESUME GAME asserted over whatever
@@ -1327,21 +1309,9 @@ void LobbyMenu::think()
 				itClient = std::prev(_connectedPlayers.end());
 			}
 
-			// status
+			// status: the skirmish lobby no longer runs a READY dance (the host
+			// owns START BATTLE), so no player carries a ready marker
 			std::string txtStatus2 = "";
-
-			if (connectionTCP::session.lobbyMode == 0 && connectionTCP::session.sessionLocked == false)
-			{
-
-				if (connectionTCP::isPlayersReady == true)
-				{
-					txtStatus2 = " (READY)";
-				}
-				else
-				{
-					txtStatus2 = " (NOT READY)";
-				}
-			}
 
 			if (_game->getCoopMod()->getCoopGamemode() == 4)
 			{

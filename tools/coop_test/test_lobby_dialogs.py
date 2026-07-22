@@ -40,6 +40,15 @@ def dlg(gc):
     return gc.cmd({"cmd": "coop_dialog_info"})
 
 
+def dismiss_join_popup(gc):
+    """A successful join now ends on the "You have joined <host>'s game" popup,
+    stacked over the lobby. Dismiss it the way a player would, so the lobby is
+    the top state again for the assertions below."""
+    if session.has_state(gc, "Profile"):
+        gc.ok({"cmd": "profile_ok"})
+        time.sleep(0.5)
+
+
 def _host_lobby(host, port, password=None):
     host.ok({"cmd": "open_new_game", "mode": "coop"})
     host.wait_for("difficulty", lambda: session.has_state(host, "NewGameState"))
@@ -69,6 +78,7 @@ def _campaign_lobby(host, client, port):
     _host_lobby(host, port)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": "ClientPlayer"})
     client.wait_for("client lobby", lambda: session.has_state(client, "LobbyMenu"))
+    dismiss_join_popup(client)
 
 
 # ---------------------------------------------------------------- bug 1
@@ -89,6 +99,7 @@ def test_connecting_dialog_cleared():
         client.ok({"cmd": "coop_push_connecting"})
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47910", "player": "ClientPlayer"})
         client.wait_for("client lobby", lambda: session.has_state(client, "LobbyMenu"))
+        dismiss_join_popup(client)
 
         # client leaves the lobby -> must not resurface a buried "Connecting..."
         client.ok({"cmd": "lobby_disconnect"})
@@ -134,6 +145,7 @@ def test_connecting_dialog_cleared_password():
         # answering the challenge pushes the second Connecting... and reconnects
         client.ok({"cmd": "password_join", "password": "s3cret"})
         client.wait_for("client lobby", lambda: session.has_state(client, "LobbyMenu"))
+        dismiss_join_popup(client)
 
         # client leaves the lobby -> no stale password menu, no Connecting...
         client.ok({"cmd": "lobby_disconnect"})

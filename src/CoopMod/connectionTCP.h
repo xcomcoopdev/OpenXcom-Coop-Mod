@@ -294,6 +294,10 @@ class connectionTCP
 	Json::Value waitedResearch;
 	static bool _isChatActiveStatic;
 	void initProfile(bool clientInBattle, bool inBattle);
+	/// Push a state without burying an open "player joined" (Profile) popup.
+	void pushKeepingProfileOnTop(State* state);
+	/// Retire the "Connecting..." dialog when a connect attempt resolves.
+	void closeConnectingDialog();
 	long long getDateTimeCoop() const;
 	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();

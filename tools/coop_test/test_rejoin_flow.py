@@ -55,6 +55,13 @@ def main():
             lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
             timeout=120,
         )
+        # a rejoin now announces itself on the host with the "<player> has joined
+        # the game" popup, stacked over the freeze dialog; dismiss it first so the
+        # freeze dialog is the top state again (that gap - a mid-session rejoin
+        # telling you nothing about who came back - is exactly what it fixes)
+        if session.has_state(host, "Profile"):
+            host.ok({"cmd": "profile_ok"})
+            time.sleep(0.5)
         host.ok({"cmd": "coop_dialog_back"})
 
         client.wait_for(

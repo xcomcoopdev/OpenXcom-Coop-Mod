@@ -863,6 +863,8 @@ void HostMenu::hostTCPGame(Action* action)
 	}
 	else
 	{
+		// skirmish: popping back to the ServerList is enough - its init() sees
+		// the live session and converts itself into the lobby
 		_game->popState();
 	}
 
@@ -873,6 +875,20 @@ void HostMenu::testHostWithVisibility(int comboIndex)
 	_cbxVisibility->setSelected(comboIndex);
 	cbxVisibilityChange(nullptr);
 	hostTCPGame(nullptr);
+}
+
+/**
+ * Test hook: type into the host window's fields and press START HOST. Without
+ * this the harness could only host on the window's default port, so a driver
+ * that joined on its own port silently never connected.
+ */
+void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
+								  const std::string& port, const std::string& password)
+{
+	if (!server.empty()) _serverName->setText(server);
+	if (!port.empty()) _port->setText(port);
+	_password->setText(password);
+	testHostWithVisibility(comboIndex);
 }
 
 bool HostMenu::hostControlsVisible() const

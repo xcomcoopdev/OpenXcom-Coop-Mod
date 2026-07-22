@@ -1754,6 +1754,9 @@ void connectionTCP::updateCoopTask()
 	if (onConnect == -5)
 	{
 
+		// the attempt is over: retire "Connecting..." before reporting why
+		closeConnectingDialog();
+
 		// Make sure it calls disconnectTCP, otherwise it may get stuck.
 		_game->pushState(new CoopState(441));
 	}
@@ -1762,6 +1765,8 @@ void connectionTCP::updateCoopTask()
 	// server error!
 	if (onConnect == -3)
 	{
+
+		closeConnectingDialog();
 
 		// Make sure it calls disconnectTCP, otherwise it may get stuck.
 		_game->pushState(new CoopState(440));
@@ -1926,6 +1931,10 @@ void connectionTCP::updateCoopTask()
 	if (onConnect == 0)
 	{
 		onConnect = -1;
+
+		// the attempt is over either way: never leave "Connecting..." up. A
+		// join to a port nobody is listening on used to sit on it forever.
+		closeConnectingDialog();
 
 		// if client cancels the action
 		if (cancel_connect == false)
@@ -2775,13 +2784,70 @@ void connectionTCP::startTCPHost()
 	return;
 }
 
+/**
+ * Push a state while keeping an already-open "player joined" popup on top.
+ *
+ * The join handshake pushes Profile when the peer is announced, but the lobby
+ * arrives in a LATER packet (initProfile, below), so a plain pushState buried
+ * the popup under the lobby on the client - the host, whose lobby is already
+ * open when the peer joins, showed it correctly. The popup is the newest thing
+ * that happened, so it stays on top and the lobby renders behind it.
+ */
+/**
+ * Retire the "Connecting..." wait dialog (CoopState 15).
+ *
+ * Every connect attempt ends here, success or failure, so the dialog can never
+ * be left lurking under what comes next. It used to be popped only on one
+ * client success path: a refused or failed join stacked its error popup ON TOP
+ * of it, and dismissing that error resurfaced a dead "Connecting..." window;
+ * a join that simply never completed left it up forever.
+ *
+ * A password join buries [Connecting, PasswordCheckMenu, Connecting] (JOIN
+ * pushes a second wait dialog), so the stale password menu is popped too, not
+ * just a run of Connecting dialogs (issue #46).
+ */
+void connectionTCP::closeConnectingDialog()
+{
+	while (!_game->getStates().empty())
+	{
+		State* top = _game->getStates().back();
+		CoopState* connecting = dynamic_cast<CoopState*>(top);
+		if ((connecting && connecting->getStateCode() == 15)
+			|| dynamic_cast<PasswordCheckMenu*>(top) != nullptr)
+		{
+			_game->popState();
+		}
+		else
+		{
+			break;
+		}
+	}
+}
+
+void connectionTCP::pushKeepingProfileOnTop(State* state)
+{
+	const bool profileOnTop = !_game->getStates().empty()
+		&& dynamic_cast<Profile*>(_game->getStates().back()) != nullptr;
+
+	if (profileOnTop)
+	{
+		_game->popState();               // lift the popup off
+		_game->pushState(state);         // the lobby lands underneath it
+		_game->pushState(new Profile);   // and the popup goes back on top
+	}
+	else
+	{
+		_game->pushState(state);
+	}
+}
+
 void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
 {
 	// campaign flow: sessions are lobby-gated up front - no post-join lobby
 	// re-entry (F2/F3). Only the legacy new-battle path reopens it here.
 	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::session.lobbyMode == 0)
 	{
-		_game->pushState(new LobbyMenu);
+		pushKeepingProfileOnTop(new LobbyMenu);
 	}
 
 	if (_game->getCoopMod()->getCoopStatic() == true)
@@ -2904,6 +2970,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		connectionTCP::session.campaignStarted();
+
+		// Skirmish (mode 0): the host pressed START BATTLE. Leave the lobby with
+		// it - the host is already generating the battle and streams it over, so
+		// the client must not be left sitting on a dead lobby it cannot dismiss
+		// (it has no button). Pops the join popup stacked above the lobby too.
+		if (connectionTCP::session.lobbyMode == 0 && getServerOwner() == false)
+		{
+			connectionTCP::session.markLobbyClosed();
+			while (!_game->getStates().empty())
+			{
+				bool isLobby = dynamic_cast<LobbyMenu*>(_game->getStates().back()) != nullptr;
+				_game->popState();
+				if (isLobby)
+				{
+					break;
+				}
+			}
+		}
 
 	}
 
@@ -3614,6 +3698,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (connectionTCP::session.role == CoopRole::Client)
 		{
 			onConnect = -1;
+			closeConnectingDialog();
 			_game->pushState(new CoopState(444));
 		}
 		else
@@ -7738,6 +7823,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			_game->getCoopMod()->disconnectTCP();
 
+			// refused for a mod mismatch: the attempt is over
+			closeConnectingDialog();
+
 			_game->pushState(new ModCheckMenu(str_hash));
 
 			return;
@@ -7758,30 +7846,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// client has no save yet; the real adoption happens at campaign_start).
 		connectionTCP::_lobbyCampaignType = obj.get("campaignType", 0).asInt();
 
-		// Pop the "Connecting..." wait dialog (CoopState 15) NOW, before pushing
-		// the lobby/load dialog over it. forceCloseCoopStateMenu can't reach it
-		// once buried (a non-top state gets no think() tick, and LobbyMenu's ctor
-		// clears the flag anyway), so it would linger and resurface as a stale
+		// Pop the "Connecting..." wait dialog NOW, before pushing the lobby/load
+		// dialog over it. forceCloseCoopStateMenu can't reach it once buried (a
+		// non-top state gets no think() tick, and LobbyMenu's ctor clears the
+		// flag anyway), so it would linger and resurface as a stale
 		// "Connecting..." window when the client later leaves the lobby.
-		// A password join buries [Connecting, PasswordCheckMenu, Connecting]
-		// (JOIN pushes a second wait dialog), so pop the stale password menu
-		// too, not just a run of Connecting dialogs (issue #46).
-		while (!_game->getStates().empty())
-		{
-			State* top = _game->getStates().back();
-			CoopState* connecting = dynamic_cast<CoopState*>(top);
-			if ((connecting && connecting->getStateCode() == 15) || dynamic_cast<PasswordCheckMenu*>(top) != nullptr)
-				_game->popState();
-			else
-				break;
-		}
+		closeConnectingDialog();
 
+		// Every successful join confirms itself with the "You have joined
+		// <host>'s game" popup, on top of whatever the join leads to (lobby or
+		// load-wait). It used to be suppressed entirely for campaign lobbies.
 		if (!campaignStarted)
 		{
 			connectionTCP::session.lobbyMode = obj.get("lobby_mode", 1).asInt();
 			connectionTCP::forceCloseCoopStateMenu = true;
 			connectionTCP::forceClosePasswordCheckMenu = true;
 			_game->pushState(new LobbyMenu());
+			_game->pushState(new Profile);
 		}
 		else if (rejoin)
 		{
@@ -7794,6 +7875,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			Json::Value req;
 			req["state"] = "request_load_progress";
 			sendTCPPacketData(req.toStyledString());
+
+			_game->pushState(new Profile);
 		}
 		else
 		{
@@ -7829,6 +7912,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			_game->getCoopMod()->disconnectTCP();
 
+			// refused for a mod mismatch: the attempt is over
+			closeConnectingDialog();
+
 			_game->pushState(new ModCheckMenu(str_hash));
 
 			return;
@@ -7838,6 +7924,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::forceClosePasswordCheckMenu = true;
 
 		tcpPlayerName = obj.get("playername", tcpPlayerName).asString();
+
+		// joined: retire "Connecting..." before the popup covers it (the
+		// flag above only fires while the dialog is still the top state)
+		closeConnectingDialog();
 
 		_game->pushState(new Profile);
 
@@ -8016,11 +8106,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendTCPPacketData(root.toStyledString());
 
-		// campaign lobbies are host-driven: no Profile screen (F2/F3)
-		if (connectionTCP::session.lobbyMode == 0)
-		{
-			_game->pushState(new Profile);
-		}
+		// "<player> has joined the game" - shown for every lobby mode. The
+		// host's lobby is already open at this point, so this lands on top of
+		// it; campaign lobbies used to suppress the popup entirely.
+		_game->pushState(new Profile);
 
 	}
 

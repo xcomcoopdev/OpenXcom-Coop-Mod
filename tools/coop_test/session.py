@@ -58,9 +58,14 @@ def new_campaign(host, client, port="47900",
     host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port, "player": host_name})
     host.wait_for("host lobby", lambda: _has_state(host, "LobbyMenu"))
 
-    # client joins and lands in the lobby (no ready button, no Profile)
+    # client joins and lands in the lobby (no ready button). Both machines then
+    # show the "player joined" popup over the lobby; dismiss it the way a player
+    # would so callers see the lobby as the top state.
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client lobby", lambda: _has_state(client, "LobbyMenu"))
+    for gc in (host, client):
+        gc.wait_for("join popup", lambda gc=gc: _has_state(gc, "Profile"))
+        gc.ok({"cmd": "profile_ok"})
 
     # START CAMPAIGN enabled once the client is in
     host.wait_for(

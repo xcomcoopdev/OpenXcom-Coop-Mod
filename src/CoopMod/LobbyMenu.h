@@ -79,6 +79,8 @@ protected:
 	// Pop everything stacked above the LobbyMenu (inclusive) and mark the
 	// session's lobby closed. Shared by startCampaign() and resumeCampaign().
 	void closeLobby();
+	/// Host pressed BATTLE SETTINGS in the skirmish lobby (mode 0).
+	void openBattleSettings();
 	void btnChatClick(Action* action);
 	/// Handler for moving the mouse over a list item.
 	void lstSavesMouseOver(Action *action);
