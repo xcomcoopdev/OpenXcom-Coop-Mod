@@ -398,17 +398,36 @@ jobs:
         shell: bash
     steps:
       - name: Install build tools + MXE deps
+        # Retried: hosted runners share an egress to archive.ubuntu.com and
+        # intermittently get "Connection failed" part-way through the fetch. That is
+        # all that killed the nightly at 8.4.13215 (run 29942028942 - g++, libsasl2-2
+        # and unzip each failed to download after 100+ MB had come through fine).
+        # Acquire::Retries covers a single blip; the outer loop re-runs `update` too,
+        # so a mirror that has since rotated its index cannot leave us pinned to a
+        # version that no longer exists. This step must run BEFORE checkout (the
+        # container has no git, which `submodules: recursive` needs), so the retry
+        # cannot be factored out into a repo script.
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            git make g++ build-essential \
-            autopoint gperf intltool libtool-bin lzip zip \
-            ca-certificates wget xz-utils bzip2 \
-            file patch perl pkg-config curl \
-            python2-minimal \
-            p7zip-full bison flex ruby \
-            gdk-pixbuf2.0-bin \
-            libssl-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev libncurses5-dev
+          set -eu
+          apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          ok=0
+          for n in 1 2 3 4; do
+            if apt_get update && apt_get install -y \
+                 git make g++ build-essential \
+                 autopoint gperf intltool libtool-bin lzip zip \
+                 ca-certificates wget xz-utils bzip2 \
+                 file patch perl pkg-config curl \
+                 python2-minimal \
+                 p7zip-full bison flex ruby \
+                 gdk-pixbuf2.0-bin \
+                 libssl-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev libncurses5-dev
+            then ok=1; break; fi
+            echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
+            sleep $((n * 15))
+          done
+          [ "$ok" = 1 ] || { echo "::error::apt-get failed after 4 attempts"; exit 1; }
           ln -sf /usr/bin/python2.7 /usr/bin/python  || true
           ln -sf /usr/bin/python2.7 /usr/bin/python2 || true
 
@@ -495,13 +514,23 @@ jobs:
         shell: bash
     steps:
       - name: Install deps
+        # Same mirror-flake retry as build-winxp - see the comment there.
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake g++ make \
-            libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
-            libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+          set -eu
+          apt_get() { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          ok=0
+          for n in 1 2 3 4; do
+            if apt_get update && apt_get install -y \
+                 cmake g++ make \
+                 libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
+                 libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+            then ok=1; break; fi
+            echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
+            sleep $((n * 15))
+          done
+          [ "$ok" = 1 ] || { echo "::error::apt-get failed after 4 attempts"; exit 1; }
 
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, submodules: recursive }

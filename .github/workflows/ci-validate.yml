@@ -1,8 +1,18 @@
 name: CI validate (build + coop tests, no publish)
 
-# PR merge gate on FREE GitHub-hosted windows-latest. Every PR into main is proven
-# on a clean build + the coop test suite before it can merge. Required status checks
-# in main's branch protection: build, coop-tests, test-gate.
+# PR merge gate on FREE GitHub-hosted runners. Every PR into main is proven on a
+# clean build of all three shipped platforms + the coop test suite before it can
+# merge. Required status checks in main's branch protection: build, coop-tests,
+# test-gate, build-winxp, build-linux.
+#
+# build-winxp/build-linux mirror the jobs of the same name in ci-main.yml so a PR
+# cannot land code that only compiles under MSVC - previously those two only ran
+# after merge, and a break was found on main (with the nightly already broken)
+# instead of on the PR. They differ from ci-main's copies in three ways, all
+# deliberate: no version stamp (nothing is published), a placeholder
+# rendezvous.json instead of the RELEASE_RENDEZVOUS_JSON secret (fork-authored
+# code must never run with a real secret in its env), and the packaging stops at
+# the asserted staged tree - no archive, no upload.
 #
 # Runs on pull_request_target (NOT pull_request) so the UFO_DATA_DEPLOY_KEY secret
 # is available to fork PRs too - GitHub withholds all secrets from fork
@@ -237,3 +247,163 @@ jobs:
         with:
           path: .ci_timings
           key: coop-timings-${{ github.run_id }}
+
+  # 32-bit static WinXP binary, MinGW cross-compiled via MXE. Needs no artifact from
+  # any other job, so it runs alongside build + coop-tests and adds no wall-clock to
+  # the gate as long as the toolchain cache hits.
+  build-winxp:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    # 120 covers a cached run many times over; the headroom is for the cold-cache
+    # case, where MXE has to build gcc itself (~2h).
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build tools + MXE deps
+        # Retried: hosted runners share an egress to archive.ubuntu.com and
+        # intermittently get "Connection failed" part-way through the fetch (this is
+        # what broke nightly run 29942028942). Must run BEFORE checkout - the
+        # container has no git, which `submodules: recursive` needs.
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eu
+          apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          ok=0
+          for n in 1 2 3 4; do
+            if apt_get update && apt_get install -y \
+                 git make g++ build-essential \
+                 autopoint gperf intltool libtool-bin lzip zip \
+                 ca-certificates wget xz-utils bzip2 \
+                 file patch perl pkg-config curl \
+                 python2-minimal \
+                 p7zip-full bison flex ruby \
+                 gdk-pixbuf2.0-bin \
+                 libssl-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev libncurses5-dev
+            then ok=1; break; fi
+            echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
+            sleep $((n * 15))
+          done
+          [ "$ok" = 1 ] || { echo "::error::apt-get failed after 4 attempts"; exit 1; }
+          ln -sf /usr/bin/python2.7 /usr/bin/python  || true
+          ln -sf /usr/bin/python2.7 /usr/bin/python2 || true
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      # restore-only, deliberately: cache/save from a pull_request_target run writes
+      # to the BASE repo's cache scope, so a fork PR could otherwise hand main's
+      # release build a toolchain it authored. ci-main.yml owns the write; a cold
+      # cache here just means one slow gate run until main repopulates it.
+      - name: Restore MXE toolchain
+        id: cache-mxe
+        uses: actions/cache/restore@v4
+        with:
+          path: mxe
+          key: Linux-mxe-v7e39b555dee5e906b24a44940055dc28d4056d23-gcc11-jsoncpp-sdl_net-libsodium-v8
+
+      - name: Build MXE toolchain (only on cache miss)
+        if: steps.cache-mxe.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          # Keep in sync with ci-main.yml's build-winxp.
+          if [ ! -d mxe ]; then git clone https://github.com/mxe/mxe.git mxe; fi
+          cd mxe
+          git checkout 7e39b555dee5e906b24a44940055dc28d4056d23
+          # keep mingw-w64 VERSION + CHECKSUM in sync
+          sed -i 's/$(PKG)_VERSION := 8\.0\.2/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
+          sed -i 's/$(PKG)_CHECKSUM := f00cf1e2f975008855c93b9e0f8ec97decbf50f478e7ae4c7b5ffb9cdc54b743/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
+          export MXE_PLUGIN_DIRS="$PWD/plugins/gcc11"
+          make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
+            gcc cmake \
+            sdl sdl_net sdl_gfx sdl_mixer sdl_image \
+            yaml-cpp jsoncpp libsodium
+
+      - name: Configure + build (WinXP i686 static)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/mxe/usr/bin:$PATH"
+          export MXE_PREFIX="$GITHUB_WORKSPACE/mxe/usr/i686-w64-mingw32.static"
+          export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$MXE_PREFIX/lib/pkgconfig"
+          rm -rf build && mkdir -p build && cd build
+          i686-w64-mingw32.static-cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCMAKE_PREFIX_PATH="$MXE_PREFIX" \
+            -DDEPS_DIR= \
+            "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Assert the package tree (no secret, no archive)
+        run: |
+          set -euxo pipefail
+          # The real rendezvous.json comes from a secret at publish time; a PR only
+          # needs to prove the tree is shippable, so stand in the CI blackhole config.
+          cp tools/coop_test/rendezvous.ci.json build/bin/rendezvous.json
+          cp LICENSE.txt build/bin/
+          sh tools/ci/assert_package_dir.sh build/bin
+
+  # Native Linux (x86_64) build via GCC - the other platform ci-main.yml ships.
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install deps
+        # Same mirror-flake retry as build-winxp - see the comment there.
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eu
+          apt_get() { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          ok=0
+          for n in 1 2 3 4; do
+            if apt_get update && apt_get install -y \
+                 cmake g++ make \
+                 libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
+                 libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+            then ok=1; break; fi
+            echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
+            sleep $((n * 15))
+          done
+          [ "$ok" = 1 ] || { echo "::error::apt-get failed after 4 attempts"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Configure + build (Linux x86_64)
+        run: |
+          set -euxo pipefail
+          # ubuntu's libjsoncpp-dev installs headers under /usr/include/jsoncpp;
+          # the code includes <json/json.h>, so add jsoncpp's include dir.
+          JSONCPP_CFLAGS=$(pkg-config --cflags jsoncpp)
+          rm -rf build && mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
+
+      - name: Assert the package tree (no secret, no archive)
+        run: |
+          set -euxo pipefail
+          pkg=pkg-linux
+          mkdir -p "$pkg/UFO" "$pkg/TFTD"
+          cp build/bin/openxcom "$pkg/"
+          cp -r bin/common bin/standard "$pkg/"
+          # coop art only - never the whole UFO/TFTD dir (licensed retail data).
+          cp -r bin/UFO/multiplayer  "$pkg/UFO/"
+          cp -r bin/TFTD/multiplayer "$pkg/TFTD/"
+          cp LICENSE.txt "$pkg/"
+          cp tools/coop_test/rendezvous.ci.json "$pkg/rendezvous.json"
+          sh tools/ci/assert_package_dir.sh "$pkg"
