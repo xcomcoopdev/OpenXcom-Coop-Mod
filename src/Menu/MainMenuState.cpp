@@ -49,32 +49,65 @@ class NewGameModeState : public State
 {
 private:
 	Window *_window;
-	TextButton *_btnSolo, *_btnCoop;
+	TextButton *_btnSolo, *_btnCoopSeparate, *_btnCoopShared;
+	Text *_txtSolo, *_txtCoopSeparate, *_txtCoopShared;
 public:
 	NewGameModeState()
 	{
 		_screen = false;
 
-		// anchored directly under the New Game button (64,90 / 92x20)
-		_window = new Window(this, 100, 52, 60, 88, POPUP_VERTICAL);
-		_btnSolo = new TextButton(92, 20, 64, 92);
-		_btnCoop = new TextButton(92, 20, 64, 114);
+		// The popup's INTERIOR covers exactly the same area as the main menu's six
+		// buttons: they occupy x 64..256 (two 92-wide columns at x=64 and x=164) and
+		// y 90..166 (three 20-tall rows at y=90/118/146), i.e. 192x76 at (64,90).
+		// Window borders are 5px, so the frame is 10px larger and offset by 5.
+		_window = new Window(this, 202, 86, 59, 85, POPUP_VERTICAL);
+
+		// The three mode buttons sit exactly where New Game / Load Game / Mods are,
+		// so the block reads as an in-place replacement of that column.
+		_btnSolo = new TextButton(92, 20, 64, 90);
+		_btnCoopShared = new TextButton(92, 20, 64, 118);
+		_btnCoopSeparate = new TextButton(92, 20, 64, 146);
+
+		// One description per mode, in the right-hand column (where New Battle /
+		// Options / Quit are), each aligned with its own button.
+		_txtSolo = new Text(92, 20, 164, 90);
+		_txtCoopShared = new Text(92, 20, 164, 118);
+		_txtCoopSeparate = new Text(92, 20, 164, 146);
 
 		setInterface("mainMenu");
 
 		add(_window, "window", "mainMenu");
 		add(_btnSolo, "button", "mainMenu");
-		add(_btnCoop, "button", "mainMenu");
+		add(_btnCoopShared, "button", "mainMenu");
+		add(_btnCoopSeparate, "button", "mainMenu");
+		add(_txtSolo, "text", "mainMenu");
+		add(_txtCoopShared, "text", "mainMenu");
+		add(_txtCoopSeparate, "text", "mainMenu");
 
 		centerAllSurfaces();
 
 		setWindowBackground(_window, "mainMenu");
 
-		_btnSolo->setText("SOLO");
+		// Literal button text matches the fork's coop-UI convention (no STR_COOP
+		// translation keys exist); SHARED = one shared host-authoritative world and is
+		// listed FIRST, SEPARATE = the older mirrored-economies model (PRD-J01).
+		_btnSolo->setText("Solo");
 		_btnSolo->onMouseClick((ActionHandler)&NewGameModeState::btnSoloClick);
-		_btnCoop->setText("CO-OP");
-		_btnCoop->onMouseClick((ActionHandler)&NewGameModeState::btnCoopClick);
+		_btnCoopShared->setText("Co-op (Shared)");
+		_btnCoopShared->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSharedClick);
+		_btnCoopSeparate->setText("Co-op (Separate)");
+		_btnCoopSeparate->onMouseClick((ActionHandler)&NewGameModeState::btnCoopSeparateClick);
 		_btnSolo->onKeyboardPress((ActionHandler)&NewGameModeState::btnCancelClick, Options::keyCancel);
+
+		for (Text* t : { _txtSolo, _txtCoopShared, _txtCoopSeparate })
+		{
+			t->setSmall();
+			t->setWordWrap(true);
+			t->setVerticalAlign(ALIGN_MIDDLE);
+		}
+		_txtSolo->setText("Single player. Co-op is turned off.");
+		_txtCoopShared->setText("Co-op. Players share bases.");
+		_txtCoopSeparate->setText("Co-op. Each player has own base.");
 	}
 
 	void btnSoloClick(Action *)
@@ -83,10 +116,16 @@ public:
 		_game->pushState(new NewGameState(false));
 	}
 
-	void btnCoopClick(Action *)
+	void btnCoopSeparateClick(Action *)
 	{
 		_game->popState();
-		_game->pushState(new NewGameState(true));
+		_game->pushState(new NewGameState(true, CoopCampaignType::Separate));
+	}
+
+	void btnCoopSharedClick(Action *)
+	{
+		_game->popState();
+		_game->pushState(new NewGameState(true, CoopCampaignType::Shared));
 	}
 
 	void btnCancelClick(Action *)

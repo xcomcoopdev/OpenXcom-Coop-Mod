@@ -91,3 +91,6 @@ rendezvous_selection.json
 
 # test_server_browser screenshots (generated at runtime)
 tools/coop_test/*.png
+
+# Owner-internal working docs (PRDs, session notes, planning boards) - never committed.
+.agents/

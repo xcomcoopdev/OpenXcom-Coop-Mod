@@ -52,6 +52,7 @@
 #include "../Savegame/Vehicle.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
+#include "../CoopMod/SharedEcon.h" // coop (soldier ownership parity)
 
 namespace OpenXcom
 {
@@ -253,7 +254,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -279,6 +280,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
  */
 SoldiersState::~SoldiersState()
 {
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -390,6 +392,29 @@ void SoldiersState::init()
 
 	_base->prepareSoldierStatsWithBonuses(); // refresh stats for sorting
 	initList(0);
+
+	// PRD-J10: silent live refresh. In SHARED this roster is shared, so the peer's
+	// sack / craft_assign / arriving hire belongs on THIS list, live.
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress: wound recovery*/);
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh: refill in place, keep the scroll.
+ */
+void SoldiersState::think()
+{
+	State::think();
+
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
+	}
 }
 
 /**
@@ -413,8 +438,9 @@ void SoldiersState::initList(size_t scrl)
 	{
 		_lstSoldiers->setArrowColumn(188, ARROW_VERTICAL);
 
-		// all soldiers in the base
-		_filteredListOfSoldiers = *_base->getSoldiers();
+		// Playtest: SHARED shows only the local player's own soldiers (non-destructive:
+		// filter a LOCAL copy, never mutate the shared roster). SEPARATE/solo unchanged.
+		_filteredListOfSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	}
 	else
 	{
@@ -538,6 +564,8 @@ void SoldiersState::lstItemsLeftArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
+	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -591,6 +619,7 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -688,6 +717,16 @@ void SoldiersState::btnOkClick(Action *)
 					soldier->setCoopCraft(soldier->getCraft()->getId());
 					soldier->setCoopCraftType(soldier->getCraft()->getType());
 				}
+				else
+				{
+					// A guest taken OFF the craft must have its persisted seat cleared
+					// too. CoopState/BasescapeState rebuild a co-op base by re-seating
+					// every guest whose CoopCraft matches a craft there, so leaving a
+					// stale id here silently puts the soldier back on the craft the
+					// moment the player leaves and re-enters the base.
+					soldier->setCoopCraft(-1);
+					soldier->setCoopCraftType("");
+				}
 
 				soldier->setCoopBase(_base->_coop_base_id);
 				soldier->setCoopName(soldier->getName());
@@ -752,7 +791,7 @@ void SoldiersState::btnOkClick(Action *)
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isSharedCampaign())
 	{
 		// coop
 		_filteredListOfSoldiers = _base->base_oldsoldiers;
@@ -903,9 +942,9 @@ void SoldiersState::btnInventoryClick(Action *)
 		if (_availableOptions.empty() || _cbxScreenActions->getSelected() == 0)
 		{
 			size_t idx = _lstSoldiers->getSelectedRow();
-			if (idx < _base->getSoldiers()->size())
+			if (idx < _filteredListOfSoldiers.size())
 			{
-				int soldierId = _base->getSoldiers()->at(idx)->getId();
+				int soldierId = _filteredListOfSoldiers[idx]->getId();
 				for (auto* unit : *bgame->getUnits())
 				{
 					if (unit->getId() == soldierId)
@@ -947,7 +986,18 @@ void SoldiersState::lstSoldiersClick(Action *action)
 		}
 		else
 		{
-			_game->pushState(new SoldierInfoState(_base, _lstSoldiers->getSelectedRow()));
+			// Playtest: the list is owner-filtered in SHARED, so the display row is NOT the
+			// base-roster index SoldierInfoState expects. Map it back to the real index.
+			size_t _row = _lstSoldiers->getSelectedRow();
+			int _baseIdx = (int)_row;
+			if (_row < _filteredListOfSoldiers.size())
+			{
+				Soldier* _sel = _filteredListOfSoldiers[_row];
+				auto& _all = *_base->getSoldiers();
+				for (size_t _i = 0; _i < _all.size(); ++_i)
+					if (_all[_i] == _sel) { _baseIdx = (int)_i; break; }
+			}
+			_game->pushState(new SoldierInfoState(_base, _baseIdx));
 		}
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
@@ -1025,5 +1075,17 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 	Soldier *soldier = _filteredListOfSoldiers[row];
 	_game->pushState(new GiftSoldierMenu(soldier, GiftSoldierMenu::resolveOwnerId(soldier)));
 }
+
+/**
+ * Test automation: the soldier ids this screen actually displays.
+ */
+std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : _filteredListOfSoldiers)
+		ids.push_back(s->getId());
+	return ids;
+}
+
 
 }

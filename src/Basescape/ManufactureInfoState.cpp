@@ -39,6 +39,8 @@
 #include "../Engine/Timer.h"
 #include "../Menu/ErrorMessageState.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h"
 #include <climits>
 
 namespace OpenXcom
@@ -72,6 +74,13 @@ ManufactureInfoState::ManufactureInfoState (Base *base, Production *production) 
 void ManufactureInfoState::buildUi()
 {
 	_screen = false;
+
+	// PRD-J06: SHARED campaign = host-authoritative shared world. This screen edits
+	// it live (so vanilla engineer/workshop capping works), then btnOkClick/
+	// btnStopClick reverse those edits and submit a shared_cmd instead.
+	_shared = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign();
+	_sharedOrigEngineers = 0; _sharedOrigAmount = 1;
+	_sharedOrigInfinite = false; _sharedOrigSell = false; _sharedOrigFallback = false;
 
 	_window = new Window(this, 320, 160, 0, 20, POPUP_BOTH);
 	_txtTitle = new Text(320, 17, 0, 30);
@@ -209,6 +218,15 @@ void ManufactureInfoState::buildUi()
 		_production = new Production (_item, 1);
 		_base->addProduction(_production);
 	}
+	// PRD-J06: snapshot the production's pre-edit state so a SHARED OK/Stop can
+	// reverse the live edits before submitting the authoritative command. (For a
+	// NEW production these are the just-created defaults and go unused - the undo
+	// path there is removeProduction.)
+	_sharedOrigEngineers = _production->getAssignedEngineers();
+	_sharedOrigAmount = _production->getAmountTotal();
+	_sharedOrigInfinite = _production->getInfiniteAmount();
+	_sharedOrigSell = _production->getSellItems();
+	_sharedOrigFallback = _production->isFallback();
 	_btnSell->setPressed(_production->getSellItems());
 	_btnSell->setVisible(_production->getRules()->canAutoSell());
 	initProfitInfo();
@@ -322,6 +340,31 @@ void ManufactureInfoState::btnSellClick(Action *)
  */
 void ManufactureInfoState::btnStopClick(Action *)
 {
+	// PRD-J06 (SHARED): cancelling an EXISTING production goes through man_cancel
+	// (host re-derives refund from the rule + credits funds). Reverse any live
+	// edits first so the replica's engineer pool matches before shared_apply lands.
+	if (_shared && !_item && _production)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if ((*bases)[i] == _base) { baseId = (int)i; break; }
+		std::string item = _production->getRules()->getName();
+		bool refund = _production->getRules()->getRefund();
+		int deltaEng = _production->getAssignedEngineers() - _sharedOrigEngineers;
+		_production->setAssignedEngineers(_sharedOrigEngineers);
+		_base->setEngineers(_base->getEngineers() + deltaEng);
+		_production->setAmountTotal(_sharedOrigAmount);
+		_production->setInfiniteAmount(_sharedOrigInfinite);
+		_production->setSellItems(_sharedOrigSell);
+		_production->setFallback(_sharedOrigFallback);
+		Json::Value p; p["item"] = item; p["refund"] = refund;
+		SharedEcon::submitLocalCmd(_game, "man_cancel", baseId, p);
+		exitState();
+		return;
+	}
+	// A NEW production in SHARED falls through here: removeProduction reverses the
+	// local scratch entirely (nothing was committed to the host). SEPARATE unchanged.
 	if (!_item && _production && _production->getRules()->getRefund())
 	{
 		_production->refundItem(_base, _game->getSavedGame(), _game->getMod());
@@ -336,6 +379,45 @@ void ManufactureInfoState::btnStopClick(Action *)
  */
 void ManufactureInfoState::btnOkClick(Action *)
 {
+	// PRD-J06 (SHARED): the live edits were only for vanilla's capping UX - reverse
+	// them and submit man_start (new) or man_alloc (existing); the host debits
+	// funds/materials and the shared world settles via shared_apply.
+	if (_shared)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if ((*bases)[i] == _base) { baseId = (int)i; break; }
+		std::string item = _production->getRules()->getName();
+		Json::Value p;
+		p["item"] = item;
+		p["engineers"] = _production->getAssignedEngineers();
+		p["qty"] = _production->getAmountTotal();
+		p["infinite"] = _production->getInfiniteAmount();
+		p["sell"] = _btnSell->getPressed();
+		p["fallback"] = _btnFallback->getPressed();
+		if (_item)
+		{
+			// NEW: removeProduction reverses the scratch (frees engineers, deletes
+			// it); startItem was never called so no funds/materials were touched.
+			_base->removeProduction(_production);
+			SharedEcon::submitLocalCmd(_game, "man_start", baseId, p);
+		}
+		else
+		{
+			// MODIFY: reverse the live edits, submit the ABSOLUTE targets.
+			int deltaEng = _production->getAssignedEngineers() - _sharedOrigEngineers;
+			_production->setAssignedEngineers(_sharedOrigEngineers);
+			_base->setEngineers(_base->getEngineers() + deltaEng);
+			_production->setAmountTotal(_sharedOrigAmount);
+			_production->setInfiniteAmount(_sharedOrigInfinite);
+			_production->setSellItems(_sharedOrigSell);
+			_production->setFallback(_sharedOrigFallback);
+			SharedEcon::submitLocalCmd(_game, "man_alloc", baseId, p);
+		}
+		exitState();
+		return;
+	}
 	if (_item)
 	{
 		_production->startItem(_base, _game->getSavedGame(), _game->getMod());
@@ -350,6 +432,19 @@ void ManufactureInfoState::btnOkClick(Action *)
 		_production->setFallback(true);
 	}
 	exitState();
+}
+
+/**
+ * Test harness (SHARED): set engineers (vanilla-capped) + total units, then submit
+ * via the real btnOkClick. Only valid for a NEW-production state.
+ */
+bool ManufactureInfoState::harnessStart(int engineers, int qty)
+{
+	if (!_item) return false;
+	if (engineers > 0) moreEngineer(engineers);
+	if (qty >= 1) _production->setAmountTotal(qty);
+	btnOkClick(nullptr);
+	return true;
 }
 
 /**

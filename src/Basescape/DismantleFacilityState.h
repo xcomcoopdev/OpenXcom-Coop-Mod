@@ -52,6 +52,8 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
+	/// Test automation: confirm the dismantle via the real btnOkClick path.
+	void harnessDismantle() { btnOkClick(nullptr); }
 };
 
 }

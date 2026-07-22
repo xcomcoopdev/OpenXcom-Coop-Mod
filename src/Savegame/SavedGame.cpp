@@ -112,7 +112,7 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
  * Initializes a brand new saved game according to the specified difficulty.
  */
 SavedGame::SavedGame() :
-	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
+	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _campaignType(CoopCampaignType::Separate), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
 	_battleGame(0), _previewBase(nullptr), _debug(false), _warned(false),
 	_togglePersonalLight(true), _toggleNightVision(false), _toggleBrightness(0),
 	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
@@ -327,6 +327,12 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
+	// PRD-J01: SHARED/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	{
+		int coopCampaignTypeInt = 0;
+		header.tryRead("coopCampaignType", coopCampaignTypeInt);
+		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
+	}
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
@@ -568,6 +574,11 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	for (size_t i = 0; i < _bases.size(); ++i)
 		_bases[i]->finishLoading(reader["bases"][i], this);
 
+	// Playtest B4: split any soldier still left unowned (999) between the two seats,
+	// so a SHARED save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside SHARED.
+	migrateSharedSoldierOwnership();
+
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())
 	{
@@ -755,6 +766,32 @@ void SavedGame::addFinishedResearchSimple(const RuleResearch* research)
 
 /**
  * Loads a saved game's contents from a YAML file.
+/**
+ * Playtest B4: give every still-unowned soldier (ownerPlayerId 999) a seat, so a
+ * SHARED battle splits control by owner instead of leaving the whole roster
+ * host-controlled / co-owned. Deterministic by soldier id so the host and every
+ * replica agree; a no-op outside SHARED and for soldiers already owned (hires, or a
+ * roster the creation-time split already handled).
+ */
+void SavedGame::migrateSharedSoldierOwnership()
+{
+	if (_campaignType != CoopCampaignType::Shared)
+	{
+		return;
+	}
+	for (auto* base : _bases)
+	{
+		for (auto* soldier : *base->getSoldiers())
+		{
+			if (soldier->getOwnerPlayerId() == 999)
+			{
+				soldier->setOwnerPlayerId(soldier->getId() % 2);
+			}
+		}
+	}
+}
+
+/**
  * @note Assumes the saved game is blank.
  * @param filename YAML filename.
  * @param mod Mod for the saved game.
@@ -773,6 +810,12 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	header.tryRead("ironman", _ironman);
 	header.tryRead("coop", _coop);
 	header.tryRead("coopPlayers", _coopPlayers);
+	// PRD-J01: SHARED/SEPARATE economy model (int). Beside coop; SEPARATE default.
+	{
+		int coopCampaignTypeInt = 0;
+		header.tryRead("coopCampaignType", coopCampaignTypeInt);
+		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
+	}
 
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
@@ -1162,6 +1205,11 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	for (size_t i = 0; i < _bases.size(); ++i)
 		_bases[i]->finishLoading(reader["bases"][i], this);
 
+	// Playtest B4: split any soldier still left unowned (999) between the two seats,
+	// so a SHARED save - including one created before the ownership split existed - is
+	// not left with the whole roster co-owned in battle. No-op outside SHARED.
+	migrateSharedSoldierOwnership();
+
 	// Finish loading UFOs after all craft and all other UFOs are loaded
 	for (const auto& ufoReader : reader["ufos"].children())
 	{
@@ -1344,6 +1392,8 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	{
 		headerWriter.write("coop", _coop);
 		headerWriter.write("coopPlayers", _coopPlayers);
+		// PRD-J01: economy model beside coop (int); mirror of the load read.
+		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
 	// Saves the full game data to the save
@@ -1593,6 +1643,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	{
 		headerWriter.write("coop", _coop);
 		headerWriter.write("coopPlayers", _coopPlayers);
+		// PRD-J01: economy model beside coop (int); mirror of the load read.
+		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
 	// Saves the full game data to the save
@@ -1616,7 +1668,11 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
 	// campaign's save with another campaign's blobs).
 	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
-	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite)
+	// PRD-J02: a SHARED save is already the single authoritative world for every
+	// player - there are no separate client worlds to embed. Skip the
+	// coopClientSaves sequence entirely (SEPARATE keeps embedding as before).
+	bool sharedSave = (_campaignType == CoopCampaignType::Shared);
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !sharedSave)
 	{
 		// Blob identity comes from the locked roster (host at [0], clients after),
 		// NOT from reverse-parsing map keys: each client's world lives under
@@ -1951,6 +2007,24 @@ void SavedGame::setFunds(int64_t funds)
 	{
 		_incomes.back() += funds - _funds.back();
 	}
+	_funds.back() = funds;
+}
+
+/**
+ * Changes the player's funds WITHOUT booking the delta into the income/
+ * expenditure graph series.
+ * setFunds() infers income-vs-expenditure from the net delta, which is correct
+ * for a single local transaction but WRONG for a SHARED replica adopting the
+ * host's authoritative funds once per shared_apply: the host reached that value
+ * through many gross income AND expenditure events, so net-inference on the
+ * replica drifts the Graphs->Finance series (GAP-9). The SHARED apply layer calls
+ * this and then copies the host's authoritative _incomes/_expenditures tails
+ * verbatim, keeping the replica's series exactly the host's. Never used by the
+ * HOST or by SEPARATE campaigns (setFunds is unchanged there).
+ * @param funds New funds.
+ */
+void SavedGame::setFundsRaw(int64_t funds)
+{
 	_funds.back() = funds;
 }
 

@@ -34,6 +34,7 @@
 #include "../Mod/RuleResearch.h"
 #include "ResearchInfoState.h"
 #include "TechTreeViewerState.h"
+#include "../CoopMod/connectionTCP.h"
 #include <algorithm>
 
 namespace OpenXcom
@@ -118,6 +119,7 @@ ResearchState::ResearchState(Base *base) : _base(base)
  */
 ResearchState::~ResearchState()
 {
+	_sharedRefresh.unbind(this);
 }
 
 /**
@@ -178,6 +180,13 @@ void ResearchState::onOpenTechTreeViewer(Action *action)
  */
 void ResearchState::lstResearchMousePress(Action *action)
 {
+	// PRD-J06 (SHARED): the mouse-wheel shortcut re-allocates scientists by directly
+	// mutating the shared world - disabled in SHARED, where allocation is host-
+	// authoritative (open the project and use OK -> res_alloc). SEPARATE untouched.
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	{
+		return;
+	}
 	if (!_lstResearch->isInsideNoScrollArea(action->getAbsoluteXMouse()))
 	{
 		return;
@@ -229,6 +238,11 @@ void ResearchState::init()
 	State::init();
 	fillProjectList(0);
 
+	// PRD-J10: silent live refresh. A peer's res_start/res_alloc/res_cancel (or the
+	// host's research_done / day_tick progress) lands straight in this base's
+	// project list, so refill it in place instead of waiting for re-entry.
+	_sharedRefresh.bind(_game, this, _base, true /*wantProgress: the "days left" column*/);
+
 	if (Options::oxceResearchScrollSpeed > 0 || Options::oxceResearchScrollSpeedWithCtrl > 0)
 	{
 		// 175 +/- 20
@@ -237,6 +251,24 @@ void ResearchState::init()
 	else
 	{
 		_lstResearch->setNoScrollArea(0, 0);
+	}
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh: refill the list, keep the scroll.
+ */
+void ResearchState::think()
+{
+	State::think();
+
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		fillProjectList(_lstResearch->getScroll());
 	}
 }
 

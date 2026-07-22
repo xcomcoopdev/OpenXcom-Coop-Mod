@@ -63,6 +63,8 @@ public:
 	void lstCraftsRightClick(Action *action);
 	/// Handler for middle clicking the Crafts list.
 	void lstCraftsMiddleClick(Action *action);
+	/// Test hook (PRD-J08): the crafts this list shows, in row order.
+	const std::vector<Craft*>& harnessListedCrafts() const { return _crafts; }
 };
 
 }

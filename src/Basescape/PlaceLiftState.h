@@ -57,6 +57,11 @@ public:
 	void viewClick(Action *action);
 	/// Handler for clicking the Access Lifts list.
 	void lstAccessLiftsClick(Action *action);
+	/// PRD-J07 SHARED: submit the base_new shared_cmd for a SUBSEQUENT base with the
+	/// access lift at grid (x,y). Mutates nothing locally; the host creates the base.
+	void submitSharedNewBase(int x, int y);
+	/// Test automation: pick the (front) access lift + submit base_new at (x,y).
+	bool harnessPlaceLift(int x, int y);
 };
 
 }

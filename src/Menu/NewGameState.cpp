@@ -30,6 +30,7 @@
 #include "../Engine/Options.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
 #include "../CoopMod/HostMenu.h"
 
 namespace OpenXcom
@@ -39,7 +40,7 @@ namespace OpenXcom
  * Initializes all the elements in the Difficulty window.
  * @param game Pointer to the core game.
  */
-NewGameState::NewGameState(bool coopCampaign) : _coopCampaign(coopCampaign)
+NewGameState::NewGameState(bool coopCampaign, CoopCampaignType campaignType) : _coopCampaign(coopCampaign), _campaignType(campaignType)
 {
 	// Create objects
 	_window = new Window(this, 192, 180, 64, 10, POPUP_VERTICAL);
@@ -182,6 +183,19 @@ void NewGameState::btnOkClick(Action *)
 	{
 		// permanent solo/co-op distinction (D1)
 		save->setCoopSave(true);
+		// PRD-J01: record the chosen economy model (SHARED/SEPARATE), immutable.
+		save->setCampaignType(_campaignType);
+
+		// Playtest B4: a SHARED campaign shares ONE roster, so every soldier needs an
+		// explicit owner - otherwise the starting soldiers keep the default
+		// _ownerPlayerId 999 ("unowned"), which the battlescape entry treats as
+		// host-side (ConfirmLandingState maps 999 -> coop 0), leaving the client with
+		// no soldiers and both players able to command the whole shared roster. Split
+		// the starting roster between the two seats here, once, on the host that creates
+		// the world (the client is a pure replica and adopts the streamed, already-split
+		// roster). Same deterministic rule as the on-load migration, so a fresh game and
+		// a loaded save agree. Hires thereafter own themselves (J05 setOwnerPlayerId).
+		save->migrateSharedSoldierOwnership();
 	}
 	_game->setSavedGame(save);
 

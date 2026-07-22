@@ -117,6 +117,14 @@ private:
 	void buildUi();
 	/// Helper to exit the State.
 	void exitState();
+	// PRD-J06 (SHARED): true in a SHARED campaign. The screen edits the shared world
+	// live (reusing vanilla's engineer/workshop capping), then on OK/Stop it UNDOES
+	// those edits and submits a man_start/man_alloc/man_cancel shared_cmd. The
+	// _sharedOrig* fields snapshot an EXISTING production so the live edits can be
+	// reversed before submit; funds/materials settle from shared_apply.
+	bool _shared;
+	int _sharedOrigEngineers, _sharedOrigAmount;
+	bool _sharedOrigInfinite, _sharedOrigSell, _sharedOrigFallback;
 public:
 	/// Creates the State (new production).
 	ManufactureInfoState(Base * base, RuleManufacture * _item);
@@ -124,6 +132,9 @@ public:
 	ManufactureInfoState(Base * base, Production * production);
 	/// Cleans up the state
 	~ManufactureInfoState();
+	/// Test harness (SHARED): set engineers (vanilla-capped) + qty and confirm
+	/// (btnOkClick) - exercises the real "start production" submit path.
+	bool harnessStart(int engineers, int qty);
 };
 
 }

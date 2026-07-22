@@ -19,6 +19,7 @@
  */
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -64,6 +65,8 @@ private:
 	std::map<int, int> _iPrisonQty;
 	Uint8 _ammoColor;
 	Timer *_timerInc, *_timerDec;
+	/// PRD-J10: live refresh when another player's shared_apply moves this base.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
 	/// Determines if the current selection belongs to a given category.
@@ -120,6 +123,22 @@ public:
 	void updateItemStrings();
 	/// Handler for changing the category filter.
 	void cbxCategoryChange(Action *action);
+	/// Test-harness hook (PRD-J03): set the buy quantity for ITEM <itemType> to
+	/// <count> and invoke the real OK handler (SHARED -> emits a shared_cmd;
+	/// SEPARATE/solo -> the vanilla local buy). Returns false if no purchasable
+	/// ITEM row matches. Main thread only; not used by normal gameplay.
+	bool harnessBuyItem(const std::string& itemType, int count);
+	/// Test-harness hook (PRD-J05): set the hire quantity for SOLDIER <soldierType>
+	/// to <count> and invoke the real OK handler (SHARED -> emits a "buy" shared_cmd
+	/// carrying the soldier rows the host generates + serializes at apply). Returns
+	/// false if no purchasable SOLDIER row matches. Main thread only.
+	bool harnessBuySoldier(const std::string& soldierType, int count);
+	/// Test-harness hook (PRD-J10): the FUNDS header text this screen is showing
+	/// and the base stock (qtySrc) it snapshotted for <itemType> at construction.
+	/// Both are constructor-time caches, so they only change when the screen is
+	/// rebuilt - which is exactly what the live-refresh test asserts.
+	std::string harnessFundsText() const;
+	int harnessRowStock(const std::string& itemType) const;
 };
 
 }

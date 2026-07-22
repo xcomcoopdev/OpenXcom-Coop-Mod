@@ -56,6 +56,8 @@
 #include "../Savegame/Waypoint.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Vehicle.h"
+#include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDiary.h"
 #include "../Menu/PauseState.h"
 #include "SelectMusicTrackState.h"
@@ -136,12 +138,32 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/SharedEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
 
 namespace OpenXcom
 {
+
+// ---- SHARED alert replication helpers ---------------------------------------
+// In SHARED only the host runs the geoscape sim, so every informational popup it raises is
+// invisible to the frozen replicas. Each popup below is mirrored with one generic
+// SharedEcon::hostAlert(); these map the dialog's rule/soldier arguments to the ids and
+// names the replica-side factory (alertApply) needs to rebuild it.
+static std::vector<std::string> sharedAlertNames(const std::vector<RuleResearch*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getName()); return o; }
+static std::vector<std::string> sharedAlertNames(const std::vector<RuleManufacture*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getName()); return o; }
+static std::vector<std::string> sharedAlertNames(const std::vector<RuleItem*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<std::string> sharedAlertNames(const std::vector<RuleCraft*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<std::string> sharedAlertNames(const std::vector<RuleBaseFacility*>& v)
+{ std::vector<std::string> o; for (auto* r : v) if (r) o.push_back(r->getType()); return o; }
+static std::vector<int> sharedAlertSoldierIds(const std::vector<Soldier*>& v)
+{ std::vector<int> o; for (auto* s : v) if (s) o.push_back(s->getId()); return o; }
+
 
 // coop
 Ufo* temp_ufo = 0;
@@ -913,6 +935,11 @@ void GeoscapeState::init()
 	if ((_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false) && _game->getCoopMod()->coopMissionEnd == true)
 	{
 
+		// PRD-J09: SEPARATE two-world soldier split. In SHARED the roster is shared
+		// (client-owned soldiers carry _coop=1 but are legitimate members of the
+		// single world), so this "delete the other player's battle copies" loop
+		// must NOT run - it would erase them. The bare if guards the whole for.
+		if (!_game->getCoopMod()->isSharedCampaign())
 		for (auto &base : *_game->getSavedGame()->getBases())
 		{
 
@@ -950,11 +977,27 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->coopMissionEnd = false;
 
-		if (_game->getCoopMod()->getCoopStatic() == true)
+		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
 		{
 
 			_game->getCoopMod()->updateAllCoopBases();
 
+		}
+
+		// PRD-J09: SHARED single-world post-battle merge (the sledgehammer). Both
+		// machines ran the lockstep battle + debriefing on the shared world, so the
+		// HOST now holds the authoritative post-battle world (funds, recovered items,
+		// casualties gone from the roster, wounds set). Restream it whole so the
+		// replica is byte-identical and the frozen-replica relationship resumes -
+		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
+		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
+		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true)
+		{
+			// Mark it POST-BATTLE so the client's automatic resume-hold (pushed by
+			// LoadGameState whenever a streamed world is adopted) is released by the
+			// resume_ack handler - after a battle there is no BEGIN click to do it.
+			_game->getCoopMod()->sharedPostBattleRestream = true;
+			_game->getCoopMod()->streamSharedWorldToClient();
 		}
 
 		// COOP FIX
@@ -965,9 +1008,19 @@ void GeoscapeState::init()
 
 	}
 
+	// PRD-J09: SHARED client post-battle. It does NOT run the SEPARATE two-world
+	// blob dance (reload its own geoscape snapshot + merge soldier deltas); it
+	// keeps its lockstep post-battle world and waits for the host's authoritative
+	// world restream (dispatched from the host block above) to reload it whole.
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && _game->getCoopMod()->isSharedCampaign())
+	{
+		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->_coopEnd = 1;
+	}
+
 	// coop
 	// The client should be able to retrieve the save.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true)
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		_game->getCoopMod()->coopMissionEnd = false;
@@ -1178,7 +1231,11 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->setPlayerTurn(0);
 
-		if (_game->getCoopMod()->coopFunds != 0)
+		// PRD-J02: coopFunds is the SEPARATE peer-funds mirror. In SHARED every
+		// player runs the one authoritative world (each replica applies the same
+		// deterministic start-of-game maintenance below), so this override would
+		// clobber the replica's funds back to a pre-deduction mirror value. Fence.
+		if (_game->getCoopMod()->coopFunds != 0 && !_game->getCoopMod()->isSharedCampaign())
 		{
 
 			_game->getSavedGame()->setFunds(_game->getCoopMod()->coopFunds);
@@ -1187,10 +1244,18 @@ void GeoscapeState::init()
 
 		}
 	
-		Json::Value markers;
-		markers["state"] = "baseRequest";
+		// PRD-J02: baseRequest is SEPARATE mirror machinery (asks the peer to
+		// send its base markers so we can build _coopIcon mirror bases). SHARED
+		// has one shared world - suppress it. It is also unsafe to send here at
+		// SHARED campaign start: the replica has no SavedGame yet and the handler
+		// dereferences it.
+		if (!_game->getCoopMod()->isSharedCampaign())
+		{
+			Json::Value markers;
+			markers["state"] = "baseRequest";
 
-		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+			_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
+		}
 
 	}
 
@@ -1239,6 +1304,23 @@ void GeoscapeState::init()
 		_game->getSavedGame()->increaseDaysPassed();
 		determineAlienMissions();
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
+
+		// PRD-J02: SHARED campaign start. The host's authoritative world is now
+		// fully initialized (month advanced, start-of-game maintenance charged),
+		// so serialize it and stream it to the waiting client as its replica.
+		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
+		// funds: the client's own init sees monthsPassed==0 and never re-charges,
+		// and the host's time-sync then agrees. Hold in COOP_DLG_RESUME_ACK_WAIT
+		// until the client acks loaded, then BEGIN releases both. The dialog also
+		// keeps the host's geoscape from broadcasting before the client is ready.
+		if (_game->getCoopMod()->isSharedCampaign()
+			&& _game->getCoopMod()->getServerOwner()
+			&& connectionTCP::session.lobbyMode == 1)
+		{
+			connectionTCP::session.resumeAck = false;
+			_game->getCoopMod()->streamSharedWorldToClient();
+			_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+		}
 	}
 }
 
@@ -1366,26 +1448,54 @@ void GeoscapeState::think()
 			}
 
 			//  ufo popup
-			if (_game->getCoopMod()->show_coop_ufo_popup_race != "" && _game->getCoopMod()->show_coop_ufo_popup_type != "")
+			// Drain the pending peer alerts. Each entry is matched independently, so two
+			// UFOs detected in the same window both raise their own dialog (the old
+			// single type/race slot silently dropped one and could pop the wrong UFO).
 			{
-
-				for (auto &ufo : *_game->getSavedGame()->getUfos())
+				auto& alerts = _game->getCoopMod()->coopUfoAlerts;
+				for (auto it = alerts.begin(); it != alerts.end(); )
 				{
-
-					if (ufo->getAlienRace() == _game->getCoopMod()->show_coop_ufo_popup_race && ufo->getRules()->getType() == _game->getCoopMod()->show_coop_ufo_popup_type && ufo->getCoop() == true && ufo->getDetected() == true)
+					Ufo* match = nullptr;
+					for (auto* ufo : *_game->getSavedGame()->getUfos())
 					{
-
-						popup(new UfoDetectedState(ufo, this, true, ufo->getHyperDetected(), true));
-
-						_game->getCoopMod()->show_coop_ufo_popup_race = "";
-						_game->getCoopMod()->show_coop_ufo_popup_type = "";
-
-						break;
-
+						// Playtest B5: in a SHARED campaign the host runs the one shared sim
+						// and broadcasts ufo_popup; the client's matching UFO is a
+						// byte-faithful replica of the host's own (getCoop()==false), NOT a
+						// SEPARATE mirror (getCoop()==true). Requiring getCoop()==true
+						// swallowed the alert on every non-host player.
+						bool coopMatch = _game->getCoopMod()->isSharedCampaign()
+							? true : (ufo->getCoop() == true);
+						if (!coopMatch || !ufo->getDetected())
+							continue;
+						// Exact match on the peer's ufo id when it travelled (SHARED shares
+						// one world, so ids are identical); otherwise fall back to the
+						// legacy type+race match.
+						if (it->ufoId >= 0 && _game->getCoopMod()->isSharedCampaign())
+						{
+							if (ufo->getId() == it->ufoId) { match = ufo; break; }
+						}
+						else if (ufo->getAlienRace() == it->race
+							&& ufo->getRules()->getType() == it->type)
+						{
+							match = ufo;
+							break;
+						}
 					}
-
+					if (match)
+					{
+						popup(new UfoDetectedState(match, this, true, match->getHyperDetected(), true));
+						it = alerts.erase(it);
+					}
+					else
+					{
+						++it; // the UFO has not replicated yet - retry next think
+					}
 				}
-
+				if (alerts.empty())
+				{
+					_game->getCoopMod()->show_coop_ufo_popup_race = "";
+					_game->getCoopMod()->show_coop_ufo_popup_type = "";
+				}
 			}
 
 			// markers
@@ -1634,18 +1744,109 @@ void GeoscapeState::think()
 
 			// send — full-state positional snapshot via the conflation slot
 			// (last-write-wins; never FIFO-queued, so it can't overflow g_txQ).
-			_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
-
-			// Positions are conflatable, but UFO/mission spawns and despawns are
-			// not: the conflation slot elides intermediate snapshots, so a UFO
-			// that appears and vanishes between two delivered snapshots would
-			// never reach the client. Whenever the membership set changes, also
-			// send this snapshot on the reliable FIFO lane so no spawn/despawn is
-			// dropped. Membership changes rarely, so this can't reintroduce the
-			// flood the conflation slot was added to prevent.
-			if (_game->getCoopMod()->geoMembershipChanged(root))
+			// PRD-J02: this is the SEPARATE-only peer economy/craft mirror. In
+			// SHARED every player already holds the authoritative world, so the
+			// mirror snapshot is suppressed (the receiver fences it too).
+			if (!_game->getCoopMod()->isSharedCampaign())
 			{
-				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
+
+				// Positions are conflatable, but UFO/mission spawns and despawns are
+				// not: the conflation slot elides intermediate snapshots, so a UFO
+				// that appears and vanishes between two delivered snapshots would
+				// never reach the client. Whenever the membership set changes, also
+				// send this snapshot on the reliable FIFO lane so no spawn/despawn is
+				// dropped. Membership changes rarely, so this can't reintroduce the
+				// flood the conflation slot was added to prevent.
+				if (_game->getCoopMod()->geoMembershipChanged(root))
+				{
+					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+				}
+			}
+
+			// PRD-J04: SHARED position snapshot. Replicas are simulation-frozen, so
+			// they never move crafts/UFOs themselves; the HOST mirrors the REAL
+			// object positions (keyed by real id, not a _coop mirror id) so replicas
+			// still SEE movement. Reuses the SNAP_GEO_POSITIONS conflation slot (can't
+			// flood) + a FIFO resend on membership change (so spawns/despawns aren't
+			// elided). The receiver applies it under the `shared` flag to real objects.
+			else if (_game->getCoopMod()->getServerOwner() && _game->getSavedGame())
+			{
+				Json::Value jroot;
+				jroot["state"] = "target_positions";
+				jroot["shared"] = true;
+
+				Json::Value jcrafts(Json::arrayValue);
+				auto& jbases = *_game->getSavedGame()->getBases();
+				for (size_t bi = 0; bi < jbases.size(); ++bi)
+				{
+					for (auto* craft : *jbases[bi]->getCrafts())
+					{
+						Json::Value jc;
+						jc["baseId"] = (int)bi;
+						jc["id"] = craft->getId();
+						jc["rule"] = craft->getRules()->getType();
+						jc["lon"] = craft->getLongitude();
+						jc["lat"] = craft->getLatitude();
+						jc["status"] = craft->getStatus();
+						jc["speed"] = craft->getSpeed();
+						// PRD-J08: replica-visible craft condition (refuel/repair/rearm
+						// progress) - the host simulates it, replicas render it.
+						jc["fuel"] = craft->getFuel();
+						jc["damage"] = craft->getDamage();
+						jc["shield"] = craft->getShield();
+						jcrafts.append(jc);
+					}
+				}
+				jroot["crafts"] = jcrafts;
+
+				Json::Value jufos(Json::arrayValue);
+				for (auto* ufo : *_game->getSavedGame()->getUfos())
+				{
+					if (!ufo->getMission()) continue;
+					Json::Value ju;
+					ju["id"] = ufo->getId();
+					ju["ufo_rule"] = ufo->getRules()->getType();
+					ju["mission_id"] = ufo->getMission()->getId();
+					ju["mission_rule"] = ufo->getMission()->getRules().getType();
+					ju["race"] = ufo->getMission()->getRace();
+					ju["region"] = ufo->getMission()->getRegion();
+					ju["lon"] = ufo->getLongitude();
+					ju["lat"] = ufo->getLatitude();
+					ju["status"] = _game->getCoopMod()->ufostatusToInt(ufo->getStatus());
+					ju["detected"] = ufo->getDetected();
+					ju["altitude"] = ufo->getAltitude();
+					ju["speed"] = ufo->getSpeed();
+					// PRD-J08: hull damage mirrors so an initiator-simulated
+					// dogfight starts from the authoritative UFO condition.
+					ju["damage"] = ufo->getDamage();
+					// PRD-J08: crash/land marker identity (ids travel by value).
+					ju["crashId"] = ufo->getCrashId();
+					ju["landId"] = ufo->getLandId();
+					jufos.append(ju);
+				}
+				jroot["ufos"] = jufos;
+
+				Json::Value jsites(Json::arrayValue);
+				for (auto* site : *_game->getSavedGame()->getMissionSites())
+				{
+					Json::Value jm;
+					jm["id"] = site->getId();
+					jm["deployment"] = site->getDeployment()->getType();
+					jm["rules"] = site->getRules()->getType();
+					jm["race"] = site->getAlienRace();
+					jm["city"] = site->getCity();
+					jm["lon"] = site->getLongitude();
+					jm["lat"] = site->getLatitude();
+					jsites.append(jm);
+				}
+				jroot["missions"] = jsites;
+
+				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, jroot.toStyledString());
+				if (_game->getCoopMod()->geoMembershipChanged(jroot))
+				{
+					_game->getCoopMod()->sendTCPPacketData(jroot.toStyledString());
+				}
 			}
 
 		}
@@ -1678,8 +1879,15 @@ void GeoscapeState::think()
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
 
+			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
+			// item / soldier / transfer / production counts - GAP-4) on the periodic
+			// time heartbeat. The replica logs a warning on mismatch; full desync
+			// repair is PRD-J10.
+			if (_game->getCoopMod()->isSharedCampaign())
+				SharedEcon::attachWorldChecksum(_game, root);
+
 		}
-	
+
 		root["time_speed"] = "";
 
 		if (_timeSpeed == _btn5Secs)
@@ -1731,7 +1939,16 @@ void GeoscapeState::think()
 		if (!_dogfights.empty() || _minimizedDogfights != 0)
 		{
 			// If all dogfights are minimized rotate the globe, etc.
-			if (_dogfights.size() == _minimizedDogfights)
+			// PRD-DF02 dual-clock fix (4): on a SHARED replica the world clock is gated by
+			// the HOST's authoritative "any non-minimized window" (_dfHostAnyOpen from
+			// df_state), NOT this machine's local minimize - so a replica un-minimizing to
+			// watch never desyncs its clock from the host. Host + solo keep the vanilla
+			// "all local windows minimized" rule.
+			bool sharedReplica = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign()
+				&& !_game->getCoopMod()->getServerOwner();
+			bool clockRuns = sharedReplica ? !_dfHostAnyOpen
+			                              : (_dogfights.size() == _minimizedDogfights);
+			if (clockRuns)
 			{
 				_pause = false;
 				_gameTimer->think(this, 0);
@@ -1752,6 +1969,18 @@ void GeoscapeState::think()
 			_game->pushState(_popups.front());
 			_popups.erase(_popups.begin());
 		}
+	}
+
+	// PRD-DF01 shared/replicated SHARED dogfights. HOST: publish the membership
+	// set (df_open) + one per-tick render frame (df_state). REPLICA: reconcile
+	// its render-only windows toward the latest df_open set (runs every think so
+	// a window opens the moment its craft + UFO are replicated).
+	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	{
+		if (_game->getCoopMod()->getServerOwner())
+			sharedBroadcastDogfights();
+		else
+			sharedReconcileReplicaDogfights();
 	}
 }
 
@@ -2128,6 +2357,29 @@ void GeoscapeState::time5Seconds()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze. In SHARED only the host runs world
+	// simulation; a replica's clock still advances (from the host "time" packet,
+	// applied in updateCoopTask) and its globe still draws, but every timeXxx
+	// handler that MUTATES world state must not run its body on a replica. The
+	// results arrive as host broadcasts instead:
+	//   time5Seconds  -> craft/UFO movement, dogfight spawns, mission spawns, base
+	//                    defense (RNG, host-authoritative). Positions the replica
+	//                    must still SEE ride the SHARED position snapshot
+	//                    (target_positions, shared:true) applied in connectionTCP.
+	//   time10Minutes -> fuel burn, base/HK detection, alien-base hunt missions.
+	//   time30Minutes -> alien-mission countdowns, UFO detection, mission-site
+	//                    processing, geoscape events.
+	//   time1Hour     -> craft repair/rearm/refuel, transfer arrival (-> broadcast
+	//                    transfer_arrived), production step (-> prod_done).
+	//   time1Day      -> facility build (-> fac_done), research step (-> research
+	//                    complete broadcast), soldier recovery/training (-> day_tick),
+	//                    autosave (a replica never writes to disk).
+	//   time1Month/   -> monthly funding settle -> replica adopts host funds/tails
+	//   time1MonthCoop   from the extended monthly_report (NOT frozen: it IS the
+	//                    replica's monthly apply path).
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
+
 	// If in "slow mode", handle UFO hunting and escorting logic every 5 seconds, not only every 10 minutes
 	if ((_timeSpeed == _btn5Secs || _timeSpeed == _btn1Min) && _game->getMod()->getHunterKillerFastRetarget())
 	{
@@ -2243,6 +2495,7 @@ void GeoscapeState::time5Seconds()
 				{
 					std::string msg = tr("STR_UFO_HAS_LANDED").arg(ufo->getName(_game->getLanguage()));
 					popup(new CraftErrorState(this, msg, true, ufo));
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
@@ -2250,6 +2503,7 @@ void GeoscapeState::time5Seconds()
 					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
 					{
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+						SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 					}
 				
 				}
@@ -2273,6 +2527,15 @@ void GeoscapeState::time5Seconds()
 					ufo->setDestination(0);
 					base->setupDefenses(mission);
 					timerReset();
+					// SHARED: the base under attack is the ONE shared base, but only the
+					// host's sim reaches this handler, so tell every other seat. The
+					// turret sequence itself stays host-only ON PURPOSE: its OK handler
+					// runs handleBaseDefense + retaliation-mission RNG, so a replica copy
+					// would double-apply the consequences. The client gets the alert, and
+					// then the outcome - the battle (battlehost), base_damaged, or
+					// base_destroyed - through its own replicated path.
+					SharedEcon::hostAlert(_game, "CraftErrorState",
+						tr("STR_BASE_UNDER_ATTACK").arg(base->getName()), base);
 					if (!base->getDefenses()->empty() && !ufo->getMission()->getRules().ignoreBaseDefenses())
 					{
 						bool instaHyper = ufo->getRules()->isInstaHyper() || mission->getRules().isInstaHyper();
@@ -2320,6 +2583,7 @@ void GeoscapeState::time5Seconds()
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+					SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 				}
 			}
 			break;
@@ -2473,6 +2737,12 @@ void GeoscapeState::time5Seconds()
 					switch (u->getStatus())
 					{
 					case Ufo::FLYING:
+						// PRD-DF01 SHARED: the initiator model is gone. The host simulates
+						// EVERY dogfight (it is the sole geoscape sim), so a craft that any
+						// seat commanded and that reaches a flying UFO falls straight through
+						// to the vanilla path below - the host opens its own DogfightState and
+						// df_open/df_state replicate it to every player. GAP-2 dissolves: there
+						// is no exclusive "flyer" to route to.
 						// Not more than 4 interceptions at a time... but hunter-killers are always allowed
 						if (!u->isHunterKiller() && _dogfights.size() + _dogfightsToBeStarted.size() >= 4)
 						{
@@ -2540,12 +2810,14 @@ void GeoscapeState::time5Seconds()
 								if (xcraft->getRules()->isWaterOnly() && u->getAltitudeInt() > xcraft->getRules()->getMaxAltitude())
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
+									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
 								else if (xcraft->getRules()->isWaterOnly() && !_globe->insideLand(xcraft->getLongitude(), xcraft->getLatitude()))
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
+									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
 								}
@@ -2574,7 +2846,10 @@ void GeoscapeState::time5Seconds()
 								_globe->getPolygonTextureAndShade(u->getLongitude(), u->getLatitude(), &texture, &shade);
 								timerReset();
 								Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
+								// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+								// SEAT instead of popping the dialog here. Battle authority does not move.
+								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
+									popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 							}
 						}
 						else if (u->getStatus() != Ufo::LANDED)
@@ -2592,6 +2867,13 @@ void GeoscapeState::time5Seconds()
 					{
 						popup(new CraftPatrolState(xcraft, _globe));
 					}
+					// SHARED: the host runs the only geoscape sim, so the clients' frozen
+					// time5Seconds never reaches this arrival handler - alert them so they
+					// pop the same popup and clear the stale destination line + waypoint
+					// marker (Bug: the "reached destination" alert and marker cleanup never
+					// reached the clients). Redirect rides the existing craft_order lane.
+					if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner())
+						SharedEcon::hostPatrolPrompt(_game, xcraft);
 					xcraft->setDestination(0);
 				}
 				else if (m != 0)
@@ -2615,7 +2897,10 @@ void GeoscapeState::time5Seconds()
 						{
 							missionTexture = globeTexture;
 						}
-						popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
+						// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+						// SEAT instead of popping the dialog here. Battle authority does not move.
+						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade))
+							popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
 					}
 					else
 					{
@@ -2632,7 +2917,10 @@ void GeoscapeState::time5Seconds()
 							_globe->getPolygonTextureAndShade(b->getLongitude(), b->getLatitude(), &texture, &shade);
 							timerReset();
 							Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-							popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
+							// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
+							// SEAT instead of popping the dialog here. Battle authority does not move.
+							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
+								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 						}
 						else
 						{
@@ -2743,6 +3031,11 @@ void GeoscapeState::time10Minutes()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
+	// detection and alien-base hunt-mission generation are host-only.
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
+
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		// Fuel consumption for XCOM craft.
@@ -2769,6 +3062,7 @@ void GeoscapeState::time10Minutes()
 					if (!xcraft->getIsAutoPatrolling())
 					{
 						popup(new LowFuelState(xcraft, this));
+						SharedEcon::hostAlert(_game, "LowFuelState", "", nullptr, xcraft->getId());
 					}
 				}
 
@@ -2897,6 +3191,7 @@ void GeoscapeState::ufoHuntingAndEscorting()
 							.arg(ufo->getName(_game->getLanguage()))
 							.arg(newTarget->getName(_game->getLanguage()));
 						popup(new CraftErrorState(this, msg));
+						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 					}
 				}
 			}
@@ -3030,6 +3325,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			if (!noFollowers)
 			{
 				popup(new UfoLostState(site->getName(_game->getLanguage())));
+				SharedEcon::hostAlert(_game, "UfoLostState", site->getName(_game->getLanguage()));
 			}
 		}
 		else
@@ -3059,6 +3355,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		{
 			timerReset();
 			popup(new GeoscapeEventState(*eventRules));
+			SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
 		}
 	}
 
@@ -3107,6 +3404,12 @@ void GeoscapeState::time30Minutes()
 	{
 		return;
 	}
+
+	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
+	// countdowns, UFO detection, mission-site processing and geoscape events are
+	// host-only; the replica sees them via snapshots / mirrored popups.
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
 
 	// Decrease mission countdowns
 	for (auto* am : _game->getSavedGame()->getAlienMissions())
@@ -3178,6 +3481,7 @@ void GeoscapeState::time30Minutes()
 					{
 						std::string msg = tr("STR_CRAFT_IS_READY").arg(xcraft->getName(_game->getLanguage())).arg(xbase->getName());
 						popup(new CraftErrorState(this, msg));
+						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 					}
 					// auto-patrol
 					if (xcraft->getStatus() == "STR_READY" && xcraft->getRules()->canAutoPatrol())
@@ -3204,6 +3508,7 @@ void GeoscapeState::time30Minutes()
 										.arg(xcraft->getName(_game->getLanguage()))
 										.arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 			}
 		}
@@ -3308,6 +3613,7 @@ void GeoscapeState::time30Minutes()
 			{
 				timerReset();
 				popup(new GeoscapeEventState(ge->getRules()));
+				SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
 			}
 		}
 	}
@@ -3382,6 +3688,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
+				SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
 			}
 		}
 	}
@@ -3399,6 +3706,21 @@ void GeoscapeState::time1Hour()
 	{
 		return;
 	}
+
+	// PRD-J04: replica simulation freeze (see time5Seconds). Craft
+	// repair/rearm/refuel, transfer arrival and production steps are host-only;
+	// the host mirrors transfer arrivals (transfer_arrived) and production
+	// completions (prod_done) to replicas below.
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
+
+	// PRD-J04: index of a base in the shared list = the SHARED baseId (stable, the
+	// replica holds the same ordered list). Used by the host sim-result broadcasts.
+	auto sharedBaseId = [&](Base* b) -> int {
+		auto& v = *_game->getSavedGame()->getBases();
+		for (size_t i = 0; i < v.size(); ++i) if (v[i] == b) return (int)i;
+		return -1;
+	};
 
 	// Handle craft maintenance
 	for (auto* xbase : *_game->getSavedGame()->getBases())
@@ -3419,6 +3741,7 @@ void GeoscapeState::time1Hour()
 									   .arg(xcraft->getName(_game->getLanguage()))
 									   .arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -3442,6 +3765,7 @@ void GeoscapeState::time1Hour()
 					.arg(tr(facility->getRules()->getType()))
 					.arg(xbase->getName());
 				popup(new CraftErrorState(this, msg));
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 			}
 		}
 	}
@@ -3450,18 +3774,40 @@ void GeoscapeState::time1Hour()
 	bool window = false;
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		// PRD-J04: collect transfers that arrive THIS hour so the host can mirror
+		// them to SHARED replicas (whose own transfers are frozen and never tick).
+		Json::Value arrived(Json::arrayValue);
 		for (auto* transfer : *xbase->getTransfers())
 		{
 			transfer->advance(xbase);
-			if (!window && transfer->getHours() <= 0)
+			if (transfer->getHours() <= 0)
 			{
-				window = true;
+				if (!window)
+				{
+					window = true;
+				}
+				Json::Value d;
+				d["type"] = transfer->getType();
+				if (transfer->getType() == TRANSFER_ITEM && transfer->getItems())
+					d["rule"] = transfer->getItems()->getType();
+				else if (transfer->getType() == TRANSFER_CRAFT && transfer->getCraft())
+					d["rule"] = transfer->getCraft()->getRules()->getType();
+				else if (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
+					// PRD-J05: soldier transfers (hires + base->base moves) now arrive
+					// on replicas too; carry the rule type so the replica matches by it.
+					d["rule"] = transfer->getSoldier()->getRules()->getType();
+				else
+					d["rule"] = "";
+				d["qty"] = transfer->getQuantity();
+				arrived.append(d);
 			}
 		}
+		SharedEcon::hostTransferArrived(_game, sharedBaseId(xbase), arrived);
 	}
 	if (window)
 	{
 		popup(new ItemsArrivingState(this));
+		SharedEcon::hostAlert(_game, "ItemsArrivingState");
 	}
 	// Handle Production
 	for (auto* xbase : *_game->getSavedGame()->getBases())
@@ -3476,6 +3822,19 @@ void GeoscapeState::time1Hour()
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
 				popup(new ProductionCompleteState(xbase,  tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
+				// PRD-J04: mirror the finished manufacture to SHARED replicas before the
+				// Production object is destroyed. GAP-6: broadcast the count the host
+				// ACTUALLY materialized, NOT the raw time-based getAmountProduced(), which
+				// overshoots getAmountTotal() when a single hourly step advances _timeSpent
+				// past _amount*manufactureTime (big engineer pool, or a multi-day time jump).
+				// Production::step() caps materialization at getAmountTotal() via std::min;
+				// mirror that cap so the replica delivers the same count, never over-materializes.
+				int prodUnits = pair.first->getAmountProduced();
+				if (!pair.first->getInfiniteAmount())
+					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
+				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
+					pair.first->getRules()->getName(), prodUnits, pair.second,
+					pair.first->getSellItems());
 				xbase->removeProduction(pair.first);
 			}
 		}
@@ -3652,11 +4011,26 @@ void GeoscapeState::time1Day()
 		return;
 	}
 
+	// PRD-J04: replica simulation freeze (see time5Seconds). Research/facility/
+	// soldier daily progress and the autosave are host-only; the host mirrors
+	// research completions, facility completions (fac_done) and soldier recovery
+	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
+
 	_game->getSavedGame()->increaseDaysPassed();
 
 	SavedGame *saveGame = _game->getSavedGame();
 	Mod *mod = _game->getMod();
 	bool psiStrengthEval = (Options::psiStrengthEval && saveGame->isResearched(mod->getPsiRequirements()));
+
+	// PRD-J04: index of a base in the shared list = the SHARED baseId; used by the
+	// host sim-result broadcasts (research/facility/day_tick).
+	auto sharedBaseId = [&](Base* b) -> int {
+		auto& v = *_game->getSavedGame()->getBases();
+		for (size_t i = 0; i < v.size(); ++i) if (v[i] == b) return (int)i;
+		return -1;
+	};
 
 	auto addResearchDiaryEntryForBase = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const Base* sourceBase, const RuleResearch* sourceResearch)
 	{
@@ -3690,6 +4064,10 @@ void GeoscapeState::time1Day()
 				if (facility->getBuildTime() == 0)
 				{
 					finishedFacilities[facility->getRules()] += 1;
+					// PRD-J04: mirror the completed facility (by grid position) to
+					// SHARED replicas, which set its buildTime to 0.
+					SharedEcon::hostFacilityDone(_game, sharedBaseId(xbase),
+						facility->getX(), facility->getY(), facility->getRules()->getType());
 				}
 			}
 		}
@@ -3809,6 +4187,14 @@ void GeoscapeState::time1Day()
 			}
 			// 3e. handle research complete popup + ufopedia article popups (topic+bonus)
 			popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
+			// PRD-J04: mirror this completion to SHARED replicas. Carry the exact
+			// discovered topic + the host-selected getOneFree + the popup topic, so
+			// the replica removes the project (freeing scientists) and adds the SAME
+			// tech deterministically (no RNG re-roll). The SEPARATE `research` packet
+			// that ResearchCompleteState would emit is fenced off in SHARED.
+			SharedEcon::hostResearchDone(_game, sharedBaseId(xbase), research->getName(),
+				bonus ? bonus->getName() : std::string(),
+				newResearch ? newResearch->getName() : std::string());
 			// 3f. reset timer
 			timerReset();
 			// 3g. warning if weapon is researched before its clip
@@ -3825,6 +4211,7 @@ void GeoscapeState::time1Day()
 						if (std::find_if(req.begin(), req.end(), [&](const RuleResearch* r){ return r->getName() == ammo->getType(); }) != req.end() && !saveGame->isResearched(req, true))
 						{
 							popup(new ResearchRequiredState(item));
+							SharedEcon::hostAlert(_game, "ResearchRequiredState", item->getType());
 						}
 					}
 				}
@@ -3835,6 +4222,7 @@ void GeoscapeState::time1Day()
 			std::vector<RuleResearch *> newPossibleResearch;
 			saveGame->getNewlyAvailableResearchProjects(before, after, newPossibleResearch);
 			popup(new NewPossibleResearchState(xbase, newPossibleResearch));
+			SharedEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, sharedAlertNames(newPossibleResearch));
 			// 3i. inform about new possible manufacture, purchase, craft and facilities
 			std::vector<RuleManufacture *> newPossibleManufacture;
 			saveGame->getDependableManufacture(newPossibleManufacture, research, mod, xbase);
@@ -3847,6 +4235,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleManufacture);
 				Collections::sortVectorMakeUnique(newPossibleManufacture);
 				popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
+				SharedEcon::hostAlert(_game, "NewPossibleManufactureState", "", xbase, -1, sharedAlertNames(newPossibleManufacture));
 			}
 			std::vector<RuleItem *> newPossiblePurchase;
 			_game->getSavedGame()->getDependablePurchase(newPossiblePurchase, research, _game->getMod());
@@ -3859,6 +4248,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossiblePurchase);
 				Collections::sortVectorMakeUnique(newPossiblePurchase);
 				popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
+				SharedEcon::hostAlert(_game, "NewPossiblePurchaseState", "", xbase, -1, sharedAlertNames(newPossiblePurchase));
 			}
 			std::vector<RuleCraft *> newPossibleCraft;
 			_game->getSavedGame()->getDependableCraft(newPossibleCraft, research, _game->getMod());
@@ -3871,6 +4261,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleCraft);
 				Collections::sortVectorMakeUnique(newPossibleCraft);
 				popup(new NewPossibleCraftState(xbase, newPossibleCraft));
+				SharedEcon::hostAlert(_game, "NewPossibleCraftState", "", xbase, -1, sharedAlertNames(newPossibleCraft));
 			}
 			std::vector<RuleBaseFacility *> newPossibleFacilities;
 			_game->getSavedGame()->getDependableFacilities(newPossibleFacilities, research, _game->getMod());
@@ -3883,6 +4274,7 @@ void GeoscapeState::time1Day()
 				Collections::sortVector(newPossibleFacilities);
 				Collections::sortVectorMakeUnique(newPossibleFacilities);
 				popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
+				SharedEcon::hostAlert(_game, "NewPossibleFacilityState", "", xbase, -1, sharedAlertNames(newPossibleFacilities));
 			}
 
 			topicsToCheck.push_back(research);
@@ -3935,6 +4327,7 @@ void GeoscapeState::time1Day()
 		if (!trainingFinishedList.empty())
 		{
 			popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
+			SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(trainingFinishedList), false);
 		}
 		// Handle psionic training
 		if (xbase->getAvailablePsiLabs() > 0 && Options::anytimePsiTraining)
@@ -3953,6 +4346,7 @@ void GeoscapeState::time1Day()
 			if (!psiTrainingFinishedList.empty())
 			{
 				popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
+				SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(psiTrainingFinishedList), true);
 			}
 		}
 	}
@@ -4064,6 +4458,8 @@ void GeoscapeState::time1Day()
 					{
 						alienBase->setDiscovered(true);
 						popup(new AlienBaseState(alienBase, this));
+						// SHARED: host-only sim, so replicas need the discovery + dialog.
+						SharedEcon::hostAlienBaseFound(_game, alienBase);
 					}
 				}
 			}
@@ -4133,8 +4529,13 @@ void GeoscapeState::time1Day()
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
 			popup(new CraftErrorState(this, msg, false));
+			SharedEcon::hostAlert(_game, "CraftErrorState", msg);
 		}
 	}
+
+	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to SHARED
+	// replicas, for CHANGED soldiers only.
+	SharedEcon::hostDayTick(_game);
 }
 
 /**
@@ -4149,6 +4550,13 @@ void GeoscapeState::time1Month()
 	{
 		return;
 	}
+
+	// PRD-J04: replica simulation freeze (see time5Seconds). A SHARED replica never
+	// settles funding locally; it adopts the host's monthly result via the extended
+	// monthly_report packet (applied in time1MonthCoop). Redundant with the coop
+	// serverOwner gate below, but kept explicit.
+	if (_game->getCoopMod()->isSharedReplica())
+		return;
 
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -4201,6 +4609,9 @@ void GeoscapeState::time1Month()
 			{
 				ab->setDiscovered(true);
 				popup(new AlienBaseState(ab, this));
+				// SHARED: name the winner so replicas apply the SAME discovery instead of
+				// rolling their own (shared-world mutation, not just an alert).
+				SharedEcon::hostAlienBaseFound(_game, ab);
 				break;
 			}
 		}
@@ -4211,8 +4622,16 @@ void GeoscapeState::time1MonthCoop()
 {
 	_game->getSavedGame()->addMonth();
 
-	// Determine alien mission for this month.
-	determineAlienMissions();
+	// PRD-J04: on a SHARED replica this is the monthly APPLY path (host's time1Month
+	// settled funding and broadcast monthly_report). Skip the host-only alien
+	// mission determination (RNG); missions ride the host's world. The replica's
+	// own monthlyFunding() still rolls the graph vectors below, then the
+	// authoritative funds/tails from the packet overwrite any drift.
+	if (!_game->getCoopMod()->isSharedReplica())
+	{
+		// Determine alien mission for this month.
+		determineAlienMissions();
+	}
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
 	if (!Options::anytimePsiTraining)
@@ -4239,10 +4658,43 @@ void GeoscapeState::time1MonthCoop()
 
 	_game->getSavedGame()->monthlyFunding();
 
+	// (alien-base discovery is deliberately NOT rolled here - see below)
+	// PRD-J04 / GAP-9: overwrite the just-rolled tail with the host's authoritative
+	// settlement (carried on the extended monthly_report packet). setFundsRaw moves
+	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
+	// expenditure/maintenance tails are then set from the host's values directly, so
+	// the replica's Graphs->Finance series match the host across the month boundary.
+	if (_game->getCoopMod()->isSharedReplica() && _game->getCoopMod()->sharedMonthlyPending)
+	{
+		SavedGame* sg = _game->getSavedGame();
+		sg->setFundsRaw(_game->getCoopMod()->sharedMonthlyFunds);
+		// monthlyFunding() rolled a new (0) month onto each vector, so the
+		// just-ended month's real values live at [size-2] for maintenance, and at
+		// back() for incomes/expenditures. Overwrite them with the host's.
+		auto& maint = sg->getMaintenances();
+		if (maint.size() >= 2) maint[maint.size() - 2] = _game->getCoopMod()->sharedMonthlyMaintenance;
+		else if (!maint.empty()) maint.back() = _game->getCoopMod()->sharedMonthlyMaintenance;
+		if (!sg->getIncomes().empty())
+			sg->getIncomes().back() = _game->getCoopMod()->sharedMonthlyIncome;
+		if (!sg->getExpenditures().empty())
+			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
+		if (!sg->getResearchScores().empty())
+			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		_game->getCoopMod()->sharedMonthlyPending = false;
+	}
+
 	popup(new MonthlyReportState(_globe));
 
 	// Handle Xcom Operatives discovering bases
-	if (!_game->getSavedGame()->getAlienBases()->empty() && RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
+	// SHARED: nobody rolls here. Discovering a base MUTATES the shared world
+	// (setDiscovered), and this handler runs on whichever machine received the peer's
+	// monthly_report - so the replica used to roll its OWN discovery (host/client could
+	// disagree about which base was found) and the host would roll a SECOND time on top of
+	// its authoritative roll in time1Month. The host rolls once in time1Month and names
+	// the winner via alien_base_found; every SHARED machine applies that instead.
+	if (!_game->getCoopMod()->isSharedCampaign()
+		&& !_game->getSavedGame()->getAlienBases()->empty()
+		&& RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
 	{
 		for (auto* ab : *_game->getSavedGame()->getAlienBases())
 		{
@@ -4250,6 +4702,7 @@ void GeoscapeState::time1MonthCoop()
 			{
 				ab->setDiscovered(true);
 				popup(new AlienBaseState(ab, this));
+				SharedEcon::hostAlienBaseFound(_game, ab);
 				break;
 			}
 		}
@@ -4887,9 +5340,456 @@ void GeoscapeState::startDogfight()
 }
 
 /**
+ * PRD-J08 SHARED: opens the interactive dogfight UI on THIS machine for a
+ * craft/UFO pair - the initiating player's side of a host-brokered engagement
+ * (shared_apply{dogfight_start}). Mirrors the vanilla time5Seconds start block:
+ * queue the DogfightState, zoom in, start the timers, switch the music.
+ * @param craft The engaging (replica) craft.
+ * @param ufo The engaged (replica) UFO.
+ */
+/**
+ * PRD-J10 landing broker (HOST only). A craft that ANOTHER seat commanded reached
+ * a landable target. The host runs the only geoscape sim, so it is the only
+ * machine that reaches this code - but it is the wrong machine to ask. Broadcast
+ * the prompt to the commanding seat and park the craft until it answers.
+ *
+ * Deliberately does NOT freeze the host's geoscape while the other player reads
+ * the dialog: in a shared world that would hand one seat a stop-the-world button.
+ * The craft simply loiters at its destination; the pending map is the "already
+ * asked" guard that stops reachedDestination() re-prompting every tick.
+ *
+ * @return true if the prompt was brokered (the caller must not pop its own).
+ */
+bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade)
+{
+	if (!_game->getCoopMod()->isSharedCampaign() || !_game->getCoopMod()->getServerOwner())
+		return false;
+	if (_sharedLandingPending.find(craft) != _sharedLandingPending.end())
+		return true; // already asked; still waiting for the answer
+
+	// Playtest: EVERY player is alerted a craft reached its target - not only the seat
+	// that commanded it. Record the pending decision, broadcast the prompt to all
+	// client seats, and pop the host's OWN copy too (as a broker copy, so its answer
+	// runs through the single host-side resolver sharedLandingReply, exactly like a
+	// client's land_reply). First answer from any seat wins; the rest close on the
+	// land_close the resolver broadcasts. Battle authority stays on the host.
+	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade };
+	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
+	SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
+	popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade, true /*sharedBroker*/));
+	return true;
+}
+
+/**
+ * PRD-J10 landing broker (HOST only). The commanding seat answered.
+ */
+void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
+{
+	auto it = _sharedLandingPending.find(craft);
+	if (it == _sharedLandingPending.end())
+		return; // not ours / already answered (a duplicate reply is a no-op)
+	SharedLandingPrompt prompt = it->second;
+	_sharedLandingPending.erase(it);
+
+	// The craft can be sold/destroyed/transferred while the other seat reads the
+	// dialog, and `craft` is only a key here - re-validate before dereferencing.
+	bool alive = false;
+	for (auto* base : *_game->getSavedGame()->getBases())
+	{
+		for (auto* c : *base->getCrafts())
+			if (c == craft) { alive = true; break; }
+		if (alive) break;
+	}
+	if (!alive)
+		return;
+
+	// Playtest: the landing was answered by ONE seat. Close every OTHER seat's still-
+	// open broker prompt - mark it resolved locally (the host's own copy) and broadcast
+	// land_close so the clients close theirs (ConfirmLandingState::think consumes it).
+	_game->getCoopMod()->markLandingResolved(craft->getId());
+	SharedEcon::broadcastLandClose(_game, craft);
+	// Close the host's OWN broker copy synchronously if it is on top (a client just
+	// answered). If the host answered its own dialog, that copy already popped itself.
+	// Do it before generating the battle so the stale dialog is not left underneath.
+	if (!_game->getStates().empty()
+		&& dynamic_cast<ConfirmLandingState*>(_game->getStates().back()))
+	{
+		_game->popState();
+	}
+
+	if (!yes)
+	{
+		// mirror ConfirmLandingState::btnNoClick, applied host-side
+		if (patrol)
+			craft->setDestination(0);
+		else
+			craft->returnToBase();
+		return;
+	}
+
+	// Yes: generate the battle exactly as the host's own dialog would. Drive the
+	// REAL state rather than duplicating its logic - its SHARED branch stamps the
+	// ownership split onto the geoscape soldiers, runs the generator and ships
+	// "battlehost" (PRD-J09), then pops itself. It must be ON the stack first:
+	// that self-pop is what removes it.
+	ConfirmLandingState* cls = new ConfirmLandingState(craft, prompt.missionTexture,
+		prompt.globeTexture, prompt.shade);
+	_game->pushState(cls);
+	cls->btnYesClick(nullptr);
+}
+
+/**
+ * SHARED replica: a craft reached its patrol waypoint on the host (patrol_prompt). The
+ * client's frozen time5Seconds never ran the arrival handler, so replicate its effects
+ * here: pop the "reached destination" alert and clear the stale destination line +
+ * orphan waypoint marker (which would otherwise render forever on the client).
+ */
+void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
+{
+	if (!craft) return;
+	Target* dest = craft->getDestination();
+	Waypoint* wp = dynamic_cast<Waypoint*>(dest);
+	// Pop the same alert the host shows. Its ctor reads the destination name, so pop
+	// BEFORE clearing _dest; skip while auto-patrolling, matching the host's gate.
+	if (dest && !craft->getIsAutoPatrolling())
+		popup(new CraftPatrolState(craft, _globe));
+	craft->setDestination(0);
+	// Prune the now-orphan waypoint (its last follower just left), mirroring the host's
+	// unused-waypoint sweep. Other en-route craft keep their still-followed waypoints.
+	if (wp && wp->getFollowers()->empty())
+	{
+		SavedGame* save = _game->getSavedGame();
+		for (auto it = save->getWaypoints()->begin(); it != save->getWaypoints()->end(); ++it)
+		{
+			if (*it == wp) { delete *it; save->getWaypoints()->erase(it); break; }
+		}
+	}
+}
+
+void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized)
+{
+	if (!craft || !ufo || craft->isInDogfight())
+		return;
+	// PRD-DF01: a render-only replica window - the DogfightState ctor sets
+	// _isReplicaView from the coop role; it renders the host's df_state stream
+	// and never sims. ufoIsAttacking (from df_open) lets the ctor derive the same
+	// static-per-fight fields (disable flags, initial mode) the host derived.
+	DogfightState* df = new DogfightState(this, craft, ufo, ufoIsAttacking);
+	// PRD-DF02 presentation policy (3b): a non-commanding seat opens minimized (an
+	// icon it can click to spectate/command); the commanding seat opens full. INITIAL
+	// minimize only - a per-machine VIEW choice (4); the world clock is gated by the
+	// host's authoritative hostAnyOpen, never by this local minimize state.
+	if (startMinimized) df->setMinimized(true);
+	_dogfightsToBeStarted.push_back(df);
+	if (!_dogfightStartTimer->isRunning())
+	{
+		_pause = true;
+		timerReset();
+		_globe->center(craft->getLongitude(), craft->getLatitude());
+		startDogfight();
+		_dogfightStartTimer->start();
+	}
+	_game->getMod()->playMusic("GMINTER");
+}
+
+/**
  * Returns the first free dogfight slot.
  * @return free slot
  */
+// ---- PRD-DF01: shared/replicated dogfight transport --------------------------
+
+// HOST: a stable signature of the live membership set { _dogfights U
+// _dogfightsToBeStarted } as sorted (craftType#craftId:ufoId:hk) tuples, so pure
+// ordering churn never bumps the epoch.
+static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
+                                         const std::list<DogfightState*>& b)
+{
+	std::vector<std::string> keys;
+	for (auto* df : a)
+	{
+		if (!df->getCraft() || !df->getUfo()) continue;
+		std::ostringstream k;
+		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
+		keys.push_back(k.str());
+	}
+	for (auto* df : b)
+	{
+		if (!df->getCraft() || !df->getUfo()) continue;
+		std::ostringstream k;
+		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
+		keys.push_back(k.str());
+	}
+	std::sort(keys.begin(), keys.end());
+	std::string sig;
+	for (auto& k : keys) { sig += k; sig += '|'; }
+	return sig;
+}
+
+/**
+ * PRD-DF01 (HOST): publish this tick's dogfights. df_open (reliable FIFO
+ * shared_apply lane) carries the FULL membership set + a monotonically increasing
+ * epoch, emitted only on a change (a new fight, an HK reshuffle, a fight ending -
+ * all collapse to one df_open with the new set). df_state (the SNAP_DOGFIGHT
+ * conflation slot: last-write-wins, freshest-only, NEVER the reliable FIFO) carries
+ * one combined per-tick render frame over every live fight. Replicas diff-reconcile
+ * their render-only windows against the df_open set and render the df_state frames.
+ */
+/**
+ * PRD-DF03 test-harness: the dogfight membership epoch this machine holds. On the
+ * HOST it is _dfEpoch (the epoch it stamps onto every df_open/df_state); on a
+ * REPLICA it is _dfReplicaEpoch (the epoch of the last df_open it adopted, which
+ * guards df_state against the reshuffle race). A convergence test asserts the two
+ * are equal in lock-step after an HK interrupt-all-and-restart.
+ */
+int GeoscapeState::harnessDogfightEpoch() const
+{
+	connectionTCP* coop = _game->getCoopMod();
+	return (coop && coop->getServerOwner()) ? _dfEpoch : _dfReplicaEpoch;
+}
+
+void GeoscapeState::sharedBroadcastDogfights()
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (!coop || !coop->isSharedCampaign() || !coop->getServerOwner())
+		return;
+
+	// 1) df_open on a membership change (epoch++).
+	std::string sig = dfMembershipSignature(_dogfights, _dogfightsToBeStarted);
+	if (sig != _dfMembershipSig)
+	{
+		_dfMembershipSig = sig;
+		++_dfEpoch;
+		Json::Value payload;
+		payload["epoch"] = _dfEpoch;
+		Json::Value arr(Json::arrayValue);
+		for (auto* df : _dogfights)
+		{
+			if (!df->getCraft() || !df->getUfo()) continue;
+			Json::Value d;
+			d["craftId"] = df->getCraft()->getId();
+			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["ufoId"] = df->getUfo()->getId();
+			d["ufoIsAttacking"] = df->isUfoAttacking();
+			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
+			arr.append(d);
+		}
+		for (auto* df : _dogfightsToBeStarted)
+		{
+			if (!df->getCraft() || !df->getUfo()) continue;
+			Json::Value d;
+			d["craftId"] = df->getCraft()->getId();
+			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["ufoId"] = df->getUfo()->getId();
+			d["ufoIsAttacking"] = df->isUfoAttacking();
+			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
+			arr.append(d);
+		}
+		payload["dogfights"] = arr;
+		SharedEcon::submitLocalCmd(_game, "df_open", -1, payload);
+	}
+
+	// 2) df_state: one combined full-set frame per tick on the conflation slot.
+	if (!_dogfights.empty())
+	{
+		Json::Value root;
+		root["state"] = "df_state";
+		root["epoch"] = _dfEpoch;
+		// host-authoritative "any window non-minimized on the host" (DF02 clock gate).
+		root["hostAnyOpen"] = (_minimizedDogfights < _dogfights.size());
+		Json::Value frames(Json::arrayValue);
+		for (auto* df : _dogfights)
+		{
+			Json::Value frame;
+			df->buildStateFrame(frame);
+			frames.append(frame);
+		}
+		root["frames"] = frames;
+		coop->sendCoopSnapshot(SNAP_DOGFIGHT, root.toStyledString());
+	}
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a df_open membership set - store it + the epoch (the
+ * df_state guard) and reconcile the render-only windows toward it.
+ */
+void GeoscapeState::sharedApplyDogfightMembership(const Json::Value& dogfights, int epoch)
+{
+	_dfReplicaEpoch = epoch;
+	_dfDesired.clear();
+	if (dogfights.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < dogfights.size(); ++i)
+		{
+			const Json::Value& d = dogfights[i];
+			DfMember m;
+			m.craftId = d.get("craftId", -1).asInt();
+			m.craftType = d.get("craftType", "").asString();
+			m.ufoId = d.get("ufoId", -1).asInt();
+			m.ufoIsAttacking = d.get("ufoIsAttacking", false).asBool();
+			m.commandingSeat = d.get("commandingSeat", -1).asInt();
+			_dfDesired.push_back(m);
+		}
+	}
+	sharedReconcileReplicaDogfights();
+}
+
+/**
+ * PRD-DF01 (REPLICA): make the open render-only window set EQUAL _dfDesired. Opens
+ * a window as soon as both the craft and the (flying) UFO are replicated here (the
+ * UFO arrives via the geo position snapshot, the craft via the streamed world);
+ * closes any window whose tuple left the set (a fight that ended / an HK reshuffle).
+ * Runs every think() so a window opens the moment its objects materialize.
+ */
+void GeoscapeState::sharedReconcileReplicaDogfights()
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (!coop || !coop->isSharedCampaign() || coop->getServerOwner())
+		return;
+	SavedGame* save = _game->getSavedGame();
+	if (!save) return;
+
+	auto inDesired = [&](Craft* c, Ufo* u) -> bool
+	{
+		if (!c || !u) return false;
+		for (auto& m : _dfDesired)
+			if (m.craftId == c->getId() && m.ufoId == u->getId()
+				&& m.craftType == c->getRules()->getType())
+				return true;
+		return false;
+	};
+
+	// Close live windows no longer desired (handleDogfights() erases them next tick).
+	for (auto* df : _dogfights)
+		if (df->isReplicaView() && !df->dogfightEnded()
+			&& !inDesired(df->getCraft(), df->getUfo()))
+			df->closeReplicaWindow();
+	// Drop still-pending windows the diff removed before they started.
+	for (auto it = _dogfightsToBeStarted.begin(); it != _dogfightsToBeStarted.end(); )
+	{
+		DogfightState* df = *it;
+		if (df->isReplicaView() && !inDesired(df->getCraft(), df->getUfo()))
+		{
+			delete df;
+			it = _dogfightsToBeStarted.erase(it);
+		}
+		else ++it;
+	}
+
+	// Open a window for each desired tuple not already open.
+	for (auto& m : _dfDesired)
+	{
+		bool open = false;
+		for (auto* df : _dogfights)
+			if (df->getCraft() && df->getUfo()
+				&& df->getCraft()->getId() == m.craftId
+				&& df->getUfo()->getId() == m.ufoId
+				&& df->getCraft()->getRules()->getType() == m.craftType)
+			{ open = true; break; }
+		if (!open)
+			for (auto* df : _dogfightsToBeStarted)
+				if (df->getCraft() && df->getUfo()
+					&& df->getCraft()->getId() == m.craftId
+					&& df->getUfo()->getId() == m.ufoId
+					&& df->getCraft()->getRules()->getType() == m.craftType)
+				{ open = true; break; }
+		if (open) continue;
+
+		Craft* craft = nullptr;
+		for (auto* b : *save->getBases())
+		{
+			for (auto* c : *b->getCrafts())
+				if (c->getId() == m.craftId && c->getRules()->getType() == m.craftType)
+				{ craft = c; break; }
+			if (craft) break;
+		}
+		Ufo* ufo = nullptr;
+		for (auto* u : *save->getUfos())
+			if (u->getId() == m.ufoId) { ufo = u; break; }
+		// Both objects present, UFO still flying, craft free: open the replica window.
+		// PRD-DF02 3b: minimize unless THIS machine is the commanding seat. A host-
+		// commanded / HK craft has commandingSeat <= 0 -> the host commands it, so every
+		// client (seat >= 1) opens the minimized icon; the commanding client opens full.
+		if (craft && ufo && ufo->getStatus() == Ufo::FLYING && !craft->isInDogfight())
+		{
+			// Playtest: EVERY player sees the dogfight window in FULL when the craft
+			// reaches the UFO - not just the last seat to command the craft. The old
+			// commandingSeat-based minimize hid the fight from other players and drove
+			// the "dogfight broken for clients" confusion. Always open full.
+			startSharedDogfight(craft, ufo, m.ufoIsAttacking, false /*startMinimized*/);
+		}
+	}
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a df_state frame set. Epoch-guarded: a frame set that
+ * predates the replica's current df_open membership is a stale full-set frame
+ * racing a reshuffle (locked decision #4) and is dropped. Each surviving frame is
+ * routed to the matching render-only window by (craftId, craftType, ufoId).
+ */
+void GeoscapeState::sharedApplyDogfightState(const Json::Value& root)
+{
+	int epoch = root.get("epoch", 0).asInt();
+	if (epoch < _dfReplicaEpoch)
+		return; // stale: predates the current membership
+	// PRD-DF02 dual-clock fix: adopt the host's authoritative "any non-minimized window
+	// open on the host". On a replica this gates the world clock (think()), so a
+	// replica's own local minimize never desyncs its clock from the host.
+	_dfHostAnyOpen = root.get("hostAnyOpen", _dfHostAnyOpen).asBool();
+	const Json::Value& frames = root["frames"];
+	if (!frames.isArray()) return;
+	for (Json::ArrayIndex i = 0; i < frames.size(); ++i)
+	{
+		const Json::Value& f = frames[i];
+		int craftId = f.get("craftId", -1).asInt();
+		int ufoId = f.get("ufoId", -1).asInt();
+		std::string craftType = f.get("craftType", "").asString();
+		for (auto* df : _dogfights)
+			if (df->isReplicaView() && df->getCraft() && df->getUfo()
+				&& df->getCraft()->getId() == craftId
+				&& df->getUfo()->getId() == ufoId
+				&& df->getCraft()->getRules()->getType() == craftType)
+			{
+				df->applyFrame(f);
+				break;
+			}
+	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated df_cmd. Finds the authoritative DogfightState for
+ * (craftId,craftType,ufoId) and drives the action through the SAME lane the local UI
+ * uses (hostApplyStance / hostToggleWeapon / hostSelfDestruct), so all vanilla side
+ * effects fire identically. Called from the g_cmdQ drain in receive-order, so
+ * concurrent commands resolve last-received-wins. Minimize is a per-machine VIEW action
+ * (4) and is intentionally a no-op here. Returns false if the pair is no longer a live
+ * fight (a stale pre-reshuffle command -> the caller drops it + logs once, epoch guard).
+ */
+bool GeoscapeState::sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+                                          const std::string& action, int arg)
+{
+	DogfightState* target = nullptr;
+	for (auto* df : _dogfights)
+		if (df->getCraft() && df->getUfo()
+			&& df->getCraft()->getId() == craftId
+			&& df->getUfo()->getId() == ufoId
+			&& df->getCraft()->getRules()->getType() == craftType)
+		{ target = df; break; }
+	if (!target)
+		return false; // stale: the (craft,ufo) left the live membership (epoch guard 6)
+
+	if      (action == "standoff")     target->hostApplyStance(0);
+	else if (action == "cautious")     target->hostApplyStance(1);
+	else if (action == "standard")     target->hostApplyStance(2);
+	else if (action == "aggressive")   target->hostApplyStance(3);
+	else if (action == "disengage")    target->hostApplyStance(4);
+	else if (action == "weaponToggle") target->hostToggleWeapon(arg);
+	else if (action == "selfDestruct") target->hostSelfDestruct();
+	else if (action == "minimize")     { /* per-machine VIEW state (4): no host effect */ }
+	return true;
+}
+
 int GeoscapeState::getFirstFreeDogfightSlot()
 {
 	int slotNo = 1;
@@ -4951,6 +5851,10 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 
 			// let the player know that some facilities were destroyed, but the base survived
 			popup(new BaseDestroyedState(base, ufo, true, true));
+			// SHARED: this is the ONE shared base and the damage roll is host-only RNG, so
+			// hand the replicas the resulting layout - otherwise their copy of the base
+			// keeps the facilities the host just lost (silent, permanent divergence).
+			SharedEcon::hostBaseDamaged(_game, base, ufo);
 		}
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())
@@ -4972,6 +5876,35 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 				_game->getCoopMod()->_isMainCampaignBaseDefense = true;
 
 				temp_ufo = ufo;
+
+				// PRD-J09 GAP-1: SHARED base defense. The garrison is the single shared
+				// world's roster, and the HOST (the only machine whose sim reaches this
+				// handler in SHARED - the replica's time sim is frozen, PRD-J04) is the
+				// battle authority. Stamp the in-battle control split from soldier
+				// ownership (seat 0/unknown -> host control, any other seat -> client),
+				// then generate the battle host-side and ship "battlehost" via the
+				// existing startCoopMission()/setupCoop() path. This SKIPS the SEPARATE
+				// two-world merge (CoopState(77)/sendCraft/loadWorld(111)), which in
+				// SHARED would force every shared soldier to host control (its coopBase
+				// match never fires) and could duplicate the roster. Mirrors the SHARED
+				// branch of ConfirmLandingState::btnYesClick for normal craft landings.
+				if (_game->getCoopMod()->isSharedCampaign())
+				{
+					_game->getCoopMod()->setHost(true);
+					for (auto* s : *base->getSoldiers())
+					{
+						int owner = s->getOwnerPlayerId();
+						s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+						s->setCoopBase(-1);
+					}
+					for (auto* v : *base->getVehicles())
+					{
+						v->setCoop(0);
+						v->setCoopBase(-1);
+					}
+					startCoopMission();
+					return;
+				}
 
 				if (_game->getCoopMod()->getHost() == true)
 				{

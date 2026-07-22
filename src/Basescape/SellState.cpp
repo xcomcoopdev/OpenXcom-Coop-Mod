@@ -57,6 +57,8 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Menu/ErrorMessageState.h"
 #include "../Engine/Sound.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -196,7 +198,7 @@ void SellState::delayedInit()
 	for (auto* soldier : *_base->getSoldiers())
 	{
 		if (_debriefingState) break;
-		if (soldier->getCraft() == 0)
+		if (soldier->getCraft() == 0 && SharedEcon::ownsSoldier(_game, soldier))
 		{
 			TransferRow row = { TRANSFER_SOLDIER, soldier, soldier->getName(true), 0, 1, 0, 0, -4, 0, 0, 0 };
 			_items.push_back(row);
@@ -362,6 +364,7 @@ void SellState::delayedInit()
  */
 SellState::~SellState()
 {
+	_sharedRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -382,6 +385,15 @@ void SellState::init()
 	}
 
 	touchComponentsRefresh();
+
+	// PRD-J10: rows, sell values, stock and funds are all constructor snapshots -
+	// rebuild when a peer's shared_apply moves this base. The post-battle
+	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
+	// and the J09 world restream heals it wholesale.
+	if (!_debriefingState)
+	{
+		_sharedRefresh.bind(_game, this, _base);
+	}
 }
 
 /**
@@ -390,6 +402,18 @@ void SellState::init()
 void SellState::think()
 {
 	State::think();
+
+	// PRD-J10: same pop-and-rebuild the _reset path above already uses (this screen
+	// treats "construct again" as its refresh).
+	if (_sharedRefresh.consume())
+	{
+		_game->popState();
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
+		{
+			_game->pushState(new SellState(_base, _debriefingState, _origin));
+		}
+		return; // `this` is now queued for deletion - touch nothing else
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -652,6 +676,66 @@ void SellState::updateList()
  */
 void SellState::btnOkClick(Action *)
 {
+	// COOP SHARED (PRD-J05): a SHARED campaign is one host-authoritative world.
+	// Route the whole sell through the "sell" shared_cmd and mutate NOTHING
+	// locally - funds and stores are settled by the host and arrive via
+	// shared_apply. The command is atomic (host re-prices + re-checks quantities;
+	// a partial availability rejects the whole thing, matching vanilla's single
+	// OK button). SEPARATE/solo path below is untouched.
+	if (_game->getCoopMod()->isSharedCampaign())
+	{
+		Json::Value items(Json::arrayValue);
+		Json::Value soldiers(Json::arrayValue);
+		Json::Value crafts(Json::arrayValue);
+		int scientists = 0, engineers = 0;
+		for (const auto& row : _items)
+		{
+			if (row.amount <= 0) continue;
+			switch (row.type)
+			{
+			case TRANSFER_ITEM:
+			{
+				Json::Value e;
+				e["rule"] = ((RuleItem*)row.rule)->getType();
+				e["qty"] = row.amount;
+				items.append(e);
+				break;
+			}
+			case TRANSFER_SOLDIER:
+				// Selling another seat's soldier is allowed (shared roster mgmt).
+				soldiers.append(((Soldier*)row.rule)->getId());
+				break;
+			case TRANSFER_CRAFT:
+			{
+				Craft* c = (Craft*)row.rule;
+				Json::Value e;
+				e["id"] = c->getId();
+				e["type"] = c->getRules()->getType();
+				crafts.append(e);
+				break;
+			}
+			case TRANSFER_SCIENTIST: scientists += row.amount; break;
+			case TRANSFER_ENGINEER:  engineers  += row.amount; break;
+			}
+		}
+		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers)
+		{
+			Json::Value payload;
+			payload["items"] = items;
+			payload["soldiers"] = soldiers;
+			payload["crafts"] = crafts;
+			payload["scientists"] = scientists;
+			payload["engineers"] = engineers;
+			int baseId = 0;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if ((*bases)[i] == _base) { baseId = (int)i; break; }
+			SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
+		}
+		_game->popState();
+		return;
+	}
+
 	_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() + _total);
 
 	auto cleanUpContainer = [&](ItemContainer* container, const RuleItem* rule, int toRemove) -> int
@@ -866,6 +950,30 @@ void SellState::btnOkClick(Action *)
 void SellState::btnCancelClick(Action *)
 {
 	_game->popState();
+}
+
+/**
+ * Test-harness hook (PRD-J05): sell <count> of ITEM <itemType> through the real
+ * OK path. Sets the matching row's amount, keeps the running total consistent
+ * (harmless for the SHARED branch, which reprices host-side), and calls
+ * btnOkClick - which pops this state. Returns false if no sellable ITEM row
+ * matches.
+ */
+bool SellState::harnessSellItem(const std::string& itemType, int count)
+{
+	delayedInit(); // build _items now (normally deferred to init() on first frame)
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			row.amount = count;
+			_total += row.cost * count;
+			btnOkClick(nullptr);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

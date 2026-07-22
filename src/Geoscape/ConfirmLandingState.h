@@ -40,6 +40,11 @@ private:
 	Window *_window;
 	Texture *_missionTexture, *_globeTexture;
 	int _shade;
+	// PRD-J10 landing broker: this dialog is the BROKERED copy, shown on the seat
+	// that commanded the craft rather than on the host. It only ASKS - both
+	// buttons report the answer home (land_reply) and mutate nothing locally; the
+	// host still owns the world and generates the battle.
+	bool _sharedBroker;
 	Text *_txtMessage, *_txtBegin;
 	TextButton *_btnYes, *_btnNo, *_btnStartCoop;
 	Surface *_sprite;
@@ -47,11 +52,13 @@ private:
 	std::string checkStartingCondition();
 public:
 	/// Creates the Confirm Landing state.
-	ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade);
+	ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker = false);
 	/// Cleans up the Confirm Landing state.
 	~ConfirmLandingState();
 	/// initialize the state, make a sanity check.
 	void init() override;
+	/// Playtest: a brokered copy self-closes once ANOTHER seat resolved the landing.
+	void think() override;
 	/// Handler for clicking the Yes button.
 	void btnYesClick(Action *action);
 	/// Handler for clicking the No button.

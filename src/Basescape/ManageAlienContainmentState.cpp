@@ -43,6 +43,8 @@
 #include "../Mod/RuleInterface.h"
 #include "TechTreeViewerState.h"
 #include "TransferBaseState.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -182,6 +184,7 @@ ManageAlienContainmentState::ManageAlienContainmentState(Base *base, int prisonT
  */
 ManageAlienContainmentState::~ManageAlienContainmentState()
 {
+	_sharedRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -203,6 +206,11 @@ void ManageAlienContainmentState::init()
 	resetListAndTotals();
 
 	touchComponentsRefresh();
+
+	// PRD-J10: live refresh on a peer's shared_apply. This screen already owns an
+	// in-place rebuild (resetListAndTotals, used by init above), so it needs no
+	// pop-and-push - see think().
+	_sharedRefresh.bind(_game, this, _base);
 }
 
 /**
@@ -313,6 +321,14 @@ void ManageAlienContainmentState::think()
 {
 	State::think();
 
+	// PRD-J10: a peer's shared_apply moved this base's prisoners/funds. This screen
+	// rebuilds in place (no pop-and-push) - the pending selection is cleared, which
+	// is correct: it was quantities against a prison that no longer looks like that.
+	if (_sharedRefresh.consume())
+	{
+		resetListAndTotals();
+	}
+
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
 }
@@ -350,6 +366,39 @@ void ManageAlienContainmentState::btnSellClick(Action *)
  */
 void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 {
+	// COOP SHARED (PRD-J05): route prisoner removal (sell or execute) through the
+	// "containment" shared_cmd and mutate NOTHING locally; the host settles funds +
+	// storage and broadcasts shared_apply. Atomic + host-repriced. Both the OK
+	// (execute) and Sell buttons funnel through here, so this one branch covers
+	// both. SEPARATE/solo path below is unchanged.
+	if (_game->getCoopMod()->isSharedCampaign())
+	{
+		Json::Value prisoners(Json::arrayValue);
+		for (size_t i = 0; i < _qtys.size(); ++i)
+		{
+			if (_qtys[i] > 0)
+			{
+				Json::Value e;
+				e["rule"] = _aliens[i];
+				e["qty"] = _qtys[i];
+				prisoners.append(e);
+			}
+		}
+		if (!prisoners.empty())
+		{
+			Json::Value payload;
+			payload["prisoners"] = prisoners;
+			payload["sell"] = sell;
+			int baseId = 0;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if ((*bases)[i] == _base) { baseId = (int)i; break; }
+			SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
+		}
+		_game->popState();
+		return;
+	}
+
 	for (size_t i = 0; i < _qtys.size(); ++i)
 	{
 		if (_qtys[i] > 0)
@@ -401,6 +450,26 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 void ManageAlienContainmentState::btnCancelClick(Action *)
 {
 	_game->popState();
+}
+
+/**
+ * Test-harness hook (PRD-J05): set the removal count for alien <alienType> and
+ * run the real deal handler. In SHARED this emits a "containment" shared_cmd and
+ * pops the state. Returns false if no matching alien row is present.
+ */
+bool ManageAlienContainmentState::harnessRemovePrisoner(const std::string& alienType, int count, bool sell)
+{
+	resetListAndTotals(); // build _aliens/_qtys now (normally deferred to init())
+	for (size_t i = 0; i < _aliens.size(); ++i)
+	{
+		if (_aliens[i] == alienType)
+		{
+			_qtys[i] = count;
+			dealWithSelectedAliens(sell);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

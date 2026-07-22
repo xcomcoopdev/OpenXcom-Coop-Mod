@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include "SoldierSortUtil.h"
 
@@ -51,8 +52,14 @@ private:
 	size_t _craft;
 	Uint8 _otherCraftColor;
 	std::vector<Soldier *> _origSoldierOrder;
+	/// Playtest: the soldiers this player may SEE at the base (SHARED: own only),
+	/// a non-destructive local copy the list display + row-indexing go through.
+	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
+	/// PRD-J10: live refresh - two players plausibly edit ONE shared squad at once,
+	/// so this is the screen where a stale list is most visible.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
 public:
@@ -68,6 +75,8 @@ public:
 	void btnPreviewClick(Action *action);
 	/// Updates the soldiers list.
 	void init() override;
+	/// Applies a pending PRD-J10 live refresh.
+	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
 	/// Moves a soldier up.
@@ -85,6 +94,20 @@ public:
 	/// Handler for clicking the De-assign All Soldiers button.
 	void btnDeassignAllSoldiersClick(Action *action);
 	void btnDeassignCraftSoldiersClick(Action *action);
+	/// Harness (PRD-J09): toggle a soldier's assignment by id, driving the same
+	/// path as a left-click (SHARED -> craft_assign command; SEPARATE -> local).
+	void harnessToggle(int soldierId);
+	/// Harness (PRD-J10): the "SPACE USED" header this screen is showing. It is
+	/// written only by initList, so a change proves the live refresh actually ran.
+	std::string harnessUsedText() const;
+	/// Test automation: soldier ids the craft-crew screen displays (own-only in SHARED).
+	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation (SHARED capacity): numeric shared-craft space, so a test can assert
+	/// both seats agree and the ship is NOT halved. used = combined (all owners aboard),
+	/// available = full max - used, max = the craft's real unit capacity.
+	int harnessSpaceUsed() const;
+	int harnessSpaceAvailable() const;
+	int harnessMaxUnits() const;
 };
 
 }

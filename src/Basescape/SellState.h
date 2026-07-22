@@ -20,6 +20,7 @@
 #include "../Engine/TouchState.h"
 #include "../Savegame/Transfer.h"
 #include "../Menu/OptionsBaseState.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <string>
 
@@ -66,6 +67,8 @@ private:
 	bool _sellAllButOne;
 	bool _delayedInitDone;
 	TransferSortDirection _previousSort, _currentSort;
+	/// PRD-J10: live refresh when another player's shared_apply moves this base.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
@@ -124,6 +127,11 @@ public:
 	void updateItemStrings();
 	/// Handler for changing the category filter.
 	void cbxCategoryChange(Action *action);
+	/// Test-harness hook (PRD-J05): set the sell quantity for ITEM <itemType> to
+	/// <count> and invoke the real OK handler (SHARED -> emits a "sell" shared_cmd;
+	/// SEPARATE/solo -> the vanilla local sell). Returns false if no sellable ITEM
+	/// row matches. Main thread only.
+	bool harnessSellItem(const std::string& itemType, int count);
 };
 
 }

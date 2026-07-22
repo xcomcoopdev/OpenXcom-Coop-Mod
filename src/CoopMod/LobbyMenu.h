@@ -52,6 +52,12 @@ protected:
 	bool _sortable;
 	bool _timerStarted = false;
 	bool _redirected = false; // think() left the lobby after a lost connection
+	/// Playtest B7: this coop menu was opened MID-GAME (a running campaign geoscape
+	/// sits on the stack underneath). The action button becomes RESUME GAME and just
+	/// returns to the live game instead of leaving disconnect as the only option.
+	bool _resumeToGame = false;
+	/// Playtest B7: pop the coop-menu states back down to the running game geoscape.
+	void returnToRunningGame();
 	int _countdown = 30; // seconds
 	void updateArrows();
   public:
@@ -98,6 +104,12 @@ protected:
 	bool clickStartConfirmOk();
 	/// Registered players not yet in the lobby (resume mode, F3).
 	std::vector<std::string> missingPlayers() const;
+	/// The "waiting" details line for the CURRENT lobby mode. Resuming a saved co-op
+	/// campaign names the players still missing ("Waiting for A, B on port N") because the
+	/// roster is known; starting a NEW game has no roster yet, so it is the generic
+	/// "Waiting for players on port N". Used everywhere the line is (re)written, so a
+	/// mouse-over/out no longer overwrites the named form with the generic one.
+	std::string waitingText() const;
 	/// Serves every resuming player its world and waits for acks (F3).
 	void resumeCampaign();
 	/// Introspection for the test harness.
@@ -105,6 +117,9 @@ protected:
 	bool actionButtonVisible() const;
 	std::string detailsText() const;
 	std::vector<std::string> rosterNames() const;
+	/// Test automation: roster row name by player id (1=host row, 2=client row),
+	/// unsorted (the displayed roster is name-sorted).
+	std::string rowNameById(int id) const;
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action* action);
 	void sortLatencyClick(Action* action);

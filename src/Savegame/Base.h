@@ -145,6 +145,11 @@ public:
 	int coop_stores = 0;
 	int coop_training = 0;
 	int coop_workshop = 0;
+	/// COOP: how many of the PEER's soldiers are stationed at this (own, real)
+	/// base. They are transferred guests, so they never join this machine's
+	/// roster - the peer keeps the Soldier object and only reports the headcount
+	/// - but they live here, so they occupy this base's living quarters.
+	int coop_guests = 0;
 	void syncTrade(std::string items, SavedGame *save, Mod *mod);
 	bool _coopBase  = false;
 	bool _coopIcon = false;

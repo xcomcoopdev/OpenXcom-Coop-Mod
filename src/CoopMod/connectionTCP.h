@@ -156,7 +156,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 // overflows on a slow link), each channel keeps a single overwrite slot; the
 // send thread emits the freshest one at whatever rate the link drains. Preserves
 // update rate (no throttle) while eliminating the backlog.
-enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_COUNT };
+enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_DOGFIGHT = 2, SNAP_COUNT };
 
 // Overwrite the conflation slot with the newest snapshot (thread-safe).
 void enqueueSnapshot(CoopSnapSlot slot, std::string&& s);
@@ -271,6 +271,9 @@ class connectionTCP
 	// chat menu
 	ChatMenu* _chatMenu = nullptr;
 	Game* _game;
+	// PRD-J01: process-single Game handle so the static seat accessors can
+	// read the active roster (SavedGame::_coopPlayers). Set once in the ctor.
+	static Game* _staticGame;
 	Uint32 lastRandomClear = 0;
 	void generateCraftSoldiers();
 	bool _onTCP = false;
@@ -340,6 +343,20 @@ class connectionTCP
 	bool geoMembershipChanged(const Json::Value& root);
 	std::set<int> _lastGeoUfoIds;
 	std::set<int> _lastGeoMissionIds;
+	// Playtest: craft ids whose SHARED landing decision has been resolved (any seat
+	// answered). Every seat is prompted; the losers' broker ConfirmLandingState polls
+	// this in think() and closes itself. Marked by the host resolver / a land_close
+	// broadcast; cleared when a fresh prompt for that craft goes out.
+	std::set<int> _landingResolved;
+	void markLandingResolved(int craftId) { _landingResolved.insert(craftId); }
+	void clearLandingResolved(int craftId) { _landingResolved.erase(craftId); }
+	bool consumeLandingResolved(int craftId)
+	{
+		auto it = _landingResolved.find(craftId);
+		if (it == _landingResolved.end()) return false;
+		_landingResolved.erase(it);
+		return true;
+	}
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);
@@ -355,7 +372,45 @@ class connectionTCP
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
+	// PRD-J01: campaign economy model carried to a joining client during the
+	// lobby handshake (before its save exists) so the type label can render.
+	// 0 = Separate, 1 = Shared. Mirrors SavedGame::getCampaignType().
+	static int _lobbyCampaignType;
 	bool getCoopCampaign();
+	// PRD-J01: true when the ACTIVE save is a SHARED co-op campaign. Every later
+	// SHARED-gated behavior tests this; SEPARATE/solo return false.
+	bool isSharedCampaign();
+	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
+	static bool isSharedCampaignStatic();
+	// PRD-J02: true for a SHARED client - a world replica the host streams. A
+	// replica never builds its own world, never saves to disk, and never runs
+	// the SEPARATE mirror machinery. (isSharedCampaign() && !host)
+	bool isSharedReplica();
+	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
+	// streamer (single-client resume-blob lane) so the connected client adopts
+	// it as its replica. Host only; used at SHARED campaign start and resume.
+	void streamSharedWorldToClient();
+	// PRD-J09: set while a POST-BATTLE world restream is in flight. The client
+	// adopting a streamed world always sends resume_ack and then HOLDS in
+	// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) waiting for the host to
+	// "resume" - at bootstrap/resume the operator's BEGIN sends campaign_begun.
+	// After a battle there is no such click, so the resume_ack handler releases
+	// the hold automatically when this flag is set.
+	bool sharedPostBattleRestream = false;
+	// PRD-J10: same shape, different trigger - set while a DESYNC-REPAIR world
+	// restream is in flight (the replica's world checksum diverged and it asked for
+	// a fresh one). Mid-session nobody clicks BEGIN either, so the resume_ack
+	// handler must release the client's hold for this restream too, or the client
+	// parks in COOP_DLG_CLIENT_RESUME_HOLD forever with a perfectly good world.
+	bool sharedResyncRestream = false;
+	// PRD-J10: serve a replica's shared_resync_request - mark the restream
+	// auto-releasing and stream the authoritative world. No-op (the replica re-asks
+	// on its next mismatching checksum) if the single-slot streamer is busy.
+	void sharedResyncStream();
+	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
+	static int localSeat();                 // this machine's seat
+	static int seatCount();                 // active roster size
+	static std::string seatName(int seat);  // player name for a seat
 	// no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int getCoopGamemode();
 	void createCoopMenu();
@@ -392,6 +447,7 @@ class connectionTCP
 	static bool _battleInit; // when both have joined and are ready for battle, initialize
 	int _playerTurn = 0; // 0 = no one, 1 = team, 2 = your, 3 = waiting, 4 = spectator mode
 	void setPlayerTurn(int turn);
+	int getPlayerTurn() const { return _playerTurn; }
 	void sendFile();
 	// is the player actually connected?
 	int isConnected();
@@ -504,11 +560,30 @@ class connectionTCP
 	std::string show_coop_ufo_popup_race = "";
 	std::string show_coop_ufo_popup_altitude = "";
 
+	// Pending peer UFO-detected alerts. This used to be the single type/race pair above,
+	// which was lossy twice over: a second detection in the same window overwrote the
+	// first (alert silently lost), and matching on type+race alone could pop the dialog
+	// for the WRONG UFO of the same race/type. Queued, and carrying the peer's ufo id so
+	// the match is exact in SHARED (shared world -> identical ids).
+	struct CoopUfoAlert { int ufoId = -1; std::string type; std::string race; };
+	std::vector<CoopUfoAlert> coopUfoAlerts;
+	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
+
 	bool show_coop_monthly_report = false;
 
 	int fundingDiffCoop = -1;
 	int ratingTotalCoop = -1;
 	int lastMonthsRatingCoop = -1;
+
+	// PRD-J04: authoritative monthly settlement carried on the extended
+	// monthly_report packet (SHARED). A replica overwrites its own recomputed tails
+	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
+	bool sharedMonthlyPending = false;
+	int64_t sharedMonthlyFunds = 0;
+	int64_t sharedMonthlyMaintenance = 0;
+	int64_t sharedMonthlyIncome = 0;
+	int64_t sharedMonthlyExpenditure = 0;
+	int sharedMonthlyResearchScore = 0;
 
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
@@ -620,6 +695,11 @@ class connectionTCP
 	// dialog (CoopState 63).
 	static std::string joinRefusalReason;
 
+	// PRD-J10: already-translated text of the last rejected SHARED command, shown by
+	// the single failure dialog (CoopState COOP_DLG_SHARED_FAIL). Written only by
+	// SharedEcon::showFail - same idiom as joinRefusalReason above.
+	static std::string sharedFailReason;
+
 	// save
 	static bool saveError;
 	static long long saveID;
@@ -708,6 +788,12 @@ class connectionTCP
 	// after a save load - stale in-memory state must never outlive the save
 	// that is now the authority.
 	void resetGiftSessionState();
+	// COOP living quarters: a soldier TRANSFERRED to a peer's base is never
+	// erased from this machine's roster (it stays tagged with getCoopBase() =
+	// that base's id), so the peer has no object to count. Report the headcount
+	// per peer base so the base that HOUSES a soldier is the one that pays for
+	// it. Sends only when the tally actually changed; call freely.
+	void sendGuestCensus(bool force = false);
 };
 
 }

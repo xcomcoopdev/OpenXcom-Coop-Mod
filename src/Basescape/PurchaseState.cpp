@@ -51,6 +51,8 @@
 #include "../Battlescape/CannotReequipState.h"
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -379,6 +381,7 @@ PurchaseState::PurchaseState(Base *base, CannotReequipState *parent) : _base(bas
  */
 PurchaseState::~PurchaseState()
 {
+	_sharedRefresh.unbind(this);
 	delete _timerInc;
 	delete _timerDec;
 }
@@ -391,6 +394,17 @@ void PurchaseState::init()
 	State::init();
 
 	touchComponentsRefresh();
+
+	// PRD-J10: this screen snapshots funds, prices and stock in its constructor, so
+	// another player's shared_apply silently staled it. Rebuild on the next think()
+	// instead of leaving an order the host is guaranteed to re-price.
+	// The CannotReequip variant is excluded: it auto-fills a missing-items order in
+	// its constructor, and re-running that on every apply would re-add the order the
+	// player just edited.
+	if (!_parent)
+	{
+		_sharedRefresh.bind(_game, this, _base);
+	}
 }
 
 /**
@@ -399,6 +413,24 @@ void PurchaseState::init()
 void PurchaseState::think()
 {
 	State::think();
+
+	// PRD-J10: pop-and-rebuild is the cheap default for a SHARED command screen -
+	// the constructor IS the refresh (rows, prices, funds, space). Nothing is
+	// mutated, so an in-progress order is the only casualty, and it was about to be
+	// priced against a world that no longer exists.
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
+		{
+			_game->popState();
+			_game->pushState(new PurchaseState(_base));
+			return; // `this` is now queued for deletion - touch nothing else
+		}
+		// the base itself is gone (dismantled lift / retaliation): this screen has
+		// no subject left, so just leave.
+		_game->popState();
+		return;
+	}
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -776,6 +808,52 @@ void PurchaseState::btnOkClick(Action *)
 		}
 	}
 
+	// COOP SHARED (PRD-J03): a SHARED campaign is one host-authoritative world.
+	// Route the whole purchase through the shared_cmd protocol and mutate NOTHING
+	// locally - funds and incoming transfers arrive via shared_apply. The SEPARATE
+	// cross-player `purchase` packet path below is untouched and SHARED-fenced (a
+	// SHARED world has no _coopBase mirror bases, so it never fires here anyway).
+	if (_game->getCoopMod()->isSharedCampaign())
+	{
+		Json::Value items(Json::arrayValue);
+		int64_t estTotal = 0;
+		for (const auto& row : _items)
+		{
+			if (row.amount <= 0) continue;
+			Json::Value entry;
+			entry["type"] = (int)row.type;
+			std::string ruleId;
+			switch (row.type)
+			{
+			case TRANSFER_ITEM:    ruleId = ((RuleItem*)row.rule)->getType(); break;
+			case TRANSFER_CRAFT:   ruleId = ((RuleCraft*)row.rule)->getType(); break;
+			case TRANSFER_SOLDIER: ruleId = ((RuleSoldier*)row.rule)->getType(); break;
+			default: break; // scientists / engineers carry no rule id
+			}
+			entry["rule"] = ruleId;
+			entry["qty"] = row.amount;
+			items.append(entry);
+			estTotal += (int64_t)row.amount * row.cost;
+		}
+		if (!items.empty())
+		{
+			Json::Value payload;
+			payload["items"] = items;
+			payload["total"] = Json::Value::Int64(estTotal); // client estimate; host recomputes
+			// baseId = index into SavedGame::getBases() (the SHARED shared key; see
+			// SharedEcon::resolveBase). Host and replica hold the same base list.
+			int baseId = 0;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+			{
+				if ((*bases)[i] == _base) { baseId = (int)i; break; }
+			}
+			SharedEcon::submitLocalCmd(_game, "buy", baseId, payload);
+		}
+		_game->popState();
+		return;
+	}
+
 	// coop
 	if (_base->_coopBase == false)
 	{
@@ -936,6 +1014,70 @@ void PurchaseState::btnOkClick(Action *)
 	}
 
 	_game->popState();
+}
+
+/**
+ * Test-harness hook (PRD-J03): drive a purchase of <count> of ITEM <itemType>
+ * through the real OK path. Sets the matching row's amount, keeps the running
+ * totals consistent (harmless for the SHARED branch, which recomputes host-side),
+ * and calls btnOkClick - which pops this state. Returns false if no purchasable
+ * ITEM row matches.
+ */
+bool PurchaseState::harnessBuyItem(const std::string& itemType, int count)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			row.amount = count;
+			_total += row.cost * count;
+			_iQty += ((RuleItem*)row.rule)->getSize() * count;
+			btnOkClick(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+bool PurchaseState::harnessBuySoldier(const std::string& soldierType, int count)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_SOLDIER && row.rule
+			&& ((RuleSoldier*)row.rule)->getType() == soldierType)
+		{
+			row.amount = count;
+			_total += row.cost * count;
+			_pQty += count;
+			btnOkClick(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Test-harness hooks (PRD-J10): the two constructor-time caches the live-refresh
+ * test reads. Both are frozen at construction, so a change in either proves the
+ * screen was actually rebuilt rather than merely still showing the right world.
+ */
+std::string PurchaseState::harnessFundsText() const
+{
+	return _txtFunds->getText();
+}
+
+int PurchaseState::harnessRowStock(const std::string& itemType) const
+{
+	for (const auto& row : _items)
+	{
+		if (row.type == TRANSFER_ITEM && row.rule
+			&& ((RuleItem*)row.rule)->getType() == itemType)
+		{
+			return row.qtySrc;
+		}
+	}
+	return -1;
 }
 
 /**

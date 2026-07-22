@@ -53,6 +53,7 @@
 #include "DogfightErrorState.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -248,9 +249,15 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_minimized(false), _endDogfight(false), _animatingHit(false), _waitForPoly(false), _waitForAltitude(false), _ufoSize(0), _ufoBlobSize(0),
 	_craftHeight(0), _currentCraftDamageColor(0),
 	_interceptionNumber(0), _interceptionsCount(0), _x(0), _y(0), _minimizedIconX(0), _minimizedIconY(0), _firedAtLeastOnce(false), _experienceAwarded(false),
-	_delayedRecolorDone(false)
+	_delayedRecolorDone(false), _isReplicaView(false), _ufoStance(0)
 {
 	_screen = false;
+	// PRD-DF01: on a SHARED replica this window renders a host-simulated fight from
+	// the df_state stream and never runs the sim body (see update()). The host owns
+	// every dogfight; a replica never has a non-replica instance and vice versa.
+	_isReplicaView = _game->getCoopMod()
+		&& _game->getCoopMod()->isSharedCampaign()
+		&& !_game->getCoopMod()->getServerOwner();
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
 	if (_weaponNum > RuleCraft::WeaponMax)
@@ -478,49 +485,57 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_btnMinimize->setVisible(!_ufoIsAttacking);
 
 	_btnStandoff->copy(_window);
-	_btnStandoff->setGroup(&_mode);
+	if (!_isReplicaView) _btnStandoff->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnStandoff->onMousePress((ActionHandler)&DogfightState::btnStandoffPress);
 	_btnStandoff->onMousePress((ActionHandler)&DogfightState::btnStandoffRightPress, SDL_BUTTON_RIGHT);
 	_btnStandoff->setVisible(!_disableStandoff);
 
 	_btnCautious->copy(_window);
-	_btnCautious->setGroup(&_mode);
+	if (!_isReplicaView) _btnCautious->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnCautious->onMousePress((ActionHandler)&DogfightState::btnCautiousPress);
 	_btnCautious->onMousePress((ActionHandler)&DogfightState::btnCautiousRightPress, SDL_BUTTON_RIGHT);
 	_btnCautious->setVisible(!_disableCautious);
 
 	_btnStandard->copy(_window);
-	_btnStandard->setGroup(&_mode);
+	if (!_isReplicaView) _btnStandard->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnStandard->onMousePress((ActionHandler)&DogfightState::btnStandardPress);
 	_btnStandard->onMousePress((ActionHandler)&DogfightState::btnStandardRightPress, SDL_BUTTON_RIGHT);
 	_btnStandard->setVisible(!_disableStandard);
 
 	_btnAggressive->copy(_window);
-	_btnAggressive->setGroup(&_mode);
+	if (!_isReplicaView) _btnAggressive->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnAggressive->onMousePress((ActionHandler)&DogfightState::btnAggressivePress);
 	_btnAggressive->onMousePress((ActionHandler)&DogfightState::btnAggressiveRightPress, SDL_BUTTON_RIGHT);
 	_btnAggressive->setVisible(!_disableAggressive);
-	if (_ufoIsAttacking || _missileCraft)
+	if ((_ufoIsAttacking || _missileCraft) && !_isReplicaView)
 	{
-		btnAggressivePress(0);
+		btnAggressivePress(0); // host only: side effects (dist/reload); a replica adopts the stance from df_state
 	}
 
 	_btnDisengage->copy(_window);
 	_btnDisengage->onMousePress((ActionHandler)&DogfightState::btnDisengagePress);
 	_btnDisengage->onMousePress((ActionHandler)&DogfightState::btnDisengageRightPress, SDL_BUTTON_RIGHT);
-	_btnDisengage->setGroup(&_mode);
+	if (!_isReplicaView) _btnDisengage->setGroup(&_mode); // replica: no radio group; host-authoritative highlight (applyFrame)
 	_btnDisengage->setVisible(!_disableDisengage);
 
 	_btnUfo->copy(_window);
 	_btnUfo->onMouseClick((ActionHandler)&DogfightState::btnUfoClick);
 
+	// Playtest B6/dogfight: track which stance button is drawn inverted so a
+	// df_state-driven stance change can move the highlight itself. On the HOST,
+	// setGroup(&_mode) above already inverted the initial _mode button. On a REPLICA
+	// there is no group (host-authoritative display), so seed that initial invert by
+	// hand to keep the invariant _visInverted == the inverted button.
+	if (_isReplicaView) _mode->invert(_mode->getColor() + 3);
+	_visInverted = _mode;
+
 	_txtDistance->setText("640");
 	updateOceanIndicator();
 
-	if (_ufoIsAttacking)
-		_txtStatus->setText(tr("STR_AGGRESSIVE_ATTACK"));
-	else
-		_txtStatus->setText(tr("STR_STANDOFF"));
+	// PRD-DF02: route through _statusBase so the synced UFO-stance marker composes on
+	// top (refreshStatus) and the streamed statusText stays marker-free.
+	_statusBase = _ufoIsAttacking ? tr("STR_AGGRESSIVE_ATTACK") : tr("STR_STANDOFF");
+	refreshStatus();
 
 	SurfaceSet *set = _game->getMod()->getSurfaceSet("INTICON.PCK");
 
@@ -775,7 +790,10 @@ void DogfightState::think()
 		update();
 		_craftDamageAnimTimer->think(this, 0);
 	}
-	if (!_ufoIsAttacking || _ufo->getStatus() == Ufo::LANDED)
+	// PRD-DF01: on a SHARED replica this auto-end heuristic reads replica craft state
+	// (isInDogfight / getDestination) that the host's sim owns - the window's
+	// lifecycle is instead driven by df_open/df_close (host membership). Skip it.
+	if (!_isReplicaView && (!_ufoIsAttacking || _ufo->getStatus() == Ufo::LANDED))
 	{
 		if (!_craft->isInDogfight() || _craft->getDestination() != _ufo || _ufo->getStatus() == Ufo::LANDED)
 		{
@@ -919,15 +937,23 @@ void DogfightState::animate()
 		drawProjectile(cwp);
 	}
 
+	// PRD-DF02: keep the synced UFO-stance marker current. On the host, refresh from
+	// the live UFO; on a replica _ufoStance is adopted from df_state (applyFrame).
+	if (!_isReplicaView && _ufo)
+		_ufoStance = _ufo->getHuntBehavior();
+
 	// Clears text after a while
 	if (_timeout == 0)
 	{
-		_txtStatus->setText("");
+		_statusBase.clear();
 	}
 	else
 	{
 		_timeout--;
 	}
+	// Re-compose status + stance marker every frame so the marker stays visible while
+	// the status message persists and after it clears (the marker is persistent).
+	refreshStatus();
 
 	// Animate UFO hit.
 	bool lastHitAnimFrame = false;
@@ -955,6 +981,22 @@ void DogfightState::animate()
  */
 void DogfightState::update()
 {
+	++_updateCount; // test instrumentation (PRD-J08)
+
+	// PRD-DF01 SHARED replica: render-only. The freshest df_state frame was already
+	// adopted by the transport (applyFrame, at df_state consume time); here we only
+	// re-render. The ENTIRE sim body below - Ufo/Craft mutation, every RNG site,
+	// projectile movement, end detection, retaliation + score - is the HOST's alone.
+	// Because handleDogfightExperience() (GAP-7 pilot XP) and _craft->setDestination
+	// / returnToBase (GAP-8 _dest + waypoints) both live in that body, a replica
+	// never reaches them: both gaps close for free. Window lifecycle + world outcome
+	// arrive out-of-band (df_open/df_close membership + the shared position snapshot).
+	if (_isReplicaView)
+	{
+		if (!_minimized)
+			animate();
+		return;
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() && _ufo->_coop == true)
@@ -1219,7 +1261,7 @@ void DogfightState::update()
 							setStatus("STR_UFO_HIT");
 					}
 				}
-				_game->getMod()->getSound("GEO.CAT", Mod::UFO_HIT)->play();
+				playDfSound(Mod::UFO_HIT);
 			}
 		}
 
@@ -1321,7 +1363,7 @@ void DogfightState::update()
 							}
 						}
 
-						_game->getMod()->getSound("GEO.CAT", Mod::UFO_HIT)->play();
+						playDfSound(Mod::UFO_HIT);
 						p->remove();
 					}
 					// Missed.
@@ -1393,7 +1435,7 @@ void DogfightState::update()
 								setStatus("STR_MISSILE_DAMAGED");
 							else
 								setStatus("STR_INTERCEPTOR_DAMAGED");
-							_game->getMod()->getSound("GEO.CAT", Mod::INTERCEPTOR_HIT)->play(); //10
+							playDfSound(Mod::INTERCEPTOR_HIT); //10
 							if (_mode == _btnCautious && _craft->getDamagePercentage() >= 50 && !_ufoIsAttacking)
 							{
 								_targetDist = STANDOFF_DIST;
@@ -1610,7 +1652,7 @@ void DogfightState::update()
 				//_craft->evacuateCrew(_game->getMod());
 			}
 			_timeout += 30;
-			_game->getMod()->getSound("GEO.CAT", Mod::INTERCEPTOR_EXPLODE)->play();
+			playDfSound(Mod::INTERCEPTOR_EXPLODE);
 			finalRun = true;
 			_destroyCraft = true;
 			_endCraftHandled = true;
@@ -1631,6 +1673,17 @@ void DogfightState::update()
 				AlienRace *race = _game->getMod()->getAlienRace(_ufo->getAlienRace());
 				AlienMission *mission = _ufo->getMission();
 				mission->ufoShotDown(*_ufo);
+				// PRD-J08: on a SHARED replica this dogfight runs against replica
+				// data; mission consequences (retaliation roll + spawn) are
+				// HOST-authoritative and are rolled by the host when it applies
+				// the reported dogfight_result - never here (a replica-side roll
+				// would spawn a mission the host's world does not have).
+				if (_game->getCoopMod()->isSharedReplica())
+				{
+					// skip the retaliation roll block below
+				}
+				else
+				{
 				// Check for retaliation trigger.
 				int retaliationOdds = mission->getRules().getRetaliationOdds();
 				if (retaliationOdds == -1)
@@ -1697,6 +1750,7 @@ void DogfightState::update()
 						}
 					}
 				}
+				} // end of the SHARED-replica retaliation fence (PRD-J08)
 			}
 
 			if (_ufo->isDestroyed())
@@ -1726,7 +1780,7 @@ void DogfightState::update()
 					}
 
 					setStatus("STR_UFO_DESTROYED");
-					_game->getMod()->getSound("GEO.CAT", Mod::UFO_EXPLODE)->play(); //11
+					playDfSound(Mod::UFO_EXPLODE); //11
 				}
 				_destroyUfo = true;
 			}
@@ -1735,7 +1789,7 @@ void DogfightState::update()
 				if (_ufo->getShotDownByCraftId() == _craft->getUniqueId())
 				{
 					setStatus("STR_UFO_CRASH_LANDS");
-					_game->getMod()->getSound("GEO.CAT", Mod::UFO_CRASH)->play(); //10
+					playDfSound(Mod::UFO_CRASH); //10
 
 					// coop
 					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -1909,7 +1963,7 @@ void DogfightState::fireWeapon(int i)
 		p->setHorizontalPosition((i % 2 ? HP_RIGHT : HP_LEFT) * (1 + 2 * (i / 2)));
 		_projectiles.push_back(p);
 
-		_game->getMod()->getSound("GEO.CAT", w1->getRules()->getSound())->play();
+		playDfSound(w1->getRules()->getSound());
 		_firedAtLeastOnce = true;
 	}
 }
@@ -1948,11 +2002,11 @@ void DogfightState::ufoFireWeapon()
 
 	if (_ufo->getRules()->getFireSound() == -1)
 	{
-		_game->getMod()->getSound("GEO.CAT", Mod::UFO_FIRE)->play();
+		playDfSound(Mod::UFO_FIRE);
 	}
 	else
 	{
-		_game->getMod()->getSound("GEO.CAT", _ufo->getRules()->getFireSound())->play();
+		playDfSound(_ufo->getRules()->getFireSound());
 	}
 }
 
@@ -2035,8 +2089,138 @@ void DogfightState::aggressiveDistance()
  */
 void DogfightState::setStatus(const std::string &status)
 {
-	_txtStatus->setText(tr(status));
+	_statusBase = tr(status);
+	refreshStatus();
 	_timeout = 50;
+}
+
+/**
+ * PRD-DF02: re-compose the status line. The synced UFO attack-mode marker (the UFO's
+ * hunt posture, carried in df_state as ufoStance) is appended to the base status so
+ * every player sees the same marker; the base (marker-free) string is what the host
+ * streams. huntBehavior 1 = kamikaze/aggressive posture -> shown; 0 = normal -> clean.
+ */
+void DogfightState::refreshStatus()
+{
+	if (_ufoStance == 1)
+		_txtStatus->setText(_statusBase.empty() ? std::string("[UFO AGGR]")
+		                                        : _statusBase + " [UFO AGGR]");
+	else
+		_txtStatus->setText(_statusBase);
+}
+
+/**
+ * PRD-DF02 REPLICA: emit a df_cmd on the reliable FIFO shared_cmd lane. The host
+ * validates membership (epoch guard) and applies it to the authoritative sim in
+ * receive-order; the result surfaces to every replica on the next df_state frame.
+ */
+void DogfightState::emitDfCmd(const std::string& action, int arg)
+{
+	Json::Value p;
+	p["craftId"] = _craft ? _craft->getId() : -1;
+	p["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	p["ufoId"] = _ufo ? _ufo->getId() : -1;
+	p["action"] = action;
+	p["arg"] = arg;
+	SharedEcon::submitLocalCmd(_game, "df_cmd", -1, p);
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated stance command. Sets the _mode button group and
+ * runs the vanilla Press body (the same side effects as an actual mouse press:
+ * reload intervals, _targetDist, _end). Visibility-independent (unlike the
+ * Simulate*LeftPress lane) so a host-minimized window still obeys a client command.
+ */
+void DogfightState::hostApplyStance(int stanceIdx)
+{
+	ImageButton* newMode = nullptr;
+	switch (stanceIdx)
+	{
+	case 0: newMode = _btnStandoff;   break;
+	case 1: newMode = _btnCautious;   break;
+	case 2: newMode = _btnStandard;   break;
+	case 3: newMode = _btnAggressive; break;
+	case 4: newMode = _btnDisengage;  break;
+	default: return;
+	}
+	// Playtest: a client-driven stance arrives here, NOT through ImageButton::mousePress,
+	// so the radio-group highlight (a persistent invert()) is never moved - only the group
+	// pointer _mode was reassigned. That left the old button lit AND, because the new _mode
+	// was un-inverted, a later real host click double-inverted it: several buttons lit at
+	// once. Move the highlight exactly as mousePress does (un-invert old, invert new). On
+	// the host the currently-inverted button is always the old _mode (the group invariant);
+	// mirror _visInverted too for the replica-view invariant.
+	if (_mode != newMode)
+	{
+		if (_mode) _mode->invert(_mode->getColor() + 3);
+		newMode->invert(newMode->getColor() + 3);
+	}
+	_mode = newMode;
+	_visInverted = newMode;
+	switch (stanceIdx)
+	{
+	case 0: btnStandoffPress(nullptr);   break;
+	case 1: btnCautiousPress(nullptr);   break;
+	case 2: btnStandardPress(nullptr);   break;
+	case 3: btnAggressivePress(nullptr); break;
+	case 4: btnDisengagePress(nullptr);  break;
+	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated weapon toggle (same body as weaponClick, by index).
+ */
+void DogfightState::hostToggleWeapon(int idx)
+{
+	if (idx < 0 || idx >= _weaponNum) return;
+	_weaponEnabled[idx] = !_weaponEnabled[idx];
+	recolor(idx, _weaponEnabled[idx]);
+	if (Options::oxceRememberDisabledCraftWeapons)
+	{
+		CraftWeapon* w = _craft->getWeapons()->at(idx);
+		if (w) w->setDisabled(!_weaponEnabled[idx]);
+	}
+}
+
+/**
+ * PRD-DF02 (HOST): apply a replicated self-destruct toggle (defenseless craft only;
+ * mirrors the btnMinimizeClick self-destruct branch, minus the local button redraw).
+ */
+void DogfightState::hostSelfDestruct()
+{
+	if (!_craftIsDefenseless) return;
+	_selfDestructPressed = !_selfDestructPressed;
+	setStatus(_selfDestructPressed ? "STR_SELF_DESTRUCT_ACTIVATED" : "STR_SELF_DESTRUCT_CANCELLED");
+}
+
+/**
+ * PRD-DF02: the UFO's synced attack posture for the harness. On the host, read the
+ * live UFO (authoritative); on a replica, return the value adopted from df_state, so a
+ * host/replica parity assertion actually proves the value travelled over the wire.
+ */
+int DogfightState::harnessUfoStance() const
+{
+	if (_isReplicaView) return _ufoStance;
+	return _ufo ? _ufo->getHuntBehavior() : _ufoStance;
+}
+
+/**
+ * PRD-DF02: harness-only weapon toggle by index, routed through the same role lane the
+ * UI uses (weaponClick needs a widget sender the harness cannot synthesize).
+ */
+void DogfightState::harnessToggleWeapon(int idx)
+{
+	if (idx < 0 || idx >= _weaponNum) return;
+	if (_isReplicaView)
+	{
+		_weaponEnabled[idx] = !_weaponEnabled[idx]; // optimistic echo
+		recolor(idx, _weaponEnabled[idx]);
+		emitDfCmd("weaponToggle", idx);
+	}
+	else
+	{
+		hostToggleWeapon(idx);
+	}
 }
 
 /**
@@ -2055,6 +2239,19 @@ void DogfightState::btnMinimizeClick(Action *)
 		int offset = _game->getMod()->getInterface("dogfight")->getElement("minimizeButtonDummy")->TFTDMode ? 1 : 0;
 		int color = _selfDestructPressed ? DAMAGE_MIN : DAMAGE_MAX;
 		_btnMinimize->drawRect(1 + offset, 1, _btnMinimize->getWidth() - 2 - offset, _btnMinimize->getHeight() - 2, _colors[color]);
+		// PRD-DF02 REPLICA: self-destruct is authoritative - emit df_cmd so the host
+		// toggles its own _selfDestructPressed (the toggle above is the optimistic echo).
+		if (_isReplicaView)
+			emitDfCmd("selfDestruct");
+		return;
+	}
+
+	// PRD-DF02 REPLICA: minimize is per-machine VIEW state (README #6): minimize
+	// freely and locally. It never drives the world clock (the host's authoritative
+	// hostAnyOpen does, 4) and never touches the host-owned sim (no shield write).
+	if (_isReplicaView)
+	{
+		setMinimized(true);
 		return;
 	}
 
@@ -2078,6 +2275,11 @@ void DogfightState::btnMinimizeClick(Action *)
  */
 void DogfightState::btnStandoffPress(Action *)
 {
+	// Playtest: replica buttons are HOST-AUTHORITATIVE. A click only requests the
+	// stance (df_cmd); the button itself never moves optimistically - it follows the
+	// host's df_state (applyFrame). No optimistic echo => no revert flicker, and the
+	// button always shows exactly what the host shows.
+	if (_isReplicaView) { emitDfCmd("standoff"); return; }
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2105,6 +2307,7 @@ void DogfightState::btnStandoffSimulateLeftPress(Action *action)
  */
 void DogfightState::btnCautiousPress(Action *)
 {
+	if (_isReplicaView) { emitDfCmd("cautious"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2158,6 +2361,7 @@ void DogfightState::btnCautiousSimulateLeftPress(Action *action)
  */
 void DogfightState::btnStandardPress(Action *)
 {
+	if (_isReplicaView) { emitDfCmd("standard"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2193,6 +2397,7 @@ void DogfightState::btnStandardSimulateLeftPress(Action *action)
  */
 void DogfightState::btnAggressivePress(Action *)
 {
+	if (_isReplicaView) { emitDfCmd("aggressive"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = false;
@@ -2228,6 +2433,7 @@ void DogfightState::btnAggressiveSimulateLeftPress(Action *action)
  */
 void DogfightState::btnDisengagePress(Action *)
 {
+	if (_isReplicaView) { emitDfCmd("disengage"); return; } // host-authoritative: button follows df_state
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		_end = true;
@@ -2425,6 +2631,21 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
+	// PRD-DF02 REPLICA: optimistically recolor the icon now (pure render) + emit
+	// df_cmd{weaponToggle,arg=i}; the next df_state confirms/corrects (applyFrame
+	// recolors to the host's authoritative _weaponEnabled).
+	if (_isReplicaView)
+	{
+		for (int i = 0; i < _weaponNum; ++i)
+			if (a->getSender() == _weapon[i])
+			{
+				_weaponEnabled[i] = !_weaponEnabled[i];
+				recolor(i, _weaponEnabled[i]);
+				emitDfCmd("weaponToggle", i);
+				return;
+			}
+		return;
+	}
 	for (int i = 0; i < _weaponNum; ++i)
 	{
 		if (a->getSender() == _weapon[i])
@@ -2723,6 +2944,11 @@ void DogfightState::endDogfight()
 {
 	if (_endDogfight)
 		return;
+	// PRD-DF01: the J08 initiator-reports-result path is gone. The host simulates
+	// every SHARED dogfight (host instance) and mutates its own authoritative world
+	// here / in update(); a replica reaches endDogfight() only to drop its
+	// render-only window (its update() never rolled anything). No result is
+	// reported back - the geo position snapshot carries the outcome to replicas.
 	if (_craft)
 	{
 		_craft->setInDogfight(false);
@@ -2801,6 +3027,311 @@ void DogfightState::awardExperienceToPilots()
 		}
 		_experienceAwarded = true;
 	}
+}
+
+/**
+ * PRD-DF03 GAP-7 (HOST): apply a deterministic dogfight-XP award to this fight's crew.
+ * The vanilla harness ruleset defines no craft pilots and no dogfightExperience, so the
+ * real awardExperienceToPilots() RNG path awards nothing; this applies the SAME
+ * authoritative mutation (currentStats + the daily dogfight-XP cache) to the soldiers
+ * aboard the craft, on the HOST's authoritative Soldier objects. The host->replica
+ * roster stream then carries it to every replica identically (Soldier::save serializes
+ * both currentStats and dailyDogfightExperienceCache), while a replica never runs this
+ * (its update() early-returns before awardExperienceToPilots) - which is exactly the
+ * GAP-7 fix. Returns the crew soldier ids that were awarded.
+ */
+std::vector<int> DogfightState::harnessAwardPilotXp(int firingDelta, int reactionsDelta, int braveryDelta)
+{
+	std::vector<int> touched;
+	if (!_craft || !_craft->getBase())
+		return touched;
+	for (auto* s : *_craft->getBase()->getSoldiers())
+	{
+		if (s->getCraft() != _craft)
+			continue;
+		UnitStats* cur = s->getCurrentStatsEditable();
+		cur->firing += firingDelta;
+		cur->reactions += reactionsDelta;
+		cur->bravery += braveryDelta;
+		UnitStats* cache = s->getDailyDogfightExperienceCache();
+		cache->firing += firingDelta;
+		cache->reactions += reactionsDelta;
+		cache->bravery += braveryDelta;
+		touched.push_back(s->getId());
+	}
+	_experienceAwarded = true;
+	return touched;
+}
+
+// PRD-DF01: which mode-button the group pointer currently selects, as a small
+// wire enum (0 standoff / 1 cautious / 2 standard / 3 aggressive / 4 disengage).
+int DogfightState::modeIndex() const
+{
+	if (_mode == _btnCautious)   return 1;
+	if (_mode == _btnStandard)   return 2;
+	if (_mode == _btnAggressive) return 3;
+	if (_mode == _btnDisengage)  return 4;
+	return 0; // standoff (default)
+}
+
+// Playtest B6: which stance button is currently drawn inverted (highlighted). Post-
+// fix this tracks the synced stance; a divergence from modeIndex() is the desync.
+int DogfightState::highlightIndex() const
+{
+	// Ground truth = which stance button is actually drawn inverted. (A real host
+	// mousePress moves the highlight but not the _visInverted bookkeeping var, so read
+	// the pixel-parity flag instead - it is always accurate for both click and sync.)
+	if (_btnCautious && _btnCautious->isVisiblyInverted())     return 1;
+	if (_btnStandard && _btnStandard->isVisiblyInverted())     return 2;
+	if (_btnAggressive && _btnAggressive->isVisiblyInverted()) return 3;
+	if (_btnDisengage && _btnDisengage->isVisiblyInverted())   return 4;
+	return 0; // standoff (default)
+}
+int DogfightState::harnessLitStanceCount() const
+{
+	int n = 0;
+	for (ImageButton* b : {_btnStandoff, _btnCautious, _btnStandard, _btnAggressive, _btnDisengage})
+		if (b && b->isVisiblyInverted()) ++n;
+	return n;
+}
+
+/**
+ * PRD-DF01 (HOST): serialize this fight's per-tick render state into ONE df_state
+ * frame (the README schema). Read-only over the host's own DogfightState - it
+ * mutates nothing and touches no funds. The replica reconstructs the visible fight
+ * from this + the static-per-fight fields its own ctor already derived from the
+ * df_open ufoIsAttacking flag.
+ */
+void DogfightState::buildStateFrame(Json::Value& frame) const
+{
+	frame["craftId"] = _craft ? _craft->getId() : -1;
+	frame["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	frame["ufoId"] = _ufo ? _ufo->getId() : -1;
+	frame["currentDist"] = _currentDist;
+	frame["targetDist"] = _targetDist;
+	frame["mode"] = modeIndex();
+	frame["ufoIsAttacking"] = _ufoIsAttacking;
+	frame["ufoSize"] = _ufoSize;
+	frame["ufoBlobSize"] = _ufoBlobSize;
+	// UFO render bits the geo position snapshot does not carry.
+	frame["ufoShield"] = _ufo ? _ufo->getShield() : 0;
+	frame["hitFrame"] = _ufo ? _ufo->getHitFrame() : 0;
+	frame["animatingHit"] = _animatingHit;
+	frame["craftDamageColor"] = _currentCraftDamageColor;
+	// PRD-DF02: synced UFO attack-mode marker (the UFO's hunt posture, 0=normal /
+	// 1=kamikaze-aggressive) so every player renders the same marker.
+	frame["ufoStance"] = _ufo ? _ufo->getHuntBehavior() : 0;
+	frame["statusText"] = _statusBase; // marker-free base; the replica re-adds the marker
+	frame["end"] = _end;
+	frame["endDogfight"] = _endDogfight;
+	frame["ufoBreakingOff"] = _ufoBreakingOff;
+	frame["destroyUfo"] = _destroyUfo;
+	frame["destroyCraft"] = _destroyCraft;
+	frame["timeout"] = _timeout;
+
+	Json::Value we(Json::arrayValue), wfc(Json::arrayValue), tl(Json::arrayValue), ammo(Json::arrayValue);
+	for (int i = 0; i < _weaponNum; ++i)
+	{
+		we.append(_weaponEnabled[i]);
+		wfc.append(_weaponFireCountdown[i]);
+		tl.append(_tractorLockedOn[i]);
+		CraftWeapon* w = _craft ? _craft->getWeapons()->at(i) : nullptr;
+		ammo.append(w ? w->getAmmo() : -1);
+	}
+	frame["weaponEnabled"] = we;
+	frame["weaponFireCountdown"] = wfc;
+	frame["tractorLockedOn"] = tl;
+	frame["ammo"] = ammo;
+
+	Json::Value projs(Json::arrayValue);
+	for (auto* p : _projectiles)
+	{
+		Json::Value jp;
+		jp["pos"] = p->getPosition();
+		jp["hpos"] = p->getHorizontalPosition();
+		jp["dir"] = p->getDirection();
+		jp["blobType"] = (int)p->getType();
+		projs.append(jp);
+	}
+	frame["projectiles"] = projs;
+
+	// SFX raised by the sim since the last frame. Drained here: each frame carries the
+	// sounds since the previous one, so a replica hears the fight instead of watching it
+	// in silence.
+	Json::Value sounds(Json::arrayValue);
+	for (int s : _frameSounds) sounds.append(s);
+	frame["sounds"] = sounds;
+	_frameSounds.clear();
+}
+
+/**
+ * PRD-DF01 (REPLICA): adopt a host df_state frame. Sets the render-driving state
+ * the animate()/drawUfo()/drawProjectile() helpers read, plus the UFO render bits
+ * (shield/hitFrame) and craft ammo the geo snapshot does not carry, and rebuilds
+ * the projectile draw set. Never mutates the shared world beyond those local
+ * render bits; the window's lifecycle is owned by df_open/df_close.
+ */
+/**
+ * Play a GEO.CAT dogfight sound, and on the host remember it for the next df_state frame.
+ * Every in-combat SFX is raised from the sim body, which only the host runs, so replicas
+ * heard nothing at all; they now play what the frame carries (see applyFrame).
+ */
+void DogfightState::playDfSound(int soundId)
+{
+	if (soundId == Mod::NO_SOUND) return;
+	// Count the DECISION to play, not the playback: the harness runs muted / on the SDL
+	// dummy driver where getSound() can return null, and what a test needs to know is
+	// whether this machine's dogfight raised the SFX at all.
+	++_soundsPlayed;
+	if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
+		s->play();
+	// A replica only ever plays frame-driven sounds, so it must not re-broadcast them.
+	if (!_isReplicaView && _game->getCoopMod()->isSharedCampaign())
+		_frameSounds.push_back(soundId);
+}
+
+void DogfightState::applyFrame(const Json::Value& frame)
+{
+	_currentDist = frame.get("currentDist", _currentDist).asInt();
+	_targetDist = frame.get("targetDist", _targetDist).asInt();
+	if (_game->getMod()->getShowDogfightDistanceInKm())
+	{
+		_txtDistance->setText(tr("STR_KILOMETERS").arg(_currentDist / 8));
+	}
+	else
+	{
+		std::ostringstream ss;
+		ss << _currentDist;
+		_txtDistance->setText(ss.str());
+	}
+
+	ImageButton* newMode = _btnStandoff;
+	switch (frame.get("mode", modeIndex()).asInt())
+	{
+	case 1:  newMode = _btnCautious;   break;
+	case 2:  newMode = _btnStandard;   break;
+	case 3:  newMode = _btnAggressive; break;
+	case 4:  newMode = _btnDisengage;  break;
+	default: newMode = _btnStandoff;   break;
+	}
+	_mode = newMode;
+	// Playtest B6: the ImageButton radio highlight is a persistent invert() that
+	// mousePress moves on a real click - but a replica adopts the host's stance
+	// through here, never mousePress. So only the group POINTER (_mode) moved and the
+	// highlight stayed on the old button: two buttons looked lit and the next real
+	// click double-inverted. Move the invert exactly as mousePress does (un-invert
+	// the old, invert the new) whenever the highlighted button must change.
+	if (_visInverted != _mode)
+	{
+		if (_visInverted)
+			_visInverted->invert(_visInverted->getColor() + 3);
+		_mode->invert(_mode->getColor() + 3);
+		_visInverted = _mode;
+	}
+
+	// Play the SFX the host's sim raised for this frame (the replica never runs the sim,
+	// so this is the only way it hears the fight). A minimized window still plays them:
+	// that matches the host, where a minimized dogfight is still audible.
+	const Json::Value& sounds = frame["sounds"];
+	for (Json::ArrayIndex i = 0; i < sounds.size(); ++i)
+	{
+		const int soundId = sounds[i].asInt();
+		if (soundId == Mod::NO_SOUND) continue;
+		++_soundsPlayed;
+		if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
+			s->play();
+	}
+
+	_ufoIsAttacking = frame.get("ufoIsAttacking", _ufoIsAttacking).asBool();
+	_ufoSize = frame.get("ufoSize", _ufoSize).asInt();
+	_ufoBlobSize = frame.get("ufoBlobSize", _ufoBlobSize).asInt();
+	_animatingHit = frame.get("animatingHit", false).asBool();
+	_currentCraftDamageColor = frame.get("craftDamageColor", _currentCraftDamageColor).asInt();
+	// PRD-DF02: adopt the host's synced UFO attack posture (rendered by refreshStatus).
+	_ufoStance = frame.get("ufoStance", _ufoStance).asInt();
+
+	if (_ufo)
+	{
+		_ufo->setShield(frame.get("ufoShield", 0).asInt());
+		_ufo->setHitFrame(frame.get("hitFrame", 0).asInt());
+	}
+
+	const Json::Value& we = frame["weaponEnabled"];
+	const Json::Value& wfc = frame["weaponFireCountdown"];
+	const Json::Value& tl = frame["tractorLockedOn"];
+	const Json::Value& ammo = frame["ammo"];
+	for (int i = 0; i < _weaponNum; ++i)
+	{
+		if (we.isArray() && (Json::ArrayIndex)i < we.size())
+		{
+			// PRD-DF02: adopt the host's authoritative weapon-enabled state AND recolor
+			// the icon on a change (recolor() is a relative offset, so only on change) -
+			// this confirms/corrects the optimistic weaponToggle echo and closes the
+			// DF01 gap where replica icons never tracked the disabled colour.
+			bool newEnabled = we[i].asBool();
+			if (newEnabled != _weaponEnabled[i])
+			{
+				_weaponEnabled[i] = newEnabled;
+				recolor(i, newEnabled);
+			}
+		}
+		if (wfc.isArray() && (Json::ArrayIndex)i < wfc.size()) _weaponFireCountdown[i] = wfc[i].asInt();
+		if (tl.isArray()  && (Json::ArrayIndex)i < tl.size())  _tractorLockedOn[i]     = tl[i].asBool();
+		if (ammo.isArray() && (Json::ArrayIndex)i < ammo.size() && _craft)
+		{
+			CraftWeapon* w = _craft->getWeapons()->at(i);
+			int a = ammo[i].asInt();
+			if (w && a >= 0)
+			{
+				w->setAmmo(a);
+				std::ostringstream ss;
+				ss << w->getAmmo();
+				_txtAmmo[i]->setText(ss.str());
+			}
+		}
+	}
+
+	if (frame.isMember("statusText"))
+	{
+		// PRD-DF02: adopt the host's marker-free base status; refreshStatus() (below)
+		// re-composes the synced UFO-stance marker on top, locally.
+		_statusBase = frame["statusText"].asString();
+	}
+	refreshStatus();
+
+	_end = frame.get("end", _end).asBool();
+	_ufoBreakingOff = frame.get("ufoBreakingOff", _ufoBreakingOff).asBool();
+	_destroyUfo = frame.get("destroyUfo", _destroyUfo).asBool();
+	_destroyCraft = frame.get("destroyCraft", _destroyCraft).asBool();
+	_timeout = frame.get("timeout", _timeout).asInt();
+
+	// Rebuild the projectile draw records. The sim never runs on a replica, so
+	// these are pure draw state (position/horizontal/direction/blob) - move() is
+	// never called on them; the next frame replaces them wholesale.
+	while (!_projectiles.empty())
+	{
+		delete _projectiles.back();
+		_projectiles.pop_back();
+	}
+	const Json::Value& projs = frame["projectiles"];
+	if (projs.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < projs.size(); ++i)
+		{
+			const Json::Value& jp = projs[i];
+			CraftWeaponProjectile* p = new CraftWeaponProjectile(nullptr);
+			p->setType((CraftWeaponProjectileType)jp.get("blobType", 0).asInt());
+			// setDirection(D_UP) zeroes the position, so set position AFTER direction.
+			p->setDirection(jp.get("dir", (int)D_UP).asInt());
+			p->setPosition(jp.get("pos", 0).asInt());
+			p->setHorizontalPosition(jp.get("hpos", 0).asInt());
+			_projectiles.push_back(p);
+		}
+	}
+
+	// Refresh the craft damage + shield overlays with the adopted values.
+	drawCraftDamage();
+	drawCraftShield();
 }
 
 }

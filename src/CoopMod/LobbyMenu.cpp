@@ -115,6 +115,21 @@ struct comparePlayerLatency
 LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
+	// Playtest B7: detect the "opened mid-game" case BEFORE markLobbyOpen flips the
+	// lobby flag. Two conditions must BOTH hold, or the pre-game campaign lobby (which
+	// also has a paused GeoscapeState underneath, created by NewGameState before the
+	// lobby) would wrongly show RESUME GAME:
+	//   1. the campaign has actually started (sessionLocked) - false in the pre-game
+	//      lobby, true once START/RESUME/campaign_start locked the session; and
+	//   2. a running-game geoscape sits on the stack underneath to return to.
+	if (connectionTCP::session.sessionLocked)
+	{
+		for (auto* s : _game->getStates())
+		{
+			if (dynamic_cast<GeoscapeState*>(s)) { _resumeToGame = true; break; }
+		}
+	}
+
 	connectionTCP::session.markLobbyOpen();
 
 	// coop chat menu
@@ -210,6 +225,14 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		}
 	}
 
+	// Playtest B7: opened mid-game -> RESUME GAME for every player (host and client),
+	// overriding the lobby gating above. think() re-asserts this each tick.
+	if (_resumeToGame)
+	{
+		_btnCancel->setText("RESUME GAME");
+		_btnCancel->setVisible(true);
+	}
+
 	_txtTitle->setBig();
 	_txtTitle->setAlign(ALIGN_CENTER);
 
@@ -218,6 +241,19 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	if (_game->getCoopMod()->getServerOwner() == true)
 	{
 		lobby_title = _game->getCoopMod()->getHostServer();
+	}
+
+	// PRD-J01: read-only campaign economy model so a client sees what it is
+	// joining before the roster locks. Host reads its own save; a client (no
+	// save yet) uses the type carried in the join handshake.
+	if (connectionTCP::session.lobbyMode != 0)
+	{
+		int ct = connectionTCP::_lobbyCampaignType;
+		if (_game->getCoopMod()->getServerOwner() == true && _game->getSavedGame())
+		{
+			ct = static_cast<int>(_game->getSavedGame()->getCampaignType());
+		}
+		lobby_title += (ct == static_cast<int>(CoopCampaignType::Shared)) ? "  [SHARED]" : "  [SEPARATE]";
 	}
 
 	_txtTitle->setText(lobby_title);
@@ -272,7 +308,7 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	}
 
 	_txtDetails->setWordWrap(true);
-	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
+	_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 
 	_sortName->setX(_sortName->getX() + _txtName->getTextWidth() + 5);
 	_sortName->onMouseClick((ActionHandler)&LobbyMenu::sortNameClick);
@@ -514,6 +550,21 @@ std::vector<std::string> LobbyMenu::rosterNames() const
 	return names;
 }
 
+/// Test automation: the name in a specific roster ROW by player id (unsorted),
+/// since the displayed roster is sorted so row order is not id order. id 1 = the
+/// host row, id 2 = the client row.
+std::string LobbyMenu::rowNameById(int id) const
+{
+	for (const auto &p : _connectedPlayers)
+	{
+		if (p.id == id)
+		{
+			return p.name;
+		}
+	}
+	return "";
+}
+
 std::vector<std::string> LobbyMenu::missingPlayers() const
 {
 	// registered players (minus the host) not currently connected
@@ -545,8 +596,13 @@ void LobbyMenu::resumeCampaign()
 
 	// Serve the connected client its world: stored blob if we have one,
 	// otherwise a fresh world + base building (registered-no-blob, D6).
+	// PRD-J02: SHARED has no per-client stored blob - there is a single
+	// authoritative world. Always take the campaign_resume path: the client's
+	// request_load_progress makes the host serialize the CURRENT world fresh and
+	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
-	if (connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	if (_game->getCoopMod()->isSharedCampaign()
+		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
 	{
 		Json::Value root;
 		root["state"] = "campaign_resume";
@@ -569,6 +625,24 @@ void LobbyMenu::resumeCampaign()
 void LobbyMenu::openStartConfirmDialog()
 {
 	_game->pushState(new ConfirmStartCampaignState(this));
+}
+
+/**
+ * Playtest B7: return from the mid-game coop menu to the running game. The lobby was
+ * opened over a live campaign geoscape; the connection and shared world stay up, so
+ * just pop the coop-menu states (this lobby + the pause menu it came from) back down
+ * to that geoscape. Restores the lobby-closed flag that this menu's ctor cleared.
+ */
+void LobbyMenu::returnToRunningGame()
+{
+	connectionTCP::session.markLobbyClosed();
+	// Pop every state above the running geoscape (bounded by the stack depth).
+	int guard = 0;
+	while (guard++ < 32 && _game->getStates().size() > 1
+		&& !dynamic_cast<GeoscapeState*>(_game->getStates().back()))
+	{
+		_game->popState();
+	}
 }
 
 bool LobbyMenu::clickStartConfirmOk()
@@ -656,6 +730,15 @@ void LobbyMenu::startCampaign()
 
 void LobbyMenu::btnCancelClick(Action*)
 {
+
+	// Playtest B7: opened mid-game -> the button is RESUME GAME. The shared world is
+	// already live on every machine, so just return to it (no re-handshake), for the
+	// host and the client alike. Handled before any lobby-start logic.
+	if (_resumeToGame)
+	{
+		returnToRunningGame();
+		return;
+	}
 
 	// campaign lobby: the button is START/RESUME CAMPAIGN, host only (D3/D4)
 	if (connectionTCP::session.lobbyMode != 0)
@@ -848,6 +931,33 @@ void LobbyMenu::btnChatClick(Action* action)
 }
 
 /**
+ * The "waiting" details line for the CURRENT lobby mode. Resuming a saved co-op campaign
+ * (lobbyMode 2) knows its roster, so it names who is still missing; a NEW game has no
+ * roster yet and stays generic. Centralised so the mouse-over/out handlers below cannot
+ * overwrite the named form with the generic one.
+ */
+std::string LobbyMenu::waitingText() const
+{
+	if (connectionTCP::session.lobbyMode == 2)
+	{
+		std::vector<std::string> missing = missingPlayers();
+		if (!missing.empty())
+		{
+			std::string wait = "Waiting for ";
+			for (size_t i = 0; i < missing.size(); ++i)
+			{
+				if (i > 0) wait += ", ";
+				wait += missing[i];
+			}
+			wait += " on port " + std::to_string(tcp_port);
+			return wait;
+		}
+		return "All players connected";
+	}
+	return "Waiting for players on port " + std::to_string(tcp_port);
+}
+
+/**
  * Shows the details of the currently hovered save.
  * @param action Pointer to an action.
  */
@@ -860,7 +970,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
 		wstr = _connectedPlayers[sel].details;
 	}
 	if (wstr.empty())
-		wstr = "Waiting for players on port " + std::to_string(tcp_port);
+		wstr = waitingText();
 	_txtDetails->setText(tr("STR_DETAILS").arg(wstr));
 }
 
@@ -870,7 +980,7 @@ void LobbyMenu::lstSavesMouseOver(Action*)
  */
 void LobbyMenu::lstSavesMouseOut(Action*)
 {
-	_txtDetails->setText(tr("STR_DETAILS").arg("Waiting for players on port " + std::to_string(tcp_port)));
+	_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 }
 
 /**
@@ -1036,7 +1146,14 @@ void LobbyMenu::think()
 		if (itHost == _connectedPlayers.end())
 		{
 
-			_connectedPlayers.push_back(playerInfo({hostId, _game->getCoopMod()->getHostName(), "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
+			// Playtest: the host row must show the HOST's name on BOTH machines.
+			// getHostName() is machine-relative (the LOCAL player's name), so read it
+			// role-relative like the server-name title does - on a client machine the
+			// host's name is the peer, getCurrentClientName().
+			std::string hostRowName = _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+			_connectedPlayers.push_back(playerInfo({hostId, hostRowName, "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
 			itHost = std::prev(_connectedPlayers.end());
 
 		}
@@ -1093,19 +1210,9 @@ void LobbyMenu::think()
 					else
 					{
 						_btnCancel->setVisible(false);
-						// merged form: names AND port (the ctor's generic
-						// "Waiting for players on port X" covers the no-names case)
-						std::string wait = "Waiting for ";
-						for (size_t i = 0; i < missing.size(); ++i)
-						{
-							if (i > 0)
-							{
-								wait += ", ";
-							}
-							wait += missing[i];
-						}
-						wait += " on port " + std::to_string(tcp_port);
-						_txtDetails->setText(tr("STR_DETAILS").arg(wait));
+						// merged form: names AND port (waitingText() owns the wording so
+						// a mouse-over/out cannot replace it with the generic line)
+						_txtDetails->setText(tr("STR_DETAILS").arg(waitingText()));
 					}
 				}
 			}
@@ -1163,6 +1270,14 @@ void LobbyMenu::think()
 			_btnCancel->setText("CANCEL");
 		}
 
+		// Playtest B7: mid-game coop menu -> keep RESUME GAME asserted over whatever
+		// the lobby button logic above chose.
+		if (_resumeToGame)
+		{
+			_btnCancel->setText("RESUME GAME");
+			_btnCancel->setVisible(true);
+		}
+
 		// funds
 		int64_t funds = 0;
 		if (_game->getSavedGame() && _game->getSavedGame()->getFunds())
@@ -1172,7 +1287,11 @@ void LobbyMenu::think()
 
 		std::string txtDetails = "Funds: " + std::to_string(funds) + " Bases: " + std::to_string(base_count) + " Crafts: " + std::to_string(craft_count);
 
-		itHost->name = _game->getCoopMod()->getHostName() + txtStatus;
+		// role-relative host name (see the host-row insert above): correct on both machines.
+		std::string hostRowName = _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+		itHost->name = hostRowName + txtStatus;
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
 		
@@ -1189,7 +1308,11 @@ void LobbyMenu::think()
 		{
 			const int playerId = 2; // fix later...
 
-			std::string clientName = _game->getCoopMod()->getCurrentClientName();
+			// role-relative client name: the CLIENT player's name on both machines.
+			// On a client machine the local player IS the client, so read getHostName().
+			std::string clientName = _game->getCoopMod()->getServerOwner()
+				? _game->getCoopMod()->getCurrentClientName()
+				: _game->getCoopMod()->getHostName();
 			std::string ping = _game->getCoopMod()->getPing();
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),

@@ -244,7 +244,11 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 
 		root["type"] = ufo->getRules()->getType();
 		root["race"] = ufo->getAlienRace();
-	
+		// Carry the UFO id so the peer can match the EXACT ufo. type+race alone is
+		// ambiguous: two scouts of the same race detected close together matched each
+		// other's alert (and the old single pending slot dropped one of them entirely).
+		root["ufo_id"] = ufo->getId();
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}

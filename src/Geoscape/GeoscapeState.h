@@ -19,6 +19,11 @@
  */
 #include "../Engine/State.h"
 #include <list>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace Json { class Value; }
 
 namespace OpenXcom
 {
@@ -38,6 +43,7 @@ class Base;
 class RuleMissionScript;
 class RuleEvent;
 class AlienBase;
+class Texture;
 
 /**
  * Geoscape screen which shows an overview of
@@ -71,6 +77,42 @@ private:
 	std::vector<Craft*> _activeCrafts;
 	size_t _minimizedDogfights;
 	int _slowdownCounter;
+
+	// PRD-DF01 shared/replicated SHARED dogfights.
+	// HOST emission bookkeeping: a monotonically increasing membership epoch and the
+	// signature of the last-broadcast membership set (so df_open fires only on a real
+	// change). REPLICA: the epoch of the last df_open applied (guards df_state against
+	// the reshuffle race) plus the desired membership set it reconciles its
+	// render-only windows against every think() (opens a window as soon as the craft +
+	// UFO are replicated, closes windows no longer in the set).
+	// PRD-DF02: commandingSeat = lastCraftOrderSeat(craft), carried in df_open so a
+	// replica opens the window minimized unless it IS the commanding seat (<=0 = host-
+	// commanded/HK -> the host commands, so every client gets the minimized icon).
+	struct DfMember { std::string craftType; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
+	int _dfEpoch = 0;
+	std::string _dfMembershipSig;
+	int _dfReplicaEpoch = 0;
+	std::vector<DfMember> _dfDesired;
+	// PRD-DF02 dual-clock fix (locked decision #6): the host's authoritative "any
+	// non-minimized dogfight window on the host", adopted from df_state. On a replica
+	// this - NOT the replica's own local minimize - gates whether the world clock runs,
+	// so host and replica agree regardless of a replica's per-machine minimize choice.
+	bool _dfHostAnyOpen = true;
+	/// HOST: emit df_open on a membership change + one df_state frame per tick.
+	void sharedBroadcastDogfights();
+	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
+	void sharedReconcileReplicaDogfights();
+
+	// PRD-J10 landing broker (HOST only). A craft another seat commanded reached a
+	// landable target: instead of popping ConfirmLandingState here, we ask THAT
+	// seat and park the craft until it answers. This map is both the "already
+	// asked, do not ask again every tick" guard and the stash of the world data the
+	// dialog needs, which only the host's globe can compute.
+	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
+	std::map<Craft*, SharedLandingPrompt> _sharedLandingPending;
+	/// PRD-J10: broker this landing to the commanding seat instead of asking here.
+	/// True = brokered (the caller must NOT pop its own dialog).
+	bool brokerSharedLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
 	/// Update list of active crafts.
 	const std::vector<Craft*>* updateActiveCrafts();
@@ -190,6 +232,42 @@ public:
 	int minimizedDogfightsCount();
 	/// Starts a new dogfight.
 	void startDogfight();
+	/// PRD-DF01 SHARED: open a render-only replica dogfight window for a craft/UFO
+	/// pair on THIS (replica) machine - mirrors the vanilla start block. @a
+	/// ufoIsAttacking carries the HK flag from df_open so the ctor derives the same
+	/// static-per-fight fields (disable flags, initial mode) as the host.
+	/// PRD-DF02: @a startMinimized opens the replica window as a minimized icon (the
+	/// presentation policy: only the commanding seat gets the full window).
+	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
+	/// PRD-DF01 REPLICA: adopt a df_open membership set (opens/closes windows).
+	void sharedApplyDogfightMembership(const Json::Value& dogfights, int epoch);
+	/// PRD-DF01 REPLICA: adopt a df_state frame set (epoch-guarded; routes each
+	/// frame to the matching render-only window by (craftId,ufoId)).
+	void sharedApplyDogfightState(const Json::Value& root);
+	/// PRD-DF02 (HOST): apply a replicated df_cmd to the authoritative DogfightState
+	/// for (craftId,craftType,ufoId). Returns false if no such live fight exists
+	/// (stale/reshuffled membership -> the caller drops + logs once).
+	bool sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+	                           const std::string& action, int arg);
+	/// PRD-J10 SHARED (HOST): the commanding seat answered a brokered landing
+	/// prompt. @a yes -> generate the battle exactly as the host's own
+	/// ConfirmLandingState would; otherwise patrol here / return to base.
+	void sharedLandingReply(Craft* craft, bool yes, bool patrol);
+	/// SHARED replica: a craft reached its patrol waypoint on the host (patrol_prompt).
+	/// Pops the "reached destination" alert and clears the stale destination line +
+	/// orphan waypoint marker the client's frozen sim never would.
+	void clientCraftReachedWaypoint(Craft* craft);
+	/// Test-harness: is a brokered landing decision outstanding on this host?
+	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
+	/// Test-harness introspection of the live dogfight list.
+	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
+	/// Test-harness: dogfights queued but not yet started.
+	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
+	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
+	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last
+	/// df_open it applied). Lets a test assert host/replica epoch lock-step across an
+	/// HK reshuffle (no stale-epoch window survives).
+	int harnessDogfightEpoch() const;
 	/// Get first free dogfight slot.
 	int getFirstFreeDogfightSlot();
 	/// Handler for clicking the timer button.

@@ -63,6 +63,7 @@
 #include "CraftSoldiersState.h"
 #include "../Savegame/Vehicle.h"
 #include "../Engine/Sound.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -78,8 +79,11 @@ bool _coop_base_init = false;
 BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(globe)
 {
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// coop (SEPARATE mirror machinery only: hide the peer's _coopIcon marker bases
+	// while browsing, restored on exit in btnGeoscapeClick. PRD-J07: fenced in
+	// SHARED - every base in _bases is real and fully browsable by any player, so
+	// no entry filtering / old_bases juggling.)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// coop
@@ -252,6 +256,8 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
  */
 BasescapeState::~BasescapeState()
 {
+	_sharedRefresh.unbind(this);
+
 	// Clean up any temporary bases
 	bool exists = false;
 	for (const auto* xbase : *_game->getSavedGame()->getBases())
@@ -276,8 +282,10 @@ void BasescapeState::init()
 {
 	State::init();
 
-	// coop fix
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _coop_base_init == false)
+	// coop fix (SEPARATE mirror machinery: reassigns soldiers/crafts by the
+	// _coopBase/_coopCraft marker fields. PRD-J07: fenced in SHARED - the shared
+	// world's soldiers/crafts are real and never carry mirror markers.)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getCoopCampaign() == true && _coop_base_init == false)
 	{
 
 		_coop_base_init = true;
@@ -340,13 +348,19 @@ void BasescapeState::init()
 
 
 
-	// if own coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+	// if own coop base (SEPARATE peer-presence tracking; PRD-J07: fenced in SHARED -
+	// there are no _coopBase mirrors and no peer-presence protocol in SHARED)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == true)
 	{
 
 		_game->getCoopMod()->playerInsideCoopBase = true;
 
 	}
+
+	// PRD-J10: live refresh. Bind base-agnostically (null base) - the funds header
+	// is world-scoped, so an apply against ANY base must refresh it. day_tick is
+	// included so build-time progress on the facility grid stays honest.
+	_sharedRefresh.bind(_game, this, nullptr, true /*wantProgress*/);
 
 
 
@@ -356,8 +370,19 @@ void BasescapeState::init()
 void BasescapeState::think()
 {
 
-	//  coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	// PRD-J10: the PRD's "funds label screens: update the Text directly, no full
+	// rebuild" case. Cheap enough to do unconditionally on any apply, and it also
+	// re-draws the facility grid so a peer's fac_build/fac_dismantle shows up
+	// without leaving and re-entering the base (the J08 gap).
+	if (_sharedRefresh.consume())
+	{
+		sharedRefresh();
+	}
+
+	//  coop (SEPARATE mirror machinery: applies the peer's place_facility markers.
+	//  PRD-J07: fenced in SHARED - facility builds arrive via the fac_build
+	//  shared_apply, never via _coopFacility markers.)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		Json::Value& arr = _game->getCoopMod()->_coopFacility;
@@ -418,8 +443,9 @@ void BasescapeState::think()
 
 	}
 
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	// COOP (SEPARATE mirror machinery: applies the peer's dismantle_facility
+	// markers. PRD-J07: fenced in SHARED - dismantles ride fac_dismantle.)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 
 		Json::Value& arr = _game->getCoopMod()->_deleteCoopFacility;
@@ -475,6 +501,33 @@ void BasescapeState::think()
 
 	}
 
+}
+
+/**
+ * PRD-J10: a peer's shared_apply moved the shared world - re-read it into this
+ * screen without rebuilding it. Nothing here is user input, so there is nothing
+ * to lose; this is the PRD's "funds label / direct update" case plus a base-view
+ * redraw for facilities.
+ */
+void BasescapeState::sharedRefresh()
+{
+	auto* bases = _game->getSavedGame()->getBases();
+	if (bases->empty())
+	{
+		return; // nothing sane to show; the geoscape owns this endgame
+	}
+	// The displayed base can be REMOVED by an apply (fac_dismantle of the access
+	// lift, base_destroyed). setBase() would dereference the freed pointer while
+	// looking for it, so re-point at a live base first.
+	if (SharedEcon::baseIndex(_game, _base) < 0)
+	{
+		setBase(bases->front());
+	}
+
+	_view->setBase(_base);
+	_mini->draw();
+	_edtBase->setText(_base->getName());
+	_txtFunds->setText(tr("STR_FUNDS").arg(Unicode::formatFunding(_game->getSavedGame()->getFunds())));
 }
 
 /**
@@ -625,8 +678,9 @@ void BasescapeState::btnGeoscapeClick(Action *)
 	_coop_base_init = false;
 	_game->getCoopMod()->playerInsideCoopBase = false;
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false)
+	// coop (SEPARATE: restore the base vector filtered in the ctor. PRD-J07:
+	// fenced in SHARED - the ctor filter is fenced too, old_bases stays empty.)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 	{
 		// coop
 		*_game->getSavedGame()->getBases() = _base->old_bases;
@@ -964,6 +1018,23 @@ void BasescapeState::handleKeyPress(Action *action)
 void BasescapeState::edtBaseChange(Action *)
 {
 
+	// PRD-J07 SHARED: renames ride the base_rename shared_cmd (host applies +
+	// broadcasts, last-write-wins). The local setName below still runs for
+	// immediate UI feedback - the shared_apply re-asserts the same (or the
+	// winning) name authoritatively on every machine.
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+	{
+		int baseId = 0;
+		auto* bases = _game->getSavedGame()->getBases();
+		for (size_t i = 0; i < bases->size(); ++i)
+			if (bases->at(i) == _base) { baseId = (int)i; break; }
+		Json::Value payload;
+		payload["name"] = _edtBase->getText();
+		SharedEcon::submitLocalCmd(_game, "base_rename", baseId, payload);
+		_base->setName(_edtBase->getText());
+		return;
+	}
+
 	// coop
 	if (_base->_coopBase == true)
 	{
@@ -984,6 +1055,24 @@ void BasescapeState::edtBaseChange(Action *)
 	}
 
 	_base->setName(_edtBase->getText());
+}
+
+/**
+ * Test automation: set the name box and fire the real edtBaseChange handler
+ * (SHARED -> base_rename shared_cmd; SEPARATE -> changeBaseName packet).
+ */
+void BasescapeState::harnessRename(const std::string &name)
+{
+	_edtBase->setText(name);
+	edtBaseChange(nullptr);
+}
+
+/**
+ * Test automation: the funds header string, as last rendered into the label.
+ */
+std::string BasescapeState::harnessFundsText() const
+{
+	return _txtFunds->getText();
 }
 
 }

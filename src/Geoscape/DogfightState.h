@@ -22,6 +22,8 @@
 #include <vector>
 #include <string>
 
+namespace Json { class Value; }
+
 namespace OpenXcom
 {
 
@@ -52,6 +54,18 @@ private:
 	InteractiveSurface *_btnMinimize, *_preview, *_weapon[RuleCraft::WeaponMax];
 	ImageButton *_btnStandoff, *_btnCautious, *_btnStandard, *_btnAggressive, *_btnDisengage, *_btnUfo;
 	ImageButton *_mode;
+	/// Playtest B6: the stance button currently drawn INVERTED (highlighted). The
+	/// ImageButton radio group tracks its pressed look with a persistent invert()
+	/// applied only in mousePress; a replica adopting a peer's stance via df_state
+	/// bypasses mousePress, so we must move the invert ourselves and remember where
+	/// it sits (invariant: _visInverted == _mode). See applyFrame / highlightIndex.
+	ImageButton *_visInverted = nullptr;
+	/// GEO.CAT sound ids raised by the sim since the last df_state frame was built, so
+	/// replicas can play the same SFX. Mutable: buildStateFrame() is const and drains it.
+	mutable std::vector<int> _frameSounds;
+	/// How many dogfight SFX this machine has raised (host: from the sim; replica: from
+	/// df_state frames). A replica stuck at 0 during a live fight means it is silent.
+	int _soundsPlayed = 0;
 	InteractiveSurface *_btnMinimizedIcon;
 	Text *_txtAmmo[RuleCraft::WeaponMax], *_txtDistance, *_txtStatus, *_txtInterceptionNumber;
 	Text *_txtOceanIndicator;
@@ -73,12 +87,34 @@ private:
 	int _pilotAccuracyBonus, _pilotDodgeBonus, _pilotApproachSpeedModifier, _craftAccelerationBonus;
 	bool _firedAtLeastOnce, _experienceAwarded;
 	bool _delayedRecolorDone;
+	// PRD-DF02 SHARED: the UFO's synced attack posture (Ufo::getHuntBehavior()), carried
+	// per-tick in df_state so every player renders the same marker. On the host it is
+	// refreshed from the live UFO in animate(); on a replica it is adopted from the frame.
+	int _ufoStance;
+	// PRD-DF02: the status line WITHOUT the stance marker, so the marker can be
+	// re-composed each frame (refreshStatus) and the streamed statusText stays marker-free.
+	std::string _statusBase;
+	// PRD-DF01 SHARED: a render-only replica of a host-simulated dogfight. Set in the
+	// ctor = isSharedCampaign() && !host. On a replica update() applies the latest
+	// df_state frame + animate()s and returns - the entire sim body is skipped, no
+	// RNG, no world mutation; the host is the sole authority. Host instances = false.
+	bool _isReplicaView;
 	// craft min/max, radar min/max, damage min/max, shield min/max
 	int _colors[13];
 	// Ends the dogfight.
 	void endDogfight();
 	bool _tractorLockedOn[RuleCraft::WeaponMax];
 	void updateOceanIndicator();
+	/// PRD-DF01: current mode-button as a wire enum (0..4) for df_state.
+	int modeIndex() const;
+	/// Playtest B6: which stance button is currently INVERTED (highlighted), as the
+	/// same 0..4 wire enum. Post-fix this always equals modeIndex(); a mismatch is
+	/// the "buttons not auto-synced / multiple active" desync.
+	int highlightIndex() const;
+	/// PRD-DF02: re-compose the status line = _statusBase + the synced UFO stance marker.
+	void refreshStatus();
+	/// PRD-DF02 REPLICA: emit a df_cmd (stance/weapon/disengage/selfDestruct) to the host.
+	void emitDfCmd(const std::string& action, int arg = -1);
 
 public:
 	/// Creates the Dogfight state.
@@ -177,6 +213,70 @@ public:
 	bool getWaitForAltitude() const;
 	/// Award experience to the pilots.
 	void awardExperienceToPilots();
+	/// PRD-DF01: is this a render-only SHARED replica (renders df_state, never sims)?
+	bool isReplicaView() const { return _isReplicaView; }
+	/// PRD-DF01 REPLICA: force this render-only window to close (host membership
+	/// dropped it); handleDogfights() erases it on the next tick.
+	void closeReplicaWindow() { endDogfight(); }
+	/// PRD-DF01 (HOST): serialize this fight's per-tick render state into one
+	/// df_state frame (the README schema). Reads private fields; funds-free.
+	void buildStateFrame(Json::Value& frame) const;
+	/// PRD-DF01 (REPLICA): adopt a host df_state frame - distance/mode/status, the
+	/// UFO render bits the geo snapshot does not carry (shield/hitFrame), craft ammo,
+	/// the end flags, and a rebuilt projectile draw set.
+	void applyFrame(const Json::Value& frame);
+	/// Play a GEO.CAT dogfight sound. Every in-combat SFX (weapon fire, hits, explosions)
+	/// is raised from the sim body, which ONLY the host runs - so a replica was silent.
+	/// On the host this also records the sound so the next df_state frame carries it and
+	/// replicas play the same thing. Best-effort: df_state rides the conflation slot, so a
+	/// dropped frame drops its sounds (acceptable for SFX, never for state).
+	void playDfSound(int soundId);
+	/// PRD-DF02 (HOST): apply a replicated stance command (0=standoff..4=disengage) by
+	/// setting _mode + running the vanilla Press body (the Simulate*LeftPress lane, but
+	/// visibility-independent so a host-minimized window still obeys a client command).
+	void hostApplyStance(int stanceIdx);
+	/// PRD-DF02 (HOST): apply a replicated weapon toggle for weapon @a idx.
+	void hostToggleWeapon(int idx);
+	/// PRD-DF02 (HOST): apply a replicated self-destruct toggle (defenseless craft only).
+	void hostSelfDestruct();
+	/// Test hooks (PRD-J08): dogfight sim internals for the harness.
+	int harnessCurrentDist() const { return _currentDist; }
+	int harnessTargetDist() const { return _targetDist; }
+	bool harnessEnd() const { return _end; }
+	int harnessUpdateCount() const { return _updateCount; }
+	/// PRD-DF02: current stance as the df_state wire enum (0=standoff..4=disengage).
+	int harnessMode() const { return modeIndex(); }
+	/// Playtest B6: the currently-highlighted (inverted) stance button as the same
+	/// wire enum. Equals harnessMode() once the highlight tracks the synced stance.
+	int harnessHighlight() const { return highlightIndex(); }
+	/// Playtest: ground-truth count of stance buttons currently drawn inverted (lit).
+	/// A correct radio group has exactly 1; >1 is the "several buttons active at once"
+	/// desync (a client-driven stance that never moved the old highlight).
+	int harnessLitStanceCount() const;
+	/// Test hook: dogfight SFX raised on THIS machine (see _soundsPlayed).
+	int harnessSoundsPlayed() const { return _soundsPlayed; }
+	/// PRD-DF02: the UFO's synced attack posture for the harness (host reads the live
+	/// UFO; a replica returns the value adopted from df_state).
+	int harnessUfoStance() const;
+	/// PRD-DF02: weapon-enabled state for the harness (client weaponToggle assertions).
+	int harnessWeaponCount() const { return _weaponNum; }
+	bool harnessWeaponEnabled(int i) const { return i >= 0 && i < _weaponNum && _weaponEnabled[i]; }
+	/// PRD-DF03: draw-only projectile record count, so a test can assert the replica
+	/// rebuilt the host's projectile set from df_state (frame agreement).
+	int harnessProjectileCount() const { return (int)_projectiles.size(); }
+	/// PRD-DF02: toggle weapon @a idx via the correct role lane (replica: optimistic
+	/// echo + df_cmd; host: apply directly) - a harness affordance (weaponClick needs a
+	/// widget sender the harness cannot synthesize).
+	void harnessToggleWeapon(int idx);
+	/// PRD-DF03 GAP-7 (HOST): deterministically award dogfight XP to this fight's crew
+	/// (currentStats + the daily dogfight-XP cache), as awardExperienceToPilots would
+	/// on a hit - but ruleset-independent, so the propagation invariant (XP lands on the
+	/// authoritative host Soldier + rides the roster stream; replicas never award) is
+	/// testable in the vanilla harness. Returns the crew soldier ids touched.
+	std::vector<int> harnessAwardPilotXp(int firingDelta, int reactionsDelta, int braveryDelta);
+private:
+	/// test instrumentation: update() invocation count.
+	int _updateCount = 0;
 };
 
 }

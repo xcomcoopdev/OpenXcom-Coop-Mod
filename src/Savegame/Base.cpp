@@ -983,6 +983,32 @@ int Base::getTotalOtherStaffAndInventoryCost(int& staffCount, int& inventoryCoun
 int Base::getUsedQuarters() const
 {
 	int total = getTotalSoldiers() + getTotalScientists() + getTotalEngineers();
+
+	// COOP: the base that HOUSES a soldier is the one that pays for it.
+	//
+	// A soldier transferred to a peer's base is NOT erased from this machine's
+	// roster (TransferItemsState::completeTransfer keeps it when the destination
+	// is a co-op base, tagged with getCoopBase() = that base's id) - so without
+	// this it would go on consuming quarters at a base it no longer lives in.
+	// The mirror image is coop_guests: soldiers the PEER has stationed here have
+	// no Soldier object on this machine at all, so they are counted from the
+	// headcount the peer reports.
+	//
+	// Only a real own base gets this treatment. While visiting a peer base the
+	// world is swapped and the guests genuinely ARE that base's residents, so
+	// there is nothing to correct there.
+	if (_coopBase == false && _coopIcon == false)
+	{
+		for (const auto* soldier : _soldiers)
+		{
+			if (soldier->getCoopBase() != -1)
+			{
+				total--;
+			}
+		}
+		total += coop_guests;
+	}
+
 	for (const auto* prod : _productions)
 	{
 		if (prod->getRules()->getSpawnedPersonType() != "")

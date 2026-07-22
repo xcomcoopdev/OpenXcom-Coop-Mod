@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -44,6 +45,11 @@ private:
 	TextButton *_btnNewBase, *_btnBaseInfo, *_btnSoldiers, *_btnCrafts, *_btnFacilities, *_btnResearch, *_btnManufacture, *_btnTransfer, *_btnPurchase, *_btnSell, *_btnGeoscape;
 	Base *_base;
 	Globe *_globe;
+	/// PRD-J10: live refresh. This screen is the funds header + the facility grid,
+	/// and both move under a peer's shared_apply.
+	SharedEcon::ScreenRefresh _sharedRefresh;
+	/// Re-reads the shared world into the funds label / base view (PRD-J10).
+	void sharedRefresh();
 public:
 	/// Creates the Basescape state.
 	BasescapeState(Base *base, Globe *globe);
@@ -95,6 +101,11 @@ public:
 	void edtBaseChange(Action *action);
 	/// Handler for pressing a base selection hotkey.
 	void handleKeyPress(Action *action);
+	/// Test automation: rename the displayed base via the real edtBaseChange path.
+	void harnessRename(const std::string &name);
+	/// Test automation: the funds header text (a constructor/init-time cache; only
+	/// changes when the screen is rebuilt, so it proves a live SHARED refresh landed).
+	std::string harnessFundsText() const;
 };
 
 }

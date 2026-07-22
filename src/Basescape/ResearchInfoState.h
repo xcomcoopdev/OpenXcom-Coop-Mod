@@ -50,6 +50,13 @@ private:
 	void buildUi();
 	Timer *_timerMore, *_timerLess;
 	InteractiveSurface *_surfaceScientists;
+	// PRD-J06 (SHARED): true in a SHARED campaign. The screen edits the shared world
+	// live (reusing vanilla's capping), then on OK/Cancel it UNDOES those edits and
+	// submits a res_start/res_alloc/res_cancel shared_cmd - the host-authoritative
+	// world settles via shared_apply. _sharedOrigAssigned is the pre-edit scientist
+	// count of an EXISTING project, used to reverse the local edits before submit.
+	bool _shared;
+	int _sharedOrigAssigned;
 public:
 	/// Creates the ResearchProject state.
 	ResearchInfoState(Base *base, RuleResearch *rule);
@@ -84,6 +91,9 @@ public:
 	void lessClick(Action *action);
 	/// Runs state functionality every cycle(used to update the timer).
 	void think() override;
+	/// Test harness (SHARED): allocate N scientists via the vanilla arrow path and
+	/// confirm (btnOkClick) - exercises the real "start project" submit path.
+	bool harnessStart(int scientists);
 };
 
 }

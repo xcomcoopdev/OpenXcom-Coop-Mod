@@ -31,6 +31,8 @@
 #include "../Savegame/Target.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
+#include "../Savegame/Vehicle.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/AlienBase.h"
 #include "../Battlescape/BriefingState.h"
@@ -45,6 +47,7 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/CoopMenu.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -56,7 +59,7 @@ namespace OpenXcom
  * @param globeTexture Globe texture of the landing site.
  * @param shade Shade of the landing site.
  */
-ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade)
+ConfirmLandingState::ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker) : _craft(craft), _missionTexture(missionTexture), _globeTexture(globeTexture), _shade(shade), _sharedBroker(sharedBroker)
 {
 	_screen = false;
 
@@ -156,6 +159,22 @@ void ConfirmLandingState::init()
 }
 
 /**
+ * Playtest: a brokered landing dialog is shown on every seat. Once ANY seat answers,
+ * the host resolves it and marks/broadcasts the resolution; the remaining copies
+ * close themselves here so no stale "assault?" dialog lingers on the losing seats.
+ */
+void ConfirmLandingState::think()
+{
+	State::think();
+	if (_sharedBroker && _craft
+		&& _game->getCoopMod()->consumeLandingResolved(_craft->getId())
+		&& !_game->getStates().empty() && _game->getStates().back() == this)
+	{
+		_game->popState();
+	}
+}
+
+/**
 * Checks the starting condition.
 */
 std::string ConfirmLandingState::checkStartingCondition()
@@ -246,8 +265,49 @@ std::string ConfirmLandingState::checkStartingCondition()
 void ConfirmLandingState::btnYesClick(Action *)
 {
 
+	// PRD-J10 landing broker: this is the copy shown on the commanding seat's
+	// machine, which is a REPLICA - it cannot generate the battle and must not
+	// touch the shared world. Report the answer; the host does the rest.
+	if (_sharedBroker)
+	{
+		SharedEcon::submitLandReply(_game, _craft, true, false);
+		_game->popState();
+		return;
+	}
+
 	if (connectionTCP::getCoopStatic() == true)
 	{
+
+		// PRD-J09: SHARED battle entry. The world is shared - the craft already
+		// carries the full mixed-owner squad - and the HOST (which ran the
+		// geoscape sim that popped this dialog) is the battle authority. Stamp the
+		// in-battle control split from soldier ownership (seat 0/unknown -> host
+		// control, any other seat -> client), then generate the battle host-side
+		// and ship "battlehost" to the client via the existing coop path. This
+		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
+		// SHARED would duplicate the already-shared soldiers.
+		if (_game->getCoopMod()->isSharedCampaign())
+		{
+			_game->getCoopMod()->setSelectedCraft(_craft);
+			_game->getCoopMod()->setConfirmLandingState(this);
+			_game->getCoopMod()->setHost(true);
+			for (auto* s : *_craft->getBase()->getSoldiers())
+			{
+				if (s->getCraft() != _craft)
+					continue;
+				int owner = s->getOwnerPlayerId();
+				s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+				s->setCoopBase(-1);
+			}
+			for (auto* v : *_craft->getVehicles())
+			{
+				v->setCoop(0);
+				v->setCoopBase(-1);
+			}
+			startCoopMission();
+			_game->popState();
+			return;
+		}
 
 		if (_game->getCoopMod()->getHost() == true)
 		{
@@ -355,6 +415,15 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 void ConfirmLandingState::startCoopMission()
 {
+	// SHARED: the host generates the authoritative battle exactly ONCE and ships it. A
+	// second call here would run bgen.run() again and replace the world with a NEW random
+	// map, stranding the client (which already loaded the first) on a different map. If a
+	// battle already exists, this is a re-entry - do nothing.
+	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
+		&& _game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
 
 	_game->getCoopMod()->coopInventory = true;
 
@@ -432,6 +501,15 @@ void ConfirmLandingState::startCoopMission()
  */
 void ConfirmLandingState::btnNoClick(Action *)
 {
+	// PRD-J10 landing broker: same as btnYesClick - report, mutate nothing. CTRL
+	// still means "patrol here" rather than "return to base"; the host applies it.
+	if (_sharedBroker)
+	{
+		SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		_game->popState();
+		return;
+	}
+
 	if (_game->isCtrlPressed())
 	{
 		_craft->setDestination(0);

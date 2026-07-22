@@ -50,6 +50,7 @@
 #include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
+#include "../CoopMod/SharedEcon.h" // coop (PRD-J09)
 #include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
@@ -207,7 +208,11 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	_lstSoldiers->onKeyboardPress((ActionHandler)&CraftSoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// PRD-J09: the guest-filter is SEPARATE-only. In SHARED there is one shared
+	// base/roster and every player must see ALL soldiers (mixed-owner squads),
+	// so this filter is fenced off (it is a no-op in SHARED anyway - every SHARED
+	// soldier has coopBase == -1 - but fencing avoids the base_oldsoldiers2 swap).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -234,6 +239,7 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
  */
 CraftSoldiersState::~CraftSoldiersState()
 {
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -260,6 +266,13 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
+		}
+		// Playtest: SHARED must not reorder the shared host-authoritative roster; keep the
+		// dynamic-stat column but skip the sort/restore mutations.
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+		{
+			initList(_lstSoldiers->getScroll());
+			return;
 		}
 
 		// if CTRL is pressed, we only want to show the dynamic column, without actual sorting
@@ -339,7 +352,9 @@ void CraftSoldiersState::btnOkClick(Action *)
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	// PRD-J09: paired with the fenced ctor guest-filter (SHARED never swapped the
+	// list, so there is nothing to restore).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
 	{
 		// coop
 		*_base->getSoldiers() = _base->base_oldsoldiers2;
@@ -397,8 +412,11 @@ void CraftSoldiersState::initList(size_t scrl)
 	Craft *c = _base->getCrafts()->at(_craft);
 	BaseSumDailyRecovery recovery = _base->getSumRecoveryPerDay();
 
+	// Playtest: SHARED shows only the local player's own soldiers (non-destructive
+	// local copy; row indexing below goes through _viewSoldiers). SEPARATE/solo full.
+	_viewSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	// coop
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : _viewSoldiers)
 	{
 
 		//  coop
@@ -466,6 +484,65 @@ void CraftSoldiersState::init()
 		_btnPreview->setText(tr("STR_CRAFT_DEPLOYMENT_PREVIEW"));
 
 	touchComponentsRefresh();
+
+	// PRD-J10: in SHARED the craft, the roster and this screen are ONE shared thing -
+	// the peer's craft_assign lands here, not in a mirror. Refresh live instead of
+	// only on re-entry (J09 shipped the command; this closes its UX gap).
+	_sharedRefresh.bind(_game, this, _base);
+}
+
+/**
+ * Harness (PRD-J10): the crew-count header, written only by initList.
+ */
+std::string CraftSoldiersState::harnessUsedText() const
+{
+	return _txtUsed->getText();
+}
+
+std::vector<int> CraftSoldiersState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : _viewSoldiers)
+		ids.push_back(s->getId());
+	return ids;
+}
+
+int CraftSoldiersState::harnessSpaceUsed() const
+{
+	return _base->getCrafts()->at(_craft)->getSpaceUsed();
+}
+
+int CraftSoldiersState::harnessSpaceAvailable() const
+{
+	return _base->getCrafts()->at(_craft)->getSpaceAvailable();
+}
+
+int CraftSoldiersState::harnessMaxUnits() const
+{
+	return _base->getCrafts()->at(_craft)->getMaxUnitsClamped();
+}
+
+/**
+ * Applies a pending live refresh (PRD-J10).
+ */
+void CraftSoldiersState::think()
+{
+	State::think();
+
+	if (_sharedRefresh.consume())
+	{
+		// In-place rebuild, keeping the scroll position: the list holds no pending
+		// user input (every click is submitted immediately as a craft_assign), so
+		// there is nothing to lose and no reason to pop-and-push.
+		if (SharedEcon::baseIndex(_game, _base) < 0 || _craft >= _base->getCrafts()->size())
+		{
+			// the base or the craft was removed out from under this screen
+			_game->popState();
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
+	}
 }
 
 /**
@@ -498,6 +575,7 @@ void CraftSoldiersState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -551,6 +629,7 @@ void CraftSoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -588,7 +667,21 @@ void CraftSoldiersState::lstSoldiersClick(Action *action)
 	if (_game->isLeftClick(action, true))
 	{
 		Craft *c = _base->getCrafts()->at(_craft);
-		Soldier *s = _base->getSoldiers()->at(_lstSoldiers->getSelectedRow());
+		Soldier *s = _viewSoldiers[_lstSoldiers->getSelectedRow()];
+
+		// PRD-J09: in SHARED the craft/roster are shared, so assigning a soldier
+		// (host's OR client's) is a shared-world mutation - route it through the
+		// protocol (host validates capacity, broadcasts) instead of mutating this
+		// replica locally. The list refreshes on re-entry (J10 adds live refresh).
+		if (_game->getCoopMod()->isSharedCampaign())
+		{
+			// a craft OUT on a mission is locked (matches the vanilla no-op below)
+			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
+			{
+				SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+			}
+			return;
+		}
 
 		if (s->getCraft() == c)
 		{
@@ -636,7 +729,16 @@ void CraftSoldiersState::lstSoldiersClick(Action *action)
 	}
 	else if (_game->isRightClick(action, true))
 	{
-		_game->pushState(new SoldierInfoState(_base, row, false));
+		// filtered list -> map the display row back to the real base-roster index
+		int _baseIdx = row;
+		if ((size_t)row < _viewSoldiers.size())
+		{
+			Soldier* _sel = _viewSoldiers[row];
+			auto& _all = *_base->getSoldiers();
+			for (size_t _i = 0; _i < _all.size(); ++_i)
+				if (_all[_i] == _sel) { _baseIdx = (int)_i; break; }
+		}
+		_game->pushState(new SoldierInfoState(_base, _baseIdx, false));
 	}
 }
 
@@ -677,6 +779,14 @@ void CraftSoldiersState::lstSoldiersMousePress(Action *action)
 void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
 {
 	if (_game->getCoopMod()->getCoopStatic() != true || _game->getCoopMod()->getCoopCampaign() != true)
+	{
+		return;
+	}
+	// PRD-J09: gifting from the squad screen is a SEPARATE co-deployment helper
+	// (move a soldier to the peer's base so both can deploy). In SHARED the base is
+	// shared, so it is unnecessary; ownership reassignment still lives on the
+	// SoldierInfo gift path. Fence it here.
+	if (_game->getCoopMod()->isSharedCampaign())
 	{
 		return;
 	}
@@ -733,6 +843,36 @@ void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 
 	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
 	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+}
+
+/**
+ * Harness (PRD-J09): toggle a soldier's craft assignment by stable id, driving
+ * the same shared-world path a left-click would (SHARED -> craft_assign command;
+ * SEPARATE/solo -> local mutate). Lets the coop test exercise mixed-owner squad
+ * assembly without synthesising mouse rows.
+ */
+void CraftSoldiersState::harnessToggle(int soldierId)
+{
+	Craft *c = _base->getCrafts()->at(_craft);
+	for (auto* s : *_base->getSoldiers())
+	{
+		if (s->getId() != soldierId)
+			continue;
+		if (_game->getCoopMod()->isSharedCampaign())
+		{
+			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
+				SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		}
+		else if (s->getCraft() == c)
+		{
+			s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+		}
+		else if (s->hasFullHealth() && c->validateAddingSoldier(c->getSpaceAvailable(), s) == CPE_None)
+		{
+			s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
+		}
+		return;
+	}
 }
 
 }

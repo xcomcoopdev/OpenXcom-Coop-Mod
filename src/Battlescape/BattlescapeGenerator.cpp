@@ -1302,10 +1302,26 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 					// we know how to use this item
 					_game->getSavedGame()->isResearched(rule->getRequirements()))
 				{
+					// coop: number these the same way the craft branch above does.
+					// Without it every base-inventory item keeps coopID 0, so the
+					// craft's coopItems manifest (written from this very screen by
+					// moveBaseCoopInventorySave) is all-zero too and
+					// BattleUnit::hasCoopItem degenerates into a TYPE-only match -
+					// which makes placeItemByLayout refuse a visiting player's own
+					// weapon at a peer base whenever the peer ever equipped that
+					// item type there, silently emptying the soldier's hands.
+					int coopCount = perTypeCount[rule->getType()];
+
 					for (int count = 0; count < i->second; count++)
 					{
-						_save->createItemForTile(i->first, _craftInventoryTile);
+						_save->createItemForTile(i->first, _craftInventoryTile, nullptr, coopCount);
+						// coop
+						coopCount++;
 					}
+
+					// coop
+					perTypeCount[rule->getType()] = coopCount;
+
 					auto tmp = i; // copy
 					++i;
 					if (!_baseInventory)
@@ -1326,10 +1342,20 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				continue;
 			for (const auto& pair : *craft->getItems()->getContents())
 			{
+				// coop: same per-type numbering, and the SAME counter as the base
+				// storage loop above, so every item on this tile ends up with a
+				// distinct (type, coopID) pair.
+				int coopCount = perTypeCount[pair.first->getType()];
+
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile);
+					_save->createItemForTile(pair.first, _craftInventoryTile, nullptr, coopCount);
+					// coop
+					coopCount++;
 				}
+
+				// coop
+				perTypeCount[pair.first->getType()] = coopCount;
 			}
 		}
 	}

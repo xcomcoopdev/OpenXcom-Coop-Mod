@@ -49,6 +49,8 @@ private:
 	Base *_base;
 	size_t _craft, _savedScrollPosition;
 	std::vector<Soldier *> _origSoldierOrder;
+	/// Playtest: soldiers this player may SEE (SHARED: own only), non-destructive copy.
+	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
 	///initializes the display list based on the craft soldier's list and the position to display
@@ -56,6 +58,8 @@ private:
 public:
 	/// Creates the Craft Armor state.
 	CraftArmorState(Base *base, size_t craft);
+	/// Test automation: soldier ids the crew-armor screen displays (own-only in SHARED).
+	std::vector<int> harnessDisplayedSoldierIds() const;
 	/// Cleans up the Craft Armor state.
 	~CraftArmorState();
 	/// Handler for changing the sort by combobox.
@@ -79,6 +83,11 @@ public:
 	/// Handler for clicking the De-equip All Armor button.
 	void btnDeequipAllArmorClick(Action *action);
 	void btnDeequipCraftArmorClick(Action *action);
+	/// Harness (PRD-J09 GAP-5b): drive the real "de-equip all base soldiers to
+	/// their default armor" store path (the btnDeequipAllArmorClick action). Builds
+	/// the soldier list first (normally deferred to init()), as the action writes
+	/// back into it (setCellText) on the local-mutation path.
+	void harnessDeequipAll() { initList(0); btnDeequipAllArmorClick(0); }
 };
 
 }
