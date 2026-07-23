@@ -530,33 +530,36 @@ void writeBackupFile(const std::string& originalName, const std::string& backupN
 }
 
 ////////////////////////////////////////////////////////////
-//  Deep body scan for legacy co-op markers (detector v2)
+//  Deep body scan for legacy co-op markers (detector v2.3)
 ////////////////////////////////////////////////////////////
 
-// The distributed 1.7.0-era build wrote every soldier/vehicle/craft/base/ufo
-// co-op key UNCONDITIONALLY, so their mere presence proves nothing. Only
-// NON-DEFAULT values betray real co-op activity. We split them into two tiers:
+// The distributed fork build wrote a large set of "coop" keys into EVERY save,
+// solo or not: coop_gamemode/coop_save_owner_player_id/no_bases; per-soldier
+// coop/coopbase/coopcraft/coopcrafttype/coopname/ownerplayerid; a RANDOM 1-100000
+// coopbaseid on every base; a RANDOM 1-100000 coopUfoId on every ufo; a RANDOM
+// 1-100000 coopMissionId on every mission site. Their mere presence proves
+// nothing, and the random per-object ids in particular fire on a pure solo save
+// the instant a UFO or mission site is on the geoscape - the worst false positive.
 //
-//   STRONG - values that only appear once cross-instance co-op links were formed
-//            (a soldier tied to a peer base/craft, a craft carrying peer items,
-//            a target bound to a shared UFO/mission). These uniquely identify a
-//            real co-op campaign -> classify Legacy/Dual, gate automatically.
-//   WEAK   - keys the era serializer emitted for every save whether solo or not
-//            (coop_gamemode, per-soldier coopname, a random base coopbaseid, the
-//            debugCoopMenu option). Alone they cannot tell a co-op campaign from a
-//            plain solo save made by a co-op-capable build -> AmbiguousBuild, ask.
+// So the scan looks ONLY for genuinely co-op-only, NON-DEFAULT per-object values -
+// the ones a build can only write once a real cross-instance link is formed:
+//   - a soldier/vehicle bound to a PEER base/craft: coop != 0, coopbase != -1,
+//     coopcraft != -1, or a non-empty coopcrafttype;
+//   - a craft carrying a peer-item cache (non-empty coopItems);
+//   - a craft targeting a shared UFO/mission: coopDestUfoId/coopDestMissionId != 0
+//     (Craft.cpp only writes these when the destination itself is co-op).
+// coopUfoId/coopMissionId/coopbaseid are deliberately NOT scanned: they are random
+// per-object noise present in solo saves too. If any strong marker is found the
+// save is a real legacy co-op campaign; otherwise it is solo and loads untouched.
 //
 // The relevant objects live at many depths (bases[].soldiers[], deadSoldiers[],
-// bases[].crafts[], transfers[], top-level ufos[]/missionSites[], the options
-// snapshot), so we walk the whole body tree and test each map node's own keys.
-enum class MarkerLevel { None, Weak, Strong };
-
-MarkerLevel scanReaderForMarkers(const YAML::YamlNodeReader& node, int depth)
+// bases[].crafts[], transfers[], top-level ufos[]/missionSites[]), so we walk the
+// whole body tree and test each map node's own keys. Returns true on the first
+// strong marker; keeps the bounded recursion depth guard.
+bool scanReaderForStrongMarker(const YAML::YamlNodeReader& node, int depth)
 {
 	if (!node || depth > 64)
-		return MarkerLevel::None;
-
-	MarkerLevel best = MarkerLevel::None;
+		return false;
 
 	if (node.isMap())
 	{
@@ -564,78 +567,52 @@ MarkerLevel scanReaderForMarkers(const YAML::YamlNodeReader& node, int depth)
 		{
 			std::string_view k = child.key();
 
-			// --- STRONG: non-default cross-instance link values ---
 			if (k == "coop")
 			{
 				if (child.readVal<int>(0) != 0)
-					return MarkerLevel::Strong;
+					return true;
 			}
 			else if (k == "coopbase")
 			{
 				if (child.readVal<int>(-1) != -1)
-					return MarkerLevel::Strong;
+					return true;
 			}
 			else if (k == "coopcraft")
 			{
 				if (child.readVal<int>(-1) != -1)
-					return MarkerLevel::Strong;
+					return true;
 			}
 			else if (k == "coopcrafttype")
 			{
 				if (child.hasVal() && !child.val().empty())
-					return MarkerLevel::Strong;
+					return true;
 			}
 			else if (k == "coopItems")
 			{
 				if (child.isSeq() && child.childrenCount() > 0)
-					return MarkerLevel::Strong;
+					return true;
 			}
-			else if (k == "coopDestUfoId" || k == "coopDestMissionId"
-				  || k == "coopUfoId" || k == "coopMissionId")
+			else if (k == "coopDestUfoId" || k == "coopDestMissionId")
 			{
 				if (child.readVal<int>(0) != 0)
-					return MarkerLevel::Strong;
-			}
-			// --- WEAK: keys the era serializer wrote unconditionally ---
-			else if (k == "coop_gamemode" || k == "debugCoopMenu")
-			{
-				best = MarkerLevel::Weak;
-			}
-			else if (k == "coopname")
-			{
-				if (child.hasVal() && !child.val().empty())
-					best = MarkerLevel::Weak;
-			}
-			else if (k == "coopbaseid")
-			{
-				if (child.readVal<int>(0) != 0)
-					best = MarkerLevel::Weak;
+					return true;
 			}
 
-			// Recurse into nested containers (soldiers, crafts, options, ...).
-			if (child.isMap() || child.isSeq())
-			{
-				MarkerLevel sub = scanReaderForMarkers(child, depth + 1);
-				if (sub == MarkerLevel::Strong)
-					return MarkerLevel::Strong;
-				if (sub == MarkerLevel::Weak)
-					best = MarkerLevel::Weak;
-			}
+			// Recurse into nested containers (soldiers, crafts, ...).
+			if ((child.isMap() || child.isSeq()) && scanReaderForStrongMarker(child, depth + 1))
+				return true;
 		}
 	}
 	else if (node.isSeq())
 	{
 		for (const YAML::YamlNodeReader& child : node.children())
 		{
-			MarkerLevel sub = scanReaderForMarkers(child, depth + 1);
-			if (sub == MarkerLevel::Strong)
-				return MarkerLevel::Strong;
-			if (sub == MarkerLevel::Weak)
-				best = MarkerLevel::Weak;
+			if (scanReaderForStrongMarker(child, depth + 1))
+				return true;
 		}
 	}
 
-	return best;
+	return false;
 }
 
 // Atomic write: temp then rename over the target (rename is the last step).
@@ -664,41 +641,52 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 {
 	DetectedSchema d;
 
-	bool stampedLegacy = false;
+	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is
+	// no ambiguous/weak tier and no bare coop_gamemode/saveID rule - the fork build
+	// wrote those (and random per-object ids) into pure solo saves too. Anything with
+	// no positive signal is Solo and must load untouched. Order matters.
+
+	// 1. saveSchema stamp is authoritative when present.
+	bool stampedOld = false;
 	YAML::YamlNodeReader schemaNode = header["saveSchema"];
 	if (schemaNode)
 	{
 		int s = schemaNode.readVal<int>(0);
 		d.schema = s;
-		if (s >= SAVE_SCHEMA_CURRENT)
+		if (s > SAVE_SCHEMA_CURRENT)
 		{
-			d.kind = (s == SAVE_SCHEMA_CURRENT) ? DetectedSchema::Current : DetectedSchema::UnknownFuture;
+			d.kind = DetectedSchema::UnknownFuture;
 			return d;
 		}
-		stampedLegacy = true; // s < CURRENT: an older stamped schema
+		if (s == SAVE_SCHEMA_CURRENT)
+		{
+			d.kind = DetectedSchema::Current;
+			return d;
+		}
+		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
 	}
+	// 2. Unstamped host-authoritative save: current, re-stamped on next save.
 	else if (header["coop"].readVal(false))
 	{
-		// Unstamped host-authoritative save: current, re-stamped on next save.
 		d.kind = DetectedSchema::Current;
 		d.schema = SAVE_SCHEMA_CURRENT;
 		return d;
 	}
 
-	// Body fingerprints for the schema-1 variants (order per PRD table).
-	long long saveID = 0;
-	body.tryRead("saveID", saveID);
-	int gamemode = 0;
-	body.tryRead("coop_gamemode", gamemode);
-	bool hasEmbed = static_cast<bool>(body["coopClientSaveKey"]);
-
-	if (hasEmbed)
+	// 3. Legacy embed: the client world is base64-embedded in the host body.
+	if (static_cast<bool>(body["coopClientSaveKey"]))
 	{
 		d.kind = DetectedSchema::Legacy;
 		d.schema = 1;
 		d.variant = SchemaVariant::Embed;
 		return d;
 	}
+
+	// 4. Legacy sidecar: a non-zero saveID WITH a matching host_<saveID>_*.data file
+	//    on disk. saveID alone (no sidecar) is NOT a co-op signal - it is only the
+	//    input to this lookup.
+	long long saveID = 0;
+	body.tryRead("saveID", saveID);
 	if (saveID != 0 && sidecarPresent(masterUserFolder, saveID))
 	{
 		d.kind = DetectedSchema::Legacy;
@@ -706,46 +694,30 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		d.variant = SchemaVariant::Sidecar;
 		return d;
 	}
-	if (gamemode != 0 || saveID != 0)
+
+	// 5. A genuine coop-only, non-default per-object link anywhere in the body -> a
+	//    real legacy co-op campaign (the case the fork's silent-solo trap missed).
+	if (scanReaderForStrongMarker(body, 0))
 	{
 		d.kind = DetectedSchema::Legacy;
 		d.schema = 1;
 		d.variant = SchemaVariant::Dual;
 		return d;
 	}
-	if (stampedLegacy)
+
+	// 6. A stamped older-schema save with no recognizable variant. Currently
+	//    UNREACHABLE: no build ever stamped a schema < CURRENT. Kept for the
+	//    framework's sake. NOTE: when a future schema step affects solo saves, this
+	//    branch must NOT force the dual client-picker onto a solo save - route
+	//    stamped-older solo saves to a silent/generic upgrade instead.
+	if (stampedOld)
 	{
-		// Stamped older schema with no recognizable variant: still legacy; let the
-		// UI ask for a client save (dual path) rather than silently loading.
 		d.kind = DetectedSchema::Legacy;
 		d.variant = SchemaVariant::Dual;
 		return d;
 	}
 
-	// Detector v2 (PRD 3, v2.1): the cheap header/top-level fingerprints above did
-	// not fire, but the distributed 1.7.0-era build left co-op keys deep in the body
-	// even when coop_gamemode/saveID were 0. Deep-scan the body:
-	//   STRONG marker -> a real legacy co-op campaign (Legacy/Dual, auto-gate).
-	//   WEAK-only     -> a save from a co-op-capable build that may be solo or co-op
-	//                    (AmbiguousBuild: ask the player).
-	//   neither       -> a genuine solo/vanilla OXCE save (loads untouched).
-	MarkerLevel ml = scanReaderForMarkers(body, 0);
-	if (ml == MarkerLevel::Strong)
-	{
-		d.kind = DetectedSchema::Legacy;
-		d.schema = 1;
-		d.variant = SchemaVariant::Dual;
-		return d;
-	}
-	if (ml == MarkerLevel::Weak)
-	{
-		d.kind = DetectedSchema::AmbiguousBuild;
-		d.schema = 1;
-		d.variant = SchemaVariant::None; // resolved to Dual only if the player confirms co-op
-		return d;
-	}
-
-	// No co-op trace at all: an ordinary solo save (gains the stamp on next save).
+	// 7. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
 	d.kind = DetectedSchema::Solo;
 	d.schema = SAVE_SCHEMA_CURRENT;
 	return d;
@@ -809,21 +781,6 @@ DetectedSchema UpgradeRunner::detect()
 	return ensureDetected();
 }
 
-DetectedSchema UpgradeRunner::effectiveDetection(const UpgradeInputs& in)
-{
-	DetectedSchema d = ensureDetected();
-	// The player answered "yes, it was a co-op campaign" in the ambiguous-build
-	// dialog: an AmbiguousBuild save is a legacy dual save whose client world is a
-	// separate standalone .sav, so route it through the exact 1->2 dual transform.
-	if (d.kind == DetectedSchema::AmbiguousBuild && in.treatAmbiguousAsCoop)
-	{
-		d.kind = DetectedSchema::Legacy;
-		d.schema = 1;
-		d.variant = SchemaVariant::Dual;
-	}
-	return d;
-}
-
 std::vector<InputRequest> UpgradeRunner::requiredInputs()
 {
 	std::vector<InputRequest> reqs;
@@ -847,7 +804,7 @@ std::vector<InputRequest> UpgradeRunner::requiredInputs()
 PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 {
 	PreflightResult r;
-	DetectedSchema d = effectiveDetection(in);
+	DetectedSchema d = ensureDetected();
 
 	if (d.kind == DetectedSchema::Malformed)
 	{
@@ -891,7 +848,7 @@ PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 {
 	ExecuteResult res;
-	DetectedSchema d = effectiveDetection(in);
+	DetectedSchema d = ensureDetected();
 
 	if (!d.needsUpgrade())
 	{

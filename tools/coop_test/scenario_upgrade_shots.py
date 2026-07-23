@@ -2,7 +2,6 @@
 
 Stages the synthetic legacy fixtures into one hermetic instance, then shoots:
   01 gate dialog     - via the REAL load path (load_save_menu -> schema gate)
-  01b ambiguous gate - via the REAL load path on a weak-only save (3-way choice)
   02 client input    - upgrade_show state=client (candidate picker + name fields)
   03 info message    - upgrade_show state=info (blocking-refusal, single OK)
   04 confirm message - upgrade_show state=confirm (warnings, Continue anyway/Cancel)
@@ -63,12 +62,6 @@ def main(outdir):
         gc.ok({"cmd": "load_save_menu", "file": "dual_host.sav"})
         gc.wait_for("gate dialog", lambda: session.has_state(gc, "SaveUpgradeDialogState"))
         shot("01_gate_dialog.png")
-        reset()
-
-        # 01b ambiguous-build 3-way choice, via the REAL gate on a weak-only save
-        gc.ok({"cmd": "load_save_menu", "file": "weak_only.sav"})
-        gc.wait_for("ambiguous dialog", lambda: session.has_state(gc, "SaveUpgradeAmbiguousState"))
-        shot("01b_ambiguous_gate.png")
         reset()
 
         # 02 client input picker (dense: list + two name fields + 4 buttons).

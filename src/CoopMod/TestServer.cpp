@@ -103,7 +103,6 @@
 #include "../Menu/SaveUpgradeMessageState.h"
 #include "../Menu/SaveUpgradeSummaryState.h"
 #include "../Menu/SaveUpgradeFlow.h"
-#include "../Menu/SaveUpgradeAmbiguousState.h"
 #include "../Engine/Language.h"
 #include "../Menu/StartState.h"
 #include "../Menu/MainMenuState.h"
@@ -5306,7 +5305,6 @@ std::string TestServer::execute(const std::string& line)
 				case SaveUpgrade::DetectedSchema::Current:       kind = "current"; break;
 				case SaveUpgrade::DetectedSchema::Solo:          kind = "solo"; break;
 				case SaveUpgrade::DetectedSchema::Legacy:        kind = "legacy"; break;
-				case SaveUpgrade::DetectedSchema::AmbiguousBuild: kind = "ambiguous_build"; break;
 				case SaveUpgrade::DetectedSchema::UnknownFuture: kind = "unknown_future"; break;
 				case SaveUpgrade::DetectedSchema::Malformed:     kind = "malformed"; break;
 				}
@@ -5417,12 +5415,6 @@ std::string TestServer::execute(const std::string& line)
 				_game->pushState(new SaveUpgradeDialogState(origin, host, d));
 				resp["ok"] = true;
 			}
-			else if (which == "ambiguous")
-			{
-				SaveUpgrade::DetectedSchema d = SaveUpgrade::SchemaDetector::detect(host);
-				_game->pushState(new SaveUpgradeAmbiguousState(origin, host, d));
-				resp["ok"] = true;
-			}
 			else if (which == "client")
 			{
 				// clientName/hostName prefill the TextEdits: they draw nothing while
@@ -5485,36 +5477,6 @@ std::string TestServer::execute(const std::string& line)
 			{
 				resp["ok"] = false;
 				resp["error"] = "unknown upgrade_show state: " + which;
-			}
-		}
-		else if (cmd == "upgrade_ambiguous")
-		{
-			// Drive the real AmbiguousBuild choice dialog buttons headless
-			// (the harness cannot click). 'choice': solo | coop | cancel.
-			std::string choice = req.get("choice", "").asString();
-			SaveUpgradeAmbiguousState* st = findState<SaveUpgradeAmbiguousState>(_game);
-			if (!st)
-			{
-				resp["error"] = "no SaveUpgradeAmbiguousState on the state stack";
-			}
-			else if (choice == "solo")
-			{
-				st->btnSoloClick(nullptr);
-				resp["ok"] = true;
-			}
-			else if (choice == "coop")
-			{
-				st->btnCoopClick(nullptr);
-				resp["ok"] = true;
-			}
-			else if (choice == "cancel")
-			{
-				st->btnCancelClick(nullptr);
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "unknown upgrade_ambiguous choice: " + choice;
 			}
 		}
 		else

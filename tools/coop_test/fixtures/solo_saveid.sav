@@ -1,4 +1,4 @@
-name: Weak Only
+name: Solo SaveID
 version: Extended 8.4.2
 engine: Extended
 build: 8.4.2.0
@@ -16,29 +16,18 @@ mods:
 difficulty: 0
 monthsPassed: 0
 coop_gamemode: 0
+saveID: 12349999
 funds:
   - 1000000
 bases:
   - name: HostBase
     lon: 0.1
     lat: 0.2
-    coopbaseid: 2032
     soldiers:
       - type: STR_SOLDIER
         id: 1
         name: Alice
-        coopbase: -1
-        coop: 0
-        coopcraft: -1
-        coopcrafttype: ''
-        coopname: Alice
+        coopname: ""
       - type: STR_SOLDIER
         id: 2
         name: Bravo
-        coopbase: -1
-        coop: 0
-        coopcraft: -1
-        coopcrafttype: ''
-        coopname: Bravo
-options:
-  debugCoopMenu: false

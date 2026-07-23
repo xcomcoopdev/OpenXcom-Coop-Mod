@@ -40,8 +40,8 @@ namespace OpenXcom
  * @param origin Game section that originated the load.
  * @param filename Name of the host save being upgraded.
  */
-SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::string& filename, bool treatAmbiguousAsCoop)
-	: _origin(origin), _filename(filename), _treatAmbiguousAsCoop(treatAmbiguousAsCoop), _selectedRow(-1)
+SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::string& filename)
+	: _origin(origin), _filename(filename), _selectedRow(-1)
 {
 	_screen = false;
 
@@ -159,10 +159,9 @@ void SaveUpgradeClientState::init()
 {
 	State::init();
 	SaveUpgrade::DetectedSchema detected = SaveUpgrade::SchemaDetector::detect(_filename);
-	// A genuine dual save detects as Legacy; an ambiguous save the player confirmed
-	// as co-op detects as AmbiguousBuild. Either is still upgradeable here. Anything
+	// A genuine dual save detects as Legacy and is still upgradeable here. Anything
 	// else (Current after a successful upgrade, Solo, ...) means we are stale -> pop.
-	if (!detected.needsUpgrade() && !detected.isAmbiguous())
+	if (!detected.needsUpgrade())
 	{
 		_game->popState();
 	}
@@ -301,7 +300,6 @@ void SaveUpgradeClientState::btnContinueClick(Action*)
 	inputs.clientName = _edtClientName->getText();
 	inputs.hostName = _edtHostName->getText();
 	inputs.skipClient = false;
-	inputs.treatAmbiguousAsCoop = _treatAmbiguousAsCoop;
 
 	SaveUpgradeUI::beginUpgrade(_game, _origin, _filename, inputs);
 }
@@ -325,7 +323,6 @@ void SaveUpgradeClientState::btnSkipClick(Action*)
 	SaveUpgrade::UpgradeInputs inputs;
 	inputs.hostName = _edtHostName->getText();
 	inputs.skipClient = true;
-	inputs.treatAmbiguousAsCoop = _treatAmbiguousAsCoop;
 
 	SaveUpgradeUI::beginUpgrade(_game, _origin, _filename, inputs);
 }

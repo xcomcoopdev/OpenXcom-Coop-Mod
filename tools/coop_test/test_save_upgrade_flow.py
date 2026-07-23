@@ -37,7 +37,6 @@ HOST_NAME = "HostPlayer"
 CLIENT_NAME = "ClientPlayer"
 DUAL_HOST = "dual_host.sav"
 DUAL_CLIENT = "dual_client.sav"
-WEAK_ONLY = "weak_only.sav"
 
 # top-level keys to drop so a modern save looks pre-schema legacy-dual:
 #  header: the schema stamp + co-op markers   body: the embed + host-authority tags
@@ -69,6 +68,31 @@ def strip_modern_coop_fields(text):
     return "".join(out)
 
 
+def derive_legacy_dual(modern_text):
+    """From a modern host save produce (host_dual_text, client_dual_text).
+
+    Strip every modern co-op marker so the host is NOT classified Current, then
+    inject a single genuine cross-instance link (force the first soldier's coopbase
+    to a peer id). Under detector v2.3 that non-default per-object value is the ONLY
+    positive signal that gates a save - coop_gamemode/saveID and the random per-object
+    ids are all treated as noise now. The 1->2 transform resets that link, so the
+    upgraded save still loads clean."""
+    hdr, body = list(yaml.safe_load_all(modern_text))
+    ccs = body.get("coopClientSaves") or []
+    assert ccs, "modern source save has no embedded client world to derive from"
+    client_modern = base64.b64decode(ccs[0]["blob"]).decode("utf-8")
+    host_dual = strip_modern_coop_fields(modern_text)
+    client_dual = strip_modern_coop_fields(client_modern)
+    # inject a STRONG marker: force the first soldier's coopbase to a peer link
+    host_dual = re.sub(r"(?m)^(\s+)coopbase: .*$", r"\g<1>coopbase: 4501", host_dual, count=1)
+    assert "coopbase: 4501" in host_dual, "failed to inject a strong co-op marker into the host"
+    # sanity: the stripped host must no longer carry the modern markers
+    h2, b2 = list(yaml.safe_load_all(host_dual))
+    assert "coop" not in h2 and "saveSchema" not in h2, "strip left modern header markers"
+    assert "coopClientSaves" not in b2, "strip left the embed block"
+    return host_dual, client_dual
+
+
 def _remove_indented_block(text, key):
     """Drop a block-style mapping key (e.g. 'coopItems:') and every line indented
     deeper than it, at any nesting depth. Preserves everything else byte-for-byte."""
@@ -94,50 +118,29 @@ def _remove_indented_block(text, key):
     return "".join(out)
 
 
-def derive_weak_only(modern_text):
-    """From a modern host save produce a WEAK-ONLY legacy save: strip every modern
-    co-op marker AND every STRONG deep-body marker, but keep the WEAK ones the era
-    build always wrote (coop_gamemode, per-soldier coopname, base coopbaseid). The
-    detector must classify this AmbiguousBuild, and it must still load as a solo
-    geoscape when the player chooses "load as solo"."""
-    t = strip_modern_coop_fields(modern_text)            # drop coop:true/saveSchema/coopClientSaves/...
-    t = re.sub(r"(?m)^saveID: .*\r?\n", "", t)            # no saveID -> the saveID!=0 rule must not fire
-    # coop_gamemode present but 0 (a WEAK marker, not the strong gamemode!=0 rule)
-    if re.search(r"(?m)^coop_gamemode:", t):
-        t = re.sub(r"(?m)^coop_gamemode: .*$", "coop_gamemode: 0", t)
-    else:
-        t = t.replace("---\n", "---\ncoop_gamemode: 0\n", 1)
-    # neutralise any STRONG soldier/vehicle link values back to their defaults
-    t = re.sub(r"(?m)^(\s+)coop: [1-9]\d*(\s*)$", r"\1coop: 0\2", t)
-    t = re.sub(r"(?m)^(\s+)coopbase: (?!-1\b)-?\d+(\s*)$", r"\1coopbase: -1\2", t)
-    t = re.sub(r"(?m)^(\s+)coopcraft: (?!-1\b)-?\d+(\s*)$", r"\1coopcraft: -1\2", t)
-    t = re.sub(r"(?m)^(\s+)coopcrafttype: (?!''\s*$).*$", r"\1coopcrafttype: ''", t)
-    # drop strong id lines + the coopItems peer-item block
-    t = re.sub(r"(?m)^\s+coop(?:Dest)?(?:Ufo|Mission)Id: .*\r?\n", "", t)
+def derive_solo(modern_text):
+    """From the same modern host save produce a loadable SOLO save carrying the fork
+    build's always-written coop keys but NO genuine cross-instance link: strip the
+    modern markers, neutralize every strong soldier/craft link back to its default,
+    and inject a random per-object coopUfoId onto the first ufo (if any). Detector
+    v2.3 must classify this Solo and the real load path must load it straight to the
+    geoscape without gating - the end-to-end proof of the false-positive fix."""
+    t = strip_modern_coop_fields(modern_text)
+    # neutralize any STRONG soldier/vehicle link values back to their defaults
+    t = re.sub(r"(?m)^(\s+)coop: [1-9]\d*(\s*)$", r"\g<1>coop: 0\g<2>", t)
+    t = re.sub(r"(?m)^(\s+)coopbase: (?!-1\b)-?\d+(\s*)$", r"\g<1>coopbase: -1\g<2>", t)
+    t = re.sub(r"(?m)^(\s+)coopcraft: (?!-1\b)-?\d+(\s*)$", r"\g<1>coopcraft: -1\g<2>", t)
+    t = re.sub(r"(?m)^(\s+)coopcrafttype: (?!''\s*$).*$", r"\g<1>coopcrafttype: ''", t)
+    # drop strong craft dest-id lines + the coopItems peer-item block
+    t = re.sub(r"(?m)^\s+coopDest(?:Ufo|Mission)Id: .*\r?\n", "", t)
     t = _remove_indented_block(t, "coopItems")
     return t
 
 
-def derive_legacy_dual(modern_text):
-    """From a modern host save produce (host_dual_text, client_dual_text)."""
-    hdr, body = list(yaml.safe_load_all(modern_text))
-    ccs = body.get("coopClientSaves") or []
-    assert ccs, "modern source save has no embedded client world to derive from"
-    client_modern = base64.b64decode(ccs[0]["blob"]).decode("utf-8")
-    host_dual = strip_modern_coop_fields(modern_text)
-    client_dual = strip_modern_coop_fields(client_modern)
-    # sanity: the stripped host must no longer carry the modern markers
-    h2, b2 = list(yaml.safe_load_all(host_dual))
-    assert "coop" not in h2 and "saveSchema" not in h2, "strip left modern header markers"
-    assert "coopClientSaves" not in b2, "strip left the embed block"
-    assert b2.get("coop_gamemode") or b2.get("saveID"), "stripped host lost its dual fingerprint"
-    return host_dual, client_dual
-
-
 def generate_fixtures():
-    """Bring up a real co-op campaign, save it modern, and return the derived
-    legacy DUAL (host_text, client_text) plus a WEAK-ONLY host text - all from the
-    same real, loadable geoscape save."""
+    """Bring up a real co-op campaign, save it modern, and return the derived legacy
+    DUAL (host_text, client_text) plus a SOLO host text - all from the same real,
+    loadable geoscape save."""
     host_dir = make_user_dir("upg_gen_host")
     client_dir = make_user_dir("upg_gen_client")
     host = GameClient("host", 48730, host_dir)
@@ -148,12 +151,8 @@ def generate_fixtures():
         host.ok({"cmd": "save_game", "file": "modern_src.sav"})
         modern = open(os.path.join(host_dir, "xcom1", "modern_src.sav"), encoding="utf-8").read()
         host_dual, client_dual = derive_legacy_dual(modern)
-        weak = derive_weak_only(modern)
-        # sanity: the weak-only derivation is well-formed and carries no strong marker
-        wh, wb = list(yaml.safe_load_all(weak))
-        assert "coop" not in wh and "saveSchema" not in wh, "weak derivation left modern header markers"
-        assert "saveID" not in wb, "weak derivation left a saveID (would trip the dual rule)"
-        return host_dual, client_dual, weak
+        solo_text = derive_solo(modern)
+        return host_dual, client_dual, solo_text
     finally:
         for gc in (host, client):
             try: gc.shutdown()
@@ -184,39 +183,31 @@ def test_gate(host_text):
         except Exception: pass
 
 
-def test_ambiguous_gate(weak_text):
-    """A weak-only save must be intercepted by the load gate as AmbiguousBuild ->
-    the three-way SaveUpgradeAmbiguousState (NOT a silent solo load, NOT the legacy
-    upgrade dialog). Then "load as solo" must reach a normal loaded geoscape."""
-    d = make_user_dir("upg_ambiguous")
-    with open(os.path.join(d, "xcom1", WEAK_ONLY), "w", encoding="utf-8", newline="\n") as f:
-        f.write(weak_text)
+def test_solo_never_gates(solo_text):
+    """A real, loadable SOLO save that still carries the fork build's always-written
+    coop keys (coop_gamemode, per-soldier coopname, default coop link fields) must
+    NEVER gate: the detector classifies it Solo and the real load path loads it
+    straight to the geoscape with NO upgrade dialog. This is the end-to-end proof of
+    the false-positive fix (detector v2.3)."""
+    d = make_user_dir("upg_solo_never")
+    solo_name = "solo_src.sav"
+    with open(os.path.join(d, "xcom1", solo_name), "w", encoding="utf-8", newline="\n") as f:
+        f.write(solo_text)
     host = GameClient("host", 48735, d)
     try:
         host.spawn(); host.connect()
-        # sanity: the detector agrees this is ambiguous before we drive the menu
-        det = host.ok({"cmd": "upgrade_detect", "file": WEAK_ONLY})
-        assert det["kind"] == "ambiguous_build", det
+        det = host.ok({"cmd": "upgrade_detect", "file": solo_name})
+        assert det["kind"] == "solo", det
         assert det["needsUpgrade"] is False, det
-
-        # the gate must push the ambiguous choice dialog, not load solo / not the
-        # legacy upgrade dialog
-        host.ok({"cmd": "load_save_menu", "file": WEAK_ONLY})
-        host.wait_for("ambiguous dialog", lambda: session.has_state(host, "SaveUpgradeAmbiguousState"))
-        st = host.cmd({"cmd": "get_state"})["states"]
-        assert not any("GeoscapeState" in s for s in st), f"weak save loaded as solo despite gate: {st}"
-        assert not any("SaveUpgradeDialogState" in s for s in st), f"weak save routed to the legacy upgrade dialog: {st}"
-        print("PASS ambiguous gate: weak-only intercepted -> SaveUpgradeAmbiguousState")
-
-        # "load as solo campaign": drive the real dialog button headless; it must
-        # bypass the gate and reach a normal loaded geoscape (no coop, no host window)
-        host.ok({"cmd": "upgrade_ambiguous", "choice": "solo"})
+        # the real load path must reach a normal geoscape - no upgrade dialog at all
+        host.ok({"cmd": "load_save_menu", "file": solo_name})
         host.wait_for("solo geoscape", lambda: session.has_state(host, "GeoscapeState"))
         st = host.cmd({"cmd": "get_state"})["states"]
-        assert not any("HostMenu" in s for s in st), f"weak save loaded as co-op, not solo: {st}"
+        assert not any("SaveUpgrade" in s for s in st), f"solo save was gated by the upgrader: {st}"
+        assert not any("HostMenu" in s for s in st), f"solo save loaded as co-op: {st}"
         markers = host.ok({"cmd": "save_markers"})
-        assert markers["coop"] is False, f"weak save must load as solo (coop=false): {markers}"
-        print("PASS ambiguous solo: load-as-solo bypassed the gate -> normal solo geoscape")
+        assert markers["coop"] is False, f"solo save must load as solo (coop=false): {markers}"
+        print("PASS solo-never-gates: fork-era solo save loaded straight to geoscape, no gate")
     finally:
         try: host.shutdown()
         except Exception: pass
@@ -267,10 +258,10 @@ def test_upgrade_and_rejoin(host_text, client_text):
 
 
 def main():
-    host_text, client_text, weak_text = generate_fixtures()
-    print("derived legacy DUAL pair + weak-only save from a real campaign save")
+    host_text, client_text, solo_text = generate_fixtures()
+    print("derived legacy DUAL pair + a solo save from a real campaign save")
     test_gate(host_text)
-    test_ambiguous_gate(weak_text)
+    test_solo_never_gates(solo_text)
     test_upgrade_and_rejoin(host_text, client_text)
     print("ALL PASS test_save_upgrade_flow")
 

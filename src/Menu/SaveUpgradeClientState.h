@@ -43,7 +43,6 @@ class SaveUpgradeClientState : public State
 private:
 	OptionsOrigin _origin;
 	std::string _filename;
-	bool _treatAmbiguousAsCoop; // reached via the ambiguous-build "upgrade as co-op" choice
 	std::vector<std::pair<std::string, std::string> > _candidates; // (fileName, displayName)
 	std::string _selectedFile;
 	int _selectedRow;
@@ -59,9 +58,8 @@ private:
 	/// Updates the rejoin-key echo line from the current name field.
 	void updateKeyEcho();
 public:
-	/// Creates the client input state. treatAmbiguousAsCoop routes an ambiguous
-	/// save through the legacy dual upgrade (default false = a genuine dual save).
-	SaveUpgradeClientState(OptionsOrigin origin, const std::string& filename, bool treatAmbiguousAsCoop = false);
+	/// Creates the client input state for a legacy dual save.
+	SaveUpgradeClientState(OptionsOrigin origin, const std::string& filename);
 	/// Cleans up the state.
 	~SaveUpgradeClientState();
 	/// Self-heals: pops itself if the save no longer needs upgrading.

@@ -41,7 +41,6 @@
 #include "../CoopMod/SharedEcon.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "SaveUpgradeDialogState.h"
-#include "SaveUpgradeAmbiguousState.h"
 #include "SaveUpgradeMessageState.h"
 
 namespace OpenXcom
@@ -175,8 +174,8 @@ void LoadGameState::init()
 	// dialog; saves from a newer build get an informative refusal; current/solo
 	// saves load as usual; malformed saves fall through to the load error path.
 	// Coop-orchestrated loads (host-served blobs / resume) are upgraded host-side
-	// and must never gate, so they are excluded here. bypassSchemaGate skips the
-	// gate for the ambiguous-build "load as solo" choice (else it would loop).
+	// and must never gate, so they are excluded here. Solo saves never gate; only a
+	// positively-detected legacy co-op save (detector v2.3) reaches the dialog.
 	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked && !_bypassSchemaGate)
 	{
 		_gateChecked = true;
@@ -187,14 +186,6 @@ void LoadGameState::init()
 			lines.push_back(tr("STR_SAVE_UPGRADE_FUTURE").arg(detected.schema));
 			_game->popState();
 			_game->pushState(new SaveUpgradeMessageState(_origin, tr("STR_SAVE_UPGRADE_FUTURE_TITLE"), lines));
-			return;
-		}
-		if (detected.isAmbiguous())
-		{
-			// Weak-only co-op traces: might be a legacy co-op save or a plain solo
-			// save from a co-op build. Only the player can say - offer the choice.
-			_game->popState();
-			_game->pushState(new SaveUpgradeAmbiguousState(_origin, _filename, detected));
 			return;
 		}
 		if (detected.needsUpgrade())

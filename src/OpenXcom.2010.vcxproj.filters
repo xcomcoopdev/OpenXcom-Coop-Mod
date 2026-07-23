@@ -705,9 +705,6 @@
     <ClCompile Include="Menu\ConfirmLoadState.cpp">
       <Filter>Menu</Filter>
     </ClCompile>
-    <ClCompile Include="Menu\SaveUpgradeAmbiguousState.cpp">
-      <Filter>Menu</Filter>
-    </ClCompile>
     <ClCompile Include="Menu\SaveUpgradeClientState.cpp">
       <Filter>Menu</Filter>
     </ClCompile>
@@ -1998,9 +1995,6 @@
       <Filter>Engine</Filter>
     </ClInclude>
     <ClInclude Include="Menu\ConfirmLoadState.h">
-      <Filter>Menu</Filter>
-    </ClInclude>
-    <ClInclude Include="Menu\SaveUpgradeAmbiguousState.h">
       <Filter>Menu</Filter>
     </ClInclude>
     <ClInclude Include="Menu\SaveUpgradeClientState.h">

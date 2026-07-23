@@ -70,8 +70,6 @@ struct DetectedSchema
 		Current,        // schema == SAVE_SCHEMA_CURRENT (stamped, or unstamped coop:true)
 		Solo,           // ordinary single-player save, no co-op trace - loads normally
 		Legacy,         // an older co-op schema that must be upgraded to play
-		AmbiguousBuild, // weak-only co-op traces: MIGHT be a legacy co-op save or a
-		                // solo save from a co-op-capable build - only the player knows
 		UnknownFuture,  // saveSchema > SAVE_SCHEMA_CURRENT (made by a newer build)
 		Malformed       // could not parse as a two-document save
 	};
@@ -81,18 +79,12 @@ struct DetectedSchema
 	SchemaVariant variant = SchemaVariant::None;   // meaningful when kind == Legacy
 
 	/// True when this build can upgrade the save straight away (a chain exists and
-	/// the variant is known). AmbiguousBuild is deliberately NOT included: it only
-	/// upgrades after the player confirms it was a co-op campaign (see the ambiguous
-	/// choice dialog), at which point it is treated as a legacy dual save.
+	/// the variant is known). Only a positively-detected legacy co-op save ever
+	/// gates; solo saves are never touched (detector v2.3).
 	bool needsUpgrade() const { return kind == Legacy; }
-	/// True when the player must choose (solo-load vs co-op-upgrade) before anything
-	/// happens - neither an automatic upgrade nor a silent direct load is safe.
-	bool isAmbiguous() const { return kind == AmbiguousBuild; }
 	/// True when the save cannot be loaded OR upgraded by this build.
 	bool isBlocking() const { return kind == UnknownFuture || kind == Malformed; }
 	/// True when the save can be handed straight to SavedGame::load with no gate.
-	/// AmbiguousBuild is excluded: it loads directly only after the player picks the
-	/// "load as solo" option, never automatically.
 	bool loadsDirectly() const { return kind == Current || kind == Solo; }
 };
 
@@ -133,8 +125,6 @@ struct UpgradeInputs
 	std::string clientName;         // roster[1]
 	std::string hostName;           // roster[0] (blank => claimed at next host)
 	bool skipClient = false;        // dual escape hatch: proceed with no client world
-	bool treatAmbiguousAsCoop = false; // the player confirmed an AmbiguousBuild save
-	                                    // was a co-op campaign: upgrade it as legacy dual
 };
 
 /// Blocking errors and non-blocking warnings from a preflight check.
@@ -185,10 +175,6 @@ private:
 	bool _detectedValid = false;
 
 	DetectedSchema& ensureDetected();
-	/// The detection to act on, honouring the caller's ambiguous->co-op choice:
-	/// an AmbiguousBuild save is treated as a legacy dual save once the player has
-	/// confirmed (in.treatAmbiguousAsCoop) that it was a co-op campaign.
-	DetectedSchema effectiveDetection(const UpgradeInputs& in);
 };
 
 /// Debug self-test: builds a synthetic schema-1 "embed" save pair in memory,

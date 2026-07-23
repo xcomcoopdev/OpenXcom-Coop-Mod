@@ -65,10 +65,11 @@ def main():
 
         # ---- 2. detector classification -------------------------------------
         expect = {
-            "dual_host.sav":        ("legacy", "dual", True),
-            "dual_host_saveid.sav": ("legacy", "dual", True),
-            "dual_host_strong.sav": ("legacy", "dual", True),   # detector v2: STRONG deep-scan markers
-            "weak_only.sav":        ("ambiguous_build", "none", False),  # WEAK-only -> ask the player
+            "dual_host.sav":        ("legacy", "dual", True),   # genuine soldier peer-link (STRONG)
+            "solo_saveid.sav":      ("solo", "none", False),    # saveID but no sidecar/marker -> Solo
+            "dual_host_strong.sav": ("legacy", "dual", True),   # detector v2.3: STRONG deep-scan markers
+            "solo_coopbuild.sav":   ("solo", "none", False),    # fork solo save (coop keys, no genuine marker)
+            "solo_with_ufo.sav":    ("solo", "none", False),    # random coopUfoId/coopMissionId noise -> Solo
             "vanilla_solo.sav":     ("solo", "none", False),    # pure OXCE shape, zero coop keys
             "embed_host.sav":       ("legacy", "embed", True),
             "sidecar_host.sav":     ("legacy", "sidecar", True),

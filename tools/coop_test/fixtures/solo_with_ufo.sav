@@ -1,0 +1,55 @@
+name: Solo With UFO
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 1
+monthsPassed: 2
+coop_gamemode: 0
+funds:
+  - 1500000
+bases:
+  - name: SoloBase
+    lon: 0.1
+    lat: 0.2
+    coopbaseid: 8123
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Alice
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Alice
+      - type: STR_SOLDIER
+        id: 2
+        name: Bravo
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Bravo
+ufos:
+  - type: STR_SMALL_SCOUT
+    id: 3
+    coopUfoId: 74213
+  - type: STR_MEDIUM_SCOUT
+    id: 4
+    coopUfoId: 9981
+missionSites:
+  - type: STR_ALIEN_TERROR
+    id: 5
+    coopMissionId: 55207
+options:
+  debugCoopMenu: false

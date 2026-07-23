@@ -12,10 +12,15 @@ upgrade framework never builds a SavedGame - see PRD 6.1). The full-flow test th
 actually LOADS an upgraded save uses a real harness-generated campaign save
 instead (see test_save_upgrade_flow.py); these are for detector + runner units.
 
-Notes on shapes (PRD 3 detection table):
-  dual          : no `coop` header, no `saveSchema`; body coop_gamemode != 0
-  dual+saveID   : same, but coop_gamemode 0 and saveID != 0 with no sidecar
-                  (the case the old build hard-threw on at SavedGame.cpp:820)
+Notes on shapes (PRD 3.1 detection table, detector v2.3):
+  dual          : no `coop` header, no `saveSchema`; a genuine per-object co-op link
+                  (soldier coop!=0 / coopbase!=-1 / craft coopItems / coopDestUfoId)
+  solo+saveID   : coop_gamemode 0 and saveID != 0 with NO sidecar and no strong
+                  marker -> Solo (saveID alone is not a co-op signal)
+  solo-coopbuild: coop_gamemode/coopname/coopbaseid/debugCoopMenu + default soldier
+                  coop fields (fork solo save) -> Solo
+  solo-with-ufo : random per-object coopUfoId/coopMissionId noise, no strong marker
+                  -> Solo (the worst false-positive the old detector produced)
   embed         : body has coopClientSaveKey + base64 coopClientSaveBlob
   sidecar       : body saveID != 0, no embed, + a host_<saveID>_<name>.data file
   solo          : no co-op trace at all -> loads normally, stamped on next save
@@ -64,10 +69,15 @@ def _header(name, *, schema=None, coop=False):
     return "\n".join(lines) + "\n"
 
 
-def _host_body(*, gamemode=1, save_id=None, extra=None):
+def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False):
     """A host geoscape body: one base, two soldiers - the second deliberately
     carries NO coopname and NO ownerplayerid key (the transform must fill/stamp
-    them). Per PRD 7."""
+    them). Per PRD 7.
+
+    strong=True gives the first soldier a genuine cross-instance link (coop:1 +
+    a peer coopbase). Under detector v2.3 that non-default per-object value is the
+    ONLY thing that classifies a save Legacy/Dual - coop_gamemode and saveID are
+    no longer co-op signals, so a host body needs a strong marker to gate."""
     lines = ["difficulty: 0", "monthsPassed: 0"]
     if gamemode is not None:
         lines.append("coop_gamemode: %d" % gamemode)
@@ -85,6 +95,13 @@ def _host_body(*, gamemode=1, save_id=None, extra=None):
         "        id: 1",
         "        name: Alice",
         '        coopname: ""',   # present-but-empty coopname -> filled with name
+    ]
+    if strong:
+        lines += [
+            "        coop: 1",       # genuine peer link -> STRONG marker (reset on upgrade)
+            "        coopbase: 4501",
+        ]
+    lines += [
         "      - type: STR_SOLDIER",
         "        id: 2",
         "        name: Bravo",     # no coopname key, no ownerplayerid key
@@ -132,19 +149,22 @@ def client_stream(name="Carol", gamemode=1, save_id=None):
 # ---- individual fixtures (name -> two-document text) --------------------------
 
 def dual_host():
-    return _stream(_header("Dual Coop"), _host_body(gamemode=1, save_id=None))
+    # A real legacy dual host: a soldier carries a genuine peer link (STRONG marker),
+    # so detector v2.3 classifies it Legacy/Dual. The base for the runner e2e.
+    return _stream(_header("Dual Coop"), _host_body(gamemode=1, save_id=None, strong=True))
 
 
-def dual_host_saveid():
-    # coop_gamemode 0 so ONLY the non-zero saveID (with no sidecar) drives the
-    # dual classification - the previously-hard-throw case (PRD 3).
-    return _stream(_header("Dual SaveID"), _host_body(gamemode=0, save_id=DUAL_SAVE_ID))
+def solo_saveid():
+    # A SOLO fork save that happens to carry a non-zero saveID but has NO sidecar and
+    # NO strong marker. Under detector v2.3 saveID is only the input to the sidecar
+    # lookup, never a co-op signal on its own -> Solo (was the old hard-throw case).
+    return _stream(_header("Solo SaveID"), _host_body(gamemode=0, save_id=DUAL_SAVE_ID))
 
 
 def dual_host_battle():
-    # A mid-battle dual host: preflight must refuse it (PRD 7).
+    # A mid-battle dual host (STRONG marker so it gates): preflight must refuse it (PRD 7).
     return _stream(_header("Dual Battle"),
-                   _host_body(gamemode=1, save_id=None, extra=["battleGame:", "  turn: 3"]))
+                   _host_body(gamemode=1, save_id=None, strong=True, extra=["battleGame:", "  turn: 3"]))
 
 
 def dual_client(gamemode=1):
@@ -210,13 +230,14 @@ def solo():
     return _stream(_header("Solo Game"), body)
 
 
-# ---- detector v2 fixtures (strong / weak / vanilla) ---------------------------
-# Shaped after the real-world 1.7.0-era co-op save (see PRD 3, v2.1). The era
-# serializer wrote every co-op key unconditionally, so DEFAULT values (coop 0,
-# coopbase -1, coopcraft -1, coopcrafttype '') mean nothing; only NON-DEFAULT
-# values are STRONG markers, while a handful of always-written keys (coop_gamemode,
-# per-soldier coopname, a random base coopbaseid, the debugCoopMenu option) are the
-# WEAK markers that alone cannot tell a co-op campaign from a co-op-build solo save.
+# ---- detector v2.3 fixtures (strong / solo-coopbuild / vanilla) ---------------
+# Shaped after the real-world fork co-op save (see PRD 3.1). The fork serializer
+# wrote every co-op key unconditionally, so DEFAULT values (coop 0, coopbase -1,
+# coopcraft -1, coopcrafttype '') mean nothing; only NON-DEFAULT per-object link
+# values are STRONG markers. The always-written keys (coop_gamemode, per-soldier
+# coopname, a random base coopbaseid, a random per-object coopUfoId/coopMissionId,
+# the debugCoopMenu option) appear in pure SOLO saves too and are NOT co-op signals:
+# a save carrying only those must classify Solo and load untouched.
 
 # A living soldier exactly as the era wrote it: all coop keys present but DEFAULT,
 # coopname non-empty. On its own this is a WEAK marker only.
@@ -250,10 +271,11 @@ def _dead_soldier_strong(sid, name, coopbase):
     ]
 
 
-def _weak_host_body(base_id=2032):
-    """A host geoscape body with ONLY weak co-op traces: coop_gamemode present
-    (=0), non-empty coopname on every soldier, a non-zero base coopbaseid, and a
-    debugCoopMenu option. No strong markers anywhere -> AmbiguousBuild."""
+def _solo_coopbuild_body(base_id=2032):
+    """A pure SOLO save written by the co-op-capable fork build: coop_gamemode
+    present (=0), non-empty coopname on every soldier, a non-zero (random) base
+    coopbaseid, and a debugCoopMenu option - every soldier coop link at its default.
+    None of these is a co-op signal under detector v2.3 -> Solo, loads untouched."""
     lines = ["difficulty: 0", "monthsPassed: 0", "coop_gamemode: 0", "funds:", "  - 1000000",
              "bases:", "  - name: HostBase", "    lon: 0.1", "    lat: 0.2",
              "    coopbaseid: %d" % base_id, "    soldiers:"]
@@ -328,9 +350,39 @@ def dual_client_strong():
     return _stream(_header("Strong Client"), _strong_client_body())
 
 
-def weak_only():
-    # weak markers only -> AmbiguousBuild (ask the player).
-    return _stream(_header("Weak Only"), _weak_host_body())
+def solo_coopbuild():
+    # a solo save from the co-op-capable fork build (coop keys present but all at
+    # default / random-noise values) -> Solo, must keep loading untouched.
+    return _stream(_header("Solo Coop-Build"), _solo_coopbuild_body())
+
+
+def solo_with_ufo():
+    """The WORST-BUG regression (detector v2.3): a fork SOLO save with a UFO and a
+    mission site on the geoscape. The fork build stamped a RANDOM non-zero coopUfoId
+    on every ufo and coopMissionId on every mission site unconditionally, and the old
+    detector treated those as STRONG markers - so any solo save with a UFO in flight
+    was forced into the co-op upgrade dialog. No genuine cross-instance link anywhere
+    -> MUST classify Solo and load untouched."""
+    lines = ["difficulty: 1", "monthsPassed: 2", "coop_gamemode: 0", "funds:", "  - 1500000",
+             "bases:", "  - name: SoloBase", "    lon: 0.1", "    lat: 0.2",
+             "    coopbaseid: 8123", "    soldiers:"]
+    lines += _living_soldier(1, "Alice")   # default coop link fields -> no strong marker
+    lines += _living_soldier(2, "Bravo")
+    lines += [
+        "ufos:",
+        "  - type: STR_SMALL_SCOUT",
+        "    id: 3",
+        "    coopUfoId: 74213",       # RANDOM per-object noise, NOT a co-op signal
+        "  - type: STR_MEDIUM_SCOUT",
+        "    id: 4",
+        "    coopUfoId: 9981",
+        "missionSites:",
+        "  - type: STR_ALIEN_TERROR",
+        "    id: 5",
+        "    coopMissionId: 55207",   # RANDOM per-object noise, NOT a co-op signal
+    ]
+    lines += ["options:", "  debugCoopMenu: false"]
+    return _stream(_header("Solo With UFO"), "\n".join(lines) + "\n")
 
 
 def vanilla_solo():
@@ -362,13 +414,14 @@ def vanilla_solo():
 # name -> builder. .sav files plus the one sidecar .data.
 FILES = {
     "dual_host.sav": dual_host,
-    "dual_host_saveid.sav": dual_host_saveid,
+    "solo_saveid.sav": solo_saveid,
     "dual_host_battle.sav": dual_host_battle,
     "dual_host_strong.sav": dual_host_strong,
     "dual_client.sav": dual_client,
     "dual_client_mode2.sav": dual_client_mode2,
     "dual_client_strong.sav": dual_client_strong,
-    "weak_only.sav": weak_only,
+    "solo_coopbuild.sav": solo_coopbuild,
+    "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,
     "embed_host.sav": embed_host,
     "sidecar_host.sav": sidecar_host,
