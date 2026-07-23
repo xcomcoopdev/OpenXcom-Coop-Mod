@@ -3658,6 +3658,31 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "coop_mission_start")
+		{
+			// SEPARATE-mode two-world-merge battle entry: the host confirms the
+			// pending coop landing. ConfirmLandingState::btnYesClick pushes
+			// CoopState(88), which auto-emits "sendCraft"; the client's
+			// contribution (sendMissionFile) and the host-side merge + battle
+			// generation (setClientSoldiers / CoopState::loadWorld 111/765) then
+			// ride network callbacks with no further manual step. This is the
+			// SEPARATE analog of the SHARED confirm_landing path; it reports the
+			// host stage right after the click so a test can gate on entry.
+			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
+			if (!cl)
+			{
+				resp["error"] = "no ConfirmLandingState on stack";
+			}
+			else
+			{
+				cl->btnYesClick(nullptr);
+				State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+				resp["top"] = top ? typeid(*top).name() : "none";
+				SavedBattleGame* bg = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+				resp["inBattle"] = (bg != nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "battle_inventory")
 		{
 			// Pre-battle coop inventory (soldiers spawn unarmed, weapons on the
