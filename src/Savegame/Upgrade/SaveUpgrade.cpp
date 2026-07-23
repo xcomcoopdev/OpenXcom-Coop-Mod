@@ -489,9 +489,11 @@ bool postflightVerify(const std::string& stream, std::string& why)
 	}
 }
 
-std::string chooseBackupName(const std::string& fileName, int fromSchema)
+// The upgraded save is written to a NEW file so the original is never modified
+// (it stays byte-identical on disk). "<stem>_upgraded.sav", no-clobber (-2/-3...).
+std::string chooseUpgradedName(const std::string& fileName)
 {
-	std::string base = CrossPlatform::noExt(fileName) + "_bak_v" + std::to_string(fromSchema);
+	std::string base = CrossPlatform::noExt(fileName) + "_upgraded";
 	std::string candidate = base + ".sav";
 	int n = 2;
 	while (CrossPlatform::fileExists(Options::getMasterUserFolder() + candidate))
@@ -500,79 +502,6 @@ std::string chooseBackupName(const std::string& fileName, int fromSchema)
 		++n;
 	}
 	return candidate;
-}
-
-// Rewrite the header's top-level "name:" scalar to append a suffix, editing ONLY
-// that one line so every other byte of the header is preserved verbatim (a ryml
-// re-emit would reformat quoting/ordering/etc.). The result is always double-
-// quoted so any characters in the name stay valid. Returns the header unchanged
-// if no top-level name line is found.
-std::string appendToHeaderName(const std::string& header, const std::string& suffix)
-{
-	size_t pos = 0;
-	while (pos < header.size())
-	{
-		size_t nl = header.find('\n', pos);
-		size_t lineEnd = (nl == std::string::npos) ? header.size() : nl;
-		size_t e = lineEnd;
-		if (e > pos && header[e - 1] == '\r')
-			--e;
-		// Only a top-level (column-0) "name:" is the save name; nested name: keys
-		// (none in the header today) would be indented, so pos would not be 'n'.
-		if (e - pos >= 5 && header.compare(pos, 5, "name:") == 0)
-		{
-			size_t vstart = pos + 5;
-			while (vstart < e && (header[vstart] == ' ' || header[vstart] == '\t'))
-				++vstart;
-			std::string value(header, vstart, e - vstart);
-			// Strip a single pair of matching surrounding quotes, if any.
-			if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
-				value = value.substr(1, value.size() - 2);
-			value += suffix;
-			std::string quoted = "\"";
-			for (char c : value)
-			{
-				if (c == '"' || c == '\\')
-					quoted.push_back('\\');
-				quoted.push_back(c);
-			}
-			quoted.push_back('"');
-			std::string out;
-			out.append(header, 0, pos);                       // bytes before the line
-			out += "name: ";
-			out += quoted;
-			out.append(header, e, header.size() - e);         // the line's \r/\n onward, verbatim
-			return out;
-		}
-		if (nl == std::string::npos)
-			break;
-		pos = nl + 1;
-	}
-	return header;
-}
-
-// Copy the original to the backup path, appending " (pre-upgrade backup)" to the
-// header name so the backup is distinguishable in the load list. Everything else -
-// the rest of the header and the entire body - is preserved byte-for-byte.
-void writeBackupFile(const std::string& originalName, const std::string& backupName)
-{
-	std::string text = readFileText(originalName);
-	std::string h, b;
-	if (!yamlutil::splitStream(text, h, b))
-	{
-		// Could not split: fall back to a byte-for-byte copy.
-		if (!CrossPlatform::copyFile(Options::getMasterUserFolder() + originalName,
-									 Options::getMasterUserFolder() + backupName))
-			throw Exception("failed to write backup " + backupName);
-		return;
-	}
-	std::string out = appendToHeaderName(h, " (pre-upgrade backup)");
-	if (out.empty() || out.back() != '\n')
-		out.push_back('\n');
-	out += "---\n";
-	out += b; // body byte-identical
-	if (!CrossPlatform::writeFile(Options::getMasterUserFolder() + backupName, out))
-		throw Exception("failed to write backup " + backupName);
 }
 
 ////////////////////////////////////////////////////////////
@@ -937,20 +866,20 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 			}
 		}
 
-		// 2. Back up the original first (does not touch the original file).
-		std::string backupName = chooseBackupName(_fileName, d.schema);
-		writeBackupFile(_fileName, backupName);
-		res.backupPath = Options::getMasterUserFolder() + backupName;
-		res.reportLines.push_back("Backup written: " + backupName);
-
-		// 3. Run the migration chain in memory.
+		// 2. Run the migration chain in memory. The original file is NEVER modified -
+		//    the upgraded content is written to a new file (step 4), so the original
+		//    stays byte-identical on disk; there is no separate backup.
 		SaveSet set;
 		ingestSaveSet(set, d, in, _fileName);
 		for (const SchemaStep* step : chain)
 			step->apply(set, in);
 		res.reportLines.insert(res.reportLines.end(), set.report.begin(), set.report.end());
 
-		// 4. Emit + post-flight verify (still in memory - original intact).
+		// 3. Distinguish the new save in the load list, then emit + post-flight verify.
+		{
+			std::string origName = yamlutil::getStr(set.host.header(), "name", CrossPlatform::noExt(_fileName));
+			yamlutil::setStr(set.host.header(), "name", origName + " (upgraded)");
+		}
 		std::string upgraded = emitHostStream(set);
 		std::string why;
 		if (!postflightVerify(upgraded, why))
@@ -959,9 +888,12 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 			return res;
 		}
 
-		// 5. Atomic write over the original (last step).
-		atomicWriteFile(_fileName, upgraded);
-		res.reportLines.push_back("Upgraded save written: " + _fileName);
+		// 4. Write the upgraded content to a NEW file; the original is left untouched.
+		std::string upgradedName = chooseUpgradedName(_fileName);
+		atomicWriteFile(upgradedName, upgraded);
+		res.upgradedPath = Options::getMasterUserFolder() + upgradedName;
+		res.reportLines.push_back("Upgraded save written: " + upgradedName);
+		res.reportLines.push_back("Your original '" + _fileName + "' is unchanged.");
 		res.success = true;
 	}
 	catch (const std::exception& e)
@@ -971,7 +903,7 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 	}
 
 	if (res.success)
-		Log(LOG_INFO) << "[save-upgrade] " << _fileName << " upgraded (backup: " << res.backupPath << ")";
+		Log(LOG_INFO) << "[save-upgrade] " << _fileName << " -> " << res.upgradedPath << " (original untouched)";
 	else
 		Log(LOG_ERROR) << "[save-upgrade] " << _fileName << " failed: " << res.errorMessage;
 	return res;

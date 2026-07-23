@@ -140,7 +140,7 @@ struct PreflightResult
 struct ExecuteResult
 {
 	bool success = false;
-	std::string backupPath;              // full path of the backup that was written
+	std::string upgradedPath;            // full path of the NEW upgraded file (original untouched)
 	std::vector<std::string> reportLines; // human-readable, shown in summary + logged
 	std::string errorMessage;            // set when success == false
 };

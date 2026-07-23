@@ -82,11 +82,9 @@ SaveUpgradeSummaryState::SaveUpgradeSummaryState(OptionsOrigin origin, const std
 	for (const std::string& line : _result.reportLines)
 		_lstReport->addRow(1, line.c_str());
 
-	// Rejoin + backup + dead-client-file notes.
+	// Rejoin + dead-client-file notes. The upgraded filename and "original unchanged"
+	// line are in the report list above (built by the runner).
 	std::ostringstream notes;
-	std::string backupName = CrossPlatform::baseFilename(_result.backupPath);
-	notes << tr("STR_SAVE_UPGRADE_BACKUP_LABEL").arg(backupName);
-	notes << "\n";
 	if (_inputs.skipClient || _inputs.clientName.empty())
 	{
 		notes << tr("STR_SAVE_UPGRADE_REJOIN_FRESH");
@@ -115,19 +113,19 @@ SaveUpgradeSummaryState::~SaveUpgradeSummaryState()
 }
 
 /**
- * Loads the upgraded save. The file now detects as current, so the fresh
- * LoadGameState does not re-gate; the eventual setState() on load discards this
- * and any remaining upgrade-UI states beneath it.
+ * Loads the NEW upgraded save (not the original, which is left untouched). The
+ * upgraded file detects as current, so the fresh LoadGameState does not re-gate;
+ * the eventual setState() on load discards this and the upgrade-UI states beneath.
  * @param action Pointer to an action.
  */
 void SaveUpgradeSummaryState::btnOkClick(Action*)
 {
 	Game* game = _game;
 	OptionsOrigin origin = _origin;
-	std::string filename = _filename;
+	std::string upgradedFile = CrossPlatform::baseFilename(_result.upgradedPath);
 	SDL_Color* palette = _palette;
 	game->popState();
-	game->pushState(new LoadGameState(origin, filename, palette));
+	game->pushState(new LoadGameState(origin, upgradedFile, palette));
 }
 
 }

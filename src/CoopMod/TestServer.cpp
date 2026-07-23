@@ -5392,7 +5392,7 @@ std::string TestServer::execute(const std::string& line)
 				{
 					SaveUpgrade::ExecuteResult r = runner.execute(in);
 					resp["success"] = r.success;
-					resp["backupPath"] = r.backupPath;
+					resp["upgradedPath"] = r.upgradedPath;
 					resp["errorMessage"] = r.errorMessage;
 					Json::Value report(Json::arrayValue);
 					for (const auto& l : r.reportLines) report.append(l);

@@ -14,7 +14,7 @@ Covers (PRD save-upgrader.md 9):
 - detector classification: dual / dual+saveID / embed / sidecar / solo / current
   / unknown-future / malformed
 - disk-less self-test (runSelfTest)
-- runner e2e on the DUAL pair: backup naming + original preserved, upgraded shape
+- runner e2e on the DUAL pair: original left untouched, upgraded written to a new file
   (header coop/coopPlayers/saveSchema:2; body saveID/owner 0/coopClientSaves[1]
   whose blob decodes to owner 1 + client base; soldiers stamped both sides)
 - embed + sidecar recovery (ports test_legacy_migration.py's intent to the new flow)
@@ -25,6 +25,7 @@ Run:  python tools/coop_test/test_save_upgrade.py
 
 import base64
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,7 +51,20 @@ def main():
     xcom1 = os.path.join(d, "xcom1")
 
     def reset_fixtures():
+        # Clean slate: remove any prior run's output (the upgrade writes a NEW
+        # "<stem>_upgraded.sav" and never clobbers, so stale outputs would otherwise
+        # accumulate as _upgraded-2.sav and shadow this section's file).
+        if os.path.isdir(xcom1):
+            shutil.rmtree(xcom1)
         synth.write_all(xcom1)
+
+    # New file model: the upgrade never touches the original; it writes the upgraded
+    # content to "<stem>_upgraded.sav". These map a host fixture name -> that file.
+    def upgname(host):
+        return host[:-4] + "_upgraded.sav"
+
+    def outp(host):
+        return os.path.join(xcom1, upgname(host))
 
     reset_fixtures()
     gc = GameClient("host", PORT, d)
@@ -93,35 +107,21 @@ def main():
                    "clientName": "Carol", "hostName": "HostGuy"})
         assert r["success"] is True, f"dual upgrade failed: {r}"
         assert r["errors"] == [], r["errors"]
-        # backup: <stem>_bak_v1.sav, and the original is preserved inside it
-        backup = os.path.join(xcom1, "dual_host_bak_v1.sav")
-        assert os.path.exists(backup), "backup <stem>_bak_v1.sav not written"
-        assert r["backupPath"].replace("\\", "/").endswith("dual_host_bak_v1.sav")
-        bh, bb = two_docs(backup)
-        assert bh["name"].endswith("(pre-upgrade backup)"), f"backup name not suffixed: {bh['name']}"
-        assert "coop" not in bh and "saveSchema" not in bh, "backup body must be the untouched legacy original"
-        assert bb["coop_gamemode"] == 1 and "coopClientSaves" not in bb, "backup body must be byte-identical legacy"
-        # a re-detect of the backup still classifies it as the legacy original (restore path)
-        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_bak_v1.sav"})["kind"] == "legacy"
-        # F5: the backup is byte-faithful - body identical, header identical except the
-        # single name line (which gains the suffix). Compare against the pristine
-        # original text from synth (NOT the on-disk file, which the upgrade overwrote).
-        orig_text = synth.dual_host()
-        bak_text = open(backup, encoding="utf-8", newline="").read()
-        oh, ob = orig_text.split("\n---\n", 1)
-        kh, kb = bak_text.split("\n---\n", 1)
-        assert ob == kb, "F5: backup body must be byte-identical to the original"
-        o_lines, k_lines = oh.split("\n"), kh.split("\n")
-        assert len(o_lines) == len(k_lines), "F5: backup header changed line count"
-        diffs = [i for i in range(len(o_lines)) if o_lines[i] != k_lines[i]]
-        assert len(diffs) == 1 and o_lines[diffs[0]].startswith("name:") and k_lines[diffs[0]].startswith("name:"), \
-            "F5: only the name line may differ, got diffs at %r" % diffs
+        # new model: the upgraded content is a NEW file; the ORIGINAL is untouched.
+        upgraded = outp("dual_host.sav")
+        assert os.path.exists(upgraded), "dual_host_upgraded.sav not written"
+        assert r["upgradedPath"].replace("\\", "/").endswith("dual_host_upgraded.sav")
+        # the original is left byte-identical (never written) and still detects legacy
+        assert open(os.path.join(xcom1, "dual_host.sav"), encoding="utf-8", newline="").read() == synth.dual_host(), \
+            "the original save must be left byte-identical"
+        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host.sav"})["kind"] == "legacy"
 
         # upgraded host file shape
-        uh, ub = two_docs(os.path.join(xcom1, "dual_host.sav"))
+        uh, ub = two_docs(upgraded)
         assert uh["coop"] is True, "upgraded header coop != true"
         assert uh["coopPlayers"] == ["HostGuy", "Carol"], uh.get("coopPlayers")
         assert uh["saveSchema"] == 2, uh.get("saveSchema")
+        assert uh["name"].endswith("(upgraded)"), f"upgraded name not suffixed: {uh['name']}"
         # upgraded saves are always SEPARATE - the shared-world feature postdates them
         assert uh["coopCampaignType"] == 0, uh.get("coopCampaignType")
         assert ub["coop_save_owner_player_id"] == 0, ub.get("coop_save_owner_player_id")
@@ -144,14 +144,14 @@ def main():
         assert cb["bases"][0]["name"] == "ClientBase", "client world/base not embedded"
         assert all(s["ownerplayerid"] == 1 for s in cb["bases"][0]["soldiers"]), "client soldiers not stamped owner 1"
         # re-detecting the upgraded file now reports current
-        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host.sav"})["kind"] == "current"
-        print("PASS dual e2e: backup preserved original, upgraded shape + embedded client world correct")
+        assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host.sav")})["kind"] == "current"
+        print("PASS dual e2e: original untouched, upgraded shape + embedded client world correct")
 
         # ---- 4. embed + sidecar recovery (test_legacy_migration.py intent) ---
         reset_fixtures()
         r = gc.ok({"cmd": "upgrade_run", "host": "embed_host.sav"})
         assert r["success"] is True, f"embed upgrade failed: {r}"
-        eh, eb = two_docs(os.path.join(xcom1, "embed_host.sav"))
+        eh, eb = two_docs(outp("embed_host.sav"))
         assert eb["coop_save_owner_player_id"] == 0 and len(eb["coopClientSaves"]) == 1
         assert "coopClientSaveKey" not in eb and "coopClientSaveBlob" not in eb, "embed leftovers not removed"
         ec = list(yaml.safe_load_all(base64.b64decode(eb["coopClientSaves"][0]["blob"]).decode()))[1]
@@ -162,7 +162,7 @@ def main():
         reset_fixtures()
         r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav"})
         assert r["success"] is True, f"sidecar upgrade failed: {r}"
-        sh, sb = two_docs(os.path.join(xcom1, "sidecar_host.sav"))
+        sh, sb = two_docs(outp("sidecar_host.sav"))
         assert len(sb["coopClientSaves"]) == 1, "sidecar client not imported"
         assert sb["coopClientSaves"][0]["key"].endswith("_Carol.data"), sb["coopClientSaves"][0]["key"]
         sc = list(yaml.safe_load_all(base64.b64decode(sb["coopClientSaves"][0]["blob"]).decode()))[1]
@@ -179,15 +179,15 @@ def main():
         r = gc.ok({"cmd": "upgrade_run", "host": "dual_host_battle.sav",
                    "client": "dual_client_battle.sav", "clientName": "Carol", "hostName": "HostGuy"})
         assert r["success"] is True, f"mid-battle upgrade should succeed: {r}"
-        assert os.path.exists(os.path.join(xcom1, "dual_host_battle_bak_v1.sav")), "backup must be written"
-        uh, ub = two_docs(os.path.join(xcom1, "dual_host_battle.sav"))
+        assert os.path.exists(outp("dual_host_battle.sav")), "dual_host_battle_upgraded.sav must be written"
+        uh, ub = two_docs(outp("dual_host_battle.sav"))
         assert "battleGame" in ub, "host battleGame (the single battle authority) must be kept"
         entry = ub["coopClientSaves"][0]
         cb2 = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
         assert "battleGame" not in cb2, "client battleGame must be stripped (rehydrated from host)"
         assert any("host battle kept" in l for l in r["report"]), r["report"]
         assert any("client battle snapshot" in l for l in r["report"]), r["report"]
-        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_battle.sav"})["kind"] == "current"
+        assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host_battle.sav")})["kind"] == "current"
         print("PASS mid-battle: host battle kept, client battle dropped, loads as current")
 
         # ---- 5b. negatives --------------------------------------------------
@@ -202,7 +202,7 @@ def main():
         r = gc.ok({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True})
         assert r["success"] is True, f"skip-client upgrade failed: {r}"
         assert any("restart fresh" in w for w in r["warnings"]), r["warnings"]
-        _, kb = two_docs(os.path.join(xcom1, "dual_host.sav"))
+        _, kb = two_docs(outp("dual_host.sav"))
         assert "coopClientSaves" not in kb or kb["coopClientSaves"] in (None, []), kb.get("coopClientSaves")
         print("PASS skip-client: warns + upgraded host carries 0 client worlds")
 
@@ -216,7 +216,7 @@ def main():
                    "client": "dual_client_strong.sav", "clientName": "Carol", "hostName": "HostGuy"})
         assert r["success"] is True, f"strong upgrade failed: {r}"
         assert r["errors"] == [], r["errors"]
-        uh, ub = two_docs(os.path.join(xcom1, "dual_host_strong.sav"))
+        uh, ub = two_docs(outp("dual_host_strong.sav"))
         # host living soldiers: stamped owner 0, coopname preserved (defaults untouched)
         hs = ub["bases"][0]["soldiers"]
         assert all(s["ownerplayerid"] == 0 for s in hs), [s.get("ownerplayerid") for s in hs]
@@ -244,7 +244,7 @@ def main():
         # the report calls out the resets with counts
         assert any("Reset stale co-op links" in l for l in r["report"]), r["report"]
         # and the upgraded strong save now reads as current
-        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_strong.sav"})["kind"] == "current"
+        assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host_strong.sav")})["kind"] == "current"
         print("PASS strong e2e: strong-marker detection + host/client link resets + coopname preserved")
 
         # ---- 6b. peer-mirror soldiers dropped, not duplicated ---------------
@@ -259,7 +259,7 @@ def main():
         assert not any("Duplicate soldier co-op name" in w for w in r["warnings"]), \
             f"mirror must not raise a duplicate-coopname warning: {r['warnings']}"
         assert any("peer-mirror soldier" in l for l in r["report"]), r["report"]
-        uh, ub = two_docs(os.path.join(xcom1, "dual_host_mirror.sav"))
+        uh, ub = two_docs(outp("dual_host_mirror.sav"))
         hnames = {s.get("coopname") or s.get("name") for s in ub["bases"][0]["soldiers"]}
         assert hnames == {"Alice", "Bravo"}, f"peer mirror must be dropped from host: {hnames}"
         # the client's real Carol is preserved in the embedded world
@@ -279,7 +279,7 @@ def main():
         assert not any("Duplicate soldier co-op name" in w for w in r["warnings"]), r["warnings"]
         assert not any("Dropped" in l and "peer-mirror" in l for l in r["report"]), \
             f"a mid-battle mirror must be KEPT, not dropped: {r['report']}"
-        uh, ub = two_docs(os.path.join(xcom1, "dual_host_battle_mirror.sav"))
+        uh, ub = two_docs(outp("dual_host_battle_mirror.sav"))
         assert "battleGame" in ub, "host battleGame must be kept"
         carol = [s for s in ub["bases"][0]["soldiers"] if (s.get("coopname") or s.get("name")) == "Carol"]
         assert carol, "mid-battle mirror must remain in the host roster (its BattleUnit links to it)"

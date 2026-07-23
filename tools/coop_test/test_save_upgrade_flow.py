@@ -228,18 +228,20 @@ def test_upgrade_and_rejoin(host_text, client_text):
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
 
-        # 1. upgrade headless (backup + chained migration + atomic write)
+        # 1. upgrade headless (chained migration -> a NEW upgraded file; original untouched)
         r = host.ok({"cmd": "upgrade_run", "host": DUAL_HOST, "client": DUAL_CLIENT,
                      "clientName": CLIENT_NAME, "hostName": HOST_NAME})
         assert r["success"] is True, f"upgrade failed: {r}"
-        assert os.path.exists(os.path.join(host_dir, "xcom1", "dual_host_bak_v1.sav")), "no backup written"
-        assert host.ok({"cmd": "upgrade_detect", "file": DUAL_HOST})["kind"] == "current", "not current after upgrade"
-        print("PASS upgrade: backup written, save now schema-current")
+        upgraded = DUAL_HOST[:-4] + "_upgraded.sav"
+        assert os.path.exists(os.path.join(host_dir, "xcom1", upgraded)), "no upgraded file written"
+        assert host.ok({"cmd": "upgrade_detect", "file": DUAL_HOST})["kind"] == "legacy", "original must stay legacy"
+        assert host.ok({"cmd": "upgrade_detect", "file": upgraded})["kind"] == "current", "upgraded not current"
+        print("PASS upgrade: original untouched, upgraded file is schema-current")
 
-        # 2. LOAD the upgraded save through the real menu -> host window -> resume
+        # 2. LOAD the UPGRADED file through the real menu -> host window -> resume
         #    lobby, then a fresh client rejoins with the exact name and is served
         #    its world (this is the proven resume flow, driven on an UPGRADED save).
-        session.resume_campaign(host, client, DUAL_HOST, port="47950",
+        session.resume_campaign(host, client, upgraded, port="47950",
                                 host_name=HOST_NAME, client_name=CLIENT_NAME)
 
         # 3. spot-check the resumed world on both sides
