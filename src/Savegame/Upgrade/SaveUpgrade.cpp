@@ -502,8 +502,58 @@ std::string chooseBackupName(const std::string& fileName, int fromSchema)
 	return candidate;
 }
 
-// Copy the original to the backup path, changing only the header "name" so the
-// backup is distinguishable in the load list. Body is left byte-identical.
+// Rewrite the header's top-level "name:" scalar to append a suffix, editing ONLY
+// that one line so every other byte of the header is preserved verbatim (a ryml
+// re-emit would reformat quoting/ordering/etc.). The result is always double-
+// quoted so any characters in the name stay valid. Returns the header unchanged
+// if no top-level name line is found.
+std::string appendToHeaderName(const std::string& header, const std::string& suffix)
+{
+	size_t pos = 0;
+	while (pos < header.size())
+	{
+		size_t nl = header.find('\n', pos);
+		size_t lineEnd = (nl == std::string::npos) ? header.size() : nl;
+		size_t e = lineEnd;
+		if (e > pos && header[e - 1] == '\r')
+			--e;
+		// Only a top-level (column-0) "name:" is the save name; nested name: keys
+		// (none in the header today) would be indented, so pos would not be 'n'.
+		if (e - pos >= 5 && header.compare(pos, 5, "name:") == 0)
+		{
+			size_t vstart = pos + 5;
+			while (vstart < e && (header[vstart] == ' ' || header[vstart] == '\t'))
+				++vstart;
+			std::string value(header, vstart, e - vstart);
+			// Strip a single pair of matching surrounding quotes, if any.
+			if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
+				value = value.substr(1, value.size() - 2);
+			value += suffix;
+			std::string quoted = "\"";
+			for (char c : value)
+			{
+				if (c == '"' || c == '\\')
+					quoted.push_back('\\');
+				quoted.push_back(c);
+			}
+			quoted.push_back('"');
+			std::string out;
+			out.append(header, 0, pos);                       // bytes before the line
+			out += "name: ";
+			out += quoted;
+			out.append(header, e, header.size() - e);         // the line's \r/\n onward, verbatim
+			return out;
+		}
+		if (nl == std::string::npos)
+			break;
+		pos = nl + 1;
+	}
+	return header;
+}
+
+// Copy the original to the backup path, appending " (pre-upgrade backup)" to the
+// header name so the backup is distinguishable in the load list. Everything else -
+// the rest of the header and the entire body - is preserved byte-for-byte.
 void writeBackupFile(const std::string& originalName, const std::string& backupName)
 {
 	std::string text = readFileText(originalName);
@@ -516,11 +566,7 @@ void writeBackupFile(const std::string& originalName, const std::string& backupN
 			throw Exception("failed to write backup " + backupName);
 		return;
 	}
-	auto headerTree = yamlutil::parseMap(h);
-	ryml::NodeRef header = headerTree->rootref();
-	std::string origName = yamlutil::getStr(header, "name", CrossPlatform::noExt(originalName));
-	yamlutil::setStr(header, "name", origName + " (pre-upgrade backup)");
-	std::string out = yamlutil::emitNode(header);
+	std::string out = appendToHeaderName(h, " (pre-upgrade backup)");
 	if (out.empty() || out.back() != '\n')
 		out.push_back('\n');
 	out += "---\n";
@@ -556,6 +602,9 @@ void writeBackupFile(const std::string& originalName, const std::string& backupN
 // bases[].crafts[], transfers[], top-level ufos[]/missionSites[]), so we walk the
 // whole body tree and test each map node's own keys. Returns true on the first
 // strong marker; keeps the bounded recursion depth guard.
+//
+// The field set below is the CANONICAL co-op link taxonomy documented in
+// SaveUpgradeTypes.h - keep it in sync with resetStaleLinks (SchemaStep1to2.cpp).
 bool scanReaderForStrongMarker(const YAML::YamlNodeReader& node, int depth)
 {
 	if (!node || depth > 64)
@@ -673,8 +722,13 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 3. Legacy embed: the client world is base64-embedded in the host body.
-	if (static_cast<bool>(body["coopClientSaveKey"]))
+	// 3. Legacy embed: the client world is base64-embedded in the host body. Key on
+	//    the BLOB (the actual world ingest decodes), not coopClientSaveKey (the name
+	//    label): a save with a stray key but no blob has no recoverable client world,
+	//    so it must NOT be classified Embed (that dead-ended in a client-name prompt
+	//    the embed flow can never satisfy). Without a blob it falls through to the
+	//    strong-marker scan / Solo below.
+	if (static_cast<bool>(body["coopClientSaveBlob"]))
 	{
 		d.kind = DetectedSchema::Legacy;
 		d.schema = 1;
@@ -955,6 +1009,7 @@ bool runSelfTest(std::vector<std::string>& log)
 		"      - type: STR_SOLDIER\n"
 		"        id: 1\n"
 		"        name: Alice\n"
+		"        coop: 1\n"       // strong marker: a real peer-linked soldier (detector v2.3)
 		"        coopname: \"\"\n";
 
 	static const char* CLIENT_FIXTURE =
@@ -983,16 +1038,18 @@ bool runSelfTest(std::vector<std::string>& log)
 
 	try
 	{
-		// 1. Detector recognizes the schema-1 embed host.
+		// 1. Detector recognizes a schema-1 legacy co-op host via its strong marker
+		//    (the soldier's coop:1 peer-link). saveID alone / coopClientSaveKey alone
+		//    are NOT co-op signals (detector v2.3); a genuine per-object link is.
 		{
 			YAML::YamlRootNodeReader r(YAML::YamlString{std::string(HOST_FIXTURE)}, "<selftest-host>", false);
 			DetectedSchema d = SchemaDetector::detectFromReaders(r[0], r[1].useIndex(), std::string());
-			if (d.kind != DetectedSchema::Legacy || d.variant != SchemaVariant::Embed)
+			if (d.kind != DetectedSchema::Legacy)
 			{
-				log.push_back("FAIL: detector did not classify schema-1 embed");
+				log.push_back("FAIL: detector did not classify schema-1 legacy co-op host");
 				return false;
 			}
-			log.push_back("OK: detector classified schema-1 embed");
+			log.push_back("OK: detector classified schema-1 legacy co-op host (strong marker)");
 		}
 
 		// 2. Run the 1->2 transform directly on a SaveSet.

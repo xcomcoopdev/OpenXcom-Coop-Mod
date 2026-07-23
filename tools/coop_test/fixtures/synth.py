@@ -186,6 +186,15 @@ def embed_host():
                    _host_body(gamemode=1, save_id=EMBED_SAVE_ID, extra=extra))
 
 
+def embed_no_blob():
+    # A stray coopClientSaveKey with NO coopClientSaveBlob and no strong marker: not
+    # a recoverable embed. The detector keys Embed on the BLOB (what ingest reads),
+    # so this must classify Solo, not dead-end demanding a client name (F2).
+    extra = ["coopClientSaveKey: host_%d_%s.data" % (EMBED_SAVE_ID, EMBED_CLIENT_NAME)]
+    return _stream(_header("Embed No Blob"),
+                   _host_body(gamemode=1, save_id=0, extra=extra))
+
+
 def sidecar_host():
     return _stream(_header("Sidecar Coop"), _host_body(gamemode=1, save_id=SIDECAR_SAVE_ID))
 
@@ -424,6 +433,7 @@ FILES = {
     "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,
     "embed_host.sav": embed_host,
+    "embed_no_blob.sav": embed_no_blob,
     "sidecar_host.sav": sidecar_host,
     "solo.sav": solo,
     "current.sav": current,

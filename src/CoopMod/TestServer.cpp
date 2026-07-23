@@ -5323,6 +5323,35 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "load_raw")
+		{
+			// Debug: invoke SavedGame::load DIRECTLY, bypassing the LoadGameState
+			// schema gate, to exercise the defensive throw in load() (the safety net
+			// for a legacy save that reaches load without the gate). Reports whether it
+			// threw and the message. Loads into a throwaway SavedGame, not the running
+			// game. Intended for a legacy fixture (which throws early, before any global
+			// coop state is touched).
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				SavedGame probe;
+				try
+				{
+					probe.load(file, _game->getMod(), _game->getLanguage());
+					resp["threw"] = false;
+				}
+				catch (const std::exception& e)
+				{
+					resp["threw"] = true;
+					resp["message"] = std::string(e.what());
+				}
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "upgrade_run")
 		{
 			// Drive the real UpgradeRunner (preflight + execute) headless. Mirrors

@@ -83,6 +83,33 @@ std::string base64DecodeToString(ryml::csubstr encoded);
 } // namespace yamlutil
 
 ////////////////////////////////////////////////////////////
+//  Co-op link field taxonomy (single source of truth)
+////////////////////////////////////////////////////////////
+//
+// CANONICAL LIST of the genuinely co-op-only per-object link fields and their solo
+// defaults. Two walkers consume this taxonomy over two different YAML APIs and MUST
+// stay in sync with this list; a new link field has to be added to BOTH:
+//   - SaveUpgrade.cpp    scanReaderForStrongMarker  (YamlNodeReader, read-only) -
+//       DETECTS a save as co-op when any of these holds a non-default value.
+//   - SchemaStep1to2.cpp resetStaleLinks            (ryml, mutating) -
+//       RESETS each back to its default during a 1->2 upgrade (a dead session's ids).
+//
+//   field                 default   detect: co-op when      reset to
+//   -------------------   -------   ---------------------   --------------
+//   coop                  0         != 0                    0
+//   coopbase              -1        != -1                   -1
+//   coopcraft             -1        != -1                   -1
+//   coopcrafttype         ""        non-empty               ""
+//   coopItems             (absent)  present, non-empty seq  removed
+//   coopDestUfoId         0         != 0                    0
+//   coopDestMissionId     0         != 0                    0
+//
+// NOT in this list on purpose: coopUfoId / coopMissionId / coopbaseid are random
+// 1-100000 per-object ids written into solo saves too (NOT co-op evidence - detector
+// v2.3); coopname / ownerplayerid are real identity, not session links. reset also
+// clears coopUfoId/coopMissionId as cleanup, but they are never DETECTION markers.
+
+////////////////////////////////////////////////////////////
 //  SaveSet model (PRD 6.1)
 ////////////////////////////////////////////////////////////
 

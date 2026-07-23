@@ -72,6 +72,7 @@ def main():
             "solo_with_ufo.sav":    ("solo", "none", False),    # random coopUfoId/coopMissionId noise -> Solo
             "vanilla_solo.sav":     ("solo", "none", False),    # pure OXCE shape, zero coop keys
             "embed_host.sav":       ("legacy", "embed", True),
+            "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
             "current.sav":          ("current", "none", False),
@@ -102,6 +103,19 @@ def main():
         assert bb["coop_gamemode"] == 1 and "coopClientSaves" not in bb, "backup body must be byte-identical legacy"
         # a re-detect of the backup still classifies it as the legacy original (restore path)
         assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_bak_v1.sav"})["kind"] == "legacy"
+        # F5: the backup is byte-faithful - body identical, header identical except the
+        # single name line (which gains the suffix). Compare against the pristine
+        # original text from synth (NOT the on-disk file, which the upgrade overwrote).
+        orig_text = synth.dual_host()
+        bak_text = open(backup, encoding="utf-8", newline="").read()
+        oh, ob = orig_text.split("\n---\n", 1)
+        kh, kb = bak_text.split("\n---\n", 1)
+        assert ob == kb, "F5: backup body must be byte-identical to the original"
+        o_lines, k_lines = oh.split("\n"), kh.split("\n")
+        assert len(o_lines) == len(k_lines), "F5: backup header changed line count"
+        diffs = [i for i in range(len(o_lines)) if o_lines[i] != k_lines[i]]
+        assert len(diffs) == 1 and o_lines[diffs[0]].startswith("name:") and k_lines[diffs[0]].startswith("name:"), \
+            "F5: only the name line may differ, got diffs at %r" % diffs
 
         # upgraded host file shape
         uh, ub = two_docs(os.path.join(xcom1, "dual_host.sav"))
@@ -221,6 +235,16 @@ def main():
         # and the upgraded strong save now reads as current
         assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_strong.sav"})["kind"] == "current"
         print("PASS strong e2e: strong-marker detection + host/client link resets + coopname preserved")
+
+        # ---- 7. F6: SavedGame::load defensive schema throw -------------------
+        # A legacy save handed straight to SavedGame::load (bypassing the gate) must
+        # throw the clear "older version" refusal - the safety net for a legacy save
+        # that reaches load without the LoadGameState gate.
+        reset_fixtures()
+        r = gc.ok({"cmd": "load_raw", "file": "dual_host_strong.sav"})
+        assert r["threw"] is True, "legacy save must throw in SavedGame::load"
+        assert "older version" in r.get("message", ""), r.get("message")
+        print("PASS defensive throw: legacy save refused by SavedGame::load")
 
         print("ALL PASS test_save_upgrade")
     finally:

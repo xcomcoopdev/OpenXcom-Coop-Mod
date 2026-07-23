@@ -217,6 +217,9 @@ struct LinkResetCounts
 // same objects live at many depths (bases[].soldiers[], deadSoldiers[],
 // bases[].crafts[], transfers[], top-level ufos[]/missionSites[]), so we test
 // each map node's own keys rather than assuming a fixed path.
+//
+// The field set below is the CANONICAL co-op link taxonomy documented in
+// SaveUpgradeTypes.h - keep it in sync with scanReaderForStrongMarker (SaveUpgrade.cpp).
 void resetStaleLinks(ryml::NodeRef node, LinkResetCounts& c, int depth)
 {
 	if (node.invalid() || depth > 64)
