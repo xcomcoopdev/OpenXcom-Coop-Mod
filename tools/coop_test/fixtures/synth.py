@@ -199,6 +199,25 @@ def dual_host_mirror():
                    _host_body(gamemode=1, save_id=None, extra_soldiers=mirror))
 
 
+def dual_host_battle_mirror():
+    # The real-world crash case: a MID-BATTLE host that ALSO holds a coop:1 mirror of
+    # the client's soldier Carol. The mirror is a live battle participant (its BattleUnit
+    # is in battleGame, linked by soldier id), so it MUST be kept - dropping it nulls
+    # getSoldier(id) (SavedBattleGame.cpp:268) and crashes the load. It must also NOT be
+    # laundered to coop 0 or tagged owner 0. The engine deletes it post-battle.
+    mirror = [
+        "      - type: STR_SOLDIER",
+        "        id: 99",
+        "        name: Carol",
+        "        coopname: Carol",
+        "        coop: 1",
+        "        coopbase: 4501",
+    ]
+    return _stream(_header("Dual Battle Mirror"),
+                   _host_body(gamemode=1, save_id=None, extra_soldiers=mirror,
+                              extra=["battleGame:", "  turn: 3"]))
+
+
 def dual_client(gamemode=1):
     return _stream(_header("Dual Client"), _client_body(gamemode=gamemode))
 
@@ -465,6 +484,7 @@ FILES = {
     "dual_client_strong.sav": dual_client_strong,
     "dual_client_battle.sav": dual_client_battle,
     "dual_host_mirror.sav": dual_host_mirror,
+    "dual_host_battle_mirror.sav": dual_host_battle_mirror,
     "solo_coopbuild.sav": solo_coopbuild,
     "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,

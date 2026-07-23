@@ -128,9 +128,17 @@ bool isDroppableMirror(ryml::ConstNodeRef s)
 
 // Remove peer-mirror soldiers from every base's soldiers list. Returns the count.
 // Uses stable node ids (not positions) so removals don't invalidate each other.
+//
+// NOT for a mid-battle world: the mirror soldiers are live battle participants, and
+// their BattleUnits in battleGame reference them by soldier id - SavedBattleGame.cpp:268
+// does `new BattleUnit(mod, savedGame->getSoldier(id), ...)`, so dropping the soldier
+// makes getSoldier(id) return null and the load crashes. The engine deletes these
+// mirrors post-battle (GeoscapeState.cpp) anyway; keep them until the mission ends.
 int dropPeerMirrorSoldiers(ryml::NodeRef body)
 {
 	int dropped = 0;
+	if (hasKey(body, "battleGame"))
+		return 0;
 	ryml::NodeRef bases = body.find_child("bases");
 	if (bases.invalid() || !bases.is_seq())
 		return 0;
@@ -165,6 +173,11 @@ int tagSoldiers(ryml::NodeRef body, int ownerId)
 			continue;
 		for (ryml::NodeRef s : soldiers.children())
 		{
+			// A kept peer mirror (mid-battle) is the OTHER player's soldier - never
+			// tag it owner-N or fill its identity; leave it exactly as the engine's
+			// post-battle cleanup expects. (In non-battle upgrades mirrors are dropped.)
+			if (isDroppableMirror(s))
+				continue;
 			setInt(s, "ownerplayerid", ownerId);
 			std::string cn = getStr(s, "coopname", std::string());
 			if (cn.empty())
@@ -261,13 +274,23 @@ struct LinkResetCounts
 //
 // The field set below is the CANONICAL co-op link taxonomy documented in
 // SaveUpgradeTypes.h - keep it in sync with scanReaderForStrongMarker (SaveUpgrade.cpp).
-void resetStaleLinks(ryml::NodeRef node, LinkResetCounts& c, int depth)
+//
+// keepMirrors: when true (a mid-battle world whose peer mirrors were NOT dropped),
+// leave mirror soldiers pristine - resetting coop:1->0 would launder a live battle
+// mirror into a phantom "real" soldier that survives the engine's post-battle cleanup
+// as a permanent duplicate. When false (non-battle worlds, where mirrors are already
+// dropped), reset everything, INCLUDING dead coop:1 soldiers in deadSoldiers[] (stale
+// memorial links that are not battle units).
+void resetStaleLinks(ryml::NodeRef node, LinkResetCounts& c, int depth, bool keepMirrors)
 {
 	if (node.invalid() || depth > 64)
 		return;
 
 	if (node.is_map())
 	{
+		if (keepMirrors && isDroppableMirror(node))
+			return;
+
 		// soldier / vehicle session links -> defaults (keep coopname).
 		bool touchedSV = false;
 		if (hasKey(node, "coop") && getInt(node, "coop", 0) != 0)
@@ -331,12 +354,12 @@ void resetStaleLinks(ryml::NodeRef node, LinkResetCounts& c, int depth)
 			++c.ufoMission;
 
 		for (ryml::NodeRef ch : node.children())
-			resetStaleLinks(ch, c, depth + 1);
+			resetStaleLinks(ch, c, depth + 1, keepMirrors);
 	}
 	else if (node.is_seq())
 	{
 		for (ryml::NodeRef ch : node.children())
-			resetStaleLinks(ch, c, depth + 1);
+			resetStaleLinks(ch, c, depth + 1, keepMirrors);
 	}
 }
 
@@ -483,14 +506,18 @@ public:
 		removeKey(hb, "coopClientSaveBlob");
 		// Drop the peer's mirror soldiers BEFORE tagging/resetting: they are the OTHER
 		// player's soldiers (their real copies live in the embedded client world) and
-		// must not be laundered into phantom host soldiers.
+		// must not be laundered into phantom host soldiers. dropPeerMirrorSoldiers is a
+		// no-op on a mid-battle world (the mirrors are live battle units); there the
+		// mirrors are KEPT pristine (tagSoldiers skips them, resetStaleLinks(keepMirrors)
+		// leaves them) and the engine deletes them after the mission.
+		const bool hostMidBattle = hasKey(hb, "battleGame");
 		int mirrorsDropped = dropPeerMirrorSoldiers(hb);
 		int hostBases = countBases(hb);
 		int hostSoldiers = tagSoldiers(hb, 0);
 
 		// Reset stale session-scoped links across the host world (PRD 7, v2.1).
 		LinkResetCounts resets;
-		resetStaleLinks(hb, resets, 0);
+		resetStaleLinks(hb, resets, 0, /*keepMirrors=*/hostMidBattle);
 
 		// --- client doc(s) ---
 		int clientBases = 0, clientSoldiers = 0, clientBattlesStripped = 0;
@@ -505,21 +532,12 @@ public:
 
 			setInt(cb, "saveID", newID);
 			setInt(cb, "coop_save_owner_player_id", 1);
-			// A client world can likewise hold mirrors of the HOST's soldiers - drop them.
-			mirrorsDropped += dropPeerMirrorSoldiers(cb);
-			int cbases = countBases(cb);
-			setBool(cb, "no_bases", cbases == 0);
-			if (!hasKey(cb, "coop_gamemode"))
-				setInt(cb, "coop_gamemode", set.gamemode);
-			clientBases += cbases;
-			clientSoldiers += tagSoldiers(cb, 1);
-			// ...and across every client world too.
-			resetStaleLinks(cb, resets, 0);
 
-			// Drop the client's redundant battle snapshot: on resume the client's own
-			// battleGame is discarded (LoadGameState::init setBattleGame(0)) and it is
-			// rehydrated from the host's battleGame (the battlehost stream). Leave the
-			// client blob a clean geoscape save, matching what the current build emits.
+			// Strip the client's redundant battle snapshot FIRST: on resume the client's
+			// own battleGame is discarded (LoadGameState::init setBattleGame(0)) and it is
+			// rehydrated from the host's battleGame (the battlehost stream). Removing it
+			// here also un-links the client's mirror soldiers from any battle, so they can
+			// be dropped like a non-battle world's (below). Leaves a clean geoscape save.
 			if (hasKey(cb, "battleGame"))
 			{
 				removeKey(cb, "battleGame");
@@ -529,6 +547,18 @@ public:
 				removeKey(ch, "turn");
 				++clientBattlesStripped;
 			}
+			// A client world can likewise hold mirrors of the HOST's soldiers - drop them
+			// (its battle is gone, so nothing references them).
+			mirrorsDropped += dropPeerMirrorSoldiers(cb);
+			int cbases = countBases(cb);
+			setBool(cb, "no_bases", cbases == 0);
+			if (!hasKey(cb, "coop_gamemode"))
+				setInt(cb, "coop_gamemode", set.gamemode);
+			clientBases += cbases;
+			clientSoldiers += tagSoldiers(cb, 1);
+			// The client world is always geoscape-only after the strip, so no mirrors are
+			// kept -> reset everything.
+			resetStaleLinks(cb, resets, 0, /*keepMirrors=*/false);
 		}
 		// A dual client is keyed by the collected roster name so emit embeds it
 		// under host_<saveID>_<clientName>.data.

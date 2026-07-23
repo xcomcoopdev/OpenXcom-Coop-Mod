@@ -268,6 +268,25 @@ def main():
         assert "Carol" in cnames, f"client's real Carol must be preserved: {cnames}"
         print("PASS mirror-drop: peer mirror removed from host, real copy kept in client, no dup warning")
 
+        # ---- 6c. mid-battle mirror KEPT (crash regression) ------------------
+        # A mid-battle host's coop:1 mirror is a live battle unit (battleGame references
+        # it by soldier id, SavedBattleGame.cpp:268). It must be KEPT (not dropped -> the
+        # load would crash) and left pristine (coop=1, owner 999), NOT laundered.
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host_battle_mirror.sav",
+                   "client": "dual_client.sav", "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, f"mid-battle mirror upgrade should succeed: {r}"
+        assert not any("Duplicate soldier co-op name" in w for w in r["warnings"]), r["warnings"]
+        assert not any("Dropped" in l and "peer-mirror" in l for l in r["report"]), \
+            f"a mid-battle mirror must be KEPT, not dropped: {r['report']}"
+        uh, ub = two_docs(os.path.join(xcom1, "dual_host_battle_mirror.sav"))
+        assert "battleGame" in ub, "host battleGame must be kept"
+        carol = [s for s in ub["bases"][0]["soldiers"] if (s.get("coopname") or s.get("name")) == "Carol"]
+        assert carol, "mid-battle mirror must remain in the host roster (its BattleUnit links to it)"
+        assert carol[0].get("coop") == 1, "kept mirror must stay coop=1 (not laundered to 0)"
+        assert carol[0].get("ownerplayerid", 999) == 999, "kept mirror must not be tagged owner 0"
+        print("PASS mid-battle mirror: kept (coop=1, owner 999), not dropped, not laundered")
+
         # ---- 7. F6: SavedGame::load defensive schema throw -------------------
         # A legacy save handed straight to SavedGame::load (bypassing the gate) must
         # throw the clear "older version" refusal - the safety net for a legacy save
