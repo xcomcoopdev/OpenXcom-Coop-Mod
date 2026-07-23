@@ -20,6 +20,18 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Ensure the harness's Python deps. test_save_upgrade{,_flow}.py parse the two-document
+# save streams with PyYAML; the CI runners do not ship it. Install once, only if missing
+# (a no-op on dev machines that already have it). No stderr redirect: under
+# ErrorActionPreference=Stop a redirected native stderr can raise NativeCommandError; an
+# unredirected ImportError traceback is harmless (only prints on the miss, before install).
+python -c "import yaml"
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "installing pyyaml (required by the save-upgrade tests)..."
+  python -m pip install --quiet --disable-pip-version-check pyyaml
+  if ($LASTEXITCODE -ne 0) { throw "failed to install pyyaml" }
+}
+
 # Discover the checkout's actual harness so the suite never goes stale.
 $tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
          Select-Object -ExpandProperty BaseName | Sort-Object
