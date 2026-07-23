@@ -1,0 +1,33 @@
+name: Dual Battle Client
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 0
+monthsPassed: 0
+coop_gamemode: 1
+battleGame:
+  turn: 3
+funds:
+  - 500000
+research:
+  - name: STR_MEDI_KIT
+    discovered: true
+bases:
+  - name: ClientBase
+    lon: 0.5
+    lat: 0.6
+    soldiers:
+      - type: STR_SOLDIER
+        id: 10
+        name: Carol

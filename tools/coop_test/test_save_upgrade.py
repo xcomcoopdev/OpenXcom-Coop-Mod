@@ -171,15 +171,26 @@ def main():
         assert os.path.exists(os.path.join(xcom1, synth.sidecar_data_name())), "sidecar .data must be left intact"
         print("PASS sidecar recovery: host_<id>_<name>.data imported, source file left intact")
 
-        # ---- 5. negatives ---------------------------------------------------
+        # ---- 5a. mid-battle upgrade: keep host battle, drop client's ---------
+        # The battle format is unchanged since 1.8.4 and the current build rehydrates
+        # the client from the host's battleGame on resume (LoadGameState setBattleGame(0)),
+        # so the upgrade keeps the host's battleGame and strips the client's redundant one.
         reset_fixtures()
-        r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host_battle.sav",
-                    "client": "dual_client.sav", "clientName": "Carol"})
-        assert r["success"] is False and any("mid-battle" in e for e in r["errors"]), r
-        # nothing written: no backup, original still legacy
-        assert not os.path.exists(os.path.join(xcom1, "dual_host_battle_bak_v1.sav")), "refused upgrade must not write a backup"
-        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_battle.sav"})["kind"] == "legacy"
-        print("PASS negative: mid-battle save refused, nothing written")
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host_battle.sav",
+                   "client": "dual_client_battle.sav", "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, f"mid-battle upgrade should succeed: {r}"
+        assert os.path.exists(os.path.join(xcom1, "dual_host_battle_bak_v1.sav")), "backup must be written"
+        uh, ub = two_docs(os.path.join(xcom1, "dual_host_battle.sav"))
+        assert "battleGame" in ub, "host battleGame (the single battle authority) must be kept"
+        entry = ub["coopClientSaves"][0]
+        cb2 = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
+        assert "battleGame" not in cb2, "client battleGame must be stripped (rehydrated from host)"
+        assert any("host battle kept" in l for l in r["report"]), r["report"]
+        assert any("client battle snapshot" in l for l in r["report"]), r["report"]
+        assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_battle.sav"})["kind"] == "current"
+        print("PASS mid-battle: host battle kept, client battle dropped, loads as current")
+
+        # ---- 5b. negatives --------------------------------------------------
 
         reset_fixtures()
         r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host.sav",

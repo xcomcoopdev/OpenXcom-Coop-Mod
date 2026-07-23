@@ -111,13 +111,15 @@ def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False):
     return "\n".join(lines) + "\n"
 
 
-def _client_body(*, gamemode=1, save_id=None):
+def _client_body(*, gamemode=1, save_id=None, extra=None):
     """A standalone client world: own base, own soldier, funds, research."""
     lines = ["difficulty: 0", "monthsPassed: 0"]
     if gamemode is not None:
         lines.append("coop_gamemode: %d" % gamemode)
     if save_id is not None:
         lines.append("saveID: %d" % save_id)
+    if extra:
+        lines += extra
     lines += [
         "funds:",
         "  - 500000",
@@ -162,9 +164,18 @@ def solo_saveid():
 
 
 def dual_host_battle():
-    # A mid-battle dual host (STRONG marker so it gates): preflight must refuse it (PRD 7).
+    # A mid-battle dual host (STRONG marker so it gates). The upgrade KEEPS this
+    # battleGame (the host is the single battle authority; the client is rehydrated
+    # from it on resume - LoadGameState setBattleGame(0)).
     return _stream(_header("Dual Battle"),
                    _host_body(gamemode=1, save_id=None, strong=True, extra=["battleGame:", "  turn: 3"]))
+
+
+def dual_client_battle():
+    # A mid-battle client world. The upgrade STRIPS this battleGame (redundant; the
+    # client's battle comes from the host's battlehost stream on resume).
+    return _stream(_header("Dual Battle Client"),
+                   _client_body(gamemode=1, extra=["battleGame:", "  turn: 3"]))
 
 
 def dual_client(gamemode=1):
@@ -429,6 +440,7 @@ FILES = {
     "dual_client.sav": dual_client,
     "dual_client_mode2.sav": dual_client_mode2,
     "dual_client_strong.sav": dual_client_strong,
+    "dual_client_battle.sav": dual_client_battle,
     "solo_coopbuild.sav": solo_coopbuild,
     "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,

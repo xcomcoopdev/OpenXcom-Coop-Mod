@@ -351,9 +351,11 @@ public:
 		}
 		ryml::ConstNodeRef hb = set.host.body();
 
-		// mid-battle saves are refused (§7).
-		if (hasKey(hb, "battleGame"))
-			out.errors.push_back("This is a mid-battle save. Finish the mission and save from the Geoscape using the old version first, then upgrade.");
+		// Mid-battle saves are ALLOWED: the battle format is unchanged since 1.8.4, and
+		// the current build makes the host the single battle authority - on resume the
+		// client drops its own battle (LoadGameState setBattleGame(0)) and is rehydrated
+		// from the host's battleGame (the battlehost stream). apply() keeps the host's
+		// battleGame and strips the client's redundant one.
 
 		// zero host bases is a blocking error.
 		if (countBases(hb) == 0)
@@ -377,8 +379,8 @@ public:
 		for (const ClientWorld& c : set.clients)
 		{
 			ryml::ConstNodeRef cb = c.world.body();
-			if (hasKey(cb, "battleGame"))
-				out.errors.push_back("The client save is a mid-battle save; finish or discard that battle first.");
+			// A client mid-battle snapshot is fine here; apply() strips it (the client
+			// is rehydrated from the host's battleGame on resume).
 
 			int cgm = static_cast<int>(getInt(cb, "coop_gamemode", set.gamemode));
 			if (cgm != set.gamemode)
@@ -442,7 +444,7 @@ public:
 		resetStaleLinks(hb, resets, 0);
 
 		// --- client doc(s) ---
-		int clientBases = 0, clientSoldiers = 0;
+		int clientBases = 0, clientSoldiers = 0, clientBattlesStripped = 0;
 		for (ClientWorld& c : set.clients)
 		{
 			ryml::NodeRef ch = c.world.header();
@@ -462,6 +464,20 @@ public:
 			clientSoldiers += tagSoldiers(cb, 1);
 			// ...and across every client world too.
 			resetStaleLinks(cb, resets, 0);
+
+			// Drop the client's redundant battle snapshot: on resume the client's own
+			// battleGame is discarded (LoadGameState::init setBattleGame(0)) and it is
+			// rehydrated from the host's battleGame (the battlehost stream). Leave the
+			// client blob a clean geoscape save, matching what the current build emits.
+			if (hasKey(cb, "battleGame"))
+			{
+				removeKey(cb, "battleGame");
+				removeKey(ch, "mission");
+				removeKey(ch, "target");
+				removeKey(ch, "craftOrBase");
+				removeKey(ch, "turn");
+				++clientBattlesStripped;
+			}
 		}
 		// A dual client is keyed by the collected roster name so emit embeds it
 		// under host_<saveID>_<clientName>.data.
@@ -474,6 +490,10 @@ public:
 		set.report.push_back("Co-op game mode: " + std::to_string(set.gamemode) + " (PVP/PVE variants are untested - please report issues).");
 		set.report.push_back("Campaign type: SEPARATE (the shared-world feature did not exist for this save).");
 		set.report.push_back("Host: " + std::to_string(hostBases) + " base(s), " + std::to_string(hostSoldiers) + " soldier(s) tagged owner 0.");
+		if (hasKey(set.host.body(), "battleGame"))
+			set.report.push_back("Mid-battle: host battle kept (the single authority); the other player resumes into it on rejoin.");
+		if (clientBattlesStripped > 0)
+			set.report.push_back("Dropped " + std::to_string(clientBattlesStripped) + " redundant client battle snapshot(s) (rehydrated from the host).");
 		if (set.clients.empty())
 			set.report.push_back("No client world embedded (skip path); that player restarts fresh on rejoin.");
 		else
