@@ -53,7 +53,7 @@ namespace OpenXcom
  * @param filename Name of the save file without extension.
  * @param palette Parent state palette.
  */
-LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey, bool loadCoopProgress, bool bypassSchemaGate) : _firstRun(0), _origin(origin), _filename(filename), _coopKey(coopKey), _loadCoopProgress(loadCoopProgress), _bypassSchemaGate(bypassSchemaGate)
+LoadGameState::LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey, bool loadCoopProgress) : _firstRun(0), _origin(origin), _filename(filename), _coopKey(coopKey), _loadCoopProgress(loadCoopProgress)
 {
 
 	// coop
@@ -176,7 +176,7 @@ void LoadGameState::init()
 	// Coop-orchestrated loads (host-served blobs / resume) are upgraded host-side
 	// and must never gate, so they are excluded here. Solo saves never gate; only a
 	// positively-detected legacy co-op save (detector v2.3) reaches the dialog.
-	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked && !_bypassSchemaGate)
+	if (_coopKey.empty() && !_loadCoopProgress && !_gateChecked)
 	{
 		_gateChecked = true;
 		SaveUpgrade::DetectedSchema detected = SaveUpgrade::SchemaDetector::detect(_filename);

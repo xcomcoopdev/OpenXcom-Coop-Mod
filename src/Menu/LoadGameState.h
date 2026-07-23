@@ -42,12 +42,9 @@ private:
 	std::string _coopKey;
 	bool _loadCoopProgress;
 	bool _gateChecked = false;
-	bool _bypassSchemaGate = false;
   public:
-	/// Creates the Load Game state. bypassSchemaGate skips the save-schema gate for
-	/// a save the player has explicitly chosen to load as-is (the ambiguous-build
-	/// "load as solo" choice) - without it the gate would re-intercept and loop.
-	LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey = "", bool loadCoopProgress = false, bool bypassSchemaGate = false);
+	/// Creates the Load Game state.
+	LoadGameState(OptionsOrigin origin, const std::string& filename, SDL_Color* palette, const std::string& coopKey = "", bool loadCoopProgress = false);
 	/// Creates the Load Game state.
 	LoadGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette);
 	/// Cleans up the Load Game state.
