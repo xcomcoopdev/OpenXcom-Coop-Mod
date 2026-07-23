@@ -1009,8 +1009,8 @@ bool runSelfTest(std::vector<std::string>& log)
 		"      - type: STR_SOLDIER\n"
 		"        id: 1\n"
 		"        name: Alice\n"
-		"        coop: 1\n"       // strong marker: a real peer-linked soldier (detector v2.3)
-		"        coopname: \"\"\n";
+		"        coopbase: 5\n"   // strong marker (coopbase != -1) on a REAL soldier (coop 0,
+		"        coopname: \"\"\n"; //   so it is not a droppable peer mirror)
 
 	static const char* CLIENT_FIXTURE =
 		"name: TestCoop-client\n"

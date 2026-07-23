@@ -247,6 +247,27 @@ def main():
         assert gc.ok({"cmd": "upgrade_detect", "file": "dual_host_strong.sav"})["kind"] == "current"
         print("PASS strong e2e: strong-marker detection + host/client link resets + coopname preserved")
 
+        # ---- 6b. peer-mirror soldiers dropped, not duplicated ---------------
+        # The host holds a coop:1 MIRROR of the client's soldier Carol; the client
+        # holds the real Carol. The upgrade must DROP the mirror (real copy lives in
+        # the client world) so there is no duplicate-coopname warning and no phantom
+        # host Carol - the engine rebuilds the mirror from the client blob on resume.
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host_mirror.sav",
+                   "client": "dual_client.sav", "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, f"mirror upgrade should succeed: {r}"
+        assert not any("Duplicate soldier co-op name" in w for w in r["warnings"]), \
+            f"mirror must not raise a duplicate-coopname warning: {r['warnings']}"
+        assert any("peer-mirror soldier" in l for l in r["report"]), r["report"]
+        uh, ub = two_docs(os.path.join(xcom1, "dual_host_mirror.sav"))
+        hnames = {s.get("coopname") or s.get("name") for s in ub["bases"][0]["soldiers"]}
+        assert hnames == {"Alice", "Bravo"}, f"peer mirror must be dropped from host: {hnames}"
+        # the client's real Carol is preserved in the embedded world
+        cb = list(yaml.safe_load_all(base64.b64decode(ub["coopClientSaves"][0]["blob"]).decode("utf-8")))[1]
+        cnames = {s.get("coopname") or s.get("name") for base in cb["bases"] for s in base.get("soldiers", [])}
+        assert "Carol" in cnames, f"client's real Carol must be preserved: {cnames}"
+        print("PASS mirror-drop: peer mirror removed from host, real copy kept in client, no dup warning")
+
         # ---- 7. F6: SavedGame::load defensive schema throw -------------------
         # A legacy save handed straight to SavedGame::load (bypassing the gate) must
         # throw the clear "older version" refusal - the safety net for a legacy save

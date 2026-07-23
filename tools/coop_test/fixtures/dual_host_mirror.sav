@@ -1,4 +1,4 @@
-name: Dual Battle
+name: Dual Mirror
 version: Extended 8.4.2
 engine: Extended
 build: 8.4.2.0
@@ -27,9 +27,12 @@ bases:
         id: 1
         name: Alice
         coopname: ""
-        coopbase: 4501
       - type: STR_SOLDIER
         id: 2
         name: Bravo
-battleGame:
-  turn: 3
+      - type: STR_SOLDIER
+        id: 99
+        name: Carol
+        coopname: Carol
+        coop: 1
+        coopbase: 4501

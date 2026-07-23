@@ -27,7 +27,6 @@ bases:
         id: 1
         name: Alice
         coopname: ""
-        coop: 1
         coopbase: 4501
       - type: STR_SOLDIER
         id: 2

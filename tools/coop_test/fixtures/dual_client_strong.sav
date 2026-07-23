@@ -28,7 +28,7 @@ bases:
         id: 10
         name: Carol
         coopbase: 2032
-        coop: 1
+        coop: 0
         coopcraft: 1
         coopcrafttype: STR_SKYRANGER
         coopname: Carol

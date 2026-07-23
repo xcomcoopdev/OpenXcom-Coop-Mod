@@ -69,15 +69,18 @@ def _header(name, *, schema=None, coop=False):
     return "\n".join(lines) + "\n"
 
 
-def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False):
+def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False, extra_soldiers=None):
     """A host geoscape body: one base, two soldiers - the second deliberately
     carries NO coopname and NO ownerplayerid key (the transform must fill/stamp
     them). Per PRD 7.
 
-    strong=True gives the first soldier a genuine cross-instance link (coop:1 +
-    a peer coopbase). Under detector v2.3 that non-default per-object value is the
-    ONLY thing that classifies a save Legacy/Dual - coop_gamemode and saveID are
-    no longer co-op signals, so a host body needs a strong marker to gate."""
+    strong=True gives the first soldier a genuine cross-instance link: coopbase !=
+    -1 on a REAL soldier (coop stays 0). Under detector v2.3 that non-default
+    per-object value is the ONLY thing that classifies a save Legacy/Dual -
+    coop_gamemode and saveID are no longer co-op signals. NB it uses coopbase (not
+    coop:1) so the marker soldier is a real host soldier, NOT a droppable peer
+    mirror - the transform must keep it. extra_soldiers injects raw soldier lines
+    into the base's soldiers list (e.g. a coop:1 peer mirror for drop tests)."""
     lines = ["difficulty: 0", "monthsPassed: 0"]
     if gamemode is not None:
         lines.append("coop_gamemode: %d" % gamemode)
@@ -98,14 +101,15 @@ def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False):
     ]
     if strong:
         lines += [
-            "        coop: 1",       # genuine peer link -> STRONG marker (reset on upgrade)
-            "        coopbase: 4501",
+            "        coopbase: 4501",  # real soldier staged on a coop craft -> STRONG marker
         ]
     lines += [
         "      - type: STR_SOLDIER",
         "        id: 2",
         "        name: Bravo",     # no coopname key, no ownerplayerid key
     ]
+    if extra_soldiers:
+        lines += extra_soldiers
     if extra:
         lines += extra
     return "\n".join(lines) + "\n"
@@ -176,6 +180,23 @@ def dual_client_battle():
     # client's battle comes from the host's battlehost stream on resume).
     return _stream(_header("Dual Battle Client"),
                    _client_body(gamemode=1, extra=["battleGame:", "  turn: 3"]))
+
+
+def dual_host_mirror():
+    # Host with its own soldiers (Alice, Bravo) PLUS a coop:1 MIRROR of the client's
+    # soldier Carol (owner 999 -> not a transferred guest). The upgrade must DROP the
+    # mirror (Carol's real copy lives in the client world), so: no duplicate-coopname
+    # warning, no phantom host Carol. Pair with dual_client.sav (has the real Carol).
+    mirror = [
+        "      - type: STR_SOLDIER",
+        "        id: 99",
+        "        name: Carol",
+        "        coopname: Carol",
+        "        coop: 1",
+        "        coopbase: 4501",
+    ]
+    return _stream(_header("Dual Mirror"),
+                   _host_body(gamemode=1, save_id=None, extra_soldiers=mirror))
 
 
 def dual_client(gamemode=1):
@@ -339,8 +360,10 @@ def _strong_host_body(base_id=2032):
 
 def _strong_client_body():
     """A standalone client world (gamemode 0 to match the strong host) whose LIVING
-    soldier carries strong links and whose craft has a coopItems cache - so the
-    transform's client-side reset is exercised too."""
+    soldier is the client's OWN soldier staged on the shared coop craft: coop=0
+    (NOT a mirror, so it survives) with stale coopbase/coopcraft/coopcrafttype links
+    the transform must reset, and a craft coopItems cache the transform must strip -
+    matching the real-world client save's shape."""
     lines = ["difficulty: 0", "monthsPassed: 0", "coop_gamemode: 0", "funds:", "  - 500000",
              "bases:", "  - name: ClientBase", "    lon: 0.5", "    lat: 0.6",
              "    coopbaseid: 3050", "    soldiers:",
@@ -348,7 +371,7 @@ def _strong_client_body():
              "        id: 10",
              "        name: Carol",
              "        coopbase: 2032",
-             "        coop: 1",
+             "        coop: 0",
              "        coopcraft: 1",
              "        coopcrafttype: STR_SKYRANGER",
              "        coopname: Carol",
@@ -441,6 +464,7 @@ FILES = {
     "dual_client_mode2.sav": dual_client_mode2,
     "dual_client_strong.sav": dual_client_strong,
     "dual_client_battle.sav": dual_client_battle,
+    "dual_host_mirror.sav": dual_host_mirror,
     "solo_coopbuild.sav": solo_coopbuild,
     "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,

@@ -109,6 +109,47 @@ int countBases(ryml::ConstNodeRef body)
 	return static_cast<int>(b.num_children());
 }
 
+// A soldier with coop != 0 is a read-only MIRROR of the PEER's soldier - the peer's
+// authoritative copy lives in the peer's own world (the embedded client blob). The
+// current engine rebuilds these mirrors from that blob at deploy (CoopState.cpp) and
+// deletes them post-battle (GeoscapeState.cpp) and at session start (fixCoopSave), so a
+// persisted mirror is redundant; merely resetting its coop flag would launder it into a
+// phantom "real" host soldier - a duplicate of the peer's real soldier. So we DROP it.
+// EXCEPTION: a durable transferred/gifted guest (ownerplayerid != 999 AND coopbase != -1)
+// is genuine host-side state, kept by the engine's own post-battle cleanup
+// (GeoscapeState.cpp:963-968). Match that predicate exactly and never drop those.
+bool isDroppableMirror(ryml::ConstNodeRef s)
+{
+	if (getInt(s, "coop", 0) == 0)
+		return false;
+	const bool transferredGuest = (getInt(s, "ownerplayerid", 999) != 999 && getInt(s, "coopbase", -1) != -1);
+	return !transferredGuest;
+}
+
+// Remove peer-mirror soldiers from every base's soldiers list. Returns the count.
+// Uses stable node ids (not positions) so removals don't invalidate each other.
+int dropPeerMirrorSoldiers(ryml::NodeRef body)
+{
+	int dropped = 0;
+	ryml::NodeRef bases = body.find_child("bases");
+	if (bases.invalid() || !bases.is_seq())
+		return 0;
+	for (ryml::NodeRef base : bases.children())
+	{
+		ryml::NodeRef soldiers = base.find_child("soldiers");
+		if (soldiers.invalid() || !soldiers.is_seq())
+			continue;
+		std::vector<size_t> ids;
+		for (ryml::NodeRef s : soldiers.children())
+			if (isDroppableMirror(s))
+				ids.push_back(s.id());
+		for (size_t id : ids)
+			soldiers.tree()->remove(id);
+		dropped += static_cast<int>(ids.size());
+	}
+	return dropped;
+}
+
 // Walk every base's soldiers: tag ownerplayerid and fill an empty/missing
 // coopname with the soldier's name (the engine ctor rule, Soldier.cpp:153).
 int tagSoldiers(ryml::NodeRef body, int ownerId)
@@ -311,6 +352,10 @@ void collectCoopnames(ryml::ConstNodeRef body, std::vector<std::string>& names)
 			continue;
 		for (ryml::ConstNodeRef s : soldiers.children())
 		{
+			// Peer mirrors are dropped by apply(), so they cannot duplicate anything -
+			// skip them here or every mirror+real pair would be a false duplicate warning.
+			if (isDroppableMirror(s))
+				continue;
 			std::string cn = getStr(s, "coopname", std::string());
 			if (cn.empty())
 				cn = getStr(s, "name", std::string());
@@ -436,6 +481,10 @@ public:
 		// embed-variant leftovers, removed after ingestion.
 		removeKey(hb, "coopClientSaveKey");
 		removeKey(hb, "coopClientSaveBlob");
+		// Drop the peer's mirror soldiers BEFORE tagging/resetting: they are the OTHER
+		// player's soldiers (their real copies live in the embedded client world) and
+		// must not be laundered into phantom host soldiers.
+		int mirrorsDropped = dropPeerMirrorSoldiers(hb);
 		int hostBases = countBases(hb);
 		int hostSoldiers = tagSoldiers(hb, 0);
 
@@ -456,6 +505,8 @@ public:
 
 			setInt(cb, "saveID", newID);
 			setInt(cb, "coop_save_owner_player_id", 1);
+			// A client world can likewise hold mirrors of the HOST's soldiers - drop them.
+			mirrorsDropped += dropPeerMirrorSoldiers(cb);
 			int cbases = countBases(cb);
 			setBool(cb, "no_bases", cbases == 0);
 			if (!hasKey(cb, "coop_gamemode"))
@@ -490,6 +541,8 @@ public:
 		set.report.push_back("Co-op game mode: " + std::to_string(set.gamemode) + " (PVP/PVE variants are untested - please report issues).");
 		set.report.push_back("Campaign type: SEPARATE (the shared-world feature did not exist for this save).");
 		set.report.push_back("Host: " + std::to_string(hostBases) + " base(s), " + std::to_string(hostSoldiers) + " soldier(s) tagged owner 0.");
+		if (mirrorsDropped > 0)
+			set.report.push_back("Dropped " + std::to_string(mirrorsDropped) + " peer-mirror soldier(s) (the other player's soldiers; their real copies live in that player's world).");
 		if (hasKey(set.host.body(), "battleGame"))
 			set.report.push_back("Mid-battle: host battle kept (the single authority); the other player resumes into it on rejoin.");
 		if (clientBattlesStripped > 0)
