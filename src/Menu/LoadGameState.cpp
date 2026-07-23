@@ -438,6 +438,23 @@ void LoadGameState::think()
 						Json::Value root;
 						root["state"] = "resume_ack";
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+						// P2/F1: a battle resume lands straight in the battlescape, so
+						// GeoscapeState::init (which normally fires close_load_progress
+						// on a geoscape resume) never runs - the COOP_READY handshake
+						// that sets coopSession never completes, and the battlescape
+						// coop-init block (BattlescapeState:1284, which sets _battleInit
+						// and re-arms role/turn) never fires: both machines fall through
+						// to the vanilla "all units selectable" split. Complete the
+						// handshake here, where the "battleclient" load just finished:
+						// close_load_progress -> host COOP_READY_CLIENT_REQUEST -> chain
+						// -> coopSession true on both. Clear the load-progress latch so
+						// GeoscapeState::init cannot emit a second, spurious one when the
+						// client later returns to the geoscape (mission end).
+						_game->getCoopMod()->_isLoadProgress = false;
+						Json::Value done;
+						done["state"] = "close_load_progress";
+						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
 					}
 				}
 

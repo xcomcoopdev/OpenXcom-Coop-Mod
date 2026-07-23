@@ -38,6 +38,7 @@
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
+#include "../Battlescape/BattlescapeState.h"
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -7672,6 +7673,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "close_load_progress" && getServerOwner() == true)
 	{
+
+		// P2/F1: a battle resume parks the host behind its resume lobby/wait
+		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
+		// beneath the COOP_DLG_RESUME_ACK_WAIT it pushed, and on the battle path
+		// the host never gets a resumeAck (it emits campaign_resume_battle
+		// instead), so nothing ever pops them. The client has now finished
+		// loading the streamed battle (this packet), so return the host to its
+		// own BattlescapeState: pop everything above it so BattlescapeState::
+		// think() runs and re-arms the coop-init block (_battleInit / role /
+		// turn) once COOP_READY sets coopSession below. Gate strictly on the
+		// RESUME_ACK_WAIT dialog actually being on the stack so this fires ONLY
+		// on a resume, never on a LIVE battle entry - there the host stacks
+		// Briefing/Inventory over a fresh battle and also receives
+		// close_load_progress, and popping those would eat the briefing.
+		bool inBattleResume = false;
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr)
+		{
+			for (auto* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT)
+				{
+					inBattleResume = true;
+					break;
+				}
+			}
+		}
+		if (inBattleResume)
+		{
+			int guard = 0;
+			while (guard++ < 32 && _game->getStates().size() > 1
+				&& dynamic_cast<BattlescapeState*>(_game->getStates().back()) == nullptr)
+			{
+				_game->popState();
+			}
+		}
 
 		Json::Value root;
 		root["state"] = "COOP_READY_CLIENT_REQUEST"; 
