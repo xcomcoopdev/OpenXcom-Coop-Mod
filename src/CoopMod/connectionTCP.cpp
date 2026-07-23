@@ -3739,7 +3739,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// world (the host's) and no per-client stored blob - serialize the
 			// CURRENT world fresh and stream it as the client's replica. The
 			// client adopts it via the same MAP_RESULT_LOAD_PROGRESS path a
-			// SEPARATE resume uses. Battlescape resume stays 2-player/out of scope.
+			// SEPARATE resume uses.
 			streamSharedWorldToClient();
 			if (!sendFileClient)
 			{
@@ -3747,6 +3747,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				Json::Value busy;
 				busy["state"] = "load_progress_busy";
 				sendTCPPacketData(busy.toStyledString());
+			}
+			else
+			{
+				// P2/F3: SHARED mid-battle resume. The geoscape-phase world is now
+				// streaming; if the authoritative world carries a battle, ride the very
+				// same two-phase battle stream a SEPARATE resume uses. Arm the pending
+				// flag and mark this client eligible so its geoscape resume_ack fires
+				// campaign_resume_battle -> SEND_FILE_CLIENT_SAVE -> battlehost (the
+				// snapshot chain is mode-agnostic; the SHARED role is derived from
+				// getServerOwner() at BattlescapeState:1687). The client's phase-one
+				// loadCoopProgress load drops the battleGame, so the geoscape adopt
+				// stays battle-free and the battle arrives fresh in phase two.
+				connectionTCP::session.resumeBattlePending =
+					(_game->getSavedGame()->getSavedBattle() != nullptr);
+				if (connectionTCP::session.resumeBattlePending)
+				{
+					connectionTCP::session.resumeBattleEligible.insert(
+						_game->getCoopMod()->getCurrentClientName());
+				}
 			}
 		}
 		else if (_game->getSavedGame() && !sendFileClient)
