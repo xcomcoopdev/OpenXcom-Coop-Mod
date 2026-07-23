@@ -107,6 +107,8 @@ def main():
         assert uh["coop"] is True, "upgraded header coop != true"
         assert uh["coopPlayers"] == ["HostGuy", "Carol"], uh.get("coopPlayers")
         assert uh["saveSchema"] == 2, uh.get("saveSchema")
+        # upgraded saves are always SEPARATE - the shared-world feature postdates them
+        assert uh["coopCampaignType"] == 0, uh.get("coopCampaignType")
         assert ub["coop_save_owner_player_id"] == 0, ub.get("coop_save_owner_player_id")
         assert ub["saveID"] != 0 and "saveID" in ub, "upgraded body missing saveID"
         assert len(ub["coopClientSaves"]) == 1, ub.get("coopClientSaves")
@@ -121,6 +123,7 @@ def main():
         assert len(cdocs) == 2, "client blob is not a 2-doc stream"
         ch, cb = cdocs
         assert ch["coop"] is True and ch["saveSchema"] == 2, "client header not stamped"
+        assert ch["coopCampaignType"] == 0, ch.get("coopCampaignType")
         assert cb["coop_save_owner_player_id"] == 1, cb.get("coop_save_owner_player_id")
         assert cb["saveID"] == ub["saveID"], "client saveID must match host"
         assert cb["bases"][0]["name"] == "ClientBase", "client world/base not embedded"

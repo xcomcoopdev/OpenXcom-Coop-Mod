@@ -50,6 +50,13 @@ using yamlutil::setBool;
 using yamlutil::setInt;
 using yamlutil::setStr;
 
+// SavedGame::CoopCampaignType on disk: Separate=0, Shared=1 (SavedGame.h). The
+// SHARED (one-shared-world) feature did not exist when any schema-1 save was
+// written, so every upgraded save is unconditionally SEPARATE. We stamp it
+// explicitly rather than leaning on the absent-key default so the intent is on
+// disk. Local literal - the upgrade module works on raw YAML, not SavedGame.
+const int COOP_CAMPAIGN_TYPE_SEPARATE = 0;
+
 // Mint a save identity, YYYYMMDDHHMMSS as an int (equal-width; blob-key ordering
 // relies on it). Mirrors connectionTCP::getDateTimeCoop exactly.
 long long mintSaveID()
@@ -412,6 +419,7 @@ public:
 		ryml::NodeRef hh = set.host.header();
 		setBool(hh, "coop", true);
 		setInt(hh, "saveSchema", SAVE_SCHEMA_CURRENT);
+		setInt(hh, "coopCampaignType", COOP_CAMPAIGN_TYPE_SEPARATE);
 		writeRoster(hh, set.roster);
 
 		ryml::NodeRef hb = set.host.body();
@@ -438,6 +446,7 @@ public:
 			ryml::NodeRef cb = c.world.body();
 			setBool(ch, "coop", true);
 			setInt(ch, "saveSchema", SAVE_SCHEMA_CURRENT);
+			setInt(ch, "coopCampaignType", COOP_CAMPAIGN_TYPE_SEPARATE);
 			writeRoster(ch, set.roster);
 
 			setInt(cb, "saveID", newID);
@@ -460,6 +469,7 @@ public:
 		set.report.push_back("Minted saveID " + std::to_string(newID) + ".");
 		set.report.push_back("Roster: host='" + set.roster[0] + "', client='" + set.roster[1] + "'.");
 		set.report.push_back("Co-op game mode: " + std::to_string(set.gamemode) + " (PVP/PVE variants are untested - please report issues).");
+		set.report.push_back("Campaign type: SEPARATE (the shared-world feature did not exist for this save).");
 		set.report.push_back("Host: " + std::to_string(hostBases) + " base(s), " + std::to_string(hostSoldiers) + " soldier(s) tagged owner 0.");
 		if (set.clients.empty())
 			set.report.push_back("No client world embedded (skip path); that player restarts fresh on rejoin.");

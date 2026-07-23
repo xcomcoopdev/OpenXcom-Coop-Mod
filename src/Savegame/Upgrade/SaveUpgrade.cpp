@@ -419,6 +419,12 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			why = "host header saveSchema is not current";
 			return false;
 		}
+		// Upgraded saves are always SEPARATE (SHARED postdates every schema-1 save).
+		if (yamlutil::getInt(header, "coopCampaignType", -1) != 0)
+		{
+			why = "host header coopCampaignType is not SEPARATE (0)";
+			return false;
+		}
 		if (yamlutil::getInt(body, "coop_save_owner_player_id", -1) != 0)
 		{
 			why = "host body owner id is not 0";
@@ -452,6 +458,11 @@ bool postflightVerify(const std::string& stream, std::string& why)
 				if (yamlutil::getInt(cht->crootref(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
 				{
 					why = "client header saveSchema is not current";
+					return false;
+				}
+				if (yamlutil::getInt(cht->crootref(), "coopCampaignType", -1) != 0)
+				{
+					why = "client header coopCampaignType is not SEPARATE (0)";
 					return false;
 				}
 				if (yamlutil::getInt(cbt->crootref(), "coop_save_owner_player_id", -1) != 1)
