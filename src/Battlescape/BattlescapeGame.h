@@ -167,8 +167,6 @@ public:
 	void handlePanickUnitCoop(BattleUnit* unit);
 	void infoboxCoop(std::string msg);
 	void infoboxOkCoop(std::string msg);
-	void setPauseOn();
-	void setPauseOff();
 	void setCoopTaskCompleted(bool task);
 	int getCoopActorID();
 	int getCoopGamemode();

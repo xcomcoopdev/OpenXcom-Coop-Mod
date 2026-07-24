@@ -125,7 +125,6 @@ namespace OpenXcom
 		_timerScroll->onTimer((StateHandler)&UfopaediaStartState::scroll);
 
 		// coop
-		_game->getCoopMod()->setPauseOn();
 		
 
 	}
@@ -137,7 +136,6 @@ namespace OpenXcom
 	{
 
 		// coop
-		_game->getCoopMod()->setPauseOff();
 
 		delete _timerScroll;
 	}

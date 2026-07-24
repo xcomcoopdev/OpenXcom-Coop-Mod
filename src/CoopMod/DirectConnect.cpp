@@ -126,6 +126,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_ipAddress->setBig();
 	_ipAddress->setBorderColor(color);
 	_ipAddress->setAllowOverflow(true);
+	_ipAddress->setAllowClipboardPaste(true, true);
 	_ipAddress->setText("127.0.0.1");
 	_ipAddress->setVisible(false);
 
@@ -135,6 +136,7 @@ DirectConnect::DirectConnect() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_port->setBorderColor(color);
 	_port->setConstraint(TEC_NUMERIC_POSITIVE);
 	_port->setAllowOverflow(true);
+	_port->setAllowClipboardPaste(true, true);
 	_port->setText("61008");
 	_port->setVisible(false);
 	

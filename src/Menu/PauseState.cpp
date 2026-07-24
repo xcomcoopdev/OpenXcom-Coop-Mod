@@ -190,7 +190,6 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_btnSave->setVisible(true);
 	}
 
-	_game->getCoopMod()->setPauseOn();
 
 	// check if campaign
 	if (!_game->getSavedGame()->getCountries()->empty())
@@ -326,7 +325,6 @@ void PauseState::btnAbandonClick(Action *)
 void PauseState::btnCancelClick(Action *)
 {
 
-	_game->getCoopMod()->setPauseOff();
 
 	_game->popState();
 }

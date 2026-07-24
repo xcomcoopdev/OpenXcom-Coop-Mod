@@ -41,6 +41,7 @@
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Basescape/PlaceLiftState.h"
+#include "../Menu/NewBattleState.h"
 #include "../Menu/NewGameState.h"
 #include "../Savegame/Base.h"
 
@@ -234,8 +235,11 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		}
 		else
 		{
-			// the client is not in charge of the session
-			_btnCancel->setVisible(false);
+			// A custom-battle client cannot change the shared battle settings, but it
+			// may prepare its local craft while the host remains in the setup screen.
+			// The same action-button slot is therefore used for EQUIP CRAFT.
+			_btnCancel->setText(tr("STR_EQUIP_CRAFT"));
+			_btnCancel->setVisible(canOpenEquipCraft());
 		}
 	}
 
@@ -774,11 +778,18 @@ void LobbyMenu::btnCancelClick(Action*)
 		return;
 	}
 
-	// Skirmish lobby (NEW BATTLE > COOP): the button is START BATTLE and only
-	// the host has one, so nothing to do unless we are the host with a peer in.
+	// Skirmish lobby (NEW BATTLE > COOP): the host returns to BATTLE SETTINGS,
+	// while a client opens the local craft-equipment screen without leaving the
+	// lobby. CraftInfoState is pushed above LobbyMenu, so closing it returns here.
+	if (_game->getCoopMod()->getServerOwner() == false)
+	{
+		openEquipCraft();
+		return;
+	}
+
 	if (connectionTCP::session.sessionLocked == false)
 	{
-		if (_game->getCoopMod()->getServerOwner() == true && startEligible())
+		if (startEligible())
 		{
 			openBattleSettings();
 		}
@@ -870,6 +881,59 @@ void LobbyMenu::pushServerListUnlessPresent()
 void LobbyMenu::openBattleSettings()
 {
 	closeLobby();
+}
+
+/**
+ * Can the custom-battle client open the local EQUIP CRAFT screen safely?
+ *
+ * A client can briefly enter the lobby before its local New Battle save has a
+ * base/craft. Keep the action button hidden until all required objects exist.
+ */
+bool LobbyMenu::canOpenEquipCraft() const
+{
+	SavedGame *save = _game->getSavedGame();
+	if (!save || save->getBases()->empty()
+		|| !save->getBases()->front()
+		|| save->getBases()->front()->getCrafts()->empty())
+	{
+		return false;
+	}
+
+	// The custom-battle NewBattleState remains underneath LobbyMenu on both
+	// machines. Reuse its existing EQUIP CRAFT handler instead of duplicating
+	// the craft-rule and soldier-capacity synchronization here.
+	for (State *state : _game->getStates())
+	{
+		if (dynamic_cast<NewBattleState*>(state) != nullptr)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Client-side custom-battle action: invoke the EQUIP CRAFT handler of the
+ * NewBattleState underneath this lobby. That handler first applies the craft
+ * type selected by the host and then pushes CraftInfoState. LobbyMenu remains
+ * underneath, so closing the craft screen returns the client to the lobby.
+ */
+void LobbyMenu::openEquipCraft()
+{
+	if (!canOpenEquipCraft())
+	{
+		return;
+	}
+
+	for (State *state : _game->getStates())
+	{
+		if (NewBattleState *newBattle = dynamic_cast<NewBattleState*>(state))
+		{
+			newBattle->btnEquipClick(nullptr);
+			return;
+		}
+	}
 }
 
 void LobbyMenu::closeLobby()
@@ -1229,10 +1293,9 @@ void LobbyMenu::think()
 		}
 		else if (connectionTCP::session.sessionLocked == false)
 		{
-			// Skirmish lobby (NEW BATTLE > COOP): host-driven like the campaign
-			// lobbies. The host steps out to BATTLE SETTINGS once the peer is
-			// in; the client has no action button. This replaced a mutual READY
-			// dance plus a 30s countdown that neither player controlled.
+			// Skirmish lobby (NEW BATTLE > COOP): the host edits the shared battle
+			// settings. The client gets an EQUIP CRAFT action in the same button
+			// slot and may prepare its local craft without leaving the lobby.
 			if (_game->getCoopMod()->getServerOwner() == true)
 			{
 				_btnCancel->setText("BATTLE SETTINGS");
@@ -1240,7 +1303,8 @@ void LobbyMenu::think()
 			}
 			else
 			{
-				_btnCancel->setVisible(false);
+				_btnCancel->setText(tr("STR_EQUIP_CRAFT"));
+				_btnCancel->setVisible(canOpenEquipCraft());
 			}
 		}
 		else if (_game->getCoopMod()->getServerOwner() == true)
@@ -1249,7 +1313,10 @@ void LobbyMenu::think()
 		}
 		else
 		{
-			_btnCancel->setVisible(false);
+			// Keep EQUIP CRAFT available to the client even if the custom-battle
+			// session has already been marked locked while the lobby is still open.
+			_btnCancel->setText(tr("STR_EQUIP_CRAFT"));
+			_btnCancel->setVisible(canOpenEquipCraft());
 		}
 
 		// Playtest B7: mid-game coop menu -> keep RESUME GAME asserted over whatever

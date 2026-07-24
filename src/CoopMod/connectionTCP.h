@@ -184,6 +184,7 @@ void clearNetworkSessionQueues();
 class Game;
 class Ufo;
 class SavedGame;
+class VoteMenu;
 
 // ===== Coop session lifecycle state =====
 
@@ -262,6 +263,157 @@ struct CoopSession
 	void onClientDrop();     // host side: the campaign/lobby context survives
 };
 
+// Host-authoritative state for one multiplayer vote.
+// Kept here because it is currently used only by connectionTCP and VoteMenu.
+enum class VoteDecision
+{
+	Pending,
+	Passed,
+	Failed
+};
+
+/**
+ * Host-authoritative state for one multiplayer vote.
+ *
+ * Votes are indexed by the co-op seat id. A strict majority is required:
+ * 2/3 players, 3/4 players, 3/5 players, and so on.
+ */
+class VoteSession
+{
+public:
+	static constexpr int NOT_VOTED = -1;
+	static constexpr int VOTED_NO = 0;
+	static constexpr int VOTED_YES = 1;
+
+	bool active = false;
+	bool finished = false;
+	bool passed = false;
+	std::uint64_t id = 0;
+	std::string action;
+	std::string title;
+	std::string question;
+	int totalPlayers = 0;
+	int requiredYesVotes = 0;
+	int starterSeat = -1;
+	std::vector<int> votes;
+	// Host-snapshotted names in seat order. The menu renders this copy instead
+	// of asking each machine to reconstruct the roster independently.
+	std::vector<std::string> playerNames;
+
+	void clear()
+	{
+		active = false;
+		finished = false;
+		passed = false;
+		id = 0;
+		action.clear();
+		title.clear();
+		question.clear();
+		totalPlayers = 0;
+		requiredYesVotes = 0;
+		starterSeat = -1;
+		votes.clear();
+		playerNames.clear();
+	}
+
+	void start(
+		std::uint64_t voteId,
+		const std::string &voteAction,
+		const std::string &voteTitle,
+		const std::string &voteQuestion,
+		int playerCount,
+		const std::vector<std::string> &seatNames,
+		int starter)
+	{
+		clear();
+
+		active = true;
+		id = voteId;
+		action = voteAction;
+		title = voteTitle;
+		question = voteQuestion;
+		totalPlayers = std::max(1, playerCount);
+		requiredYesVotes = (totalPlayers / 2) + 1;
+		starterSeat = starter;
+		votes.assign(static_cast<std::size_t>(totalPlayers), NOT_VOTED);
+		playerNames.assign(static_cast<std::size_t>(totalPlayers), std::string());
+		const std::size_t nameCount = std::min(playerNames.size(), seatNames.size());
+		for (std::size_t i = 0; i < nameCount; ++i)
+		{
+			playerNames[i] = seatNames[i];
+		}
+
+		// Starting a vote is itself a YES vote. This lets any player request
+		// the action without having to confirm it twice.
+		castVote(starterSeat, true);
+	}
+
+	bool castVote(int seat, bool yes)
+	{
+		if (!active || finished || seat < 0 || seat >= totalPlayers)
+		{
+			return false;
+		}
+		if (votes[static_cast<std::size_t>(seat)] != NOT_VOTED)
+		{
+			return false;
+		}
+
+		votes[static_cast<std::size_t>(seat)] = yes ? VOTED_YES : VOTED_NO;
+		return true;
+	}
+
+	int yesVotes() const
+	{
+		return static_cast<int>(std::count(votes.begin(), votes.end(), VOTED_YES));
+	}
+
+	int noVotes() const
+	{
+		return static_cast<int>(std::count(votes.begin(), votes.end(), VOTED_NO));
+	}
+
+	int votesCast() const
+	{
+		return yesVotes() + noVotes();
+	}
+
+	int remainingVotes() const
+	{
+		return std::max(0, totalPlayers - votesCast());
+	}
+
+	VoteDecision decision() const
+	{
+		if (!active || finished)
+		{
+			return finished && passed ? VoteDecision::Passed :
+				(finished ? VoteDecision::Failed : VoteDecision::Pending);
+		}
+
+		if (yesVotes() >= requiredYesVotes)
+		{
+			return VoteDecision::Passed;
+		}
+
+		// Fail early when even every remaining player voting YES could no
+		// longer reach the required strict majority.
+		if (yesVotes() + remainingVotes() < requiredYesVotes)
+		{
+			return VoteDecision::Failed;
+		}
+
+		return VoteDecision::Pending;
+	}
+
+	void finish(bool votePassed)
+	{
+		active = false;
+		finished = true;
+		passed = votePassed;
+	}
+};
+
 class connectionTCP
 {
   private:
@@ -283,6 +435,26 @@ class connectionTCP
 	void loopData();
 	void startTCPClient();
 	void startTCPHost();
+
+	// Host-authoritative multiplayer vote. Votes are indexed by co-op seat,
+	// so strict-majority calculation supports three or more players.
+	VoteSession _activeVote;
+	bool _voteRequestPending = false;
+	std::uint64_t _voteSequence = 0;
+	VoteMenu* findVoteMenu(std::uint64_t voteId) const;
+	void openVoteMenu();
+	void updateVoteMenu();
+	void beginVoteAsHost(const std::string& action, const std::string& title,
+		const std::string& question, int starterSeat);
+	void acceptVote(int seat, bool yes);
+	void broadcastVoteStart();
+	void broadcastVoteUpdate();
+	void evaluateVote();
+	void finishVote(bool passed);
+	void executeVoteAction(const std::string& action);
+	void readVoteSnapshot(const Json::Value& obj);
+	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
+
   public:
 	// coop
 	connectionTCP(Game* game);
@@ -336,6 +508,18 @@ class connectionTCP
 	void loadHostMap();
 	static bool getCoopStatic(); // is the player actually connected?
 	void sendTCPPacketData(std::string data); // Send TCP packet data
+
+	// Requests a multiplayer vote. The host creates the authoritative vote,
+	// and the requesting seat is automatically counted as YES.
+	bool requestVote(const std::string& action, const std::string& title,
+		const std::string& question);
+	// Casts the local seat's vote. Duplicate votes are rejected.
+	bool castVote(std::uint64_t voteId, bool yes);
+	bool hasVoteInProgress() const { return _activeVote.active || _voteRequestPending; }
+	// Regression-harness accessors keep TestServer out of private members. The
+	// session getter is read-only; the menu getter is used to press public controls.
+	const VoteSession& getActiveVoteForTest() const { return _activeVote; }
+	VoteMenu* getVoteMenuForTest(std::uint64_t voteId) const { return findVoteMenu(voteId); }
 	// Send a full-state geoscape snapshot via the conflation slot (last-write-wins,
 	// never queued FIFO). slot is a CoopSnapSlot. Used by GeoscapeState::think().
 	void sendCoopSnapshot(int slot, std::string data);
@@ -364,8 +548,6 @@ class connectionTCP
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);
-	void setPauseOn();
-	void setPauseOff();
 	bool _coop_task_completed = true; // is the co-op task completed (walk, turn, shoot, etc.)?
 	size_t _coop_selected_craft_id = 0;
 	std::string getPing();

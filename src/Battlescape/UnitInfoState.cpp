@@ -51,7 +51,6 @@ UnitInfoState::UnitInfoState(BattleUnit *unit, BattlescapeState *parent, bool fr
 {
 
 	// coop
-	_game->getCoopMod()->setPauseOn();
 
 	if (Options::maximizeInfoScreens)
 	{
@@ -485,7 +484,6 @@ UnitInfoState::~UnitInfoState()
 {
 
 	// coop
-	_game->getCoopMod()->setPauseOff();
 
 }
 

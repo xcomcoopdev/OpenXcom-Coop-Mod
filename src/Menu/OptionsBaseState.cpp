@@ -157,7 +157,6 @@ void OptionsBaseState::restart(OptionsOrigin origin)
 		if (_game->getCoopMod()->getCoopStatic() == true)
 		{
 
-			_game->getCoopMod()->setPauseOff();
 
 			_game->getCoopMod()->_waitBC = true;
 			_game->getCoopMod()->_waitBH = true;
@@ -242,7 +241,6 @@ void OptionsBaseState::btnOkClick(Action *)
 		if (_game->getCoopMod()->getCoopStatic() == true)
 		{
 
-			_game->getCoopMod()->setPauseOff();
 
 			_game->getCoopMod()->_waitBC = true;
 			_game->getCoopMod()->_waitBH = true;

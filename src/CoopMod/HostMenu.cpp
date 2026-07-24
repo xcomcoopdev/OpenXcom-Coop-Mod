@@ -152,6 +152,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_port->setBorderColor(color);
 	_port->setConstraint(TEC_NUMERIC_POSITIVE);
 	_port->setAllowOverflow(true);
+	_port->setAllowClipboardPaste(true, true);
 	_port->setText("61008");
 	_port->setVisible(false);
 

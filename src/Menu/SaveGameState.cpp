@@ -171,7 +171,6 @@ void SaveGameState::think()
 			}
 
 			// coop
-			_game->getCoopMod()->setPauseOff();
 
 			break;
 		case SAVE_INSTA:

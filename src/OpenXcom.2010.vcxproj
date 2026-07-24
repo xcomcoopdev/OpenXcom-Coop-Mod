@@ -339,25 +339,29 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CoopMod\AddServerMenu.cpp" />
     <ClCompile Include="CoopMod\ChatMenu.cpp" />
-    <ClCompile Include="CoopMod\connectionTCP.cpp" />
+    <ClCompile Include="CoopMod\clipboard\Clipboard.cpp" />
+    <ClCompile Include="CoopMod\clipboard\ClipboardWin32.cpp" />
+    <ClCompile Include="CoopMod\clipboard\ClipboardX11.cpp" />
     <ClCompile Include="CoopMod\CoopMenu.cpp" />
     <ClCompile Include="CoopMod\CoopState.cpp" />
     <ClCompile Include="CoopMod\CrashHandler.cpp" />
-    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp" />
-    <ClCompile Include="CoopMod\Profile.cpp" />
-    <ClCompile Include="CoopMod\GiftNoticeState.cpp" />
-    <ClCompile Include="CoopMod\GiftSoldierMenu.cpp" />
-    <ClCompile Include="CoopMod\SharedEcon.cpp" />
-    <ClCompile Include="CoopMod\TestServer.cpp" />
-    <ClCompile Include="CoopMod\AddServerMenu.cpp" />
     <ClCompile Include="CoopMod\DirectConnect.cpp" />
     <ClCompile Include="CoopMod\FilterMenu.cpp" />
+    <ClCompile Include="CoopMod\GiftNoticeState.cpp" />
+    <ClCompile Include="CoopMod\GiftSoldierMenu.cpp" />
     <ClCompile Include="CoopMod\HostMenu.cpp" />
     <ClCompile Include="CoopMod\LobbyMenu.cpp" />
     <ClCompile Include="CoopMod\ModCheckMenu.cpp" />
+    <ClCompile Include="CoopMod\OptionsMultiplayer.cpp" />
     <ClCompile Include="CoopMod\PasswordCheckMenu.cpp" />
+    <ClCompile Include="CoopMod\Profile.cpp" />
     <ClCompile Include="CoopMod\ServerList.cpp" />
+    <ClCompile Include="CoopMod\SharedEcon.cpp" />
+    <ClCompile Include="CoopMod\TestServer.cpp" />
+    <ClCompile Include="CoopMod\VoteMenu.cpp" />
+    <ClCompile Include="CoopMod\connectionTCP.cpp" />
     <ClCompile Include="CoopMod\connectionUDP\connectionUDP.cpp" />
     <ClCompile Include="CoopMod\connectionUDP\connection_lan_discovery.cpp" />
     <ClCompile Include="CoopMod\connectionUDP\connection_rendezvous_glue.cpp" />
@@ -792,17 +796,33 @@
     <ClCompile Include="Ufopaedia\UfopaediaStartState.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CoopMod\AddServerMenu.h" />
     <ClInclude Include="CoopMod\ChatMenu.h" />
-    <ClInclude Include="CoopMod\connectionTCP.h" />
+    <ClInclude Include="CoopMod\clipboard\Clipboard.h" />
     <ClInclude Include="CoopMod\CoopMenu.h" />
     <ClInclude Include="CoopMod\CoopState.h" />
     <ClInclude Include="CoopMod\CrashHandler.h" />
-    <ClInclude Include="CoopMod\OptionsMultiplayer.h" />
-    <ClInclude Include="CoopMod\Profile.h" />
+    <ClInclude Include="CoopMod\DirectConnect.h" />
+    <ClInclude Include="CoopMod\FilterMenu.h" />
     <ClInclude Include="CoopMod\GiftNoticeState.h" />
     <ClInclude Include="CoopMod\GiftSoldierMenu.h" />
+    <ClInclude Include="CoopMod\HostMenu.h" />
+    <ClInclude Include="CoopMod\LobbyMenu.h" />
+    <ClInclude Include="CoopMod\ModCheckMenu.h" />
+    <ClInclude Include="CoopMod\OptionsMultiplayer.h" />
+    <ClInclude Include="CoopMod\PasswordCheckMenu.h" />
+    <ClInclude Include="CoopMod\Profile.h" />
+    <ClInclude Include="CoopMod\ServerList.h" />
     <ClInclude Include="CoopMod\SharedEcon.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
+    <ClInclude Include="CoopMod\VoteMenu.h" />
+    <ClInclude Include="CoopMod\connectionTCP.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connectionUDP.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_lan_discovery.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_rendezvous_glue.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_udp_glue.h" />
+    <ClInclude Include="CoopMod\connectionUDP\rendezvous_client.h" />
+    <ClInclude Include="CoopMod\connectionUDP\rendezvous_config.h" />
     <ClInclude Include="..\libs\miniz\miniz.h" />
     <ClInclude Include="..\libs\rapidyaml\c4\allocator.hpp" />
     <ClInclude Include="..\libs\rapidyaml\c4\base64.hpp" />
@@ -1307,6 +1327,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\res\windows\openxcom.ico" />
+    <None Include="CoopMod\clipboard\ClipboardMac.m" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="OpenXcom.rc" />
