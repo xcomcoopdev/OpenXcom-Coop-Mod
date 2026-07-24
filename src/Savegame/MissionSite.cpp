@@ -37,13 +37,30 @@ MissionSite::MissionSite(const RuleAlienMission *rules, const AlienDeployment *d
 	_texture(-1), _secondsRemaining(0), _inBattlescape(false), _detected(false), _ufo(nullptr), _ufoUniqueId(-1)
 {
 
-	// coop id
-	std::random_device rd;                              // Seed
-	std::mt19937 gen(rd());                             // Mersenne Twister RNG
-	std::uniform_int_distribution<> distrib(1, 100000); // Uniform distribution
-	int random_number = distrib(gen);
-	_coop_mission_id = random_number;
+	// coop id: a machine-independent network identity for the SEPARATE-mode
+	// mirror lane (real getId()s are per-machine counters and collide by
+	// construction). Deliberately NOT the seeded campaign RNG - this must not
+	// perturb sim determinism. 2e9 range: the old 1..100000 roll had a real
+	// birthday-collision risk with many concurrent sites; the sender also
+	// de-dupes before advertising (rerollCoopMissionId).
+	rerollCoopMissionId();
 
+}
+
+/**
+ * (Re)rolls the coop network id. Called by the ctor, and by the geoscape
+ * snapshot sender when it finds two of its own sites sharing an id (the roll
+ * is random with no allocator, so collisions are possible - notably in saves
+ * written before the range was widened). The peer self-heals: the old id
+ * drops out of the next packet's keep-set (mirror swept) and the new id is
+ * created fresh.
+ */
+void MissionSite::rerollCoopMissionId()
+{
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> distrib(1, 2000000000);
+	_coop_mission_id = distrib(gen);
 }
 
 /**
