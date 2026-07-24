@@ -50,6 +50,8 @@ public:
 	~MissionSite();
 	/// Coop cross-instance mission id (shared between host and client; test harness).
 	int getCoopMissionId() const { return _coop_mission_id; }
+	/// Re-roll the coop network id (collision repair; see the ctor roll).
+	void rerollCoopMissionId();
 	/// Loads the mission site from YAML.
 	void load(const YAML::YamlNodeReader& reader) override;
 	/// Saves the mission site to YAML.
