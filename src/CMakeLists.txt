@@ -312,6 +312,11 @@ set ( menu_src
   Menu/OptionsVideoState.cpp
   Menu/PauseState.cpp
   Menu/SaveGameState.cpp
+  Menu/SaveUpgradeClientState.cpp
+  Menu/SaveUpgradeDialogState.cpp
+  Menu/SaveUpgradeFlow.cpp
+  Menu/SaveUpgradeMessageState.cpp
+  Menu/SaveUpgradeSummaryState.cpp
   Menu/SetWindowedRootState.cpp
   Menu/SlideshowState.cpp
   Menu/StartState.cpp
@@ -417,6 +422,8 @@ set ( savegame_src
   Savegame/Tile.cpp
   Savegame/Transfer.cpp
   Savegame/Ufo.cpp
+  Savegame/Upgrade/SaveUpgrade.cpp
+  Savegame/Upgrade/SchemaStep1to2.cpp
   Savegame/Vehicle.cpp
   Savegame/Waypoint.cpp
   Savegame/WeightedOptions.cpp

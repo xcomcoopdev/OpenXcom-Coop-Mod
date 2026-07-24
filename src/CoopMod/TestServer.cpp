@@ -97,6 +97,13 @@
 #include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Savegame/Upgrade/SaveUpgrade.h"
+#include "../Menu/SaveUpgradeDialogState.h"
+#include "../Menu/SaveUpgradeClientState.h"
+#include "../Menu/SaveUpgradeMessageState.h"
+#include "../Menu/SaveUpgradeSummaryState.h"
+#include "../Menu/SaveUpgradeFlow.h"
+#include "../Engine/Language.h"
 #include "../Menu/StartState.h"
 #include "../Menu/MainMenuState.h"
 #include "../Geoscape/BuildNewBaseState.h"
@@ -3658,6 +3665,31 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "coop_mission_start")
+		{
+			// SEPARATE-mode two-world-merge battle entry: the host confirms the
+			// pending coop landing. ConfirmLandingState::btnYesClick pushes
+			// CoopState(88), which auto-emits "sendCraft"; the client's
+			// contribution (sendMissionFile) and the host-side merge + battle
+			// generation (setClientSoldiers / CoopState::loadWorld 111/765) then
+			// ride network callbacks with no further manual step. This is the
+			// SEPARATE analog of the SHARED confirm_landing path; it reports the
+			// host stage right after the click so a test can gate on entry.
+			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
+			if (!cl)
+			{
+				resp["error"] = "no ConfirmLandingState on stack";
+			}
+			else
+			{
+				cl->btnYesClick(nullptr);
+				State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+				resp["top"] = top ? typeid(*top).name() : "none";
+				SavedBattleGame* bg = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+				resp["inBattle"] = (bg != nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "battle_inventory")
 		{
 			// Pre-battle coop inventory (soldiers spawn unarmed, weapons on the
@@ -5279,6 +5311,227 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// handled by the second sub-dispatcher (executeShared11), split off to
 			// stay under MSVC's C1061 nested-block limit (same reason as executeShared10).
+		}
+		else if (cmd == "upgrade_detect")
+		{
+			// Classify a save file with the real SchemaDetector (Phase A). Drives the
+			// load-gate decision without any UI.
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				SaveUpgrade::DetectedSchema d = SaveUpgrade::SchemaDetector::detect(file);
+				const char* kind = "solo";
+				switch (d.kind)
+				{
+				case SaveUpgrade::DetectedSchema::Current:       kind = "current"; break;
+				case SaveUpgrade::DetectedSchema::Solo:          kind = "solo"; break;
+				case SaveUpgrade::DetectedSchema::Legacy:        kind = "legacy"; break;
+				case SaveUpgrade::DetectedSchema::UnknownFuture: kind = "unknown_future"; break;
+				case SaveUpgrade::DetectedSchema::Malformed:     kind = "malformed"; break;
+				}
+				const char* variant = "none";
+				switch (d.variant)
+				{
+				case SaveUpgrade::SchemaVariant::None:    variant = "none"; break;
+				case SaveUpgrade::SchemaVariant::Embed:   variant = "embed"; break;
+				case SaveUpgrade::SchemaVariant::Sidecar: variant = "sidecar"; break;
+				case SaveUpgrade::SchemaVariant::Dual:    variant = "dual"; break;
+				}
+				resp["kind"] = kind;
+				resp["variant"] = variant;
+				resp["schema"] = d.schema;
+				resp["needsUpgrade"] = d.needsUpgrade();
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "load_raw")
+		{
+			// Debug: invoke SavedGame::load DIRECTLY, bypassing the LoadGameState
+			// schema gate, to exercise the defensive throw in load() (the safety net
+			// for a legacy save that reaches load without the gate). Reports whether it
+			// threw and the message. Loads into a throwaway SavedGame, not the running
+			// game. Intended for a legacy fixture (which throws early, before any global
+			// coop state is touched).
+			std::string file = req.get("file", "").asString();
+			if (file.empty())
+			{
+				resp["error"] = "need file";
+			}
+			else
+			{
+				SavedGame probe;
+				try
+				{
+					probe.load(file, _game->getMod(), _game->getLanguage());
+					resp["threw"] = false;
+				}
+				catch (const std::exception& e)
+				{
+					resp["threw"] = true;
+					resp["message"] = std::string(e.what());
+				}
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "upgrade_run")
+		{
+			// Drive the real UpgradeRunner (preflight + execute) headless. Mirrors
+			// SaveUpgradeUI::beginUpgrade: blocking errors refuse the run; warnings are
+			// reported but do not stop execute (execute re-validates, blocks on errors).
+			std::string host = req.get("host", "").asString();
+			if (host.empty())
+			{
+				resp["error"] = "need host";
+			}
+			else
+			{
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = req.get("client", "").asString();
+				in.clientName = req.get("clientName", "").asString();
+				in.hostName = req.get("hostName", "").asString();
+				in.skipClient = req.get("skip", false).asBool();
+
+				SaveUpgrade::UpgradeRunner runner(host);
+				SaveUpgrade::DetectedSchema d = runner.detect();
+				resp["needsUpgrade"] = d.needsUpgrade();
+				resp["variant"] = (int)d.variant;
+
+				SaveUpgrade::PreflightResult pf = runner.preflight(in);
+				Json::Value errs(Json::arrayValue), warns(Json::arrayValue);
+				for (const auto& e : pf.errors) errs.append(e);
+				for (const auto& w : pf.warnings) warns.append(w);
+				resp["errors"] = errs;
+				resp["warnings"] = warns;
+
+				if (!pf.ok())
+				{
+					// Correctly refused: the command itself ran fine.
+					resp["success"] = false;
+					resp["ok"] = true;
+				}
+				else
+				{
+					SaveUpgrade::ExecuteResult r = runner.execute(in);
+					resp["success"] = r.success;
+					resp["upgradedPath"] = r.upgradedPath;
+					resp["errorMessage"] = r.errorMessage;
+					Json::Value report(Json::arrayValue);
+					for (const auto& l : r.reportLines) report.append(l);
+					resp["report"] = report;
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "upgrade_selftest")
+		{
+			// Run the disk-less self-test (detector + 1->2 transform + post-flight).
+			std::vector<std::string> selftestLog;
+			bool pass = SaveUpgrade::runSelfTest(selftestLog);
+			Json::Value jlog(Json::arrayValue);
+			for (const auto& l : selftestLog) jlog.append(l);
+			resp["log"] = jlog;
+			resp["pass"] = pass;
+			resp["ok"] = true;
+		}
+		else if (cmd == "pop_state")
+		{
+			// Debug-only: pop the top state (screenshot scenarios use this to reset
+			// between synthetic dialog pushes). Never pops the last state.
+			if (_game->getStates().size() > 1)
+			{
+				_game->popState();
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["ok"] = false;
+				resp["error"] = "refusing to pop the last state";
+			}
+		}
+		else if (cmd == "upgrade_show")
+		{
+			// Debug-only (visual QA): push one Save-Upgrader UI state with realistic
+			// sample data so its layout can be screenshotted without driving the whole
+			// load flow. Mirrors the constructor args the real flow (SaveUpgradeUI /
+			// LoadGameState gate) passes. 'origin':battlescape exercises the themed
+			// variant (applyBattlescapeTheme, no live battle required).
+			std::string which = req.get("state", "dialog").asString();
+			std::string host = req.get("host", "dual_host.sav").asString();
+			OptionsOrigin origin = (req.get("origin", "menu").asString() == "battlescape") ? OPT_BATTLESCAPE : OPT_MENU;
+			Language* lang = _game->getLanguage();
+			if (which == "dialog")
+			{
+				SaveUpgrade::DetectedSchema d = SaveUpgrade::SchemaDetector::detect(host);
+				_game->pushState(new SaveUpgradeDialogState(origin, host, d));
+				resp["ok"] = true;
+			}
+			else if (which == "client")
+			{
+				// clientName/hostName prefill the TextEdits: they draw nothing while
+				// empty, so a screenshot of this state needs them populated.
+				SaveUpgradeClientState* st = new SaveUpgradeClientState(origin, host);
+				std::string clientName = req.get("clientName", "").asString();
+				std::string hostName = req.get("hostName", "").asString();
+				if (!clientName.empty() || !hostName.empty())
+				{
+					st->prefillNames(clientName, hostName);
+				}
+				_game->pushState(st);
+				resp["ok"] = true;
+			}
+			else if (which == "info")
+			{
+				// A representative blocking-refusal INFO dialog (multi-line wrapped body).
+				std::vector<std::string> lines;
+				lines.push_back("This is a mid-battle save. Finish the mission and save from the Geoscape using the old version first, then upgrade.");
+				_game->pushState(new SaveUpgradeMessageState(origin, lang->getString("STR_SAVE_UPGRADE_BLOCKED"), lines));
+				resp["ok"] = true;
+			}
+			else if (which == "confirm")
+			{
+				// A plausible non-blocking warnings CONFIRM (time-divergence + mod-list).
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = "dual_client.sav";
+				in.clientName = "ClientPlayer";
+				in.hostName = "HostPlayer";
+				in.skipClient = false;
+				std::vector<std::string> warns;
+				warns.push_back("The host and client saves are more than 24 in-game hours apart; the client world may resurrect rolled-back state.");
+				warns.push_back("The mod lists differ between the host and client saves.");
+				_game->pushState(new SaveUpgradeMessageState(origin, host, in, lang->getString("STR_SAVE_UPGRADE_WARN_INTRO"), warns));
+				resp["ok"] = true;
+			}
+			else if (which == "summary")
+			{
+				// Run the REAL runner on the staged dual pair so the report + backup name
+				// shown are exactly what a live upgrade produces.
+				SaveUpgrade::UpgradeInputs in;
+				in.clientSaveFileName = req.get("client", "dual_client.sav").asString();
+				in.clientName = req.get("clientName", "ClientPlayer").asString();
+				in.hostName = req.get("hostName", "HostPlayer").asString();
+				in.skipClient = req.get("skip", false).asBool();
+				SaveUpgrade::UpgradeRunner runner(host);
+				SaveUpgrade::ExecuteResult r = runner.execute(in);
+				if (!r.success)
+				{
+					resp["ok"] = false;
+					resp["error"] = "execute failed: " + r.errorMessage;
+				}
+				else
+				{
+					_game->pushState(new SaveUpgradeSummaryState(origin, host, in, r));
+					resp["ok"] = true;
+				}
+			}
+			else
+			{
+				resp["ok"] = false;
+				resp["error"] = "unknown upgrade_show state: " + which;
+			}
 		}
 		else
 		{

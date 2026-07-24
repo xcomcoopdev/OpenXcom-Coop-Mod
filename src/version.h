@@ -20,6 +20,12 @@
 
 #define MIN_REQUIRED_RULESET_VERSION_NUMBER 8,4,1,0
 
+// Co-op save schema version. Bumped whenever the on-disk co-op save format
+// changes; every save writes it into the header as "saveSchema". The in-game
+// Save Upgrader (src/Savegame/Upgrade/) detects older schemas and migrates
+// them up to this current value one step at a time. See PRD save-upgrader.md.
+#define SAVE_SCHEMA_CURRENT 2
+
 #define OPENXCOM_VERSION_ENGINE "Extended"
 #define OPENXCOM_VERSION_SHORT "Extended 8.4.2"
 #define OPENXCOM_VERSION_LONG "8.4.2.0"

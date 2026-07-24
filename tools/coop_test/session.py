@@ -162,6 +162,63 @@ def resume_campaign(host, client, save_file, port="47900",
     print("session resumed (redesigned flow)")
 
 
+def resume_campaign_battle(host, client, save_file, port="47900",
+                           host_name="HostPlayer", client_name="ClientPlayer",
+                           timeout=260, interval=2.0):
+    """Resume a MID-BATTLE co-op save.
+
+    Like resume_campaign(), but the save carries a battleGame, so this must NOT
+    wait on the geoscape-resume `resumeAck` / BEGIN handshake: for a battle-
+    eligible client the host's resume_ack handler emits `campaign_resume_battle`
+    instead of setting resumeAck (connectionTCP.cpp), and the two-phase battle
+    stream (campaign_resume_battle -> SEND_FILE_CLIENT_SAVE ->
+    battlehost/battleclient) drives itself. We only drive the lobby up to the
+    host accepting the resume, then wait (BOUNDED - never hang) until BOTH
+    machines report battle_state.inBattle.
+
+    `host` must be freshly at the main menu with the save in its user dir;
+    `client` freshly at the main menu (empty user dir). Raises TimeoutError with
+    per-machine battle/state detail if either machine never enters the battle
+    within `timeout` (e.g. the SHARED gap where the client is never streamed the
+    battle at all)."""
+
+    host.ok({"cmd": "load_save_menu", "file": save_file})
+    host.wait_for("host window (battle resume)", lambda: _has_state(host, "HostMenu"))
+
+    host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port, "player": host_name})
+    host.wait_for("resume lobby", lambda: _has_state(host, "LobbyMenu"))
+    ls = host.ok({"cmd": "lobby_state"})
+    assert ls["lobbyMode"] == 2, f"expected resume lobby, got {ls}"
+
+    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
+    client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
+
+    host.wait_for(
+        "all registered players joined",
+        lambda: (lambda r: r.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
+        timeout=60, interval=2.0,
+    )
+
+    def _in_battle(gc):
+        return gc.cmd({"cmd": "battle_state"}).get("inBattle")
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _in_battle(host) and _in_battle(client):
+            print("battle resume: BOTH machines report inBattle")
+            return
+        time.sleep(interval)
+
+    def _detail(gc):
+        b = gc.cmd({"cmd": "battle_state"})
+        return f"inBattle={b.get('inBattle')} top={states(gc)[-3:]}"
+
+    raise TimeoutError(
+        f"battle resume: both machines did not enter the battle within {timeout}s\n"
+        f"  host:   {_detail(host)}\n"
+        f"  client: {_detail(client)}")
+
+
 def save_files(user_dir):
     found = []
     for root, _dirs, files in os.walk(user_dir):

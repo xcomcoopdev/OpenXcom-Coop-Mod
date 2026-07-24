@@ -1,0 +1,66 @@
+name: Strong Coop
+version: Extended 8.4.2
+engine: Extended
+build: 8.4.2.0
+time:
+  year: 1999
+  month: 1
+  day: 1
+  hour: 12
+  minute: 0
+  second: 0
+  weekday: 6
+mods:
+  - xcom1 ver: 1.0
+---
+difficulty: 0
+monthsPassed: 0
+coop_gamemode: 0
+funds:
+  - 1000000
+bases:
+  - name: HostBase
+    lon: 0.1
+    lat: 0.2
+    coopbaseid: 2032
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Alice
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Alice
+      - type: STR_SOLDIER
+        id: 2
+        name: Bravo
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Bravo
+    crafts:
+      - type: STR_SKYRANGER
+        id: 1
+        fuel: 1375
+        coopDestUfoId: 5001
+        coopItems:
+          - {id: 2, name: STR_RIFLE, owner: true}
+          - {id: 3, name: STR_RIFLE, owner: true}
+deadSoldiers:
+  - type: STR_SOLDIER
+    id: 49
+    name: Elliott Kay
+    coopbase: 2032
+    coop: 1
+    coopcraft: 1
+    coopcrafttype: STR_SKYRANGER
+    coopname: Elliott Kay
+    ownerplayerid: 999
+ufos:
+  - type: STR_SMALL_SCOUT
+    id: 7
+    coopUfoId: 9001
+options:
+  debugCoopMenu: false
