@@ -2398,7 +2398,10 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			site->setId(sg->getId(deployment->getMarkerName()));
 			site->setSecondsRemaining((size_t)req.get("hours", 48).asInt() * 3600);
 			site->setAlienRace(req.get("race", "STR_SECTOID").asString());
-			site->setDetected(true);
+			if (req.isMember("city")) site->setCity(req["city"].asString());
+			// detected=false leaves the natural detection window open (the
+			// time30Minutes scan will detect + popup), for detection-parity tests.
+			site->setDetected(req.get("detected", true).asBool());
 			sg->getMissionSites()->push_back(site);
 			resp["site_id"] = site->getId();
 			resp["ok"] = true;
@@ -3446,6 +3449,14 @@ std::string TestServer::execute(const std::string& line)
 					jm["type"] = ms->getType();
 					jm["race"] = ms->getAlienRace();
 					jm["city"] = ms->getCity();
+					jm["deployment"] = ms->getDeployment() ? ms->getDeployment()->getType() : "";
+					jm["mission"] = ms->getRules() ? ms->getRules()->getType() : "";
+					jm["lon"] = ms->getLongitude();
+					jm["lat"] = ms->getLatitude();
+					jm["detected"] = ms->getDetected();
+					jm["coop"] = ms->getCoop();
+					// Exposes the replica's 100000000 pin for lifecycle-parity tests.
+					jm["secondsRemaining"] = (Json::UInt64)ms->getSecondsRemaining();
 					sites.append(jm);
 				}
 				resp["missionSites"] = sites;
