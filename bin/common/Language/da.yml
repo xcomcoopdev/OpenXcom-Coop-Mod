@@ -1,7 +1,7 @@
 da:
   STR_SAVE_UPGRADE_TITLE: "Opgrader gemt spil"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Dette gemte spil blev lavet med en aeldre version af spillet (gemformat {1}). Det skal opgraderes for at kunne spilles. Der gemmes en sikkerhedskopi."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Gem kopi og opgrader"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Dette gemte spil blev lavet med en aeldre version af spillet (gemformat {1}). Det skal opgraderes for at kunne spilles. Opgradering opretter et nyt, opgraderet gemt spil; det oprindelige gemte spil aendres ikke."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Opret opgraderet gemt spil"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Kan ikke indlaese"
   STR_SAVE_UPGRADE_FUTURE: "Dette gemte spil blev lavet med en nyere version af spillet (gemformat {0}). Det kan ikke indlaeses eller opgraderes af denne version. Opdater spillet for at indlaese det."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Opgrader gemt spil - Anden spiller"
@@ -24,7 +24,7 @@ da:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Dit oprindelige gemte spil blev ikke aendret."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Gemt spil opgraderet"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Det gemte spil blev opgraderet."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Sikkerhedskopi gemt som> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Opgraderet gemt spil gemt som> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Den anden spiller skal tilslutte med navnet '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Ingen verden for den anden spiller blev inkluderet. Den spiller starter forfra ved gentilslutning."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Den anden spillers gemte fil, du valgte, er ikke laengere nodvendig og kan arkiveres."

@@ -1,7 +1,7 @@
 fi:
   STR_SAVE_UPGRADE_TITLE: "Paivita tallennus"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Tama tallennus on luotu vanhemmalla pelin versiolla (tallennusmuoto {1}). Se on paivitettava, jotta sita voi pelata. Varmuuskopio tallennetaan."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Tallenna kopio ja paivita"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Tama tallennus on luotu vanhemmalla pelin versiolla (tallennusmuoto {1}). Se on paivitettava, jotta sita voi pelata. Paivitys luo uuden, paivitetyn tallennuksen; alkuperaista tallennusta ei muuteta."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Luo paivitetty tallennus"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Ei voi ladata"
   STR_SAVE_UPGRADE_FUTURE: "Tama tallennus on luotu uudemmalla pelin versiolla (tallennusmuoto {0}). Tama versio ei voi ladata tai paivittaa sita. Paivita peli ladataksesi sen."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Paivita tallennus - Toinen pelaaja"
@@ -24,7 +24,7 @@ fi:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Alkuperaista tallennustasi ei muutettu."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Tallennus paivitetty"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Tallennus paivitettiin onnistuneesti."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Varmuuskopio tallennettu nimella> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Paivitetty tallennus tallennettu nimella> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Toisen pelaajan on liityttava nimella '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Toisen pelaajan maailmaa ei sisallytetty. Tama pelaaja aloittaa alusta liittyessaan uudelleen."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Valitsemasi toisen pelaajan tallennustiedostoa ei enaa tarvita, ja se voidaan arkistoida."

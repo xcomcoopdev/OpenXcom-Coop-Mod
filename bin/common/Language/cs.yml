@@ -1,7 +1,7 @@
 cs:
   STR_SAVE_UPGRADE_TITLE: "Aktualizovat pozici"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Tato ulozena pozice byla vytvorena starsi verzi hry (format ulozeni {1}). Pro hrani ji nutno aktualizovat. Bude ulozena zaloha."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Ulozit zalohu a aktualizovat"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Tato ulozena pozice byla vytvorena starsi verzi hry (format ulozeni {1}). Pro hrani ji nutno aktualizovat. Aktualizace vytvori novou, aktualizovanou ulozenou pozici; puvodni ulozeni nebude zmeneno."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Vytvorit aktualizovane ulozeni"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Nelze nacist"
   STR_SAVE_UPGRADE_FUTURE: "Tato ulozena pozice byla vytvorena novejsi verzi hry (format ulozeni {0}). Tato verze ji neumi nacist ani aktualizovat. Aktualizujte hru, abyste ji nacetli."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Aktualizovat pozici - Druhy hrac"
@@ -24,7 +24,7 @@ cs:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Vase puvodni ulozena pozice nebyla zmenena."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Pozice aktualizovana"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Pozice byla uspesne aktualizovana."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Zaloha ulozena jako> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Aktualizovane ulozeni ulozeno jako> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Druhy hrac se musi pripojit se jmenem '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Svet druheho hrace nebyl zahrnut. Tento hrac zacne po opetovnem pripojeni od zacatku."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Vybrany soubor ulozeni druheho hrace jiz neni potreba a lze jej archivovat."

@@ -1,7 +1,7 @@
 lb:
   STR_SAVE_UPGRADE_TITLE: "Spillstand aktualiseieren"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Dese Spillstand gouf mat enger elerer Versioun vum Spill erstallt (Speicherformat {1}). Hie muss aktualiseiert gin fir gespillt ze gin. Eng Sécherheetskopie gett gespäichert."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Kopie späicheren an aktualiseieren"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Dese Spillstand gouf mat enger elerer Versioun vum Spill erstallt (Speicherformat {1}). Hie muss aktualiseiert gin fir gespillt ze gin. D'Aktualiséierung erstellt en neien, aktualiséierte Spillstand; den originale Spillstand gett net geännert."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Aktualiséierte Spillstand erstellen"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Konnt net gelueden gin"
   STR_SAVE_UPGRADE_FUTURE: "Dese Spillstand gouf mat enger méi neier Versioun vum Spill erstallt (Speicherformat {0}). Dës Versioun kann hien net lueden oder aktualiseieren. Aktualiseiert d'Spill fir hien ze lueden."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Spillstand aktualiseieren - Anere Spiller"
@@ -24,7 +24,7 @@ lb:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Ären originale Spillstand gouf net geännert."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Spillstand aktualiseiert"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "De Spillstand gouf erfollegräich aktualiseiert."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Sécherheetskopie gespäichert als> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Aktualiséierte Spillstand gespäichert als> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Den anere Spiller muss sech mam Numm '{0}' verbannen."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Keng Welt vum anere Spiller gouf abegraff. Dese Spiller fänkt beim nei Verbanne vu vir un."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "D'Speicherdatei vum anere Spiller déi Dir erausgesicht hutt, gett net méi gebraucht an kann archiveiert gin."

@@ -1,7 +1,7 @@
 it:
   STR_SAVE_UPGRADE_TITLE: "Aggiorna salvataggio"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Questo salvataggio e stato creato con una versione precedente del gioco (formato salvataggio {1}). Deve essere aggiornato per poter giocare. Verra salvata una copia di backup."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Salva backup e aggiorna"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Questo salvataggio e stato creato con una versione precedente del gioco (formato salvataggio {1}). Deve essere aggiornato per poter giocare. L'aggiornamento creera un nuovo salvataggio aggiornato; il salvataggio originale non verra modificato."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Crea salvataggio aggiornato"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Impossibile caricare"
   STR_SAVE_UPGRADE_FUTURE: "Questo salvataggio e stato creato con una versione piu recente del gioco (formato salvataggio {0}). Non puo essere caricato ne aggiornato da questa versione. Aggiorna il gioco per caricarlo."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Aggiorna salvataggio - Altro giocatore"
@@ -24,7 +24,7 @@ it:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Il tuo salvataggio originale non e stato modificato."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Salvataggio aggiornato"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Il salvataggio e stato aggiornato con successo."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Backup salvato come> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Salvataggio aggiornato salvato come> {0}"
   STR_SAVE_UPGRADE_REJOIN: "L'altro giocatore deve unirsi con il nome '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Nessun mondo dell'altro giocatore e stato incluso. Quel giocatore ripartira da zero quando si riconnettera."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Il file di salvataggio dell'altro giocatore che hai selezionato non serve piu e puo essere archiviato."

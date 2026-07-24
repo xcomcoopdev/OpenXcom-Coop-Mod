@@ -31,7 +31,7 @@ class Text;
 
 /**
  * The load-gate entry dialog: an older-format save was picked, so this offers
- * "Save backup and upgrade save" / "Cancel" instead of loading it. For the dual
+ * "Create upgraded save" / "Cancel" instead of loading it. For the dual
  * variant it opens the input-collection state; otherwise it drives the upgrade
  * directly. Pushed by LoadGameState in place of the load. Self-themes over both
  * the Geoscape and Battlescape palettes.

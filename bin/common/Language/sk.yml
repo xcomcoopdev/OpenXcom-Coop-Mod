@@ -1,7 +1,7 @@
 sk:
   STR_SAVE_UPGRADE_TITLE: "Aktualizovat pozíciu"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Táto uložená pozícia bola vytvorená staršou verziou hry (formát uloženia {1}). Na hranie ju treba aktualizovať. Uloží sa záloha."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Uložiť zálohu a aktualizovať"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Táto uložená pozícia bola vytvorená staršou verziou hry (formát uloženia {1}). Na hranie ju treba aktualizovať. Aktualizácia vytvorí novú, aktualizovanú uloženú pozíciu; pôvodná uložená pozícia sa nezmení."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Vytvoriť aktualizovanú uloženú pozíciu"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Nedá sa načítať"
   STR_SAVE_UPGRADE_FUTURE: "Táto uložená pozícia bola vytvorená novšou verziou hry (formát uloženia {0}). Táto verzia ju nedokáže načítať ani aktualizovať. Aktualizujte hru, aby ste ju načítali."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Aktualizovať pozíciu - Druhý hráč"
@@ -24,7 +24,7 @@ sk:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Vaša pôvodná uložená pozícia nebola zmenená."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Pozícia aktualizovaná"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Pozícia bola úspešne aktualizovaná."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Záloha uložená ako> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Aktualizovaná uložená pozícia uložená ako> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Druhý hráč sa musí pripojiť s menom '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Svet druhého hráča nebol zahrnutý. Tento hráč začne po opätovnom pripojení od začiatku."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Vybraný súbor uloženia druhého hráča už nie je potrebný a možno ho archivovať."

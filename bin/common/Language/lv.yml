@@ -1,7 +1,7 @@
 lv:
   STR_SAVE_UPGRADE_TITLE: "Atjauninat saglabajumu"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Sis saglabajums tika izveidots ar vecaku speles versiju (saglabasanas formats {1}). Lai to speletu, tas ir jaatjaunina. Tiks saglabata rezerves kopija."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Saglabat kopiju un atjauninat"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Sis saglabajums tika izveidots ar vecaku speles versiju (saglabasanas formats {1}). Lai to speletu, tas ir jaatjaunina. Atjauninasana izveidos jaunu, atjauninatu saglabajumu; sakotnejais saglabajums netiks mainits."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Izveidot atjauninatu saglabajumu"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Nevar ieladet"
   STR_SAVE_UPGRADE_FUTURE: "Sis saglabajums tika izveidots ar jaunaku speles versiju (saglabasanas formats {0}). So versiju nevar ieladet vai atjauninat. Atjauniniet speli, lai to ieladetu."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Atjauninat saglabajumu - Otrs spletajs"
@@ -24,7 +24,7 @@ lv:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Jusu sakotnejais saglabajums netika mainits."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Saglabajums atjauninats"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Saglabajums tika veiksmigi atjauninats."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Rezerves kopija saglabata ka> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Atjauninatais saglabajums saglabats ka> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Otram spletajam japievienojas ar vardu '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Otra spletaja pasaule netika ieklauta. Sis spletajs sanacot no jauna sacenas no nulles."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Jusu atlasitais otra spletaja saglabajuma fails vairs nav vajadzigs, un to var arhivet."

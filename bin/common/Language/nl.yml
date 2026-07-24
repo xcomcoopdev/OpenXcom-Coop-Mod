@@ -1,7 +1,7 @@
 nl:
   STR_SAVE_UPGRADE_TITLE: "Save bijwerken"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Deze save is gemaakt met een oudere versie van het spel (saveformaat {1}). Hij moet worden bijgewerkt om te spelen. Er wordt een back-up opgeslagen."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Back-up opslaan en bijwerken"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Deze save is gemaakt met een oudere versie van het spel (saveformaat {1}). Hij moet worden bijgewerkt om te spelen. Bijwerken maakt een nieuwe, bijgewerkte save aan; de originele save wordt niet gewijzigd."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Bijgewerkte save aanmaken"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Kan niet laden"
   STR_SAVE_UPGRADE_FUTURE: "Deze save is gemaakt met een nieuwere versie van het spel (saveformaat {0}). Deze versie kan hem niet laden of bijwerken. Werk het spel bij om hem te laden."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Save bijwerken - Andere speler"
@@ -24,7 +24,7 @@ nl:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Je originele save is niet gewijzigd."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Save bijgewerkt"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "De save is met succes bijgewerkt."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Back-up opgeslagen als> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Bijgewerkte save opgeslagen als> {0}"
   STR_SAVE_UPGRADE_REJOIN: "De andere speler moet deelnemen met de naam '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Er is geen wereld van de andere speler opgenomen. Die speler begint opnieuw bij het opnieuw deelnemen."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Het geselecteerde savebestand van de andere speler is niet meer nodig en kan worden gearchiveerd."

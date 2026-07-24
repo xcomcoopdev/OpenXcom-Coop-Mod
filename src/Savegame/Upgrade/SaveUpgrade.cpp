@@ -24,6 +24,7 @@
 #include <tuple>
 #include <c4/base64.hpp>
 
+#include "../../version.h"
 #include "../../Engine/Options.h"
 #include "../../Engine/CrossPlatform.h"
 #include "../../Engine/Exception.h"
@@ -878,7 +879,10 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 		// 3. Distinguish the new save in the load list, then emit + post-flight verify.
 		{
 			std::string origName = yamlutil::getStr(set.host.header(), "name", CrossPlatform::noExt(_fileName));
-			yamlutil::setStr(set.host.header(), "name", origName + " (upgraded)");
+			// Suffix carries the build version the save was upgraded to (same
+			// identity the main menu shows, minus the "OpenXcom " prefix), e.g.
+			// "name (upgraded to Extended 8.4.2 (v2025-10-06))".
+			yamlutil::setStr(set.host.header(), "name", origName + " (upgraded to " OPENXCOM_VERSION_SHORT OPENXCOM_VERSION_GIT ")");
 		}
 		std::string upgraded = emitHostStream(set);
 		std::string why;

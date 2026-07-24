@@ -1,7 +1,7 @@
 es-ES:
   STR_SAVE_UPGRADE_TITLE: "Actualizar partida"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Esta partida se creo con una version anterior del juego (formato de guardado {1}). Debe actualizarse para poder jugarla. Se guardara una copia de seguridad."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Guardar copia y actualizar"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Esta partida se creo con una version anterior del juego (formato de guardado {1}). Debe actualizarse para poder jugarla. La actualizacion creara una partida nueva y actualizada; la partida original no se modificara."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Crear partida actualizada"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "No se puede cargar"
   STR_SAVE_UPGRADE_FUTURE: "Esta partida se creo con una version mas reciente del juego (formato de guardado {0}). Esta version no puede cargarla ni actualizarla. Actualiza el juego para cargarla."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Actualizar partida - Otro jugador"
@@ -24,7 +24,7 @@ es-ES:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Tu partida original no se modifico."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Partida actualizada"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "La partida se actualizo correctamente."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Copia de seguridad guardada como> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Partida actualizada guardada como> {0}"
   STR_SAVE_UPGRADE_REJOIN: "El otro jugador debe unirse con el nombre '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "No se incluyo ningun mundo del otro jugador. Ese jugador empezara de cero al reconectarse."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "El archivo de guardado del otro jugador que seleccionaste ya no es necesario y puede archivarse."

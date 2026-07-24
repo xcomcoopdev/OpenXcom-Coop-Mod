@@ -32,7 +32,7 @@ class TextList;
 
 /**
  * Success summary shown after an upgrade: the transforms applied (scrollable
- * report), the backup filename, and rejoin instructions. OK loads the upgraded
+ * report), the upgraded-save filename, and rejoin instructions. OK loads the upgraded
  * save (which now detects as current, so it is not re-gated). Self-themes over
  * both palettes.
  */

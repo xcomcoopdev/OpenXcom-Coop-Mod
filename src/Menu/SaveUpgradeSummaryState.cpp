@@ -37,7 +37,7 @@ namespace OpenXcom
  * @param origin Game section that originated the load.
  * @param filename Name of the upgraded save.
  * @param inputs The collected inputs (for the rejoin instructions).
- * @param result The execute() result (backup path + report lines).
+ * @param result The execute() result (upgraded-save path + report lines).
  */
 SaveUpgradeSummaryState::SaveUpgradeSummaryState(OptionsOrigin origin, const std::string& filename, const SaveUpgrade::UpgradeInputs& inputs, const SaveUpgrade::ExecuteResult& result)
 	: _origin(origin), _filename(filename), _inputs(inputs), _result(result)

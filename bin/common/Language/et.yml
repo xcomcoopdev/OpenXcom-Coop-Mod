@@ -1,7 +1,7 @@
 et:
   STR_SAVE_UPGRADE_TITLE: "Uuenda salvestust"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}See salvestus loodi manguveana vanema versiooniga (salvestusvorming {1}). Mangimiseks tuleb see uuendada. Salvestatakse varukoopia."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Salvesta koopia ja uuenda"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}See salvestus loodi manguveana vanema versiooniga (salvestusvorming {1}). Mangimiseks tuleb see uuendada. Uuendamine loob uue, uuendatud salvestuse; algne salvestus jaab muutmata."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Loo uuendatud salvestus"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Ei saa laadida"
   STR_SAVE_UPGRADE_FUTURE: "See salvestus loodi mangu uuema versiooniga (salvestusvorming {0}). Seda versiooni ei saa laadida ega uuendada. Laadimiseks uuenda mangu."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Uuenda salvestust - Teine mangija"
@@ -24,7 +24,7 @@ et:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Sinu algset salvestust ei muudetud."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Salvestus uuendatud"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Salvestus uuendati edukalt."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Varukoopia salvestatud kui> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Uuendatud salvestus salvestatud kui> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Teine mangija peab liituma nimega '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Teise mangija maailma ei kaasatud. See mangija alustab uuesti liitudes otsast peale."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Sinu valitud teise mangija salvestusfaili enam ei vajata ja selle voib arhiveerida."

@@ -1,7 +1,7 @@
 fr-CA:
   STR_SAVE_UPGRADE_TITLE: "Mettre a jour la sauvegarde"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Cette sauvegarde a ete creee avec une ancienne version du jeu (format de sauvegarde {1}). Elle doit etre mise a jour pour etre jouee. Une copie de secours sera enregistree."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Sauvegarder et mettre a jour"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Cette sauvegarde a ete creee avec une ancienne version du jeu (format de sauvegarde {1}). Elle doit etre mise a jour pour etre jouee. La mise a jour creera une nouvelle sauvegarde mise a jour; la sauvegarde originale ne sera pas modifiee."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Creer une sauvegarde mise a jour"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Chargement impossible"
   STR_SAVE_UPGRADE_FUTURE: "Cette sauvegarde a ete creee avec une version plus recente du jeu (format de sauvegarde {0}). Elle ne peut etre ni chargee ni mise a jour par cette version. Mettez le jeu a jour pour la charger."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Mettre a jour - Autre joueur"
@@ -24,7 +24,7 @@ fr-CA:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Votre sauvegarde d'origine n'a pas ete modifiee."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Sauvegarde mise a jour"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "La sauvegarde a ete mise a jour avec succes."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Copie de secours enregistree sous> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Sauvegarde mise a jour enregistree sous> {0}"
   STR_SAVE_UPGRADE_REJOIN: "L'autre joueur doit se connecter avec le nom '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Aucun monde de l'autre joueur n'a ete inclus. Ce joueur repartira de zero lors de sa reconnexion."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Le fichier de sauvegarde de l'autre joueur que vous avez selectionne n'est plus necessaire et peut etre archive."

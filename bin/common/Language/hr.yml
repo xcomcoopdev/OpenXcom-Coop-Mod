@@ -1,7 +1,7 @@
 hr:
   STR_SAVE_UPGRADE_TITLE: "Nadogradi spremljenu igru"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Ova spremljena igra napravljena je starijom verzijom igre (format spremanja {1}). Mora se nadograditi da bi se igrala. Bit ce spremljena sigurnosna kopija."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Spremi kopiju i nadogradi"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Ova spremljena igra napravljena je starijom verzijom igre (format spremanja {1}). Mora se nadograditi da bi se igrala. Nadogradnja ce stvoriti novu, nadogradenu spremljenu igru; izvorna spremljena igra nece se promijeniti."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Stvori nadogradenu spremljenu igru"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Ucitavanje nije moguce"
   STR_SAVE_UPGRADE_FUTURE: "Ova spremljena igra napravljena je novijom verzijom igre (format spremanja {0}). Ova je verzija ne moze ucitati ni nadograditi. Azurirajte igru da biste je ucitali."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Nadogradi spremljenu igru - Drugi igrac"
@@ -24,7 +24,7 @@ hr:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Vasa izvorna spremljena igra nije promijenjena."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Spremljena igra nadogradena"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Spremljena igra uspjesno je nadogradena."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Sigurnosna kopija spremljena kao> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Nadogradena spremljena igra spremljena kao> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Drugi se igrac mora pridruziti s imenom '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Svijet drugog igraca nije ukljucen. Taj ce igrac krenuti iz pocetka pri ponovnom pridruzivanju."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Odabrana datoteka spremljene igre drugog igraca vise nije potrebna i moze se arhivirati."

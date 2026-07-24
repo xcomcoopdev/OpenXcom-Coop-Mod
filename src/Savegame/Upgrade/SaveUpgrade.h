@@ -164,9 +164,9 @@ public:
 	/// Ingest + validate without writing anything. Safe to call repeatedly.
 	PreflightResult preflight(const UpgradeInputs& in);
 
-	/// Backup the original, run the migration chain in memory, then atomically
-	/// replace the original with the upgraded save. The write is the last step,
-	/// so any earlier failure leaves the original intact.
+	/// Run the migration chain in memory, then write the result to a new file
+	/// ("<stem>_upgraded.sav"); the original save is never modified. The write is
+	/// the last step, so any earlier failure leaves the original intact.
 	ExecuteResult execute(const UpgradeInputs& in);
 
 private:

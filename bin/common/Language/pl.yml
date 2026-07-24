@@ -1,7 +1,7 @@
 pl:
   STR_SAVE_UPGRADE_TITLE: "Zaktualizuj zapis"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Ten zapis zostal utworzony w starszej wersji gry (format zapisu {1}). Musi zostac zaktualizowany, aby mozna bylo grac. Zostanie zapisana kopia zapasowa."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Zapisz kopie i zaktualizuj"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Ten zapis zostal utworzony w starszej wersji gry (format zapisu {1}). Musi zostac zaktualizowany, aby mozna bylo grac. Aktualizacja utworzy nowy, zaktualizowany zapis; oryginalny zapis nie zostanie zmieniony."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Utworz zaktualizowany zapis"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Nie mozna wczytac"
   STR_SAVE_UPGRADE_FUTURE: "Ten zapis zostal utworzony w nowszej wersji gry (format zapisu {0}). Ta wersja nie moze go wczytac ani zaktualizowac. Zaktualizuj gre, aby go wczytac."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Zaktualizuj zapis - Drugi gracz"
@@ -24,7 +24,7 @@ pl:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Twoj oryginalny zapis nie zostal zmieniony."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Zapis zaktualizowany"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Zapis zostal pomyslnie zaktualizowany."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Kopia zapasowa zapisana jako> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Zaktualizowany zapis zapisany jako> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Drugi gracz musi dolaczyc pod imieniem '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Nie dolaczono swiata drugiego gracza. Ten gracz zacznie od nowa po ponownym dolaczeniu."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Wybrany plik zapisu drugiego gracza nie jest juz potrzebny i mozna go zarchiwizowac."

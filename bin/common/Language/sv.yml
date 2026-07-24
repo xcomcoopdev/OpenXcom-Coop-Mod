@@ -1,7 +1,7 @@
 sv:
   STR_SAVE_UPGRADE_TITLE: "Uppgradera sparfil"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Denna sparfil skapades med en aldre version av spelet (sparformat {1}). Den maste uppgraderas for att spelas. En sakerhetskopia sparas."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Spara kopia och uppgradera"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Denna sparfil skapades med en aldre version av spelet (sparformat {1}). Den maste uppgraderas for att spelas. Uppgradering skapar en ny, uppgraderad sparfil; den ursprungliga sparfilen andras inte."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Skapa uppgraderad sparfil"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Kan inte ladda"
   STR_SAVE_UPGRADE_FUTURE: "Denna sparfil skapades med en nyare version av spelet (sparformat {0}). Den kan inte laddas eller uppgraderas av denna version. Uppdatera spelet for att ladda den."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Uppgradera sparfil - Annan spelare"
@@ -24,7 +24,7 @@ sv:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Din ursprungliga sparfil andrades inte."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Sparfil uppgraderad"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Sparfilen uppgraderades framgangsrikt."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Sakerhetskopia sparad som> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Uppgraderad sparfil sparad som> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Den andra spelaren maste ansluta med namnet '{0}'."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Ingen varld for den andra spelaren inkluderades. Den spelaren borjar om vid ateranslutning."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Den andra spelarens sparfil du valde behovs inte langre och kan arkiveras."

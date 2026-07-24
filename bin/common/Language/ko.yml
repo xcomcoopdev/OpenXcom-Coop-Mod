@@ -1,7 +1,7 @@
 ko:
   STR_SAVE_UPGRADE_TITLE: "저장 업그레이드"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}이 저장은 이전 버전의 게임에서 만들어졌습니다 (저장 형식 {1}). 플레이하려면 업그레이드해야 합니다. 백업이 저장됩니다."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "백업 후 업그레이드"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}이 저장은 이전 버전의 게임에서 만들어졌습니다 (저장 형식 {1}). 플레이하려면 업그레이드해야 합니다. 업그레이드하면 새로운 업그레이드된 저장이 생성됩니다. 원본 저장은 변경되지 않습니다."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "업그레이드된 저장 생성"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "불러올 수 없음"
   STR_SAVE_UPGRADE_FUTURE: "이 저장은 최신 버전의 게임에서 만들어졌습니다 (저장 형식 {0}). 이 버전에서는 불러오거나 업그레이드할 수 없습니다. 불러오려면 게임을 업데이트하세요."
   STR_SAVE_UPGRADE_INPUT_TITLE: "저장 업그레이드 - 상대 플레이어"
@@ -24,7 +24,7 @@ ko:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "원본 저장은 변경되지 않았습니다."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "저장 업그레이드 완료"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "저장을 성공적으로 업그레이드했습니다."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "백업 저장 이름> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "업그레이드된 저장 이름> {0}"
   STR_SAVE_UPGRADE_REJOIN: "상대 플레이어는 '{0}' 이름으로 참가해야 합니다."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "상대 플레이어의 세계가 포함되지 않았습니다. 그 플레이어는 다시 참가할 때 처음부터 시작합니다."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "선택한 상대 플레이어의 저장 파일은 더 이상 필요하지 않으며 보관할 수 있습니다."

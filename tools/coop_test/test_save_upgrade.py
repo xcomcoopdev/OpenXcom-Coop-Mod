@@ -121,7 +121,9 @@ def main():
         assert uh["coop"] is True, "upgraded header coop != true"
         assert uh["coopPlayers"] == ["HostGuy", "Carol"], uh.get("coopPlayers")
         assert uh["saveSchema"] == 2, uh.get("saveSchema")
-        assert uh["name"].endswith("(upgraded)"), f"upgraded name not suffixed: {uh['name']}"
+        # header name gets a version-stamped suffix; assert the prefix, not the
+        # literal build version, so a version bump does not break the test.
+        assert uh["name"].startswith("Dual Coop (upgraded to "), f"upgraded name not suffixed: {uh['name']}"
         # upgraded saves are always SEPARATE - the shared-world feature postdates them
         assert uh["coopCampaignType"] == 0, uh.get("coopCampaignType")
         assert ub["coop_save_owner_player_id"] == 0, ub.get("coop_save_owner_player_id")

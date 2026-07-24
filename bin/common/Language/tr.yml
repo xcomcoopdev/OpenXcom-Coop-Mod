@@ -1,7 +1,7 @@
 tr:
   STR_SAVE_UPGRADE_TITLE: "Kaydi yukselt"
-  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Bu kayit oyunun daha eski bir surumuyle olusturuldu (kayit bicimi {1}). Oynanabilmesi icin yukseltilmelidir. Bir yedek kaydedilecek."
-  STR_SAVE_UPGRADE_CONFIRM_BTN: "Yedek al ve yukselt"
+  STR_SAVE_UPGRADE_PROMPT: "{0}{NEWLINE}{NEWLINE}Bu kayit oyunun daha eski bir surumuyle olusturuldu (kayit bicimi {1}). Oynanabilmesi icin yukseltilmelidir. Yukseltme yeni, yukseltilmis bir kayit olusturur; orijinal kayit degistirilmeyecek."
+  STR_SAVE_UPGRADE_CONFIRM_BTN: "Yukseltilmis kayit olustur"
   STR_SAVE_UPGRADE_FUTURE_TITLE: "Yuklenemiyor"
   STR_SAVE_UPGRADE_FUTURE: "Bu kayit oyunun daha yeni bir surumuyle olusturuldu (kayit bicimi {0}). Bu surum tarafindan yuklenemez veya yukseltilemez. Yuklemek icin oyunu guncelleyin."
   STR_SAVE_UPGRADE_INPUT_TITLE: "Kaydi yukselt - Diger oyuncu"
@@ -24,7 +24,7 @@ tr:
   STR_SAVE_UPGRADE_ORIGINAL_UNTOUCHED: "Orijinal kaydiniz degistirilmedi."
   STR_SAVE_UPGRADE_SUMMARY_TITLE: "Kayit yukseltildi"
   STR_SAVE_UPGRADE_SUMMARY_INTRO: "Kayit basariyla yukseltildi."
-  STR_SAVE_UPGRADE_BACKUP_LABEL: "Yedek su adla kaydedildi> {0}"
+  STR_SAVE_UPGRADE_BACKUP_LABEL: "Yukseltilmis kayit su adla kaydedildi> {0}"
   STR_SAVE_UPGRADE_REJOIN: "Diger oyuncu '{0}' adiyla katilmali."
   STR_SAVE_UPGRADE_REJOIN_FRESH: "Diger oyuncunun dunyasi dahil edilmedi. O oyuncu yeniden katildiginda sifirdan baslayacak."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "Sectiginiz diger oyuncunun kayit dosyasi artik gerekli degil ve arsivlenebilir."
