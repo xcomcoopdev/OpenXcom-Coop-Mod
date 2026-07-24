@@ -195,6 +195,8 @@ private:
 	void btnEndTurnClick(Action *action);
 	/// Handler for clicking the Abort button.
 	void btnAbortClick(Action *action);
+	/// Executes a host-approved multiplayer abandon vote on this machine.
+	void abortMissionByVote();
 	/// Handler for clicking the stats.
 	void btnStatsClick(Action *action);
 	/// Handler for clicking the left hand item button.

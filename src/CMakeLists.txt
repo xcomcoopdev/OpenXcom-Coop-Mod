@@ -161,8 +161,19 @@ set(coopmod_src
   CoopMod/connectionUDP/rendezvous_server.cpp
   CoopMod/GiftNoticeState.cpp
   CoopMod/GiftSoldierMenu.cpp
+  CoopMod/VoteMenu.cpp
   CoopMod/TestServer.cpp
+  CoopMod/clipboard/Clipboard.cpp
 )
+
+# SDL 1.2 has no clipboard API, so compile one native backend per platform.
+if (WIN32)
+  list ( APPEND coopmod_src CoopMod/clipboard/ClipboardWin32.cpp )
+elseif (APPLE)
+  list ( APPEND coopmod_src CoopMod/clipboard/ClipboardMac.m )
+elseif (UNIX)
+  list ( APPEND coopmod_src CoopMod/clipboard/ClipboardX11.cpp )
+endif ()
 
 set ( engine_src
   Engine/Action.cpp

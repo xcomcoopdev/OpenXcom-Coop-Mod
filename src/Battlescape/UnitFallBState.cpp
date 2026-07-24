@@ -40,7 +40,6 @@ UnitFallBState::UnitFallBState(BattlescapeGame *parent) : BattleState(parent), _
 {
 
 	// coop
-	_parent->setPauseOn();
 
 }
 
@@ -51,7 +50,6 @@ UnitFallBState::~UnitFallBState()
 {
 
 	// coop
-	_parent->setPauseOff();
 
 }
 

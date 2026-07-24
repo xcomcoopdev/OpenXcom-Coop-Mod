@@ -39,6 +39,7 @@ private:
 	UString _value;
 	bool _blink, _modal, _allowOverflow;
 	bool _drawBackground;
+	bool _allowClipboardPaste, _replaceTextOnPaste;
 	Timer *_timer;
 	UCode _char;
 	size_t _caretPos;
@@ -50,6 +51,8 @@ private:
 	bool exceedsMaxWidth(UCode c) const;
 	/// Checks if character is valid to be inserted at caret position.
 	bool isValidChar(UCode c) const;
+	/// Inserts filtered UTF-8 clipboard text at the caret.
+	bool pasteFromClipboard();
 public:
 	/// Creates a new text edit with the specified size and position.
 	TextEdit(State *state, int width, int height, int x = 0, int y = 0);
@@ -109,6 +112,8 @@ public:
 	void setDrawBackground(bool drawBackground) { _drawBackground = drawBackground; }
 	/// Allow text to overflow the widget width instead of blocking input.
 	void setAllowOverflow(bool allow) { _allowOverflow = allow; }
+	/// Enables Ctrl+V / Command+V clipboard pasting.
+	void setAllowClipboardPaste(bool allow, bool replaceTextOnPaste = false);
 };
 
 }

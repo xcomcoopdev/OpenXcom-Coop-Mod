@@ -113,6 +113,8 @@ AddServerMenu::AddServerMenu() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_ipAddress->setColor(color);
 	_ipAddress->setBig();
 	_ipAddress->setBorderColor(color);
+	_ipAddress->setAllowOverflow(true);
+	_ipAddress->setAllowClipboardPaste(true, true);
 	_ipAddress->setText("IP-ADDRESS");
 	_ipAddress->setVisible(true);
 
@@ -120,6 +122,9 @@ AddServerMenu::AddServerMenu() : _craft(0), _selectType(NewBattleSelectType::MIS
 	_port->setColor(color);
 	_port->setBig();
 	_port->setBorderColor(color);
+	_port->setConstraint(TEC_NUMERIC_POSITIVE);
+	_port->setAllowOverflow(true);
+	_port->setAllowClipboardPaste(true, true);
 	_port->setText("PORT");
 	_port->setVisible(true);
 

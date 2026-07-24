@@ -38,7 +38,6 @@ InfoboxOKState::InfoboxOKState(const std::string &msg)
 {
 
 	// coop
-	_game->getCoopMod()->setPauseOn();
 
 	_screen = false;
 
@@ -96,7 +95,6 @@ InfoboxOKState::InfoboxOKState(const std::string &msg)
 InfoboxOKState::~InfoboxOKState()
 {
 	// coop
-	_game->getCoopMod()->setPauseOff();
 }
 
 /**

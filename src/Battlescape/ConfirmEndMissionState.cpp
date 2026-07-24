@@ -87,7 +87,6 @@ ConfirmEndMissionState::ConfirmEndMissionState(SavedBattleGame *battleGame, int 
 	centerAllSurfaces();
 
 	// coop
-	_game->getCoopMod()->setPauseOn();
 
 }
 
@@ -118,7 +117,6 @@ void ConfirmEndMissionState::btnCancelClick(Action *)
 	_game->popState();
 
 	// coop
-	_game->getCoopMod()->setPauseOff();
 
 }
 

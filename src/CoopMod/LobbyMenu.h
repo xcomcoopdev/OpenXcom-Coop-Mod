@@ -81,6 +81,10 @@ protected:
 	void closeLobby();
 	/// Host pressed BATTLE SETTINGS in the skirmish lobby (mode 0).
 	void openBattleSettings();
+	/// Is the client's local custom-battle craft ready to be opened safely?
+	bool canOpenEquipCraft() const;
+	/// Client pressed EQUIP CRAFT in the skirmish lobby (mode 0).
+	void openEquipCraft();
 	void btnChatClick(Action* action);
 	/// Handler for moving the mouse over a list item.
 	void lstSavesMouseOver(Action *action);

@@ -22,6 +22,7 @@
 #include "../Engine/Font.h"
 #include "../Engine/Timer.h"
 #include "../Engine/Options.h"
+#include "../CoopMod/clipboard/Clipboard.h"
 #include "../fallthrough.h"
 
 namespace OpenXcom
@@ -37,6 +38,7 @@ namespace OpenXcom
  */
 TextEdit::TextEdit(State *state, int width, int height, int x, int y) : InteractiveSurface(width, height, x, y),
 	_blink(true), _modal(true), _allowOverflow(false), _drawBackground(true),
+	_allowClipboardPaste(false), _replaceTextOnPaste(false),
 	_char('A'), _caretPos(0), _textEditConstraint(TEC_NONE),
 	_change(0), _enter(0), _state(state)
 {
@@ -222,6 +224,17 @@ void TextEdit::setVerticalAlign(TextVAlign valign)
 void TextEdit::setConstraint(TextEditConstraint constraint)
 {
 	_textEditConstraint = constraint;
+}
+
+/**
+ * Enables or disables clipboard paste handling for this field.
+ * @param allow True to accept Ctrl+V / Command+V.
+ * @param replaceTextOnPaste True to replace the whole current value.
+ */
+void TextEdit::setAllowClipboardPaste(bool allow, bool replaceTextOnPaste)
+{
+	_allowClipboardPaste = allow;
+	_replaceTextOnPaste = replaceTextOnPaste;
 }
 
 /**
@@ -425,6 +438,65 @@ bool TextEdit::isValidChar(UCode c) const
 }
 
 /**
+ * Pastes clipboard text using the same constraints as normal keyboard input.
+ * Newlines and tabs are ignored because TextEdit is a single-line control.
+ * @return True when at least one character was inserted.
+ */
+bool TextEdit::pasteFromClipboard()
+{
+	const std::string clipboardText = Clipboard::getText();
+	if (clipboardText.empty())
+	{
+		return false;
+	}
+
+	const UString oldValue = _value;
+	const size_t oldCaretPos = _caretPos;
+
+	if (_replaceTextOnPaste)
+	{
+		_value.clear();
+		_caretPos = 0;
+	}
+
+	const UString pasted = Unicode::convUtf8ToUtf32(clipboardText);
+	size_t inserted = 0;
+	for (UString::const_iterator i = pasted.begin(); i != pasted.end(); ++i)
+	{
+		const UCode c = *i;
+		if (c == '\r' || c == '\n' || c == '\t')
+		{
+			continue;
+		}
+
+		if (!isValidChar(c))
+		{
+			continue;
+		}
+
+		if (!_allowOverflow && exceedsMaxWidth(c))
+		{
+			break;
+		}
+
+		_value.insert(_caretPos, 1, c);
+		++_caretPos;
+		++inserted;
+	}
+
+	// Do not erase the old value when the clipboard contained no characters
+	// accepted by this field's constraint.
+	if (inserted == 0)
+	{
+		_value = oldValue;
+		_caretPos = oldCaretPos;
+		return false;
+	}
+
+	return true;
+}
+
+/**
  * Focuses the text edit when it's pressed on.
  * @param action Pointer to an action.
  * @param state State that the action handlers belong to.
@@ -508,7 +580,16 @@ void TextEdit::keyboardPress(Action *action, State *state)
 	}
 	else if (Options::keyboardMode == KEYBOARD_ON)
 	{
-		switch (action->getDetails()->key.keysym.sym)
+		const SDL_keysym &key = action->getDetails()->key.keysym;
+		const bool pastePressed = key.sym == SDLK_v &&
+			((key.mod & KMOD_CTRL) != 0 || (key.mod & KMOD_META) != 0);
+
+		if (_allowClipboardPaste && pastePressed)
+		{
+			// Handle the shortcut here so the letter 'v' is not inserted too.
+			pasteFromClipboard();
+		}
+		else switch (key.sym)
 		{
 		case SDLK_LEFT:
 			if (_caretPos > 0)

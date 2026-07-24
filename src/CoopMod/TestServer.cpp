@@ -148,7 +148,9 @@
 #include "CoopState.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
+#include "VoteMenu.h"
 #include "../Interface/DisableableComboBox.h"
+#include "../Interface/Text.h"
 
 namespace OpenXcom
 {
@@ -477,7 +479,139 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 {
 	connectionTCP* coop = _game->getCoopMod();
 
-	if (cmd == "shared_resync_stats")
+	// Vote regression hooks live in this shallow dispatcher because execute() is
+	// already at MSVC's nested-block limit. They drive the real connectionTCP /
+	// VoteSession code; no separate test implementation of the vote rules exists.
+	if (cmd == "vote_state")
+	{
+		const VoteSession& vote = coop->getActiveVoteForTest();
+		resp["active"] = vote.active;
+		resp["finished"] = vote.finished;
+		resp["passed"] = vote.passed;
+		resp["id"] = Json::UInt64(vote.id);
+		resp["action"] = vote.action;
+		resp["totalPlayers"] = vote.totalPlayers;
+		resp["requiredYes"] = vote.requiredYesVotes;
+		resp["starterSeat"] = vote.starterSeat;
+		resp["localSeat"] = connectionTCP::localSeat();
+		resp["votes"] = Json::arrayValue;
+		for (int value : vote.votes)
+		{
+			resp["votes"].append(value);
+		}
+		resp["playerNames"] = Json::arrayValue;
+		for (const std::string& name : vote.playerNames)
+		{
+			resp["playerNames"].append(name);
+		}
+
+		VoteMenu* menu = vote.id ? coop->getVoteMenuForTest(vote.id) : nullptr;
+		resp["menuOpen"] = menu != nullptr;
+		resp["menuPlayerNames"] = Json::arrayValue;
+		if (menu)
+		{
+			for (const std::string& name : menu->getPlayerNames())
+			{
+				resp["menuPlayerNames"].append(name);
+			}
+			resp["menuRows"] = menu->getPlayerRowsText();
+			resp["menuFinished"] = menu->isFinished();
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_request")
+	{
+		const bool accepted = coop->requestVote(
+			req.get("action", "test_vote").asString(),
+			req.get("title", "TEST VOTE").asString(),
+			req.get("question", "Run the test vote?").asString());
+		resp["accepted"] = accepted;
+		if (accepted)
+		{
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "vote request rejected";
+		}
+	}
+	else if (cmd == "vote_cast")
+	{
+		const std::uint64_t voteId = req.isMember("id")
+			? req["id"].asUInt64()
+			: coop->getActiveVoteForTest().id;
+		resp["accepted"] = coop->castVote(
+			voteId, req.get("yes", true).asBool());
+		// A rejected duplicate is an observable test result, not a harness error.
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_close")
+	{
+		const VoteSession& vote = coop->getActiveVoteForTest();
+		VoteMenu* menu = vote.id
+			? coop->getVoteMenuForTest(vote.id) : nullptr;
+		if (!menu)
+		{
+			resp["error"] = "no VoteMenu";
+		}
+		else if (!menu->isFinished())
+		{
+			resp["error"] = "vote is not finished";
+		}
+		else
+		{
+			menu->btnCloseClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "vote_session_probe")
+	{
+		// Pure rule probe using the production VoteSession class. This covers
+		// 3/4-player majority and duplicate-seat rejection even while the current
+		// transport harness still launches a host plus one client.
+		const int players = std::max(1, req.get("players", 3).asInt());
+		const int starter = req.get("starter", 0).asInt();
+		std::vector<std::string> names;
+		if (req.isMember("names") && req["names"].isArray())
+		{
+			for (const auto& value : req["names"])
+			{
+				names.push_back(value.asString());
+			}
+		}
+
+		VoteSession probe;
+		probe.start(1, "probe", "PROBE", "Probe?", players, names, starter);
+		resp["accepted"] = Json::arrayValue;
+		if (req.isMember("casts") && req["casts"].isArray())
+		{
+			for (const auto& cast : req["casts"])
+			{
+				resp["accepted"].append(probe.castVote(
+					cast.get("seat", -1).asInt(),
+					cast.get("yes", false).asBool()));
+			}
+		}
+
+		const VoteDecision decision = probe.decision();
+		resp["decision"] = decision == VoteDecision::Passed ? "passed"
+			: (decision == VoteDecision::Failed ? "failed" : "pending");
+		resp["requiredYes"] = probe.requiredYesVotes;
+		resp["yesVotes"] = probe.yesVotes();
+		resp["noVotes"] = probe.noVotes();
+		resp["votes"] = Json::arrayValue;
+		for (int value : probe.votes)
+		{
+			resp["votes"].append(value);
+		}
+		resp["playerNames"] = Json::arrayValue;
+		for (const std::string& name : probe.playerNames)
+		{
+			resp["playerNames"].append(name);
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "shared_resync_stats")
 	{
 		// PRD-J10: auto-resync bookkeeping (replica: mismatches seen + repairs
 		// asked for; host: repairs served).

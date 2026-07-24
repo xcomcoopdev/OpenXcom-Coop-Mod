@@ -1266,6 +1266,38 @@
     <ClCompile Include="CoopMod\SharedEcon.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\AddServerMenu.cpp" />
+    <ClCompile Include="CoopMod\DirectConnect.cpp" />
+    <ClCompile Include="CoopMod\FilterMenu.cpp" />
+    <ClCompile Include="CoopMod\GiftNoticeState.cpp" />
+    <ClCompile Include="CoopMod\GiftSoldierMenu.cpp" />
+    <ClCompile Include="CoopMod\HostMenu.cpp" />
+    <ClCompile Include="CoopMod\LobbyMenu.cpp" />
+    <ClCompile Include="CoopMod\ModCheckMenu.cpp" />
+    <ClCompile Include="CoopMod\PasswordCheckMenu.cpp" />
+    <ClCompile Include="CoopMod\ServerList.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\connectionUDP.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\connection_lan_discovery.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\connection_rendezvous_glue.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\connection_udp_glue.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\rendezvous_client.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\rendezvous_config.cpp" />
+    <ClCompile Include="CoopMod\connectionUDP\rendezvous_server.cpp" />
+    <ClCompile Include="..\deps\src\jsoncpp\json_reader.cpp" />
+    <ClCompile Include="..\deps\src\jsoncpp\json_value.cpp" />
+    <ClCompile Include="..\deps\src\jsoncpp\json_writer.cpp" />
+    <ClCompile Include="CoopMod\VoteMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\clipboard\ClipboardWin32.cpp">
+      <Filter>CoopMod\clipboard</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\clipboard\ClipboardX11.cpp">
+      <Filter>CoopMod\clipboard</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\clipboard\Clipboard.cpp">
+      <Filter>CoopMod\clipboard</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -2788,6 +2820,28 @@
     <ClInclude Include="CoopMod\SharedEcon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
+    <ClInclude Include="CoopMod\AddServerMenu.h" />
+    <ClInclude Include="CoopMod\DirectConnect.h" />
+    <ClInclude Include="CoopMod\FilterMenu.h" />
+    <ClInclude Include="CoopMod\GiftNoticeState.h" />
+    <ClInclude Include="CoopMod\GiftSoldierMenu.h" />
+    <ClInclude Include="CoopMod\HostMenu.h" />
+    <ClInclude Include="CoopMod\LobbyMenu.h" />
+    <ClInclude Include="CoopMod\ModCheckMenu.h" />
+    <ClInclude Include="CoopMod\PasswordCheckMenu.h" />
+    <ClInclude Include="CoopMod\ServerList.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connectionUDP.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_lan_discovery.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_rendezvous_glue.h" />
+    <ClInclude Include="CoopMod\connectionUDP\connection_udp_glue.h" />
+    <ClInclude Include="CoopMod\connectionUDP\rendezvous_client.h" />
+    <ClInclude Include="CoopMod\connectionUDP\rendezvous_config.h" />
+    <ClInclude Include="CoopMod\VoteMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\clipboard\Clipboard.h">
+      <Filter>CoopMod\clipboard</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Geoscape">
@@ -2859,12 +2913,18 @@
     <Filter Include="CoopMod">
       <UniqueIdentifier>{b0c71ac9-bbfe-407f-ad22-69039e71e471}</UniqueIdentifier>
     </Filter>
+    <Filter Include="CoopMod\clipboard">
+      <UniqueIdentifier>{72e954b9-16a8-46de-896d-1f537b9f2f20}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="OpenXcom.rc" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\res\windows\openxcom.ico" />
+    <None Include="CoopMod\clipboard\ClipboardMac.m">
+      <Filter>CoopMod\clipboard</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="..\libs\rapidyaml\ryml.natvis">

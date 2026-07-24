@@ -63,6 +63,7 @@
 #include "ModCheckMenu.h"
 #include "GiftNoticeState.h"
 #include "SharedEcon.h"
+#include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
 #include "../Savegame/BaseFacility.h"
@@ -1884,7 +1885,7 @@ void connectionTCP::updateCoopTask()
 						 (_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
 				if (consumeNow)
@@ -2893,6 +2894,364 @@ long long connectionTCP::getDateTimeCoop() const
 }
 
 // TCP
+VoteMenu* connectionTCP::findVoteMenu(std::uint64_t voteId) const
+{
+	if (!_game)
+	{
+		return nullptr;
+	}
+
+	for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+	{
+		VoteMenu* menu = dynamic_cast<VoteMenu*>(*it);
+		if (menu && menu->getVoteId() == voteId)
+		{
+			return menu;
+		}
+	}
+	return nullptr;
+}
+
+void connectionTCP::openVoteMenu()
+{
+	if (!_activeVote.id || findVoteMenu(_activeVote.id))
+	{
+		return;
+	}
+
+	_game->pushState(new VoteMenu(
+		_activeVote.id,
+		_activeVote.title,
+		_activeVote.question,
+		_activeVote.totalPlayers,
+		_activeVote.requiredYesVotes,
+		_activeVote.playerNames));
+}
+
+std::vector<std::string> connectionTCP::buildVotePlayerNames(int totalPlayers) const
+{
+	// The host freezes the roster at vote start and sends the same ordered list
+	// to every client. This is more reliable than asking each VoteMenu to read
+	// its current SavedGame: battle/save streaming can temporarily replace that
+	// object, and older saves may not yet carry the locked co-op roster.
+	std::vector<std::string> names(
+		static_cast<std::size_t>(std::max(1, totalPlayers)));
+
+	if (_game && _game->getSavedGame())
+	{
+		const auto& roster = _game->getSavedGame()->getCoopPlayers();
+		const std::size_t count = std::min(names.size(), roster.size());
+		for (std::size_t i = 0; i < count; ++i)
+		{
+			names[i] = roster[i];
+		}
+	}
+
+	// The lobby connection knows the two live names even before a new campaign
+	// has written SavedGame::_coopPlayers. Keep these fallbacks so a vote opened
+	// from the lobby also shows identities instead of PLAYER 1 / PLAYER 2.
+	if (_game && !names.empty() && names[0].empty())
+	{
+		names[0] = _game->getCoopMod()->getHostName();
+	}
+	if (_game && names.size() > 1 && names[1].empty())
+	{
+		names[1] = _game->getCoopMod()->getCurrentClientName();
+	}
+
+	// A generic label remains only as a last-resort diagnostic for a missing
+	// roster entry. Normal hosted/resumed campaigns always take the real name
+	// from the locked roster above.
+	for (std::size_t i = 0; i < names.size(); ++i)
+	{
+		if (names[i].empty())
+		{
+			names[i] = "PLAYER " + std::to_string(i + 1);
+		}
+	}
+
+	return names;
+}
+
+void connectionTCP::updateVoteMenu()
+{
+	VoteMenu* menu = findVoteMenu(_activeVote.id);
+	if (!menu)
+	{
+		return;
+	}
+
+	menu->setVotes(_activeVote.votes);
+	if (_activeVote.finished)
+	{
+		menu->finishVote(_activeVote.passed);
+	}
+}
+
+bool connectionTCP::requestVote(
+	const std::string& action,
+	const std::string& title,
+	const std::string& question)
+{
+	if (!getCoopStatic() || action.empty() || question.empty())
+	{
+		return false;
+	}
+
+	// Repeated abort-key presses must not create overlapping votes. If the vote
+	// is already known locally, make sure its menu is visible instead.
+	if (_activeVote.active)
+	{
+		openVoteMenu();
+		updateVoteMenu();
+		return true;
+	}
+	if (_activeVote.finished)
+	{
+		if (findVoteMenu(_activeVote.id))
+		{
+			updateVoteMenu();
+			return true;
+		}
+		_activeVote.clear();
+	}
+	if (_voteRequestPending)
+	{
+		return true;
+	}
+
+	const int starter = localSeat();
+	if (getServerOwner())
+	{
+		beginVoteAsHost(action, title, question, starter);
+	}
+	else
+	{
+		_voteRequestPending = true;
+
+		Json::Value root;
+		root["state"] = "vote_request";
+		root["action"] = action;
+		root["title"] = title;
+		root["question"] = question;
+		root["from"] = starter;
+		sendTCPPacketData(root.toStyledString());
+	}
+	return true;
+}
+
+bool connectionTCP::castVote(std::uint64_t voteId, bool yes)
+{
+	if (!_activeVote.active || _activeVote.finished || _activeVote.id != voteId)
+	{
+		return false;
+	}
+
+	const int seat = localSeat();
+	if (seat < 0 || seat >= _activeVote.totalPlayers
+		|| _activeVote.votes[static_cast<std::size_t>(seat)] != VoteSession::NOT_VOTED)
+	{
+		return false;
+	}
+
+	if (getServerOwner())
+	{
+		acceptVote(seat, yes);
+	}
+	else
+	{
+		Json::Value root;
+		root["state"] = "vote_cast";
+		root["vote_id"] = Json::UInt64(voteId);
+		root["from"] = seat;
+		root["yes"] = yes;
+		sendTCPPacketData(root.toStyledString());
+	}
+	return true;
+}
+
+void connectionTCP::beginVoteAsHost(
+	const std::string& action,
+	const std::string& title,
+	const std::string& question,
+	int starterSeat)
+{
+	if (!getServerOwner() || _activeVote.active)
+	{
+		return;
+	}
+
+	const int players = std::max(2, std::min(4, seatCount()));
+	if (action.empty() || question.empty() || starterSeat < 0 || starterSeat >= players)
+	{
+		return;
+	}
+
+	// The low bits make two votes started in the same second distinct.
+	const std::uint64_t now = static_cast<std::uint64_t>(getDateTimeCoop());
+	const std::uint64_t voteId = (now << 12) ^ (++_voteSequence & 0xFFFu);
+
+	// Only the host creates VoteSession. The seat names are snapshotted here and
+	// then travel with vote_start, while all later packets only need the vote id
+	// and seat-indexed choices.
+	_activeVote.start(
+		voteId, action, title, question, players,
+		buildVotePlayerNames(players), starterSeat);
+	_voteRequestPending = false;
+
+	openVoteMenu();
+	updateVoteMenu();
+	broadcastVoteStart();
+	broadcastVoteUpdate();
+	evaluateVote();
+}
+
+void connectionTCP::acceptVote(int seat, bool yes)
+{
+	if (!getServerOwner() || !_activeVote.castVote(seat, yes))
+	{
+		return;
+	}
+
+	updateVoteMenu();
+	broadcastVoteUpdate();
+	evaluateVote();
+}
+
+void connectionTCP::broadcastVoteStart()
+{
+	if (!getServerOwner() || !_activeVote.active)
+	{
+		return;
+	}
+
+	Json::Value root;
+	root["state"] = "vote_start";
+	root["vote_id"] = Json::UInt64(_activeVote.id);
+	root["action"] = _activeVote.action;
+	root["title"] = _activeVote.title;
+	root["question"] = _activeVote.question;
+	root["total_players"] = _activeVote.totalPlayers;
+	root["required_yes"] = _activeVote.requiredYesVotes;
+	root["starter_seat"] = _activeVote.starterSeat;
+	root["player_names"] = Json::arrayValue;
+	for (const std::string& name : _activeVote.playerNames)
+	{
+		root["player_names"].append(name);
+	}
+	sendTCPPacketData(root.toStyledString());
+}
+
+void connectionTCP::broadcastVoteUpdate()
+{
+	if (!getServerOwner() || (!_activeVote.active && !_activeVote.finished))
+	{
+		return;
+	}
+
+	Json::Value root;
+	root["state"] = "vote_update";
+	root["vote_id"] = Json::UInt64(_activeVote.id);
+	root["yes_votes"] = _activeVote.yesVotes();
+	root["no_votes"] = _activeVote.noVotes();
+	root["votes"] = Json::arrayValue;
+	for (int vote : _activeVote.votes)
+	{
+		root["votes"].append(vote);
+	}
+	sendTCPPacketData(root.toStyledString());
+}
+
+void connectionTCP::readVoteSnapshot(const Json::Value& obj)
+{
+	if (!obj.isMember("votes") || !obj["votes"].isArray())
+	{
+		return;
+	}
+
+	std::vector<int> snapshot(
+		static_cast<std::size_t>(_activeVote.totalPlayers),
+		VoteSession::NOT_VOTED);
+	const Json::Value& arr = obj["votes"];
+	const int count = std::min(
+		_activeVote.totalPlayers,
+		static_cast<int>(arr.size()));
+	for (int i = 0; i < count; ++i)
+	{
+		const int value = arr[static_cast<Json::ArrayIndex>(i)].asInt();
+		if (value == VoteSession::VOTED_YES || value == VoteSession::VOTED_NO)
+		{
+			snapshot[static_cast<std::size_t>(i)] = value;
+		}
+	}
+	_activeVote.votes.swap(snapshot);
+}
+
+void connectionTCP::evaluateVote()
+{
+	if (!getServerOwner() || !_activeVote.active)
+	{
+		return;
+	}
+
+	const VoteDecision result = _activeVote.decision();
+	if (result == VoteDecision::Passed)
+	{
+		finishVote(true);
+	}
+	else if (result == VoteDecision::Failed)
+	{
+		finishVote(false);
+	}
+}
+
+void connectionTCP::finishVote(bool passed)
+{
+	if (!_activeVote.active || _activeVote.finished)
+	{
+		return;
+	}
+
+	const std::string action = _activeVote.action;
+	_activeVote.finish(passed);
+	updateVoteMenu();
+
+	Json::Value root;
+	root["state"] = "vote_result";
+	root["vote_id"] = Json::UInt64(_activeVote.id);
+	root["passed"] = passed;
+	root["action"] = action;
+	root["votes"] = Json::arrayValue;
+	for (int vote : _activeVote.votes)
+	{
+		root["votes"].append(vote);
+	}
+	sendTCPPacketData(root.toStyledString());
+
+	if (passed)
+	{
+		executeVoteAction(action);
+	}
+}
+
+void connectionTCP::executeVoteAction(const std::string& action)
+{
+	if (action != "abandon_mission" || !_game)
+	{
+		return;
+	}
+
+	for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+	{
+		BattlescapeState* battlescape = dynamic_cast<BattlescapeState*>(*it);
+		if (battlescape)
+		{
+			battlescape->abortMissionByVote();
+			return;
+		}
+	}
+}
+
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
@@ -2901,6 +3260,107 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// consumes the message, it never falls through to the if-chain below.
 	if (SharedEcon::onMessage(_game, stateString, obj))
 		return;
+
+	// Multiplayer voting is host-authoritative:
+	//   vote_request: a client asks the host to create a vote; requesting it is YES.
+	//   vote_start:   the host assigns the id, majority rule and ordered names.
+	//   vote_cast:    a client submits one choice for its seat.
+	//   vote_update:  the host broadcasts the authoritative seat-by-seat snapshot.
+	//   vote_result:  the host announces pass/fail; only the host executes the action.
+	// Every packet is tied to a vote id, and VoteSession::castVote rejects a
+	// second choice from the same seat. This keeps 2-4 player results deterministic.
+	if (stateString == "vote_request")
+	{
+		if (getServerOwner())
+		{
+			if (_activeVote.active)
+			{
+				broadcastVoteStart();
+				broadcastVoteUpdate();
+			}
+			else
+			{
+				beginVoteAsHost(
+					obj.get("action", "").asString(),
+					obj.get("title", "VOTE").asString(),
+					obj.get("question", "").asString(),
+					obj.get("from", -1).asInt());
+			}
+		}
+		return;
+	}
+
+	if (stateString == "vote_start")
+	{
+		if (!getServerOwner())
+		{
+			const std::uint64_t voteId = obj.get("vote_id", Json::UInt64(0)).asUInt64();
+			const int totalPlayers = std::max(2, std::min(4,
+				obj.get("total_players", seatCount()).asInt()));
+			const int starterSeat = obj.get("starter_seat", -1).asInt();
+			if (voteId != 0 && (!_activeVote.active || _activeVote.id != voteId))
+			{
+				std::vector<std::string> playerNames;
+				if (obj.isMember("player_names") && obj["player_names"].isArray())
+				{
+					for (const auto& value : obj["player_names"])
+					{
+						playerNames.push_back(value.asString());
+					}
+				}
+
+				// The client stores the host's exact seat/name snapshot. Vote arrays and
+				// names therefore use the same indexes on every machine.
+				_activeVote.start(
+					voteId,
+					obj.get("action", "").asString(),
+					obj.get("title", "VOTE").asString(),
+					obj.get("question", "").asString(),
+					totalPlayers,
+					playerNames,
+					starterSeat);
+			}
+			_voteRequestPending = false;
+			openVoteMenu();
+			updateVoteMenu();
+		}
+		return;
+	}
+
+	if (stateString == "vote_cast")
+	{
+		if (getServerOwner()
+			&& obj.get("vote_id", Json::UInt64(0)).asUInt64() == _activeVote.id)
+		{
+			acceptVote(obj.get("from", -1).asInt(), obj.get("yes", false).asBool());
+		}
+		return;
+	}
+
+	if (stateString == "vote_update")
+	{
+		if (!getServerOwner()
+			&& obj.get("vote_id", Json::UInt64(0)).asUInt64() == _activeVote.id)
+		{
+			readVoteSnapshot(obj);
+			updateVoteMenu();
+		}
+		return;
+	}
+
+	if (stateString == "vote_result")
+	{
+		if (!getServerOwner()
+			&& obj.get("vote_id", Json::UInt64(0)).asUInt64() == _activeVote.id)
+		{
+			readVoteSnapshot(obj);
+			const bool passed = obj.get("passed", false).asBool();
+			_activeVote.finish(passed);
+			_voteRequestPending = false;
+			updateVoteMenu();
+		}
+		return;
+	}
 
 	if (stateString == "kick_player")
 	{
@@ -9365,16 +9825,6 @@ void connectionTCP::sendBaseFile()
 
 }
 
-void connectionTCP::setPauseOn()
-{
-
-}
-
-void connectionTCP::setPauseOff()
-{
-
-}
-
 std::string connectionTCP::getPing()
 {
 	return current_ping;
@@ -10596,6 +11046,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::LobbyFileStatus = -1;
 		connectionTCP::_coopGamemode = 0;
 		connectionTCP::show_inactive_player_inventory = false;
+		_activeVote.clear();
+		_voteRequestPending = false;
 
 	    OpenXcom::disconnectRendezvousUdp();
 
