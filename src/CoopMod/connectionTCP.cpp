@@ -3623,6 +3623,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		int mission_id = obj["mission_id"].asInt();
 
+		// issue #78: in SHARED, materialize the site immediately if the snapshot
+		// has not delivered it yet (spawn + detection in one host tick, with the
+		// host's snapshot sender frozen behind its own dialog). Same create path
+		// as the target_positions receiver; think() then matches by id and pops.
+		if (isSharedReplica() && _game->getSavedGame() && obj.isMember("rules"))
+		{
+			SavedGame* sg = _game->getSavedGame();
+			MissionSite* site = nullptr;
+			for (auto* s : *sg->getMissionSites())
+				if (s->getId() == mission_id) { site = s; break; }
+			if (!site)
+			{
+				const RuleAlienMission* srule = _game->getMod()->getAlienMission(obj["rules"].asString(), false);
+				AlienDeployment* dep = _game->getMod()->getDeployment(obj["deployment"].asString(), false);
+				if (srule && dep)
+				{
+					site = new MissionSite(srule, dep, nullptr);
+					site->setId(mission_id);
+					site->setLongitude(obj["lon"].asDouble());
+					site->setLatitude(obj["lat"].asDouble());
+					site->setAlienRace(obj["race"].asString());
+					site->setCity(obj["city"].asString());
+					site->setSecondsRemaining((size_t)obj.get("time", 100000000).asUInt64());
+					site->setDetected(true);
+					sg->getMissionSites()->push_back(site);
+					// Keep the main-thread despawn prune from eating it before the
+					// next snapshot refreshes the authoritative set.
+					std::lock_guard<std::mutex> lk(sharedLiveSiteIdsMutex);
+					sharedLiveSiteIds.insert(mission_id);
+				}
+			}
+		}
+
 		show_coop_mission_popup = mission_id;
 
 	}
@@ -6458,28 +6491,46 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 
 			// mission sites: create-or-update the matching real site (by real id).
-			for (Json::ArrayIndex i = 0; i < obj["missions"].size(); i++)
 			{
-				const Json::Value& jm = obj["missions"][i];
-				int siteId = jm["id"].asInt();
-				MissionSite* site = nullptr;
-				for (auto* s : *sg->getMissionSites())
-					if (s->getId() == siteId) { site = s; break; }
-				if (!site)
+				std::unordered_set<int> liveSiteIds;
+				for (Json::ArrayIndex i = 0; i < obj["missions"].size(); i++)
 				{
-					const RuleAlienMission* srule = _game->getMod()->getAlienMission(jm["rules"].asString(), false);
-					AlienDeployment* dep = _game->getMod()->getDeployment(jm["deployment"].asString(), false);
-					if (!srule || !dep) continue;
-					site = new MissionSite(srule, dep, nullptr);
-					site->setId(siteId);
-					sg->getMissionSites()->push_back(site);
+					const Json::Value& jm = obj["missions"][i];
+					int siteId = jm["id"].asInt();
+					liveSiteIds.insert(siteId);
+					MissionSite* site = nullptr;
+					for (auto* s : *sg->getMissionSites())
+						if (s->getId() == siteId) { site = s; break; }
+					if (!site)
+					{
+						const RuleAlienMission* srule = _game->getMod()->getAlienMission(jm["rules"].asString(), false);
+						AlienDeployment* dep = _game->getMod()->getDeployment(jm["deployment"].asString(), false);
+						if (!srule || !dep) continue;
+						site = new MissionSite(srule, dep, nullptr);
+						site->setId(siteId);
+						sg->getMissionSites()->push_back(site);
+					}
+					site->setLongitude(jm["lon"].asDouble());
+					site->setLatitude(jm["lat"].asDouble());
+					site->setAlienRace(jm["race"].asString());
+					site->setCity(jm["city"].asString());
+					// issue #78: mirror the host's detection state and fuse instead of
+					// forcing detected + pinning an immortal sentinel. The replica sim
+					// is frozen, so both are display-only - but they must match what
+					// the host actually shows.
+					site->setDetected(jm.isMember("detected") ? jm["detected"].asBool() : true);
+					site->setSecondsRemaining(jm.isMember("time")
+						? (size_t)jm["time"].asUInt64() : (size_t)100000000);
 				}
-				site->setLongitude(jm["lon"].asDouble());
-				site->setLatitude(jm["lat"].asDouble());
-				site->setAlienRace(jm["race"].asString());
-				site->setCity(jm["city"].asString());
-				site->setDetected(true);
-				site->setSecondsRemaining(100000000);
+				// issue #78: publish the authoritative id set; sites absent from it are
+				// despawned on the main thread (GeoscapeState::think) - the site analog
+				// of the UFO despawn above, deferred so no open popup can be holding a
+				// dangling MissionSite*.
+				{
+					std::lock_guard<std::mutex> lk(sharedLiveSiteIdsMutex);
+					sharedLiveSiteIds = std::move(liveSiteIds);
+					sharedLiveSiteIdsValid = true;
+				}
 			}
 		}
 
@@ -10121,6 +10172,14 @@ void connectionTCP::setClientSoldiers()
 void connectionTCP::deleteAllCoopBases()
 {
 
+	// issue #78: the authoritative SHARED site set dies with the session - a
+	// stale one must never prune the next session's world.
+	{
+		std::lock_guard<std::mutex> lk(sharedLiveSiteIdsMutex);
+		sharedLiveSiteIds.clear();
+		sharedLiveSiteIdsValid = false;
+	}
+
 	if (_game->getSavedGame() && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
@@ -10140,6 +10199,35 @@ void connectionTCP::deleteAllCoopBases()
 				{
 					++it;
 				}
+			}
+
+			// issue #78 audit: a dropped session also strands the SEPARATE-mode
+			// _coop mirror objects; without this they linger as immortal ghosts
+			// (pinned secondsRemaining, no sweep) until the player quits to the
+			// menu. Order matters: UFOs before their alien missions.
+			auto& sites = *sg->getMissionSites();
+			for (auto it = sites.begin(); it != sites.end();)
+			{
+				if (*it && (*it)->_coop) { delete *it; it = sites.erase(it); }
+				else ++it;
+			}
+			auto& ufos = *sg->getUfos();
+			for (auto it = ufos.begin(); it != ufos.end();)
+			{
+				if (*it && (*it)->_coop) { delete *it; it = ufos.erase(it); }
+				else ++it;
+			}
+			auto& abases = *sg->getAlienBases();
+			for (auto it = abases.begin(); it != abases.end();)
+			{
+				if (*it && (*it)->_coop) { delete *it; it = abases.erase(it); }
+				else ++it;
+			}
+			auto& amissions = sg->getAlienMissions();
+			for (auto it = amissions.begin(); it != amissions.end();)
+			{
+				if (*it && (*it)->_coop) { delete *it; it = amissions.erase(it); }
+				else ++it;
 			}
 		}
 

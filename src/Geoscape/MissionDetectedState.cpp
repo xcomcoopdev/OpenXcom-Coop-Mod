@@ -107,6 +107,18 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 
 		root["mission_id"] = mission->getId();
 
+		// issue #78: self-sufficient payload. If the replica has not yet seen this
+		// site via the position snapshot (spawned + detected in the same host tick,
+		// with the host's snapshot sender now frozen behind this very dialog), the
+		// receiver can materialize it from here instead of stalling the popup.
+		root["rules"] = mission->getRules()->getType();
+		root["deployment"] = mission->getDeployment()->getType();
+		root["race"] = mission->getAlienRace();
+		root["city"] = mission->getCity();
+		root["lon"] = mission->getLongitude();
+		root["lat"] = mission->getLatitude();
+		root["time"] = (Json::UInt64)mission->getSecondsRemaining();
+
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}

@@ -1424,27 +1424,91 @@ void GeoscapeState::think()
 		if (_game->getSavedGame())
 		{
 
+			// issue #78: despawn replica mission sites absent from the host's
+			// authoritative snapshot set. Deferred to here (geoscape on top, no
+			// popup can hold a pointer to the dying site); ~Target() returns any
+			// craft followers to base, exactly like the host's own expiry sweep.
+			if (_game->getCoopMod()->isSharedReplica())
+			{
+				auto* coop = _game->getCoopMod();
+				std::unordered_set<int> live;
+				bool valid = false;
+				{
+					std::lock_guard<std::mutex> lk(coop->sharedLiveSiteIdsMutex);
+					live = coop->sharedLiveSiteIds;
+					valid = coop->sharedLiveSiteIdsValid;
+				}
+				if (valid)
+				{
+					auto* sites = _game->getSavedGame()->getMissionSites();
+					for (auto it = sites->begin(); it != sites->end(); )
+					{
+						if (live.find((*it)->getId()) == live.end())
+						{
+							delete *it;
+							it = sites->erase(it);
+						}
+						else
+						{
+							++it;
+						}
+					}
+				}
+
+				// issue #78 backstop: prune follower-less waypoints the shared
+				// craft-order appliers missed (the vanilla sweep lives in
+				// timeAdvance, which is frozen on a replica).
+				auto* ways = _game->getSavedGame()->getWaypoints();
+				for (auto it = ways->begin(); it != ways->end(); )
+				{
+					if ((*it)->getFollowers()->empty())
+					{
+						delete *it;
+						it = ways->erase(it);
+					}
+					else
+					{
+						++it;
+					}
+				}
+			}
+
 			// mission popup
 			if (_game->getCoopMod()->show_coop_mission_popup != -1)
 			{
-
+				// issue #78: match the EXACT site the peer detected (SHARED shares
+				// real ids), instead of popping the first detected site.
+				int wantedId = _game->getCoopMod()->show_coop_mission_popup;
+				MissionSite* match = nullptr;
 				for (auto &site : *_game->getSavedGame()->getMissionSites())
 				{
-
-					if (site->getDetected() == true)
-					{
-
-						popup(new MissionDetectedState(site, this, true));
-			
-						_game->getCoopMod()->show_coop_mission_popup = -1;
-
-						break;
-
-					}
-
+					if (site->getId() == wantedId) { match = site; break; }
 				}
-
-
+				if (match)
+				{
+					// The popup IS the host's detection event - mirror it on this
+					// site now (the snapshot may not have flipped detected yet;
+					// the host's think() is frozen behind its own dialog).
+					match->setDetected(true);
+					popup(new MissionDetectedState(match, this, true));
+					_game->getCoopMod()->show_coop_mission_popup = -1;
+				}
+				else if (!_game->getCoopMod()->isSharedCampaign())
+				{
+					// SEPARATE: the sender's real id does not exist in this world;
+					// legacy behavior - pop the first detected site.
+					for (auto &site : *_game->getSavedGame()->getMissionSites())
+					{
+						if (site->getDetected() == true)
+						{
+							popup(new MissionDetectedState(site, this, true));
+							_game->getCoopMod()->show_coop_mission_popup = -1;
+							break;
+						}
+					}
+				}
+				// SHARED with no id match yet: keep the flag armed until the site
+				// arrives (snapshot, or the mission_popup payload creates it).
 			}
 
 			//  ufo popup
@@ -1838,6 +1902,10 @@ void GeoscapeState::think()
 					jm["city"] = site->getCity();
 					jm["lon"] = site->getLongitude();
 					jm["lat"] = site->getLatitude();
+					// issue #78: the replica mirrors the host's detection state and
+					// fuse instead of forcing detected + an immortal sentinel.
+					jm["detected"] = site->getDetected();
+					jm["time"] = (Json::UInt64)site->getSecondsRemaining();
 					jsites.append(jm);
 				}
 				jroot["missions"] = jsites;
@@ -5425,6 +5493,30 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 		else
 			craft->returnToBase();
 		return;
+	}
+
+	// issue #78 audit: the destination can despawn (site expiry sweep,
+	// despawnEvenIfTargeted) while the commanding seat reads the dialog -
+	// re-validate it like the craft above before generating a battle from it.
+	{
+		Target* dest = craft->getDestination();
+		bool destAlive = false;
+		if (dest)
+		{
+			for (auto* ms : *_game->getSavedGame()->getMissionSites())
+				if (ms == dest) { destAlive = true; break; }
+			if (!destAlive)
+				for (auto* u : *_game->getSavedGame()->getUfos())
+					if (u == dest && u->getStatus() != Ufo::DESTROYED) { destAlive = true; break; }
+			if (!destAlive)
+				for (auto* ab : *_game->getSavedGame()->getAlienBases())
+					if (ab == dest) { destAlive = true; break; }
+		}
+		if (!destAlive)
+		{
+			craft->returnToBase();
+			return;
+		}
 	}
 
 	// Yes: generate the battle exactly as the host's own dialog would. Drive the

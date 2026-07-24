@@ -560,6 +560,15 @@ class connectionTCP
 
 	int show_coop_mission_popup = -1;
 
+	// issue #78: authoritative mission-site id set from the last SHARED geoscape
+	// snapshot. Written on the packet-handler thread; the actual despawn of
+	// replica sites absent from this set happens on the main thread
+	// (GeoscapeState::think, which only runs with the geoscape on top, so no
+	// popup can be holding a dangling MissionSite*) - hence the mutex.
+	std::mutex sharedLiveSiteIdsMutex;
+	std::unordered_set<int> sharedLiveSiteIds;
+	bool sharedLiveSiteIdsValid = false;
+
 	std::string show_coop_ufo_popup_type = "";
 	std::string show_coop_ufo_popup_race = "";
 	std::string show_coop_ufo_popup_altitude = "";
