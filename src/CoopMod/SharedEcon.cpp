@@ -1712,6 +1712,28 @@ bool craftOrderValidate(Game* game, const Json::Value& payload, Base* base, int 
 	return true;
 }
 
+// issue #78: prune waypoints nobody follows any more. The vanilla sweep lives
+// in GeoscapeState::timeAdvance, which never runs on a SHARED replica - so the
+// craft-order appliers call this on BOTH machines right after changing a
+// destination, keeping the marker set converged the moment the order lands.
+static void sweepOrphanWaypoints(SavedGame* save)
+{
+	if (!save) return;
+	auto* ways = save->getWaypoints();
+	for (auto it = ways->begin(); it != ways->end(); )
+	{
+		if ((*it)->getFollowers()->empty())
+		{
+			delete *it;
+			it = ways->erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+}
+
 void craftOrderApply(Game* game, Json::Value& payload, Base* base, int seat)
 {
 	SavedGame* save = game->getSavedGame();
@@ -1751,6 +1773,7 @@ void craftOrderApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (craft->getRules()->canAutoPatrol())
 		craft->setIsAutoPatrolling(false); // vanilla: a new order cancels auto-patrol
 	craft->setStatus("STR_OUT");
+	sweepOrphanWaypoints(save); // issue #78: the retargeted-away waypoint dies NOW
 }
 
 // craft_return / craft_patrol payload: { craftId, craftType } (+ patrol:
@@ -1772,6 +1795,7 @@ void craftReturnApply(Game* game, Json::Value& payload, Base* base, int seat)
 	craft->returnToBase();
 	if (craft->getRules()->canAutoPatrol())
 		craft->setIsAutoPatrolling(false); // vanilla GeoscapeCraftState::btnBaseClick
+	sweepOrphanWaypoints(game->getSavedGame()); // issue #78
 }
 
 void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
@@ -1787,6 +1811,7 @@ void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
 		craft->setLongitudeAuto(craft->getLongitude());
 		craft->setIsAutoPatrolling(true);
 	}
+	sweepOrphanWaypoints(game->getSavedGame()); // issue #78
 }
 
 // ---- PRD-J09: shared-world squad assembly -----------------------------------
@@ -3499,6 +3524,9 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	msg["chkSoldiers"] = Json::Value::Int64(soldiers);
 	msg["chkTransfers"] = Json::Value::Int64(transfers);
 	msg["chkProduction"] = Json::Value::Int64(productions);
+	// issue #78: an orphaned replica mission site (a despawn the snapshot missed)
+	// must trip the auto-repair too. Count only - the restream is the repair.
+	msg["chkSites"] = (int)save->getMissionSites()->size();
 }
 
 bool requestResync(Game* game, const std::string& why, bool force)
@@ -3543,16 +3571,19 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	int64_t hostSoldiers = msg.get("chkSoldiers", -1).asInt64();
 	int64_t hostTransfers = msg.get("chkTransfers", -1).asInt64();
 	int64_t hostProductions = msg.get("chkProduction", -1).asInt64();
+	int hostSites = msg.get("chkSites", -1).asInt(); // issue #78; -1 = old host
 	int64_t myFunds = save->getFunds();
 	int myBases = (int)save->getBases()->size();
 	int myResearch = (int)save->getDiscoveredResearch().size();
+	int mySites = (int)save->getMissionSites()->size();
 	int64_t myItems, mySoldiers, myTransfers, myProductions;
 	worldAggregates(save, myItems, mySoldiers, myTransfers, myProductions);
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
 		&& (hostItems < 0 || hostItems == myItems)
 		&& (hostSoldiers < 0 || hostSoldiers == mySoldiers)
 		&& (hostTransfers < 0 || hostTransfers == myTransfers)
-		&& (hostProductions < 0 || hostProductions == myProductions))
+		&& (hostProductions < 0 || hostProductions == myProductions)
+		&& (hostSites < 0 || hostSites == mySites))
 	{
 		// Back in agreement: whatever drifted is gone. Re-arm the repair so a later,
 		// unrelated drift gets its own auto-resync instead of the give-up popup.
@@ -3591,7 +3622,8 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", items host=" << hostItems << " replica=" << myItems
 			<< ", soldiers host=" << hostSoldiers << " replica=" << mySoldiers
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
-			<< ", production host=" << hostProductions << " replica=" << myProductions;
+			<< ", production host=" << hostProductions << " replica=" << myProductions
+			<< ", sites host=" << hostSites << " replica=" << mySites;
 	}
 
 	const int64_t now = gameMinutes(save);
