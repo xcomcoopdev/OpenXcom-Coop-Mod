@@ -1758,6 +1758,25 @@ void GeoscapeState::think()
 
 			}
 
+			// _coop_mission_id is a random roll with no allocator, so two of our
+			// own sites can collide - which would collapse them into one entry in
+			// the peer's mirror keep-set (one site silently dropped/mis-updated).
+			// De-dupe before advertising; the peer self-heals via its sweep (old
+			// id vanishes from the keep-set, new id is created next packet). Also
+			// cures collisions baked into saves from the old 1..100000 range.
+			{
+				std::set<int> seenCoopIds;
+				for (auto* mission : *_game->getSavedGame()->getMissionSites())
+				{
+					if (mission->getCoop()) continue;
+					while (mission->_coop_mission_id == 0
+						|| !seenCoopIds.insert(mission->_coop_mission_id).second)
+					{
+						mission->rerollCoopMissionId();
+					}
+				}
+			}
+
 			int mission_index = 0;
 
 			// mission sites
