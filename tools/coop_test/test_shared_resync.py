@@ -148,6 +148,14 @@ def main():
         client.wait_for("client adopted the forced re-stream",
                         lambda: (not _resync(client)["pending"]) or None,
                         timeout=90, interval=0.5)
+        # `pending` clears at world ADOPTION (LoadGameState calls
+        # notifyWorldAdopted before it even pushes the resume hold), but the
+        # RELEASE rides the resume_ack -> campaign_begun round-trip after it.
+        # Wait for it like the auto-resync phase does, or a slow runner asserts
+        # mid-handshake (seen on hosted CI: resumeAck=False, dialog=68).
+        client.wait_for("client released after the forced resync",
+                        lambda: (_coop(client)["coopDialog"] != COOP_DLG_CLIENT_RESUME_HOLD) or None,
+                        timeout=60, interval=0.5)
         _assert_released(client, "after force_resync")
         assert _funds(host) == _funds(client), "forced resync left the worlds unequal"
         assert client.cmd({"cmd": "ping"}).get("pong"), "client unresponsive after force_resync"
